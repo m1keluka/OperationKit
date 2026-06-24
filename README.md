@@ -2,7 +2,7 @@
   <img src="assets/wordmark.svg" alt="OperationKit" width="420">
 </p>
 
-<h3 align="center">Mission control for a self-hosted agent fleet.</h3>
+<h3 align="center">Own your operating system.</h3>
 
 <p align="center">
   <strong>🚧 Work in progress — not released yet.</strong><br>
@@ -24,9 +24,9 @@
 
 ## What it is
 
-**OperationKit is self-hosted mission control for a fleet of autonomous coding agents.** Stand it up on your own VPS and run many governed Claude Code sessions — organized into multi-tenant workspaces, with role-based access, personas, and an adversarial review gate — entirely on infrastructure you own. Your code and credentials never leave your server.
+**OperationKit is an operating system you own, powered by agents.** Run it on infrastructure you control. It works with **any AI model** — today's and the ones still coming — and your agents and knowledge come with you wherever you go. Your data and credentials never leave your server.
 
-That's the one-liner so you know whether to care. If running a governed agent fleet **in-house** — not on a vendor cloud — is your kind of problem, you're in the right place.
+That's the one-liner so you know whether to care. If owning your operating system — agents, data, and all — instead of renting it from a vendor's cloud is your kind of problem, you're in the right place.
 
 ## Status
 

@@ -1,14 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="430" height="96" viewBox="0 0 430 96" role="img" aria-label="OperationKit">
-  <title>OperationKit wordmark (dark background)</title>
-  <!-- Logomark: beacon in a module -->
-  <g transform="translate(12,12)">
-    <rect x="6" y="6" width="60" height="60" rx="16" fill="none" stroke="#22D3EE" stroke-width="3.5"/>
-    <circle cx="36" cy="36" r="22" fill="none" stroke="#22D3EE" stroke-width="2.5" opacity="0.35"/>
-    <circle cx="36" cy="36" r="13.5" fill="none" stroke="#22D3EE" stroke-width="3" opacity="0.7"/>
-    <circle cx="36" cy="36" r="6" fill="#22D3EE"/>
-  </g>
-  <!-- Wordmark: "Operation" Fleet White + "Kit" Beacon Cyan -->
-  <text x="104" y="62" font-family="'Space Grotesk','Inter',system-ui,-apple-system,sans-serif" font-size="46" font-weight="600" letter-spacing="-1">
-    <tspan fill="#E6EDF3">Operation</tspan><tspan fill="#22D3EE">Kit</tspan>
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="104" viewBox="0 0 440 104" role="img" aria-label="OperationKit">
+  <title>OperationKit</title>
+  <!-- Brand card: carbon background, matches the site's dark surface (theme-safe on GitHub light/dark) -->
+  <rect width="440" height="104" rx="20" fill="#0e1116"/>
+  <!-- Wordmark: orange caret prompt + lowercase wordmark, mirroring the site nav `›operationkit` -->
+  <text x="40" y="67" font-family="'Geist','Inter Tight','Inter',system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="46" font-weight="600" letter-spacing="-1.5">
+    <tspan fill="#ff5a1f">&#8250;</tspan><tspan fill="#fafaf7" dx="8">operationkit</tspan>
   </text>
 </svg>
