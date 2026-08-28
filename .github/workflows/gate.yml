@@ -1,0 +1,221 @@
+name: gate
+
+# THE single required status check for command-center-infra.
+#
+# Why this file exists: before it, the ONLY required context on main was
+# `harness/test-agent` — a commit status the Command Center harness posts about
+# ITSELF, derived purely from its own AI-review verdict (state-poller.ts
+# postHarnessStatus). The genuine signal — the ~2,143-test Vitest suite in
+# .github/workflows/test.yml — was advisory and could not block a merge. This
+# workflow inverts that: the real suite (plus typecheck and build) is what gates,
+# and one aggregate job named exactly `gate` is the only context main requires.
+#
+# CONTRACT (do not weaken):
+#   * Every upstream job must SUCCEED. `skipped` and `cancelled` are FAILURES,
+#     not passes. A job that did not run produced no evidence about this diff.
+#   * Therefore NO path filters and NO `if:` conditions on the upstream jobs.
+#     Everything runs on every PR. The suite is ~50s; determinism is worth it.
+#   * The gate job derives its job list from `toJSON(needs)` at runtime and
+#     separately asserts that every job declared in this file is present in its
+#     `needs:`. A job added here but forgotten in `needs:` fails the gate loudly
+#     instead of silently going ungated.
+#
+# Adding a job: add it below, add it to `gate.needs`. That is all — the assert
+# step and the result loop are both derived, so there is no third place to drift.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # `npm ci` (not `npm install`): app/package-lock.json is now committed, so
+      # CI resolves the same tree production does. `--include=dev` is explicit
+      # because typescript/vitest are devDependencies and a leaked
+      # NODE_ENV=production would silently omit them.
+      - run: npm ci --include=dev
+      - name: tsc (server)
+        run: npx tsc --noEmit -p server/tsconfig.json
+      - name: tsc (client)
+        run: npx tsc -b --noEmit
+        working-directory: app/client
+
+  unit:
+    name: unit (${{ matrix.workspace }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      # Run both suites even if one fails, so a failure in one is not masked.
+      fail-fast: false
+      matrix:
+        workspace: [server, client]
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --include=dev
+      - name: Run Vitest (${{ matrix.workspace }})
+        run: npm run test --workspace=${{ matrix.workspace }}
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --include=dev
+      # Was entirely unguarded: a PR could break the production Vite/tsc build
+      # and nothing in CI would notice until self-deploy served a broken bundle.
+      - name: Build client + server
+        run: npm run build
+
+  test-integrity:
+    name: test-integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No new test skips, no deleted test files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Every command's exit code is load-bearing: no error suppression and no
+        # tolerated-failure idioms anywhere in this step. If git itself fails
+        # (e.g. an unreachable base sha) the step fails and the gate goes red.
+        # Fail closed, never fail quiet.
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, subprocess, sys, re
+
+          base, head = os.environ['BASE_SHA'], os.environ['HEAD_SHA']
+          TESTS = ['*.test.ts', '*.test.tsx', '*.spec.ts', '*.spec.tsx']
+
+          def git(*args):
+              # check=True: a git failure fails the job rather than reading as "clean".
+              return subprocess.run(['git', *args], check=True,
+                                    capture_output=True, text=True).stdout
+
+          fail = 0
+
+          added = [l for l in git('diff', base, head, '--', *TESTS).splitlines()
+                   if l.startswith('+') and not l.startswith('+++')]
+          NARROWING = re.compile(r'\.skip\(|\.only\(|\bxit\(|\bxdescribe\(')
+          hits = [l for l in added if NARROWING.search(l)]
+          if hits:
+              for l in hits:
+                  print(f'  {l}')
+              print('::error title=New test skip/only introduced::'
+                    'A gated suite must not be narrowed to obtain a green.')
+              fail = 1
+
+          deleted = git('diff', '--diff-filter=D', '--name-only',
+                        base, head, '--', *TESTS).split()
+          if deleted:
+              print('::error title=Test file deleted::' + ', '.join(deleted))
+              fail = 1
+
+          if not fail:
+              print('OK: no new skips, no deleted test files')
+          sys.exit(fail)
+          PY
+
+  # ===========================================================================
+  # THE ONLY REQUIRED CHECK. Context name is exactly `gate` (the job id).
+  # ===========================================================================
+  gate:
+    if: always()
+    needs: [typecheck, unit, build, test-integrity]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # Guards the failure mode that makes an aggregate gate worthless: a job
+      # that exists in this workflow but was never added to `gate.needs`, and so
+      # can fail while the gate reports green.
+      - name: Assert every job in this workflow is in gate.needs
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys, re
+          src = open('.github/workflows/gate.yml').read()
+          # Job ids are the only keys indented exactly 2 spaces under `jobs:`.
+          jobs_block = src.split('\njobs:\n', 1)[1]
+          job_ids = re.findall(r'^  ([A-Za-z0-9_-]+):$', jobs_block, re.M)
+          needs = re.search(r'^    needs: \[([^\]]+)\]$', jobs_block, re.M)
+          if not needs:
+              sys.exit('FATAL: could not parse gate.needs from gate.yml')
+          declared = [n.strip() for n in needs.group(1).split(',')]
+          expected = [j for j in job_ids if j != 'gate']
+          missing = [j for j in expected if j not in declared]
+          extra   = [n for n in declared if n not in expected]
+          print('jobs in file :', expected)
+          print('gate.needs   :', declared)
+          if missing:
+              sys.exit(f'FATAL: job(s) not gated (missing from needs): {missing}')
+          if extra:
+              sys.exit(f'FATAL: needs names a job that does not exist: {extra}')
+          print('OK: gate.needs covers every job in the workflow')
+          PY
+
+      - name: Assert every upstream job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$RESULTS"
+          python3 - <<'PY'
+          import json, os, sys
+          results = json.loads(os.environ['RESULTS'])
+          if not results:
+              sys.exit('FATAL: needs context is empty - gate has no upstream to assert')
+          fail = 0
+          for job in sorted(results):
+              r = results[job]['result']
+              if r == 'success':
+                  print(f'ok        {job}={r}')
+              elif r == 'skipped':
+                  # A skipped job produced NO evidence about this diff. Treating
+                  # it as a pass is exactly the decorative-check failure mode
+                  # this gate exists to remove.
+                  print(f'NO SIGNAL {job}={r} (skipped -> FAILURE)')
+                  fail = 1
+              elif r == 'cancelled':
+                  print(f'NO SIGNAL {job}={r} (cancelled -> FAILURE)')
+                  fail = 1
+              else:
+                  print(f'FAILED    {job}={r}')
+                  fail = 1
+          sys.exit(fail)
+          PY

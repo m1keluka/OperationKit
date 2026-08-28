@@ -1,0 +1,8 @@
+{
+  "id": "tier1-empty-stub",
+  "tier": 1,
+  "description": "Empty/stub implementation: discountedPrice() is a TODO stub returning undefined, so it does not satisfy its stated acceptance criterion (apply a percentage discount). The behavioral check fails; the gate MUST reject.",
+  "brokenKind": "empty-stub",
+  "expectedVerdict": "reject",
+  "commands": ["node check.mjs"]
+}

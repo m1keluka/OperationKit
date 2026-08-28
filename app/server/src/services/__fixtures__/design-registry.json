@@ -1,0 +1,104 @@
+{
+  "$comment": "Design-system registry for CC dialed-UI enforcement (Wave A foundation). One entry per frontend repo, keyed on objective.project. Consumed by design-context.ts (loadDesignRegistry/isUiObjective) and scripts/ui-conformance.sh. Token paths are repo-relative: resolve as /home/operator/projects/<project>/<tokensFile>. Schema per research 03-agent-mechanism.md §1.1.",
+  "command-center-infra": {
+    "tokensFile": "app/client/tailwind.config.ts",
+    "primitives": "app/client/src/components/design/primitives.tsx",
+    "tokenPrefix": "surface-/fg-/line-/accent-/status-/agent-",
+    "accent": "#E07A5B",
+    "surfaceBase": "#100F0E",
+    "bannedSignals": [
+      "inline style={{ with hardcoded color literal",
+      "hardcoded #hex outside token files",
+      "bg-gray-* / bg-indigo-* / text-gray-* raw Tailwind palette",
+      "indigo #6366f1 (pre-v1 slop tell)",
+      "pure black/white"
+    ],
+    "rules": [
+      "Colors come from Tailwind token classes (surface-{0-4}, fg-{0-3}, line, accent, status-*, agent-*) — never raw hex.",
+      "Reuse primitives from app/client/src/components/design/primitives.tsx (StatusDot, AgentMonogram, AIReviewDots, …)."
+    ]
+  },
+  "example-project-platform": {
+    "tokensFile": "src/design-system/tokens.css",
+    "tailwind": "tailwind.config.ts",
+    "primitivePrefix": "Ws",
+    "tokenPrefix": "--ws-",
+    "accent": "#A8FF3F",
+    "surfaceBase": "#0A0A0B",
+    "bannedSignals": [
+      "inline style={{ with hardcoded color literal",
+      "hardcoded #hex outside src/design-system/tokens.css",
+      "bg-gray-* / text-gray-* raw Tailwind palette",
+      "pure black/white"
+    ],
+    "rules": [
+      "Use --ws-* CSS variables / ws: Tailwind namespace only; read src/design-system/tokens.css before styling.",
+      "Neon #A8FF3F is indicator-only (≤5% of any screen).",
+      "Radius max 4px — no rounded-full.",
+      "Reuse Ws* primitive components; do not hand-roll buttons/inputs/cards."
+    ]
+  },
+  "example-platform": {
+    "tokensFile": "src/app/globals.css",
+    "system": "shadcn/ui oklch",
+    "tokenPrefix": "shadcn css vars (--background/--foreground/--primary/…)",
+    "note": "No bespoke design system — highest slop-risk repo. Use shadcn CSS variables / Tailwind semantic classes, never raw hex. New visual identity is a Designer-agent job, not inline conformance.",
+    "bannedSignals": [
+      "inline style={{ with hardcoded color literal",
+      "hardcoded #hex outside src/app/globals.css",
+      "bg-gray-* / bg-indigo-* / text-gray-* raw Tailwind palette",
+      "pure black/white"
+    ],
+    "rules": [
+      "Use shadcn semantic classes (bg-background, text-foreground, bg-primary, text-muted-foreground, …) — never raw hex or raw palette grays.",
+      "Reuse @/components/ui shadcn primitives; do not hand-roll equivalents."
+    ]
+  },
+  "example3-platform": {
+    "tokensFile": "app/globals.css",
+    "tailwind": "tailwind.config.ts",
+    "tokenPrefix": "--z-/--brand",
+    "accent": "#044340",
+    "bannedSignals": [
+      "inline style={{ with hardcoded color literal",
+      "hardcoded #hex outside app/globals.css",
+      "bg-gray-* / text-gray-* raw Tailwind palette (use the --z-* neutral ramp)",
+      "pure black/white"
+    ],
+    "rules": [
+      "Light-first; dark variants under [data-theme=\"dark\"]. Colors come from the --z-* neutral ramp and --brand* forest-teal/lime brand ramp.",
+      "Do not invent new tokens — extend app/globals.css if a token is genuinely missing."
+    ]
+  },
+  "example-dashboard": {
+    "tokensFile": "src/app/globals.css",
+    "tailwind": "tailwind.config.ts",
+    "system": "shadcn/ui oklch",
+    "tokenPrefix": "shadcn css vars (--background/--foreground/--primary/…)",
+    "note": "shadcn-based. Use semantic shadcn classes, never raw hex.",
+    "bannedSignals": [
+      "inline style={{ with hardcoded color literal",
+      "hardcoded #hex outside src/app/globals.css",
+      "bg-gray-* / bg-indigo-* / text-gray-* raw Tailwind palette",
+      "pure black/white"
+    ],
+    "rules": [
+      "Use shadcn semantic classes and @/components/ui primitives; never raw hex or raw palette grays."
+    ]
+  },
+  "example-website": {
+    "tokensFile": "src/app/globals.css",
+    "system": "shadcn/ui oklch",
+    "tokenPrefix": "shadcn css vars (--background/--foreground/--primary/…)",
+    "note": "shadcn-based marketing site. Use semantic shadcn classes, never raw hex.",
+    "bannedSignals": [
+      "inline style={{ with hardcoded color literal",
+      "hardcoded #hex outside src/app/globals.css",
+      "bg-gray-* / bg-indigo-* / text-gray-* raw Tailwind palette",
+      "pure black/white"
+    ],
+    "rules": [
+      "Use shadcn semantic classes and @/components/ui primitives; never raw hex or raw palette grays."
+    ]
+  }
+}

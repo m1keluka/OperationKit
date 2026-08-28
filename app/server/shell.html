@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CC Terminal</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body { background: #0f1117; display: flex; flex-direction: column; height: 100dvh; }
+  #toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px; background: #161822; border-bottom: 1px solid #2a2d3e;
+    flex-shrink: 0;
+  }
+  #toolbar .title { color: #e4e4e7; font: 13px/1 system-ui; }
+  #toolbar .status { color: #4ade80; font: 11px/1 system-ui; }
+  #toolbar .btn {
+    background: #2a2d3e; color: #e4e4e7; border: none; border-radius: 6px;
+    padding: 6px 10px; font: 12px/1 system-ui; cursor: pointer; touch-action: manipulation;
+  }
+  #terminal-container { flex: 1; min-height: 0; overflow: hidden; }
+  .xterm { height: 100% !important; }
+  #input-bar {
+    display: flex; gap: 6px; padding: 8px; background: #161822;
+    border-top: 1px solid #2a2d3e; flex-shrink: 0;
+  }
+  #input-bar input {
+    flex: 1; background: #0f1117; color: #e4e4e7; border: 1px solid #3a3d4e;
+    border-radius: 8px; padding: 12px; font: 15px/1 monospace; outline: none;
+  }
+  #input-bar input:focus { border-color: #E07A5B; }
+  #input-bar button {
+    background: #E07A5B; color: white; border: none; border-radius: 8px;
+    padding: 12px 18px; font: 15px/1 system-ui; font-weight: 600;
+    cursor: pointer; touch-action: manipulation; flex-shrink: 0;
+  }
+  #input-bar button:active { background: #B85A3E; }
+  #quick-keys {
+    display: flex; gap: 4px; padding: 6px 8px; background: #161822;
+    flex-shrink: 0; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  #quick-keys button {
+    background: #2a2d3e; color: #e4e4e7; border: 1px solid #3a3d4e;
+    border-radius: 6px; padding: 8px 12px; font: 13px/1 monospace;
+    cursor: pointer; touch-action: manipulation; white-space: nowrap; flex-shrink: 0;
+  }
+  #quick-keys button:active { background: #E07A5B; }
+  #quick-keys .enter-btn { background: #E07A5B; border-color: #E07A5B; font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <span class="title">CC Terminal</span>
+  <span class="status" id="status">connecting...</span>
+  <button class="btn" onclick="location.href='/'">Board</button>
+</div>
+<div id="terminal-container"></div>
+<div id="input-bar">
+  <input id="cmd-input" type="text" placeholder="Type command..." autocapitalize="none" autocorrect="off" spellcheck="false">
+  <button onclick="submitCmd()">Send</button>
+</div>
+<div id="quick-keys">
+  <button class="enter-btn" onclick="sendKey('\r')">Enter</button>
+  <button onclick="sendKey('\x03')">Ctrl+C</button>
+  <button onclick="sendKey('\x1b')">ESC</button>
+  <button onclick="sendKey('\t')">TAB</button>
+  <button onclick="sendKey('\x1b[A')">UP</button>
+  <button onclick="sendKey('\x1b[B')">DOWN</button>
+  <button onclick="sendKey(' ')">Space</button>
+  <button onclick="sendKey('y\r')">y+Enter</button>
+  <button onclick="sendKey('tmux ls\r')">tmux ls</button>
+  <button onclick="promptAttach()">attach</button>
+  <button onclick="sendKey('claude\r')">claude</button>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script>
+const term = new window.Terminal({
+  cursorBlink: true, fontSize: 13,
+  fontFamily: "'Menlo', 'Courier New', monospace",
+  theme: { background:'#0f1117', foreground:'#e4e4e7', cursor:'#E07A5B',
+           selectionBackground:'#E07A5B40' },
+  allowProposedApi: true,
+  scrollback: 5000,
+});
+const fitAddon = new window.FitAddon.FitAddon();
+term.loadAddon(fitAddon);
+term.open(document.getElementById('terminal-container'));
+fitAddon.fit();
+
+let ws;
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws/shell');
+  ws.onopen = () => {
+    document.getElementById('status').textContent = 'connected';
+    document.getElementById('status').style.color = '#4ade80';
+    ws.send(JSON.stringify({type:'resize', cols: term.cols, rows: term.rows}));
+  };
+  ws.onmessage = (e) => { term.write(e.data); };
+  ws.onclose = () => {
+    document.getElementById('status').textContent = 'disconnected';
+    document.getElementById('status').style.color = '#f87171';
+    setTimeout(connect, 2000);
+  };
+}
+
+term.onData(data => { if(ws && ws.readyState===1) ws.send(data); });
+
+// Resize handling
+function doResize() {
+  fitAddon.fit();
+  if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'resize', cols:term.cols, rows:term.rows}));
+}
+window.addEventListener('resize', doResize);
+window.visualViewport?.addEventListener('resize', doResize);
+
+// Text input bar - type here, hit Send
+const cmdInput = document.getElementById('cmd-input');
+function submitCmd() {
+  const val = cmdInput.value;
+  if(val && ws && ws.readyState===1) {
+    ws.send(val + '\r');
+    cmdInput.value = '';
+  }
+  cmdInput.focus();
+}
+cmdInput.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter') { e.preventDefault(); submitCmd(); }
+});
+
+function sendKey(k) { if(ws && ws.readyState===1) ws.send(k); }
+function promptAttach() {
+  const name = prompt('Session name:');
+  if(name) sendKey('tmux attach -t ' + name + '\r');
+}
+
+connect();
+
+// Auto-attach to session if ?attach= param is set
+const params = new URLSearchParams(location.search);
+const attachTo = params.get('attach');
+if (attachTo) {
+  // Wait for connection, then auto-attach
+  const waitAndAttach = setInterval(() => {
+    if (ws && ws.readyState === 1) {
+      clearInterval(waitAndAttach);
+      setTimeout(() => ws.send('tmux attach -t ' + attachTo + '\r'), 500);
+    }
+  }, 200);
+}
+
+cmdInput.focus();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "id": "layer4-state-delta-noop",
+  "tier": 1,
+  "description": "Layer-4 canary: createUser() returns HTTP 200 but writes NOTHING to the store. It compiles (node --check) and the author's response-only unit test passes, so layers 1-3 are green. The layer-4 state-delta assertion fails because no row was persisted. The gate MUST reject via layer 4 — and would MISS it on layers 1-3 alone.",
+  "brokenKind": "state-delta-noop",
+  "expectedVerdict": "reject",
+  "commands": ["node --check handler.mjs", "node unit.test.mjs"],
+  "state_delta_command": "node state-delta-check.mjs"
+}

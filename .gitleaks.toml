@@ -1,0 +1,165 @@
+# gitleaks configuration for OperationKit (command-center-infra)
+# Runs in CI (.github/workflows/secret-scan.yml) and locally via the
+# .githooks/pre-commit hook. Extends the upstream default ruleset and adds
+# rules for the specific credential shapes this project handles.
+#
+# Run locally:   gitleaks detect --config .gitleaks.toml --redact
+# Scan staged:   gitleaks protect --staged --config .gitleaks.toml --redact
+title = "OperationKit gitleaks config"
+
+# Inherit gitleaks' built-in ruleset (AWS, GCP, Stripe, generic high-entropy, …)
+[extend]
+useDefault = true
+
+# ── Project-specific rules ───────────────────────────────────────────────────
+[[rules]]
+id = "anthropic-api-key"
+description = "Anthropic API key"
+regex = '''sk-ant-[a-zA-Z0-9_-]{20,}'''
+keywords = ["sk-ant-"]
+
+[[rules]]
+id = "openai-project-key"
+description = "OpenAI project/secret key"
+regex = '''sk-proj-[a-zA-Z0-9_-]{20,}'''
+keywords = ["sk-proj-"]
+
+[[rules]]
+id = "google-api-key"
+description = "Google / Gemini API key"
+regex = '''AIza[0-9A-Za-z_-]{35}'''
+keywords = ["AIza"]
+
+[[rules]]
+id = "supabase-service-role-jwt"
+description = "Supabase service_role / signed JWT"
+regex = '''eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'''
+keywords = ["eyJ"]
+
+[[rules]]
+id = "doppler-token"
+description = "Doppler service / personal / CLI token"
+regex = '''dp\.(st|pt|ct|sa)\.[a-zA-Z0-9]{40,}'''
+keywords = ["dp.st.", "dp.pt.", "dp.ct.", "dp.sa."]
+
+[[rules]]
+id = "telegram-bot-token"
+description = "Telegram bot token"
+regex = '''[0-9]{8,10}:[A-Za-z0-9_-]{35}'''
+keywords = [":AA"]
+
+[[rules]]
+id = "resend-api-key"
+description = "Resend API key"
+regex = '''re_[A-Za-z0-9]{20,}'''
+keywords = ["re_"]
+
+[[rules]]
+id = "github-pat"
+description = "GitHub personal access token"
+regex = '''gh[pousr]_[A-Za-z0-9]{36,}'''
+keywords = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"]
+
+[[rules]]
+id = "private-key-block"
+description = "PEM private key block"
+regex = '''-----BEGIN[ A-Z]*PRIVATE KEY-----'''
+keywords = ["PRIVATE KEY"]
+
+[[rules]]
+id = "generic-password-assignment"
+description = "Hardcoded password/secret assignment"
+regex = '''(?i)(password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*['"][^'"\s${}]{12,}['"]'''
+keywords = ["password", "secret", "api_key", "apikey", "token"]
+
+# ── Allowlist 1: placeholders, examples, env-indirection, safe paths ──────────
+# Global (no path/rule scope → applies to every rule, every file).
+[[allowlists]]
+description = "Global placeholders + env-indirection + known non-secret paths"
+regexTarget = "match"
+regexes = [
+  '''change[_-]?me''',
+  '''sk-ant-\.\.\.''',
+  '''sk-proj-\.\.\.''',
+  '''AIza\.\.\.''',
+  '''os\.environ/''',
+  '''process\.env\.''',
+  '''\$\{[A-Z_]+''',
+  '''your-[a-z-]+-here''',
+  '''example\.com''',
+  '''(?i)placeholder''',
+  '''(?i)redacted''',
+]
+paths = [
+  '''\.env\.example$''',
+  '''(^|/)package-lock\.json$''',
+  '''\.gitleaks\.toml$''',
+  '''(^|/)SECURITY\.md$''',
+  # Design docs that reference the *names* of secret env vars, never values.
+  '''(^|/)docs/testing/test-credentials\.md$''',
+  '''(^|/)docs/testing/test-credential-registry\.md$''',
+]
+
+# ── Allowlist 2: fabricated unit-test fixtures ────────────────────────────────
+# NOTE: gitleaks 8.x does NOT apply `targetRules` to rules inherited via
+# `[extend] useDefault` (verified against v8.28), so instead of scoping by rule
+# we scope by the exact DUMMY VALUE SHAPES that appear only in test fixtures.
+# `regexTarget = "match"` matches these against the whole match string. This is
+# deliberately narrow: it suppresses ONLY these fabricated literals, so a real
+# provider key pasted into a test file is still flagged by the provider rules
+# above (verified: an injected `sk-ant-…` in a *.test.ts trips the scan).
+[[allowlists]]
+description = "Fabricated test fixtures (not live credentials)"
+regexTarget = "match"
+regexes = [
+  '''test-secret-[a-z-]+''',
+  '''test-internal-secret-[a-z0-9]+''',
+  '''test-resend-key''',
+  '''org-supabase-token-xyz''',
+  '''NonProd_E2E_pw_[0-9]+''',
+  '''phc_valid_[a-z]+''',                 # PostHog test project-key fixture
+  '''ghp_valid_secret_[0-9]+''',          # fake GitHub PAT fixture
+  '''ghp_cascadetest[0-9a-z]+''',         # fake GitHub PAT fixture
+  '''dp\.st\.prd\.SCOPED_EXAMPLE_RO_[0-9]+''', # fake scoped Doppler token fixture
+  # Historical fixtures / placeholders (present in earlier commits only; kept so
+  # a full-history scan stays clean for contributors). All verified non-secret.
+  '''phx_topsecretkey[A-Z]+''',           # fake PostHog key fixture (historical)
+  '''phx_keepme[0-9]+''',                 # fake PostHog key fixture (historical)
+  '''test-anthropic-key''',               # fixture
+  '''st2-e2e-secret''',                   # e2e fixture
+  '''ANTHROPIC_API_KEY=\.\.\.''',         # usage/help-text placeholder
+  '''passwords, JWT/encryption''',        # prose false-positive (docs)
+  # AccountSettings.google.test.tsx — test tokens with LEAKED- prefix (deliberate)
+  '''ya29\.LEAKED-ACCESS-TOKEN''',        # fake Google OAuth access_token
+  '''1//LEAKED-REFRESH-TOKEN''',          # fake Google OAuth refresh_token
+  '''GOCSPX-LEAKED-CLIENT-SECRET''',      # fake Google OAuth client_secret
+  '''eyJLEAKEDIDTOKEN''',                 # fake Google id_token
+]
+
+# ── Allowlist 3: built/minified assets (false positives, not source) ──────────
+# Built bundles are gitignored now but exist in earlier history; their minified
+# identifiers trip the entropy detector. Never a real secret.
+[[allowlists]]
+description = "Built/minified frontend assets"
+paths = [
+  '''(^|/)app/client/dist/''',
+  '''\.min\.js$''',
+]
+
+# ── Allowlist 4: test files & fixtures (false positives, not source) ──────────
+# Vitest specs and fixture data carry synthetic env-var NAMES and fabricated
+# tokens (e.g. ghp_valid_secret_1234, dp.st.prd.SCOPED_*). They are never live
+# credentials. This path-scopes them for this repo's CUSTOM rules and for
+# forward-compat. NOTE: gitleaks' extended-default heuristic rules
+# (generic-api-key / generic-password-assignment, pulled in by
+# `[extend].useDefault`) are NOT suppressed by global path allowlists in
+# gitleaks 8.x — those matches (all in *.test.ts, verified non-secret) are
+# instead covered string-by-string by the regex allowlists above. Keep both.
+[[allowlists]]
+description = "Test files and fixtures (synthetic, non-secret)"
+paths = [
+  '''.*\.test\.ts$''',
+  '''.*\.spec\.ts$''',
+  '''(^|/)__fixtures__/''',
+  '''(^|/)fixtures/''',
+]

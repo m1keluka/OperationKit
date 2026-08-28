@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "paths": {
+      "@command-center/shared": ["../shared/types.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

@@ -1,0 +1,81 @@
+/* BlockNote dark theme mapped onto OperationKit Mission Control tokens.
+   Every value reads from a CSS custom property in index.css — zero hardcoded hex. */
+.docs-editor .bn-container[data-color-scheme='dark'],
+.docs-editor [data-color-scheme='dark'] .bn-container,
+.docs-editor .bn-mantine[data-mantine-color-scheme='dark'] {
+  --bn-colors-editor-background: var(--surface-0);
+  --bn-colors-editor-text: var(--fg-0);
+  --bn-colors-menu-background: var(--surface-1);
+  --bn-colors-menu-text: var(--fg-0);
+  --bn-colors-tooltip-background: var(--surface-2);
+  --bn-colors-tooltip-text: var(--fg-0);
+  --bn-colors-hovered-background: var(--surface-2);
+  --bn-colors-hovered-text: var(--fg-0);
+  --bn-colors-selected-background: var(--accent);
+  --bn-colors-selected-text: var(--accent-fg);
+  --bn-colors-disabled-background: var(--surface-2);
+  --bn-colors-disabled-text: var(--fg-3);
+  --bn-colors-shadow: rgba(0, 0, 0, 0.55);
+  --bn-colors-border: var(--line);
+  --bn-colors-side-menu: var(--fg-3);
+  --bn-colors-highlights-gray-background: var(--surface-3);
+}
+
+.docs-editor .bn-container,
+.docs-editor .bn-mantine {
+  background: var(--surface-0);
+  color: var(--fg-0);
+}
+
+.docs-editor .bn-editor {
+  padding: 24px 32px 80px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  line-height: 1.62;
+  /* §02 comfortable reading measure */
+  max-width: 78ch;
+  margin: 0 auto;
+}
+
+/* §02 prose hierarchy — headings render in Geist (display), body in Inter */
+.docs-editor h1,
+.docs-editor h2,
+.docs-editor h3,
+.docs-editor h4 {
+  font-family: 'Geist', 'Inter Tight', system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+.docs-editor h1 { color: var(--fg-0); font-weight: 600; }
+.docs-editor h2 { color: var(--fg-0); font-weight: 600; }
+.docs-editor h3 { color: var(--fg-0); font-weight: 600; }
+.docs-editor h4 { color: var(--fg-1); font-weight: 600; }
+.docs-editor p  { color: var(--fg-1); }
+
+/* §05 mono is signal — only render mono for actual code/inline-code blocks */
+.docs-editor code,
+.docs-editor pre {
+  font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+}
+.docs-editor code {
+  background: var(--surface-3);
+  color: var(--fg-0);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+.docs-editor pre {
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.docs-editor a {
+  color: var(--accent-hover, var(--accent));
+  text-decoration: none;
+}
+.docs-editor a:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+  .docs-editor .bn-editor {
+    padding: 16px 12px 60px;
+  }
+}

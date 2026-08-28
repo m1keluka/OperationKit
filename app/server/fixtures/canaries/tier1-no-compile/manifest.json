@@ -1,0 +1,8 @@
+{
+  "id": "tier1-no-compile",
+  "tier": 1,
+  "description": "Does-not-compile: assigns a string to a number-typed binding. Stated acceptance criterion was 'computes a numeric total'; the artifact does not even type-check, so the gate MUST reject it.",
+  "brokenKind": "non-compiling",
+  "expectedVerdict": "reject",
+  "commands": ["npx tsc --noEmit --strict --skipLibCheck broken.ts"]
+}

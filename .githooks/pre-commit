@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# Secret-block gate — refuse to commit live credentials.
+#
+# Installed alongside the pre-push harness gate via core.hooksPath:
+#     bash scripts/install-harness-hooks.sh
+#
+# Strategy:
+#   1. If `gitleaks` is installed, run it against the STAGED changes only
+#      (fast, authoritative, uses .gitleaks.toml).
+#   2. If gitleaks is absent, fall back to a built-in regex sweep of staged
+#      content so the hook still blocks the obvious high-signal shapes.
+#
+# Emergency override (use only when you are CERTAIN a match is a false positive):
+#     SECRET_SCAN_OVERRIDE=1 git commit ...
+# ─────────────────────────────────────────────────────────────────────────────
+set -uo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+CONFIG="${REPO_ROOT}/.gitleaks.toml"
+
+if [[ "${SECRET_SCAN_OVERRIDE:-}" == "1" ]]; then
+  echo "[secret-scan] ⚠ SECRET_SCAN_OVERRIDE=1 — skipping secret scan (you own this)." >&2
+  exit 0
+fi
+
+# ── Path 1: gitleaks (preferred) ─────────────────────────────────────────────
+if command -v gitleaks >/dev/null 2>&1; then
+  if gitleaks protect --staged --redact --config "${CONFIG}" 2>/dev/null; then
+    exit 0
+  else
+    echo "" >&2
+    echo "[secret-scan] ✋ gitleaks found a potential secret in your STAGED changes." >&2
+    echo "[secret-scan]    Remove it, move the value to an env var / .env (gitignored)," >&2
+    echo "[secret-scan]    then re-stage. Re-run details:  gitleaks protect --staged --config .gitleaks.toml --verbose" >&2
+    echo "[secret-scan]    False positive? Add an allowlist entry in .gitleaks.toml, or" >&2
+    echo "[secret-scan]    override once with:  SECRET_SCAN_OVERRIDE=1 git commit ..." >&2
+    echo "" >&2
+    exit 1
+  fi
+fi
+
+# ── Path 2: built-in regex fallback (gitleaks not installed) ─────────────────
+echo "[secret-scan] gitleaks not found — using built-in regex fallback (install gitleaks for full coverage)." >&2
+
+PATTERNS='sk-ant-[a-zA-Z0-9_-]{20,}|sk-proj-[a-zA-Z0-9_-]{20,}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|dp\.(st|pt|ct|sa)\.[A-Za-z0-9]{40,}|re_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{36,}|-----BEGIN[ A-Z]*PRIVATE KEY-----|[0-9]{8,10}:[A-Za-z0-9_-]{35}'
+ALLOW='change[_-]?me|os\.environ/|process\.env\.|\$\{[A-Z_]|your-[a-z-]+-here|sk-ant-\.\.\.|sk-proj-\.\.\.|AIza\.\.\.|example\.com|placeholder|REDACTED'
+
+found=0
+# Only scan added lines in staged text files.
+while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
+  # Skip binary + known-safe paths.
+  case "$file" in
+    *.png|*.jpg|*.jpeg|*.gif|*.ico|*.woff|*.woff2|*.ttf|*.pdf|*.lock|*package-lock.json|.env.example|.gitleaks.toml) continue ;;
+  esac
+  hits="$(git diff --cached -U0 -- "$file" \
+            | grep -E '^\+' \
+            | grep -vE '^\+\+\+' \
+            | grep -EI "$PATTERNS" 2>/dev/null \
+            | grep -viE "$ALLOW" || true)"
+  if [[ -n "$hits" ]]; then
+    if [[ "$found" -eq 0 ]]; then
+      echo "" >&2
+      echo "[secret-scan] ✋ Potential secret(s) in STAGED changes:" >&2
+    fi
+    echo "  ── ${file}:" >&2
+    echo "$hits" | sed 's/^/     /' >&2
+    found=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACM)
+
+if [[ "$found" -eq 1 ]]; then
+  echo "" >&2
+  echo "[secret-scan]    Move the value to an env var / .env (gitignored) and re-stage." >&2
+  echo "[secret-scan]    False positive? Override once:  SECRET_SCAN_OVERRIDE=1 git commit ..." >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0

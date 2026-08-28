@@ -1,0 +1,13 @@
+.env
+*.env
+!.env.example
+node_modules
+dist
+data
+*.db
+*.log
+*.pem
+*.key
+sms-*.csv
+app/client/tsconfig.tsbuildinfo
+.playwright-mcp/

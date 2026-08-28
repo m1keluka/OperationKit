@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# Harness gate — free-tier enforcement of "no direct push to prod".
+#
+# command-center's repo is private on GitHub Free, where branch-protection
+# rulesets are plan-gated. Until GitHub Pro is enabled (then the ruleset in
+# scripts/branch-protection-ruleset.json takes over), this client-side hook is
+# the block: it rejects a direct push to `main`. Open a PR instead — the
+# PR-triggered Playwright test agent validates it on a seeded preview and posts
+# the `harness/test-agent` commit status.
+#
+# Install once per checkout/worktree:  bash scripts/install-harness-hooks.sh
+# Emergency override (use sparingly):  HARNESS_OVERRIDE=1 git push origin main
+# ─────────────────────────────────────────────────────────────────────────────
+set -uo pipefail
+
+PROTECTED_BRANCH="main"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "${remote_ref}" == "refs/heads/${PROTECTED_BRANCH}" ]]; then
+    if [[ "${HARNESS_OVERRIDE:-}" == "1" ]]; then
+      echo "[harness] ⚠ HARNESS_OVERRIDE=1 — allowing direct push to '${PROTECTED_BRANCH}' (emergency bypass)." >&2
+    else
+      echo "" >&2
+      echo "[harness] ✋ Direct push to '${PROTECTED_BRANCH}' is blocked." >&2
+      echo "[harness]    Open a PR — the test-harness gate drives a seeded preview" >&2
+      echo "[harness]    like a human and must pass before merge." >&2
+      echo "[harness]      git switch -c my-change && git push -u origin my-change" >&2
+      echo "[harness]      gh pr create --fill" >&2
+      echo "[harness]    Emergency override: HARNESS_OVERRIDE=1 git push origin ${PROTECTED_BRANCH}" >&2
+      echo "" >&2
+      exit 1
+    fi
+  fi
+done
+
+exit 0

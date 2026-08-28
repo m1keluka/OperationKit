@@ -1,0 +1,131 @@
+version: "3.9"
+
+services:
+  litellm:
+    image: docker.litellm.ai/berriai/litellm-database:v1.83.3-stable
+    container_name: litellm
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - ./config/litellm/config.yaml:/app/config.yaml:ro
+    environment:
+      DATABASE_URL: "postgresql://llmproxy:${POSTGRES_PASSWORD}@litellm-db:5432/litellm"
+      STORE_MODEL_IN_DB: "True"
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY}"
+      LITELLM_SALT_KEY: "${LITELLM_SALT_KEY}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4000/health/liveliness || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  litellm-db:
+    image: postgres:16
+    container_name: litellm-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    volumes:
+      - litellm_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d litellm -U llmproxy"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  command-center:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: command-center
+    command: ["bash", "/app/entrypoint.sh"]
+    restart: unless-stopped
+    init: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3002:3002"
+    volumes:
+      - /home/operator/data/command-center:/app/data
+      - /home/operator/ai-workspace:/home/operator/ai-workspace
+      - /home/operator/second-brain:/home/operator/second-brain
+      - /home/operator/projects:/home/operator/projects
+      # ── obj-2202 CUTOVER TARGET (INERT — commented; do NOT uncomment without the
+      #    runbook: app/server/SPAWN-ENV-SCOPING-CUTOVER.md). Gate B3: the personal
+      #    Doppler admin token currently lives at /home/operator/projects/.doppler-admin-token
+      #    INSIDE this RW mount, so any session can `cat` it directly (audit T3).
+      #    At cutover, relocate the token to a host dir NOT mounted into member
+      #    sessions and mount it read-only to the SERVER only, e.g.:
+      # - /home/operator/.cc-secrets/.doppler-admin-token:/run/cc/doppler-admin-token:ro
+      #    then point DOPPLER_TOKEN_PATH at /run/cc/doppler-admin-token. Leaving this
+      #    commented keeps current behavior byte-identical across restarts.
+      - /home/operator/transcripts:/home/operator/transcripts
+      - /home/operator/assistant:/home/operator/assistant
+      - /home/operator/.claude-auth:/root/.claude
+      # Account rotation: separate home dirs per Claude account
+      # ── obj-2202 CUTOVER TARGET (INERT). Gate B3 / audit T3: every ccuser-* home
+      #    (each holds that account's Claude/Codex OAuth creds) is mounted into the
+      #    single shared container and chowned to one ccuser, so any session can read
+      #    every account's credentials. Admin-only today = acceptable. The member-tier
+      #    service (see docker socket note) must mount ONLY the homes it needs and
+      #    enforce per-account UID isolation. Active mounts below are unchanged.
+      - /home/operator/.ccuser-a:/home/ccuser-a
+      - /home/operator/.ccuser-b:/home/ccuser-b
+      - /home/operator/.ccuser-c:/home/ccuser-c
+      - /home/operator/.ccuser-d:/home/ccuser-d
+      - /home/operator/.ccuser-e:/home/ccuser-e
+      # Codex engine: dedicated home with ~/.codex/auth.json (ChatGPT subscription)
+      - /home/operator/.ccuser-codex:/home/ccuser-codex
+      # Git SSH keys + GitHub CLI auth for PR creation from sessions
+      - /home/operator/.ssh:/home/operator/.ssh:ro
+      - /home/operator/.config/gh:/etc/gh:ro
+      # Docker socket — lets sessions run host commands via docker exec
+      # ── obj-2202 CUTOVER TARGET (INERT). Gate B2 / audit T2: the host docker
+      #    socket = host root. It is safe ONLY because every spawner is admin today.
+      #    Before onboarding a non-admin member, member-tier sessions MUST NOT reach
+      #    this socket. There is no per-session compose toggle, so the cutover runs
+      #    member sessions in a SEPARATE service/container (or a runuser identity not
+      #    in the dockerhost group) that omits this mount. The admin service keeps it.
+      #    Until that two-tier split ships, do NOT add any non-admin member. See
+      #    SPAWN-ENV-SCOPING-CUTOVER.md. This active mount is unchanged (admin path).
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Doppler service-token config (provisioned on host; see scripts/bootstrap.sh)
+      - /home/operator/.doppler:/root/.doppler:ro
+      # Mount source code so Claude Code sessions can edit and self-deploy
+      - /home/operator/projects/command-center-infra/app/server/src:/app/server/src
+      - /home/operator/projects/command-center-infra/app/server/shell.html:/app/server/shell.html
+      - /home/operator/projects/command-center-infra/app/client/src:/app/client/src
+      - /home/operator/projects/command-center-infra/app/client/tailwind.config.ts:/app/client/tailwind.config.ts
+      - /home/operator/projects/command-center-infra/app/client/dist:/app/client/dist
+      - /home/operator/projects/command-center-infra/app/shared:/app/shared
+    environment:
+      NODE_ENV: production
+      PORT: "3002"
+      # Required. Empty / placeholder values fail boot (see SECURITY.md).
+      JWT_SECRET: "${CC_JWT_SECRET}"
+      SUPABASE_WEBHOOK_SECRET: "${SUPABASE_WEBHOOK_SECRET:-}"
+      WEIGHT_SUPPLY_WEBHOOK_SECRET: "${WEIGHT_SUPPLY_WEBHOOK_SECRET:-}"
+      # Used by session-intel summarizer (direct Anthropic Messages API, replaced LiteLLM 2026-04-27)
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+    # Secrets not listed here are hydrated at boot from the native secrets
+    # store (Settings → Secrets). Compose env wins when both exist.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3002/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  litellm_postgres_data:
+    driver: local

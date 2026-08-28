@@ -1,0 +1,132 @@
+/* ─────────────────────────────────────────────────────────
+   board.css — Mission Control board layout (obj 1751 / W7)
+   Structure + responsive behaviour only. ALL colours come from
+   W6's tokens in index.css (--surface-*, --line*, --fg-*, etc.) —
+   no raw hexes live here.
+   ───────────────────────────────────────────────────────── */
+
+/* The column grid. Mobile = single vertical stack; desktop = N
+   equal columns separated by 1px hairlines (the grid gap reveals
+   the line-soft background underneath each surface-0 column). */
+.ok-board {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1px;
+  background: var(--line-soft);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+@media (min-width: 768px) {
+  .ok-board {
+    grid-template-columns: repeat(var(--ok-cols, 4), minmax(0, 1fr));
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+.ok-col {
+  background: var(--surface-0);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+@media (min-width: 768px) {
+  .ok-col { overflow: hidden; }
+}
+
+/* Mobile is a vertical stack — put what needs Mike first. Desktop keeps
+   pipeline order (DOM / OBJECTIVE_STATUSES: Queue → Working → Needs You). */
+@media (max-width: 767px) {
+  .ok-col[data-status="review"]    { order: 1; }
+  .ok-col[data-status="working"]   { order: 2; }
+  .ok-col[data-status="ai_review"] { order: 3; }
+  .ok-col[data-status="queue"]     { order: 4; }
+  .ok-col[data-status="planning"]  { order: 5; }
+  .ok-col[data-status="done"]      { order: 6; }
+  .ok-col[data-status="cancelled"] { order: 7; }
+}
+
+/* Subtle column mount (obj 700872). A newly revealed column (e.g. toggling
+   Done/Retired on) fades + slides in from the right rather than popping. React
+   keys columns by status, so this animation runs once per REAL mount — the ~3s
+   state-poll re-render reuses existing DOM nodes and does not re-trigger it.
+   Honors reduced-motion. */
+@keyframes ok-col-in {
+  from { opacity: 0; transform: translateX(6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.ok-col { animation: ok-col-in 220ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .ok-col { animation: none; }
+}
+
+.ok-colhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px 9px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-0);
+}
+
+.ok-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 12px 16px;
+}
+@media (min-width: 768px) {
+  .ok-cards { flex: 1; overflow-y: auto; }
+}
+
+/* ── Card action cluster ──────────────────────────────────
+   Desktop: tucked top-right, fades in on card hover.
+   Mobile : a persistent full-width row of 44px touch targets. */
+.ok-cact {
+  display: flex;
+  gap: 6px;
+}
+@media (min-width: 768px) {
+  .ok-cact {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    opacity: 0;
+    transition: opacity var(--dur-fast) var(--ease-out);
+  }
+  .ok-card:hover .ok-cact,
+  .ok-card:focus-within .ok-cact { opacity: 1; }
+}
+@media (max-width: 767px) {
+  /* Reflow the card: tile, then body, then a full-width action row.
+     (.ok-cact is the first DOM child, so reorder explicitly.) */
+  .ok-card { flex-wrap: wrap; }
+  .ok-tile  { order: 1; }
+  .ok-cbody { order: 2; flex: 1 1 calc(100% - 36px); }
+  .ok-cact {
+    order: 3;
+    width: 100%;
+    margin-top: 11px;
+  }
+  .ok-cact > * {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+  }
+}
+
+/* Live pulse dot — reuses the global @keyframes ok-pulse from
+   index.css. --c picks the colour (verify-green for live). */
+.ok-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c, var(--fg-3));
+  flex-shrink: 0;
+}
+.ok-dot.live { animation: ok-pulse 1.6s var(--ease-out) infinite; }

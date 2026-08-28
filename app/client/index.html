@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-surface">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0c0f14" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c0f14'/%3E%3Ctext x='15' y='23' font-family='monospace' font-size='22' font-weight='700' fill='%23ff5a1f'%3E%E2%80%BA%3C/text%3E%3C/svg%3E" />
+    <title>OperationKit</title>
+    <!--
+      App-shell skeleton (obj 700585). This inline critical CSS + markup paints an
+      instant board skeleton on the very first frame — before the JS bundle
+      downloads, parses, and mounts React. It is the pragmatic "pre-render" that
+      delivers the perceived-load win people reach SSR for, at near-zero cost:
+      createRoot(#root).render() clears #root on mount, so this skeleton is
+      replaced by the real app the moment React takes over. Colours are the shipped
+      design tokens (surface/line/fg/accent) hard-coded here because index.html has
+      no Tailwind runtime; they mirror tailwind.config.ts exactly.
+    -->
+    <style>
+      #app-shell { height: 100%; display: flex; flex-direction: column; background: #0c0f14; }
+      #app-shell * { box-sizing: border-box; }
+      .as-topbar {
+        height: 48px; flex: 0 0 auto; display: flex; align-items: center; gap: 14px;
+        padding: 0 16px; border-bottom: 1px solid #222936; background: #0c0f14;
+      }
+      .as-mark {
+        width: 24px; height: 24px; border-radius: 6px; background: #161b22;
+        border: 1px solid #2c3543; color: #ff5a1f; font: 700 15px/24px monospace;
+        text-align: center; flex: 0 0 auto;
+      }
+      .as-pill { height: 12px; border-radius: 4px; background: #1e242d; }
+      .as-board {
+        flex: 1 1 auto; display: flex; gap: 12px; padding: 16px;
+        overflow: hidden; align-items: flex-start;
+      }
+      .as-col {
+        flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px;
+      }
+      .as-colhead {
+        height: 11px; width: 82px; border-radius: 3px; background: #1e242d; margin-bottom: 4px;
+      }
+      .as-card {
+        display: flex; gap: 10px; padding: 11px; border-radius: 6px;
+        border: 1px solid #222936; background: #161b22;
+      }
+      .as-tile { width: 26px; height: 26px; border-radius: 4px; background: #1e242d; flex: 0 0 auto; }
+      .as-lines { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+      .as-line { height: 11px; border-radius: 3px; background: #1e242d; }
+      .as-shimmer {
+        position: relative; overflow: hidden;
+        background: linear-gradient(90deg, #1e242d 0%, #28303b 50%, #1e242d 100%);
+        background-size: 200% 100%; animation: as-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes as-pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      @media (prefers-reduced-motion: reduce) { .as-shimmer { animation: none; } }
+      /* Mobile mirrors the real board: a single full-width column, not a cramped grid. */
+      @media (max-width: 640px) { .as-board > .as-col:nth-child(n+2) { display: none; } }
+    </style>
+  </head>
+  <body class="h-full text-fg-0">
+    <div id="root" class="h-full">
+      <!-- Instant app shell — swapped out when React mounts (obj 700585). -->
+      <div id="app-shell" aria-hidden="true">
+        <div class="as-topbar">
+          <div class="as-mark">&#8250;</div>
+          <div class="as-pill as-shimmer" style="width:56px"></div>
+          <div class="as-pill as-shimmer" style="width:52px"></div>
+          <div class="as-pill as-shimmer" style="width:48px"></div>
+          <div class="as-pill as-shimmer" style="width:60px;margin-left:auto"></div>
+        </div>
+        <div class="as-board">
+          <div class="as-col">
+            <div class="as-colhead as-shimmer"></div>
+            <div class="as-card"><div class="as-tile as-shimmer"></div><div class="as-lines"><div class="as-line as-shimmer" style="width:72%"></div><div class="as-line as-shimmer"></div><div class="as-line as-shimmer" style="width:40%"></div></div></div>
+            <div class="as-card"><div class="as-tile as-shimmer"></div><div class="as-lines"><div class="as-line as-shimmer" style="width:60%"></div><div class="as-line as-shimmer"></div><div class="as-line as-shimmer" style="width:44%"></div></div></div>
+            <div class="as-card"><div class="as-tile as-shimmer"></div><div class="as-lines"><div class="as-line as-shimmer" style="width:80%"></div><div class="as-line as-shimmer" style="width:52%"></div></div></div>
+          </div>
+          <div class="as-col">
+            <div class="as-colhead as-shimmer"></div>
+            <div class="as-card"><div class="as-tile as-shimmer"></div><div class="as-lines"><div class="as-line as-shimmer" style="width:66%"></div><div class="as-line as-shimmer"></div><div class="as-line as-shimmer" style="width:38%"></div></div></div>
+            <div class="as-card"><div class="as-tile as-shimmer"></div><div class="as-lines"><div class="as-line as-shimmer" style="width:74%"></div><div class="as-line as-shimmer" style="width:48%"></div></div></div>
+          </div>
+          <div class="as-col">
+            <div class="as-colhead as-shimmer"></div>
+            <div class="as-card"><div class="as-tile as-shimmer"></div><div class="as-lines"><div class="as-line as-shimmer" style="width:70%"></div><div class="as-line as-shimmer" style="width:42%"></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

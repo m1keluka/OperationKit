@@ -1,0 +1,212 @@
+# coverage-matrix.yaml — command-center-infra specification surface (Kitchen Loop pilot)
+#
+# The empirical, in-repo enumeration of what the product CLAIMS, as a coverage matrix
+# (feature × surface × action), every cell prioritized P0/P1/P2/P3. Source: W3 pilot
+# spec surface (decisions/2026-06-29-cc-pilot-spec-surface-and-oracle.md §1).
+#
+# ROLE IN THE LOOP (Phase 0 = artifact only):
+#   • Backlog input — the highest-priority untested/regressed cells are what an
+#     AaU1000 Ideate pass would target. In Phase-0 SHADOW the kitchen-loop service
+#     does NOT parse this file; it logs a static seed of the P0 gaps. Reading this
+#     file as the live Backlog source is a later, Mike-gated phase.
+#   • Coverage denominator — coverage_filled / coverage_total for loop_drift_metrics.
+#
+# An empty cell = an UNTESTED claim (§6.5). Priority key:
+#   P0 core/table-stakes (any failure = critical regression that can wedge the orchestrator)
+#   P1 breadth · P2 depth/edge · P3 frontier
+
+meta:
+  repo: command-center-infra
+  generated_by: "obj 700077/700079 (W3) → committed by obj 700099 (Phase-0 build)"
+  test_tooling: "Vitest (server node env + client jsdom env); no executed Playwright/e2e by policy"
+  oracle: spec/cc-oracle.mjs
+
+priorities: [P0, P1, P2, P3]
+
+surfaces:
+  - rest_api          # Express routes under /api
+  - websocket         # WS /ws
+  - sqlite            # better-sqlite3 at /app/data/command-center.db
+  - state_poller      # 3s board lifecycle loop
+  - session_host      # session-manager + tmux + worktrees
+  - client_ui         # React components
+  - ci_deploy         # drift-guard, self-deploy, harness
+
+features:
+  - id: F1
+    name: Auth / session cookie
+    surface: rest_api
+    priority: P0
+    actions: [login_set_cookie, me, logout, reject_bad_creds]
+  - id: F2
+    name: Board read
+    surface: rest_api
+    priority: P0
+    actions: [list_ws_scoped, get_by_id, output_by_id]
+  - id: F3
+    name: Objective create
+    surface: rest_api
+    priority: P0
+    actions: [create_card, validate_required_fields, bulk_internal_create]
+  - id: F4
+    name: Objective edit
+    surface: rest_api
+    priority: P1
+    actions: [update_fields, delete_by_id]
+  - id: F5
+    name: Lifecycle status transition
+    surface: state_poller
+    priority: P0
+    actions: [legal_transition_persists, illegal_transition_rejected, transition_spawns_or_stops_session]
+  - id: F6
+    name: Session spawn
+    surface: session_host
+    priority: P0
+    actions: [spawn_on_queue_to_working, worktree_created_pre_spawn, session_id_recorded]
+  - id: F7
+    name: Session follow-up / interrupt / stop
+    surface: rest_api
+    priority: P1
+    actions: [send_follow_up, interrupt, stop_and_cleanup]
+  - id: F8
+    name: Session intel extraction
+    surface: state_poller
+    priority: P1
+    actions: [row_written_per_session, unique_session_id, cost_tokens_captured]
+  - id: F9
+    name: AI review gate
+    surface: state_poller
+    priority: P0
+    actions: [ai_review_spawns_reviewer, verdict_pass_or_blocked, iteration_cap_3x, reviews_history]
+  - id: F10
+    name: Delegator / sub-objectives
+    surface: rest_api
+    priority: P1
+    actions: [parent_spawns_children, child_rollup, self_close_on_all_accepted]
+  - id: F11
+    name: Strategy tier
+    surface: rest_api
+    priority: P2
+    actions: [strategy_create, stage0_gate, sub_objective_list]
+  - id: F12
+    name: Planning mode
+    surface: rest_api
+    priority: P1
+    actions: [start, message, approve_lock_criteria, cancel, transcript]
+  - id: F13
+    name: Schedule / routines
+    surface: rest_api
+    priority: P1
+    actions: [cron_def, run_now, objective_template_instantiation]
+  - id: F14
+    name: Loop / recurring jobs
+    surface: rest_api
+    priority: P2
+    actions: [queued_working_done_lanes]
+  - id: F15
+    name: Terminal
+    surface: websocket
+    priority: P1
+    actions: [attach_tmux, relay_io, resize, survive_backend_restart]
+  - id: F16
+    name: WebSocket state broadcast
+    surface: websocket
+    priority: P1
+    actions: [board_delta_push, reconnect_after_deploy, per_objective_unread]
+  - id: F17
+    name: Message / output APIs
+    surface: rest_api
+    priority: P1
+    actions: [fetch_stdout_stderr, progress_internal, activity_timeline]
+  - id: F18
+    name: Drift guard / deploy discipline
+    surface: ci_deploy
+    priority: P0
+    actions: [detect_dirty_served, detect_head_ne_origin, deploy_refuses_on_drift]
+  - id: F19
+    name: Self-deploy
+    surface: ci_deploy
+    priority: P0
+    actions: [frontend_no_restart, backend_restart_tmux_survives, force_gate]
+  - id: F20
+    name: Auto-merge-on-green
+    surface: ci_deploy
+    priority: P2
+    actions: [dry_run_log_while_off, merge_when_green_and_pass]
+  - id: F21
+    name: Worktree isolation guard
+    surface: session_host
+    priority: P0
+    actions: [block_write_to_live_checkout, warn_only_telemetry_backstop]
+  - id: F22
+    name: Test credentials / secrets
+    surface: rest_api
+    priority: P2
+    actions: [scoped_crud, encrypted_at_rest, versions_rollback, session_env_injection]
+  - id: F23
+    name: Cost / accounts / models
+    surface: rest_api
+    priority: P2
+    actions: [cost_summary_daily, account_rotation_status, model_registry_toggle]
+  - id: F24
+    name: Jarvis briefing / intel
+    surface: rest_api
+    priority: P2
+    actions: [briefing_aggregate, blockers, conflicts, recent]
+  - id: F25
+    name: Webhooks
+    surface: rest_api
+    priority: P2
+    actions: [uptimerobot_ingest, github_pr_created, signature_verify]
+  - id: F26
+    name: Alerts / monitors
+    surface: rest_api
+    priority: P2
+    actions: [raise_high_sev, alertbell_read, ack]
+  - id: F27
+    name: Uploads / docs
+    surface: rest_api
+    priority: P3
+    actions: [upload_20mb, list, docs_tree_file_read]
+  - id: F28
+    name: Client UI render
+    surface: client_ui
+    priority: P1
+    actions: [board_renders, card_actions, session_viewer, mobile_first_no_dnd]
+
+# DB-state ground-truth invariants — surface-independent claims the oracle asserts
+# directly against real SQLite. The cheapest unbeatable checks.
+invariants:
+  - id: INV-1
+    priority: P0
+    claim: "every objectives.status in {planning,queue,working,ai_review,review,done}"
+    oracle_check: db-invariant/objective-status
+  - id: INV-2
+    priority: P0
+    claim: "session_intel.session_id is unique (no double-extraction)"
+    oracle_check: db-invariant/session-uniqueness
+  - id: INV-3
+    priority: P1
+    claim: "no objectives.parent_id pointing at a missing row (no orphan)"
+  - id: INV-4
+    priority: P1
+    claim: "no objective in 'working' with session_count=0 beyond the grace window"
+  - id: INV-5
+    priority: P1
+    claim: "ai_review_iteration <= 3 (review cap honored)"
+  - id: INV-6
+    priority: P2
+    claim: "every objective_prs.state in {open,merged,closed}"
+
+# First AaU1000 ideation targets — the untested cells, ordered by value. Mirrors the
+# Phase-0 SHADOW ideate seed in services/kitchen-loop.ts (computeIdeateTickets).
+coverage_gaps:
+  - { rank: 1, feature: F5, tier: T1, priority: P0, note: "end-to-end transition over real HTTP → DB row + spawn (L4, highest value)" }
+  - { rank: 2, feature: F6, tier: T1, priority: P0, note: "spawn ground truth: tmux + worktree + session_id" }
+  - { rank: 3, feature: F1, tier: T1, priority: P0, note: "auth contract: cookie set, /me round-trip, bad creds 401" }
+  - { rank: 4, feature: F9, tier: T1, priority: P0, note: "ai_review gate: reviewer spawn + cap=3 + verdict shape" }
+  - { rank: 5, feature: INV-3/INV-4, tier: T2, priority: P1, note: "orphan & stuck-spawn invariants → add to QUICK" }
+  - { rank: 6, feature: F16, tier: T2, priority: P1, note: "WebSocket reconnect: board delta after backend restart" }
+  - { rank: 7, feature: F13, tier: T2, priority: P1, note: "routines run-now instantiates an objective" }
+  - { rank: 8, feature: F18/F19, tier: T3, priority: P2, note: "deploy refuses on dirty-served tree" }
+  - { rank: 9, feature: F20, tier: T3, priority: P2, note: "auto-merge dry-run logs WOULD-merge while OFF" }
