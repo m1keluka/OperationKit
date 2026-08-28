@@ -53,9 +53,9 @@ interface ClassificationResult {
 const SYSTEM_PROMPT = `You are a meeting intelligence assistant. Extract structured information from meeting notes and transcripts.
 
 Workspace classification rules:
-- "example": Example Org — digital marketing agency, SEO, content strategy, client campaigns, growth consulting
+- "example": Example — primary workspace, client work, campaigns, growth consulting
 - "example-project": Example Project — physical products, manufacturing, B2B wholesale, supplier logistics, pricing
-- "personal": Mike Luka — personal holding/brand work, cross-company strategy, internal tooling
+- "personal": Personal — personal holding/brand work, cross-company strategy, internal tooling
 - "example2": Example3 — real-estate agent lead-gen / MLS outreach client
 - "shabo-dl": Shabo Dental Lab — dental-lab client of Example
 - "personal": Personal matters, cross-company admin, personal investments, family, health

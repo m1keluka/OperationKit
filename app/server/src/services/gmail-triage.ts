@@ -135,15 +135,15 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b'
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://host.docker.internal:11434'
 
 function buildClassifyPrompt(emailList: string): string {
-  return `Classify each email into exactly one of 4 categories for Mike Luka, CEO of Example Org (M&A advisory):
+  return `Classify each email into exactly one of 4 categories for the operator:
 
-"live" — genuine personal message or reply from a KNOWN contact. Ongoing conversation, client/partner comm, legal/contracts, replies where Mike initiated the thread, personal finance questions, job applicants responding to Mike's posts. The sender knows Mike personally or has an established relationship.
+"live" — genuine personal message or reply from a KNOWN contact. Ongoing conversation, client/partner comm, legal/contracts, replies the operator initiated, personal finance questions, job applicants responding to the operator's posts. The sender knows the operator personally or has an established relationship.
 
 "junk" — ANY cold outreach or unsolicited sales email, even if written by a real human. Also: newsletters, marketing, promotions, LinkedIn/Reddit digests, unsubscribable bulk mail, generic SaaS drip emails, PR pitches, conference invitations, recruiting firms reaching out unsolicited.
 
 "custom-leads" — booking/appointment notifications from the scheduling system. Subject contains "New Lead from your app:" or similar.
 
-"notifications" — system/tech alerts (GitHub CI failures, UptimeRobot UP/DOWN, deployment alerts), banking/finance transactions (Mercury charges, ACH payments, Ramp, Stripe receipts), automated invoices (Anthropic, AWS, etc.), service status emails. Informational, not actionable by Mike directly.
+"notifications" — system/tech alerts (GitHub CI failures, UptimeRobot UP/DOWN, deployment alerts), banking/finance transactions (Mercury charges, ACH payments, Ramp, Stripe receipts), automated invoices (Anthropic, AWS, etc.), service status emails. Informational, not actionable by the operator directly.
 
 HARD RULES (these override everything else):
 - Cold outreach / sales pitch / "I'd love to connect" / "partnership opportunity" / "quick question" (no prior relationship) → junk
