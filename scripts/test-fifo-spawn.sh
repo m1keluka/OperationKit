@@ -4,6 +4,7 @@ export HOME=/home/ccuser-c
 export USER=ccuser
 export TERM=dumb
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+cd "${OPERATOR_HOME:-/home/operator}"
 cd "${HOME:-/home/operator}"
 
 FIFO=/tmp/test-fifo6

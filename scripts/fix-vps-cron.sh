@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # fix-vps-cron.sh — one-shot host runbook that (re)sets up the 4 command-center
-# cron jobs on the VPS. Run as user `mike` on the host (NOT inside the
+# cron jobs on the VPS. Run as the operator user on the host (NOT inside the
 # command-center container).
 #
 # What it does:
@@ -52,6 +52,8 @@ warn() { log "WARN: $*"; }
 # Step 1: Preflight
 # ---------------------------------------------------------------------------
 log "=== fix-vps-cron start ==="
+OPERATOR_USER="${OPERATOR_USER:-operator}"
+[ "$(id -un)" = "$OPERATOR_USER" ] || warn "expected to run as user '$OPERATOR_USER', got '$(id -un)' (override with OPERATOR_USER)"
 [ "$(id -un)" = "${OPERATOR_USER:-operator}" ] || warn "expected to run as user '${OPERATOR_USER:-operator}', got '$(id -un)'"
 
 command -v docker  >/dev/null 2>&1 || die "docker CLI not on host PATH"
@@ -109,7 +111,7 @@ case "$DOPPLER_MODE" in
     log "WARN: doppler unavailable — $DOPPLER_DIAG"
     log "  Falling back to environment / existing cron.env for SUPABASE_URL,"
     log "  SUPABASE_SERVICE_KEY, CC_PLATFORM_URL, CC_PLATFORM_CRON_SECRET."
-    log "  To enable Doppler: as user 'mike', either"
+    log "  To enable Doppler: as the operator user, either"
     log "      doppler configure set token <SERVICE_TOKEN> --scope /   # service token"
     log "  or ensure $ADMIN_TOKEN_FILE is populated (admin token, ccuser-owned)."
     ;;
@@ -126,7 +128,7 @@ doppler_get() {
 # Step 2: Mint fresh CC_SERVICE_TOKEN
 # ---------------------------------------------------------------------------
 log "minting CC_SERVICE_TOKEN (1 year expiry)…"
-NEW_TOKEN="$(bash "$SCRIPTS_DIR/mint-service-token.sh" 365d mike 1 | tr -d '[:space:]')"
+NEW_TOKEN="$(bash "$SCRIPTS_DIR/mint-service-token.sh" 365d "${OPERATOR_USER:-operator}" 1 | tr -d '[:space:]')"
 [ -n "$NEW_TOKEN" ] || die "mint-service-token.sh returned empty token"
 
 # Sanity-check: three dot-separated segments (JWT header.payload.signature).

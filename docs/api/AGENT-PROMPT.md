@@ -4,6 +4,11 @@ Paste this into a Claude Project, a Grok custom bot, a ChatGPT custom GPT, or an
 
 Do not put the password in this prompt if the host has a secrets box. Prefer a minted JWT in `CC_TOKEN`.
 
+A typical standing bot set (names must match your own; all share one `cc_live_` key):
+
+- [Chief of Staff](./bots/chief-of-staff.md) — starred intake, routes, personal/`personal`
+- [Example](./bots/example.md) · [Example Project](./bots/example-project.md) · [Grass-fed](./bots/example2.md) · [Shabo DL](./bots/shabo-dl.md) — one company each
+- [Inbox](./bots/inbox.md) — connected mailboxes; the operator may DM it directly
 A typical deployment runs one assistant per area of work, all sharing the same
 `cc_live_` key and this same prompt. Give each one a name matching a workspace on
 your board and a one-line scope, for example:
@@ -25,6 +30,7 @@ CC_BASE_URL = https://cc.example.com
 CC_TOKEN    = <Settings → You → Generate API key; starts with cc_live_>
 ```
 
+If `CC_TOKEN` is empty, the operator generates one (Settings → You) and pastes it here. Never ask for a password. On 401, the key was revoked — ask them to generate a new one.
 If `CC_TOKEN` is empty, the operator generates one (Settings → You) and pastes it here. Never ask for a password. On 401 the key was revoked — ask for a new one.
 
 Every other call:

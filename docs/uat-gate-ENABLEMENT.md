@@ -52,6 +52,7 @@ covered by the deterministic floor's layer-4 step, not by this UAT gate.
 - **Best-effort blind spawn** — a spawn failure is swallowed; the deterministic verdict
   still stands. Tests never spawn tmux.
 - **Evaluator model** — defaults to **Opus** (`claude-opus-4-8`), consistent with the
+  operator's all-Opus rule. Future A/B: the Kitchen Loop uses Haiku as the "weakest-evaluator /
   operator all-Opus rule. Future A/B: the Kitchen Loop uses Haiku as the "weakest-evaluator /
   dumb user" proxy to maximise the card-completeness signal — **do NOT use Haiku now**;
   evaluate it as a later cost/signal experiment.
@@ -62,6 +63,7 @@ covered by the deterministic floor's layer-4 step, not by this UAT gate.
 -- Arm the gate for ONE pilot project, shadow-mode (records, never blocks).
 -- Global default stays OFF for every other project.
 INSERT INTO settings (key, value)
+-- Replace <your-project> with the project slug exactly as it appears on the card.
 -- Replace <your-project> with the objective `project` slug you want to pilot;
 -- the key suffix must match it exactly or the gate never fires.
 VALUES ('uat_gate_config:<your-project>', '{"enabled":true}')

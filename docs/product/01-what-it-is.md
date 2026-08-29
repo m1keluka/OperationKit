@@ -58,6 +58,7 @@ Someone captures work (you, Jarvis, a Job, a meeting). It becomes an **objective
 
 ## Who it is for
 
+You and your teammates. Everyone has their own login. Work is organized by **organization** (workspace) — for example Acme Corp, Marketing, Engineering. A card is assigned to a person; that person is who the agent acts as for mail and git.
 You and your teammates. Everyone has their own login. Work is organized by **organization** (workspace) — one per company, client, or internal area, e.g. Acme Corp, Marketing, Engineering. A card is assigned to a person; that person is who the agent acts as for mail and git.
 
 ## What you see every day

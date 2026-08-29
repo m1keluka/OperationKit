@@ -5,6 +5,7 @@
  * present, so a live board is never clobbered (mirrors the 2026-07-01 recovery).
  *
  * Usage (inside the container):
+ *   docker exec command-center node ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/restore-objectives-snapshot.cjs \
  *   docker exec command-center node /home/operator/projects/operationkit/scripts/restore-objectives-snapshot.cjs \
  *     /app/data/obj-snapshots/objectives-drop-YYYYMMDDHHMM.json.gz
  */

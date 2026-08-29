@@ -375,6 +375,7 @@ async function handleUpdate(update: TelegramUpdate): Promise<void> {
   // HARD allowlist — single owner, by Telegram user id.
   if (fromId !== OWNER_ID) {
     console.warn(`[rolodex] rejected message from user_id=${fromId} chat=${chatId}`)
+    await sendMessage(chatId, "Sorry — this bot is private. If you think you should have access, ping the owner directly.")
     await sendMessage(chatId, "Sorry — this bot is private. If you think you should have access, contact its owner.")
     return
   }

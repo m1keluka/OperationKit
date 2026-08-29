@@ -42,6 +42,7 @@ docker run -d --pull=always \
   "${OPENHANDS_IMAGE}"
 
 echo "OpenHands started on localhost:3000"
+echo "Access via: https://${OPENHANDS_DOMAIN:-oh.${CC_DOMAIN:-cc.example.com}} (after Caddy is configured)"
 echo "Access via: https://oh.${CC_DOMAIN:-cc.example.com} (after Caddy is configured)"
 echo ""
 echo "Container logs: docker logs -f openhands-app"

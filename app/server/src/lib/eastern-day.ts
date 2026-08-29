@@ -7,6 +7,17 @@
 // with existing installs and the /api/costs default.
 export const DEFAULT_DASHBOARD_TZ = 'America/New_York'
 
+function resolveDashboardTz(): string {
+  const raw = (process.env.DASHBOARD_TIMEZONE || '').trim()
+  if (!raw) return DEFAULT_DASHBOARD_TZ
+  try {
+    // Throws RangeError on an unknown / malformed IANA zone.
+    new Intl.DateTimeFormat('en-CA', { timeZone: raw })
+    return raw
+  } catch {
+    console.warn(
+      `[eastern-day] invalid DASHBOARD_TIMEZONE="${raw}" — falling back to ${DEFAULT_DASHBOARD_TZ}`,
+    )
 function resolveTz(): string {
   const raw = (process.env.DASHBOARD_TIMEZONE || '').trim()
   if (!raw) return DEFAULT_DASHBOARD_TZ
@@ -20,6 +31,11 @@ function resolveTz(): string {
   }
 }
 
+/**
+ * The dashboard's calendar timezone. Still exported as EASTERN_TZ so existing
+ * import sites keep working; the value is now configurable.
+ */
+export const EASTERN_TZ = resolveDashboardTz()
 /** The dashboard's calendar timezone. Named EASTERN_TZ for import compatibility. */
 export const EASTERN_TZ = resolveTz()
 

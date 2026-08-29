@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Deploy the full stack after the host prerequisites are in place (install.sh)
 # Deploy the full stack after ./install.sh has provisioned the host
 # Usage: bash deploy.sh
 # Run from /opt/stack (the infra repo root)
@@ -85,6 +86,8 @@ echo "  Stack deployed!"
 echo "========================================"
 echo ""
 echo "Services:"
+echo "  OpenHands UI:   https://${OPENHANDS_DOMAIN:-oh.${CC_DOMAIN:-cc.example.com}}"
+echo "  LiteLLM Proxy:  https://${LITELLM_DOMAIN:-llm.${CC_DOMAIN:-cc.example.com}}"
 echo "  OpenHands UI:   https://oh.${CC_DOMAIN:-cc.example.com}"
 echo "  LiteLLM Proxy:  https://llm.${CC_DOMAIN:-cc.example.com}"
 echo "  LiteLLM API:    http://localhost:4000"

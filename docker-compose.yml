@@ -101,6 +101,26 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Doppler service-token config (optional; created on the host by install.sh)
       - /home/operator/.doppler:/root/.doppler:ro
+      # ── SOURCE BIND-MOUNTS — INTENTIONALLY OFF THE DEFAULT PATH ────────────────
+      # The published image ALREADY CONTAINS the application source, so a plain
+      # `docker compose up -d` needs none of the mounts below. They exist only for
+      # the self-deploy / edit-the-live-box workflow, where the container serves a
+      # git checkout on the host instead of the source baked into the image.
+      #
+      # They are commented out because Docker REFUSES to start a service whose
+      # bind-mount source path does not exist, and a fresh host has no such
+      # checkout — leaving them active made the very first `docker compose up -d`
+      # fail on a clean droplet.
+      #
+      # To opt in: clone this repo on the host, set CC_REPO_DIR to that path, and
+      # uncomment the six lines below (substituting your checkout path for the
+      # default shown here).
+      # - /home/operator/projects/operationkit/app/server/src:/app/server/src
+      # - /home/operator/projects/operationkit/app/server/shell.html:/app/server/shell.html
+      # - /home/operator/projects/operationkit/app/client/src:/app/client/src
+      # - /home/operator/projects/operationkit/app/client/tailwind.config.ts:/app/client/tailwind.config.ts
+      # - /home/operator/projects/operationkit/app/client/dist:/app/client/dist
+      # - /home/operator/projects/operationkit/app/shared:/app/shared
       # ── dev-bind profile: source-code live-edit mounts ──────────────────────────
       # These mounts let Claude Code sessions edit and self-deploy source files live.
       # They point to the checked-out repo on the HOST and are NOT required for a
@@ -129,6 +149,8 @@ services:
       # Required. Empty / placeholder values fail boot (see SECURITY.md).
       JWT_SECRET: "${CC_JWT_SECRET}"
       SUPABASE_WEBHOOK_SECRET: "${SUPABASE_WEBHOOK_SECRET:-}"
+      # Optional second inbound-webhook secret, for a project that posts to this
+      # board from a different system than SUPABASE_WEBHOOK_SECRET's.
       # Optional SECOND inbound-webhook secret, when a project posts to this board
       # from a different system than the one SUPABASE_WEBHOOK_SECRET covers.
       EXTRA_WEBHOOK_SECRET: "${EXTRA_WEBHOOK_SECRET:-}"

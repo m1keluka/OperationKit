@@ -218,16 +218,16 @@ stem** — which is the only source for Mike, whose file has `account: ""`.
 ```bash
 # 1. see what's on disk (no DB access)
 docker exec command-center /app/node_modules/.bin/tsx \
-  /home/operator/projects/command-center-infra/scripts/migrate-google-credential.ts --list
+  ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/migrate-google-credential.ts --list
 
 # 2. DRY RUN (default) — opens the DB read-only, writes nothing
 docker exec command-center /app/node_modules/.bin/tsx \
-  /home/operator/projects/command-center-infra/scripts/migrate-google-credential.ts \
+  ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/migrate-google-credential.ts \
   --file /home/operator/assistant/google-credentials/dev@example.com.json --user mike
 
 # 3. APPLY — encrypt + store, then mint a real access token to prove it works
 docker exec command-center bash -lc 'doppler run --project command-center-infra --config prd -- \
-  /app/node_modules/.bin/tsx /home/operator/projects/command-center-infra/scripts/migrate-google-credential.ts \
+  /app/node_modules/.bin/tsx ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/migrate-google-credential.ts \
   --file /home/operator/assistant/google-credentials/dev@example.com.json --user mike --apply'
 ```
 

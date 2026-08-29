@@ -97,13 +97,13 @@ Expected response:
 ## Install the nightly reconcile cron
 
 ```bash
-bash /home/operator/projects/command-center-infra/scripts/install-reconcile-clients-cron.sh
+bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/install-reconcile-clients-cron.sh
 ```
 
 This writes a cron entry that runs at 00:05 America/New_York. Manual trigger:
 
 ```bash
-bash /home/operator/projects/command-center-infra/scripts/reconcile-clients.sh
+bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/reconcile-clients.sh
 ```
 
 Logs: `/home/operator/transcripts/reconcile-clients.cron.log` (rolling) and

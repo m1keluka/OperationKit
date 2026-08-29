@@ -5,7 +5,7 @@
 # `Authorization: Bearer <jwt>` header.
 #
 # Usage:
-#   bash scripts/mint-service-token.sh               # 1 year expiry, mike admin
+#   bash scripts/mint-service-token.sh               # 1 year expiry, admin user
 #   bash scripts/mint-service-token.sh 30d           # custom expiry
 #   bash scripts/mint-service-token.sh 1y service-bot 0
 #
@@ -16,6 +16,7 @@ set -euo pipefail
 
 CONTAINER="${CC_CONTAINER:-command-center}"
 EXPIRY="${1:-365d}"
+USERNAME="${2:-${OPERATOR_USER:-operator}}"
 USERNAME="${2:-operator}"
 USER_ID="${3:-1}"
 

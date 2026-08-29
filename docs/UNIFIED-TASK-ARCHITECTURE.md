@@ -181,8 +181,8 @@ These were intentionally left for separate CC objectives — each is meaningful 
 1. **Deploy Hermes** — run `bash scripts/setup-hermes.sh install gateway`, provision `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ROLODEX_OWNER_ID` in `.hermes/.env`, register the bot with @BotFather, smoke-test a single brain dump. Without this, the Capture layer is missing its primary inbound surface.
 2. **Install missing host cron entries** — granola ingest (every 15 min) and gmail-triage (every 30 min). Both wrappers exist; only the crontab lines are missing. Format:
    ```
-   */15 * * * * . /home/operator/.config/command-center/cron.env && bash /home/operator/projects/command-center-infra/scripts/run-granola-ingest.sh >> /home/operator/transcripts/granola-ingest.cron.log 2>&1 # command-center: granola-ingest
-   */30 * * * * . /home/operator/.config/command-center/cron.env && bash /home/operator/projects/command-center-infra/scripts/run-gmail-triage.sh >> /home/operator/transcripts/gmail-triage.cron.log 2>&1 # command-center: gmail-triage
+   */15 * * * * . /home/operator/.config/command-center/cron.env && bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/run-granola-ingest.sh >> /home/operator/transcripts/granola-ingest.cron.log 2>&1 # command-center: granola-ingest
+   */30 * * * * . /home/operator/.config/command-center/cron.env && bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/run-gmail-triage.sh >> /home/operator/transcripts/gmail-triage.cron.log 2>&1 # command-center: gmail-triage
    ```
 3. **Live-email → objective bridge** — when Gmail triage classifies an envelope as `Live` and the sender is unknown, create a `general`-agent CC objective so it can't fall through the cracks. Probably belongs in `gmail-triage.ts:runGmailTriage` after the label apply.
 4. **Account-exhaustion retry scheduler** — `account-router.enqueueSession()` parks but never re-attempts. Add a 60s drain loop that flips parked objectives back to `working` once an account frees up.

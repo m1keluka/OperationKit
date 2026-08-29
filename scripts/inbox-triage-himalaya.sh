@@ -4,7 +4,7 @@
 # Empties Gmail INBOX by classifying every envelope into one of four target
 # folders (Gmail labels): ACTION, FYI, AUTO, ARCHIVE.
 #
-# This script is designed to run on Mike's host shell (where himalaya is
+# This script is designed to run on the operator's host shell (where himalaya is
 # installed at /home/operator/.local/bin/himalaya), NOT inside the command-center
 # container (no himalaya, no OAuth there). It will refuse to run otherwise.
 #
@@ -13,7 +13,7 @@
 #   AUTO     no-reply / notifications / build alerts / SaaS automation
 #   ARCHIVE  marketing, promotions, bulk-mail patterns
 #   ACTION   default — anything left over is treated as a real human email
-#            that needs Mike's attention.
+#            that needs a human's attention.
 #
 # The script defaults to DRY RUN. You must pass --execute (or set EXECUTE=1)
 # to actually move messages. The dry run logs every classification decision so

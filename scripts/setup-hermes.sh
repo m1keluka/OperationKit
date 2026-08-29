@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # setup-hermes.sh — Install and configure Hermes agent on the VPS
 # Run this as the operator user on the VPS host (not inside Docker).
+# Override the systemd identity with OPERATOR_USER / OPERATOR_HOME.
 #
 # Usage:
 #   bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/setup-hermes.sh [install|gateway|status|uninstall]

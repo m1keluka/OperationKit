@@ -55,6 +55,7 @@ strategy reaches a decision point (spawn-next | pivot | stop | re-scope)
   → POST /api/internal/objectives/:id/decision  {kind, decision, evidence[], options[], recommendation}
   → row written: objective_reviews(mode='decision', verdict='pending'); status → 'review'
   → strategy ends its turn  (fireWake's review-park guard keeps child-completions from stampeding past it)
+The owner sees it in the Governance panel (children, pending decision, budget)
 The operator sees it in the Governance panel (children, pending decision, budget)
   → Approve(optionId) / Deny(note)
   → POST /api/objectives/:id/decisions/:reviewId/resolve

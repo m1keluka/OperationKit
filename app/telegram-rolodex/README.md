@@ -1,5 +1,10 @@
-# Telegram Rolodex Bot (Phase 5 Personal CRM)
+# Telegram Rolodex Bot (Phase 5 Personal CRM) — OPTIONAL
 
+> **Optional component.** Nothing in the core board depends on this directory. It
+> ships disabled: the supervisor only starts the bot when `TELEGRAM_ROLODEX_BOT_TOKEN`
+> and `TELEGRAM_ROLODEX_OWNER_ID` are set. Leave them unset to skip it entirely.
+
+A single-owner Telegram bot that lets the owner manage their contacts vault via chat. Runs as a sibling process inside the `command-center` container, spawned by the main server (`services/rolodex-supervisor.ts`).
 **Optional component — not required to run OperationKit.** A single-owner Telegram
 bot that lets the operator manage a contacts vault via chat. It stays dormant unless
 `TELEGRAM_ROLODEX_BOT_TOKEN` and `TELEGRAM_ROLODEX_OWNER_ID` are set. Runs as a sibling process inside the `command-center` container, spawned by the main server (`services/rolodex-supervisor.ts`).

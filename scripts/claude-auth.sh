@@ -13,6 +13,9 @@
 #
 #   ACCOUNT         account slot letter (a..e). Default: a
 #   --setup-token   use `claude setup-token` (headless) instead of `auth login`
+#   --home DIR      override the account home dir. Default:
+#                   ${OPERATOR_HOME:-/home/operator}/.ccuser-<ACCOUNT> — the same
+#                   path docker-compose.yml bind-mounts into the container.
 #   --home DIR      override the account home dir
 #                   (default: ${OPERATOR_HOME:-/home/operator}/.ccuser-<ACCOUNT>,
 #                    which is what docker-compose.yml bind-mounts)
@@ -36,6 +39,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Must match the .ccuser-* bind-mount sources in docker-compose.yml. If the two
+# disagree, `claude auth login` succeeds on the host but the container never sees
+# the credential file.
 # Must match the .ccuser-* bind-mounts in docker-compose.yml, otherwise auth
 # succeeds on the host but the container never sees the credential.
 OPERATOR_HOME="${OPERATOR_HOME:-/home/operator}"

@@ -31,6 +31,7 @@ The sweep tool is operational tooling, kept outside this repo under the objectiv
 
 ## Schedule (VPS)
 
+Installed in the **operator user's crontab** (owner-approved AUTO-DAILY EXECUTE), 07:17 daily (off the :00 mark):
 Installed in the **operator user's crontab** (opt-in AUTO-DAILY EXECUTE), 07:17 daily (off the :00 mark):
 
 ```cron
@@ -40,6 +41,7 @@ Installed in the **operator user's crontab** (opt-in AUTO-DAILY EXECUTE), 07:17 
 - Verify: `crontab -u "${OPERATOR_USER:-operator}" -l | grep board-hygiene`
 - Human-facing digest refreshed each run at `/home/operator/ai-workspace/briefings/hygiene-latest.md`
 - Logs: `~/ai-workspace/objective-memory/700583/logs/sweep-YYYYMMDD.log` + `cron.log`
+- Runs **directly on the host as the operator user** — the VPS host has `/usr/bin/node`, the
 - Runs **directly on the host as the operator user** — the host has `/usr/bin/node`, the
   `ai-workspace` tree is on the host filesystem, and the host reaches the API on `localhost:3002`,
   so no `docker exec` indirection is needed. Keep `logs/` owned by that same user; a root-owned

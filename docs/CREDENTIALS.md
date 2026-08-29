@@ -106,6 +106,8 @@ OperationKit can source secrets (e.g. `SUPABASE_SERVICE_KEY`) at process start v
 [Doppler](https://doppler.com) instead of the `.env` file. This is **not** a plain env
 var: a Doppler **service token** is written to `~/.doppler/.doppler.yaml` on the host and
 mounted read-only into the container, where `doppler run --` injects the managed vars.
+The host-side setup is covered by [`install.sh`](../install.sh). For a normal self-host you
+can ignore Doppler entirely and use `.env`.
 Provision that token yourself on the host if you want it; `./install.sh` does not.
 For a normal self-host you can ignore Doppler entirely and use `.env`.
 
