@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-SCRIPT_PATH="/home/operator/projects/command-center-infra/scripts/cron-health-check.sh"
+SCRIPT_PATH="${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/cron-health-check.sh"
 ENV_FILE="$HOME/.config/command-center/cron.env"
 MARKER="# command-center: cron-health-check"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the full stack after bootstrap.sh has run
+# Deploy the full stack after ./install.sh has provisioned the host
 # Usage: bash deploy.sh
 # Run from /opt/stack (the infra repo root)
 
@@ -16,8 +16,8 @@ echo "========================================"
 # ──────────────────────────────────────────────
 # 0. Check prerequisites
 # ──────────────────────────────────────────────
-command -v docker >/dev/null || { echo "ERROR: docker not found. Run bootstrap.sh first." >&2; exit 1; }
-command -v caddy >/dev/null || { echo "ERROR: caddy not found. Run bootstrap.sh first." >&2; exit 1; }
+command -v docker >/dev/null || { echo "ERROR: docker not found. Run ./install.sh first." >&2; exit 1; }
+command -v caddy >/dev/null || { echo "ERROR: caddy not found. Run ./install.sh first." >&2; exit 1; }
 [ -f .env ] || { echo "ERROR: .env not found. Copy .env.example and fill in real values." >&2; exit 1; }
 
 echo "[1/5] Loading env..."
@@ -85,8 +85,8 @@ echo "  Stack deployed!"
 echo "========================================"
 echo ""
 echo "Services:"
-echo "  OpenHands UI:   https://oh.mikeluka.com"
-echo "  LiteLLM Proxy:  https://llm.mikeluka.com"
+echo "  OpenHands UI:   https://oh.${CC_DOMAIN:-cc.example.com}"
+echo "  LiteLLM Proxy:  https://llm.${CC_DOMAIN:-cc.example.com}"
 echo "  LiteLLM API:    http://localhost:4000"
 echo ""
 echo "Verify:"

@@ -16,7 +16,7 @@ set -euo pipefail
 
 CONTAINER="${CC_CONTAINER:-command-center}"
 EXPIRY="${1:-365d}"
-USERNAME="${2:-mike}"
+USERNAME="${2:-operator}"
 USER_ID="${3:-1}"
 
 if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then

@@ -1,7 +1,27 @@
 // Single source of truth for "what calendar day is this instant" on the
-// dashboard. Eastern (Mike's TZ + the /api/costs default) via Intl so EST/EDT
-// transitions are handled correctly — a "day" is a real local day, not UTC.
-export const EASTERN_TZ = 'America/New_York'
+// dashboard. Resolved via Intl so DST transitions are handled correctly — a
+// "day" is a real local day in the dashboard timezone, not UTC.
+//
+// Set DASHBOARD_TIMEZONE to any IANA zone (e.g. "Europe/Berlin") to move the
+// day boundary. The default stays America/New_York for backwards compatibility
+// with existing installs and the /api/costs default.
+export const DEFAULT_DASHBOARD_TZ = 'America/New_York'
+
+function resolveTz(): string {
+  const raw = (process.env.DASHBOARD_TIMEZONE || '').trim()
+  if (!raw) return DEFAULT_DASHBOARD_TZ
+  try {
+    // Throws RangeError on an unknown/invalid IANA zone.
+    new Intl.DateTimeFormat('en-CA', { timeZone: raw })
+    return raw
+  } catch {
+    console.warn(`[eastern-day] invalid DASHBOARD_TIMEZONE=${raw}; falling back to ${DEFAULT_DASHBOARD_TZ}`)
+    return DEFAULT_DASHBOARD_TZ
+  }
+}
+
+/** The dashboard's calendar timezone. Named EASTERN_TZ for import compatibility. */
+export const EASTERN_TZ = resolveTz()
 
 const fmt = new Intl.DateTimeFormat('en-CA', {
   timeZone: EASTERN_TZ,

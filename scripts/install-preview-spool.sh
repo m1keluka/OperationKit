@@ -2,7 +2,7 @@
 # install-preview-spool.sh — wire up the host-side PR-preview auto-deploy runner
 # (obj 1452). Run ONCE on the VPS host as root (or via sudo):
 #
-#   sudo bash /home/operator/projects/command-center-infra/scripts/install-preview-spool.sh
+#   sudo bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/install-preview-spool.sh
 #
 # Idempotent: re-running re-copies the units, recreates the spool dir, and
 # reloads systemd. This is the privileged step that lets the container's
@@ -17,7 +17,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-REPO_DIR="/home/operator/projects/command-center-infra"
+REPO_DIR="${CC_REPO_DIR:-/home/operator/projects/operationkit}"
 SYSTEMD_SRC="${REPO_DIR}/config/systemd"
 SYSTEMD_DST="/etc/systemd/system"
 SPOOL_DIR="${PREVIEW_SPOOL_DIR:-/home/operator/projects/.preview-spool}"

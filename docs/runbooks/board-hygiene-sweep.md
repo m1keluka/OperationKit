@@ -27,22 +27,22 @@ The sweep tool is operational tooling, kept outside this repo under the objectiv
 | `~/ai-workspace/objective-memory/700583/hygiene-sweep.mjs` | classifier + rules (single source of truth); dry-run default, `--execute`, `--manifest`, `--json` |
 | `~/ai-workspace/objective-memory/700583/daily-sweep.mjs` | cron entrypoint: `--execute` then refresh the digest + logs |
 | `~/ai-workspace/objective-memory/700583/w2-sweep-runbook.md` | full operator runbook |
-| `~/ai-workspace/objective-memory/700583/mike-cron-snippet.txt` | the installed crontab line (reinstall source) |
+| `~/ai-workspace/objective-memory/700583/cron-snippet.txt` | the installed crontab line (reinstall source) |
 
 ## Schedule (VPS)
 
-Installed in **mike's crontab** (Mike-approved AUTO-DAILY EXECUTE), 07:17 daily (off the :00 mark):
+Installed in the **operator user's crontab** (opt-in AUTO-DAILY EXECUTE), 07:17 daily (off the :00 mark):
 
 ```cron
 17 7 * * * cd /home/operator/ai-workspace/objective-memory/700583 && /usr/bin/node /home/operator/ai-workspace/objective-memory/700583/daily-sweep.mjs >> /home/operator/ai-workspace/objective-memory/700583/logs/cron.log 2>&1
 ```
 
-- Verify: `crontab -u mike -l | grep board-hygiene`
+- Verify: `crontab -u "${OPERATOR_USER:-operator}" -l | grep board-hygiene`
 - Human-facing digest refreshed each run at `/home/operator/ai-workspace/briefings/hygiene-latest.md`
 - Logs: `~/ai-workspace/objective-memory/700583/logs/sweep-YYYYMMDD.log` + `cron.log`
-- Runs **directly on the host as `mike`** — the VPS host has `/usr/bin/node` (verified), the
+- Runs **directly on the host as the operator user** — the host has `/usr/bin/node`, the
   `ai-workspace` tree is on the host filesystem, and the host reaches the API on `localhost:3002`,
-  so no `docker exec` indirection is needed. Keep `logs/` mike-owned (uid 1001); a root-owned
+  so no `docker exec` indirection is needed. Keep `logs/` owned by that same user; a root-owned
   `sweep-*.log` left by an in-container test will `EACCES` the append.
 
 ## Relationship to in-app continuous sweeps (PR #205)

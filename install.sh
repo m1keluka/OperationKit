@@ -11,7 +11,8 @@
 #      secret, 32-byte base64 encryption keys) — existing values are preserved;
 #   4. PROMPTS only for the minimal provider key (ANTHROPIC_API_KEY) and the
 #      public domain, or accepts them non-interactively via flags/env;
-#   5. generates a single-site Caddyfile from your domain (auto-TLS);
+#   5. generates a single-site Caddyfile from your domain (auto-TLS), and creates
+#      every host directory the default compose service bind-mounts;
 #   6. brings up the docker compose stack (app + LiteLLM bound to loopback;
 #      only Caddy is public);
 #   7. runs a health-check loop against LiteLLM /health and the app port and
@@ -286,6 +287,43 @@ if command -v caddy >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ];
 else
   warn "Caddy not installed on host. Install it (see docs/DIGITALOCEAN.md) then copy $CADDY_OUT to /etc/caddy/Caddyfile."
 fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5b. Create every host directory the default compose service bind-mounts
+# ──────────────────────────────────────────────────────────────────────────────
+# Docker REFUSES to start a service whose bind-mount source directory is missing
+# (and silently creates a *directory* where a file was meant), so a fresh droplet
+# must have these before the first `docker compose up`. This list mirrors the
+# `command-center` service `volumes:` block in docker-compose.yml exactly, minus
+# /var/run/docker.sock (provided by the Docker daemon itself).
+#
+# The paths are literal /home/operator/... because docker-compose.yml hardcodes
+# that prefix; keep the two lists in sync when you change either.
+OPERATOR_HOME=/home/operator
+
+log "Creating host directories for compose bind-mounts under $OPERATOR_HOME ..."
+$SUDO mkdir -p \
+  "$OPERATOR_HOME/data/command-center" \
+  "$OPERATOR_HOME/ai-workspace" \
+  "$OPERATOR_HOME/second-brain" \
+  "$OPERATOR_HOME/projects" \
+  "$OPERATOR_HOME/transcripts" \
+  "$OPERATOR_HOME/assistant" \
+  "$OPERATOR_HOME/.claude-auth" \
+  "$OPERATOR_HOME/.ccuser-a" \
+  "$OPERATOR_HOME/.ccuser-b" \
+  "$OPERATOR_HOME/.ccuser-c" \
+  "$OPERATOR_HOME/.ccuser-d" \
+  "$OPERATOR_HOME/.ccuser-e" \
+  "$OPERATOR_HOME/.ccuser-codex" \
+  "$OPERATOR_HOME/.ssh" \
+  "$OPERATOR_HOME/.config/gh" \
+  "$OPERATOR_HOME/.doppler"
+
+# .ssh holds the deploy key used for git push from sessions; OpenSSH refuses to
+# use a world-readable key directory.
+$SUDO chmod 700 "$OPERATOR_HOME/.ssh"
+log "Host bind-mount directories ready"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 6. Validate compose + bring up the stack

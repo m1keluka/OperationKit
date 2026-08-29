@@ -28,7 +28,7 @@ set -u -o pipefail
 
 CONFIG_DIR=/home/operator/.config/command-center/schedule
 LOG_DIR=/home/operator/transcripts
-WRAPPER=/home/operator/projects/command-center-infra/scripts/run-claude-scheduled.sh
+WRAPPER=${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/run-claude-scheduled.sh
 TAG_PREFIX="# command-center-schedule:"
 SELF="$(readlink -f "$0")"
 

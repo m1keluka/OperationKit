@@ -99,22 +99,39 @@ services:
       #    Until that two-tier split ships, do NOT add any non-admin member. See
       #    SPAWN-ENV-SCOPING-CUTOVER.md. This active mount is unchanged (admin path).
       - /var/run/docker.sock:/var/run/docker.sock
-      # Doppler service-token config (provisioned on host; see scripts/bootstrap.sh)
+      # Doppler service-token config (optional; created on the host by install.sh)
       - /home/operator/.doppler:/root/.doppler:ro
-      # Mount source code so Claude Code sessions can edit and self-deploy
-      - /home/operator/projects/command-center-infra/app/server/src:/app/server/src
-      - /home/operator/projects/command-center-infra/app/server/shell.html:/app/server/shell.html
-      - /home/operator/projects/command-center-infra/app/client/src:/app/client/src
-      - /home/operator/projects/command-center-infra/app/client/tailwind.config.ts:/app/client/tailwind.config.ts
-      - /home/operator/projects/command-center-infra/app/client/dist:/app/client/dist
-      - /home/operator/projects/command-center-infra/app/shared:/app/shared
+      # ── dev-bind profile: source-code live-edit mounts ──────────────────────────
+      # These mounts let Claude Code sessions edit and self-deploy source files live.
+      # They point to the checked-out repo on the HOST and are NOT required for a
+      # production install — a stranger who just ran `git clone` and `./install.sh`
+      # will NOT have these paths.
+      #
+      # To enable for local development or an operator self-deploy setup, override
+      # via a compose override file that YOU create (this repo ships no such file);
+      # e.g. save the following as docker-compose.dev-bind.yml:
+      #
+      #   services:
+      #     command-center:
+      #       volumes:
+      #         - ${CC_REPO_DIR:-/home/operator/projects/operationkit}/app/server/src:/app/server/src
+      #         - ${CC_REPO_DIR:-/home/operator/projects/operationkit}/app/server/shell.html:/app/server/shell.html
+      #         - ${CC_REPO_DIR:-/home/operator/projects/operationkit}/app/client/src:/app/client/src
+      #         - ${CC_REPO_DIR:-/home/operator/projects/operationkit}/app/client/tailwind.config.ts:/app/client/tailwind.config.ts
+      #         - ${CC_REPO_DIR:-/home/operator/projects/operationkit}/app/client/dist:/app/client/dist
+      #         - ${CC_REPO_DIR:-/home/operator/projects/operationkit}/app/shared:/app/shared
+      #
+      # Then run: docker compose -f docker-compose.yml -f docker-compose.dev-bind.yml up
+      # (Set CC_REPO_DIR to your checkout path if it differs from the default.)
     environment:
       NODE_ENV: production
       PORT: "3002"
       # Required. Empty / placeholder values fail boot (see SECURITY.md).
       JWT_SECRET: "${CC_JWT_SECRET}"
       SUPABASE_WEBHOOK_SECRET: "${SUPABASE_WEBHOOK_SECRET:-}"
-      WEIGHT_SUPPLY_WEBHOOK_SECRET: "${WEIGHT_SUPPLY_WEBHOOK_SECRET:-}"
+      # Optional SECOND inbound-webhook secret, when a project posts to this board
+      # from a different system than the one SUPABASE_WEBHOOK_SECRET covers.
+      EXTRA_WEBHOOK_SECRET: "${EXTRA_WEBHOOK_SECRET:-}"
       # Used by session-intel summarizer (direct Anthropic Messages API, replaced LiteLLM 2026-04-27)
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
     # Secrets not listed here are hydrated at boot from the native secrets

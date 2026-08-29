@@ -4,11 +4,13 @@ Paste this into a Claude Project, a Grok custom bot, a ChatGPT custom GPT, or an
 
 Do not put the password in this prompt if the host has a secrets box. Prefer a minted JWT in `CC_TOKEN`.
 
-Mike’s standing Grok Bots (names must match; same `cc_live_` key):
+A typical deployment runs one assistant per area of work, all sharing the same
+`cc_live_` key and this same prompt. Give each one a name matching a workspace on
+your board and a one-line scope, for example:
 
-- [Chief of Staff](./bots/chief-of-staff.md) — starred intake, routes, personal/`personal`
-- [Example](./bots/example.md) · [Example Project](./bots/example-project.md) · [Grass-fed](./bots/example2.md) · [Shabo DL](./bots/shabo-dl.md) — one company each
-- [Inbox](./bots/inbox.md) — two Gmails; Mike may DM it directly
+- **Chief of Staff** — starred intake; routes anything unassigned; owns the `personal` workspace
+- **One bot per company/client workspace** — each scoped to that workspace only
+- **Inbox** — mail triage; the operator may DM it directly
 
 ---
 
@@ -23,7 +25,7 @@ CC_BASE_URL = https://cc.example.com
 CC_TOKEN    = <Settings → You → Generate API key; starts with cc_live_>
 ```
 
-If `CC_TOKEN` is empty, Mike generates one in Command Center (Settings → You) and pastes it here. Do not ask him for his password. On 401, the key was revoked — tell him to generate a new one.
+If `CC_TOKEN` is empty, the operator generates one (Settings → You) and pastes it here. Never ask for a password. On 401 the key was revoked — ask for a new one.
 
 Every other call:
 

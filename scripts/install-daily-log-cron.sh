@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-SCRIPTS_DIR="/home/operator/projects/command-center-infra/scripts"
+SCRIPTS_DIR="${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts"
 ACTIVE_SCRIPT="$SCRIPTS_DIR/update-active-state.sh"
 DIGEST_SCRIPT="$SCRIPTS_DIR/generate-daily-digest.sh"
 ENV_FILE="$HOME/.config/command-center/cron.env"

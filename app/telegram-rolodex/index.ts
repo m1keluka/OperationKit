@@ -126,7 +126,7 @@ const TOOLS: AnthropicToolDef[] = [
   },
   {
     name: 'vault_append_touchpoint',
-    description: 'Record an interaction with a contact. Updates frontmatter last_interaction (if newer), recomputes next_touchpoint, and appends a line under ## Touchpoints. Use this when Mike tells you he met/called/emailed someone.',
+    description: 'Record an interaction with a contact. Updates frontmatter last_interaction (if newer), recomputes next_touchpoint, and appends a line under ## Touchpoints. Use this when the owner tells you they met/called/emailed someone.',
     input_schema: {
       type: 'object',
       properties: {
@@ -262,7 +262,7 @@ function loadSystemPrompt(): string {
     return text
   } catch (err) {
     console.error('[rolodex] failed to read agent file', AGENT_FILE, err)
-    return 'You are Mike\'s personal CRM assistant. Use the vault_* tools to manage contacts.'
+    return 'You are the owner\'s personal CRM assistant. Use the vault_* tools to manage contacts.'
   }
 }
 
@@ -375,7 +375,7 @@ async function handleUpdate(update: TelegramUpdate): Promise<void> {
   // HARD allowlist — single owner, by Telegram user id.
   if (fromId !== OWNER_ID) {
     console.warn(`[rolodex] rejected message from user_id=${fromId} chat=${chatId}`)
-    await sendMessage(chatId, "Sorry — this bot is private. If you think you should have access, ping Mike directly.")
+    await sendMessage(chatId, "Sorry — this bot is private. If you think you should have access, contact its owner.")
     return
   }
 

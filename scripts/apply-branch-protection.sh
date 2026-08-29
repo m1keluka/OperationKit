@@ -20,7 +20,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO="${HARNESS_REPO:-your-org/command-center-infra}"
+REPO="${HARNESS_REPO:-your-org/operationkit}"
 RULESET_NAME="harness-gate-main"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JSON="${SCRIPT_DIR}/branch-protection-ruleset.json"

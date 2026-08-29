@@ -42,7 +42,7 @@ Pick commands that are genuinely deterministic for that project, e.g.:
 - `npx tsc --noEmit`
 - `npm test` (or the project's real test script)
 
-## STEP 2 — Insert the opt-in row (the ONLY prod change Mike runs)
+## STEP 2 — Insert the opt-in row (the ONLY prod change the operator runs)
 
 Run this on the VPS host. It writes a single settings row. **It does NOT flip the
 global flag** — `deterministic_floor_enabled` stays `0`.

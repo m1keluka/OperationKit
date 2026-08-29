@@ -27,6 +27,8 @@ const requireFromApp = createRequire('/app/package.json')
 const Database = requireFromApp('better-sqlite3')
 
 const DB_PATH = process.env.DB_PATH || '/app/data/command-center.db'
+// Project slug written to rows that have none. Override with CC_PROJECT_NAME.
+const DEFAULT_PROJECT = process.env.CC_PROJECT_NAME || 'operationkit'
 const TRANSCRIPT_DIR = process.env.TRANSCRIPT_DIR || '/home/operator/transcripts'
 const APPLY = process.argv.includes('--apply')
 
@@ -108,7 +110,7 @@ for (const obj of objectives) {
     db.prepare(
       `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
        VALUES (?, ?, ?, NULL, 'milestone', 'ran_on_fallback', ?)`
-    ).run(obj.project ?? 'command-center-infra', obj.workspace ?? 'example', obj.id,
+    ).run(obj.project ?? DEFAULT_PROJECT, obj.workspace ?? 'example', obj.id,
       `Backfill (obj 701053): requested ${obj.model} but the main agentic loop ran on fallback ${FALLBACK_MODEL_ID}. ${evidence}.`)
     newlyFlagged++
   } else if (!genuine && obj.ran_on_fallback) {
@@ -117,7 +119,7 @@ for (const obj of objectives) {
     db.prepare(
       `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
        VALUES (?, ?, ?, NULL, 'milestone', 'fallback_flag_cleared', ?)`
-    ).run(obj.project ?? 'command-center-infra', obj.workspace ?? 'example', obj.id,
+    ).run(obj.project ?? DEFAULT_PROJECT, obj.workspace ?? 'example', obj.id,
       `Backfill (obj 701053): cleared FALSE-POSITIVE fallback flag (removed ${del.changes} spurious log row(s)). The old detector keyed on the modelUsage rollup / sub-agent transcripts; the main loop did not run on ${FALLBACK_MODEL_ID}. ${evidence}.`)
     cleared++
   } else if (genuine && obj.ran_on_fallback) {

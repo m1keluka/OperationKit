@@ -13,7 +13,9 @@
 #
 #   ACCOUNT         account slot letter (a..e). Default: a
 #   --setup-token   use `claude setup-token` (headless) instead of `auth login`
-#   --home DIR      override the account home dir (default: /opt/operationkit/.ccuser-<ACCOUNT>)
+#   --home DIR      override the account home dir
+#                   (default: ${OPERATOR_HOME:-/home/operator}/.ccuser-<ACCOUNT>,
+#                    which is what docker-compose.yml bind-mounts)
 #
 # Examples:
 #   scripts/claude-auth.sh a                 # interactive subscription login into account a
@@ -28,13 +30,16 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --setup-token) MODE="setup-token"; shift ;;
     --home) HOME_OVERRIDE="${2:?--home needs a directory}"; shift 2 ;;
-    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     [a-z]) ACCOUNT="$1"; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
-ACCOUNT_HOME="${HOME_OVERRIDE:-/opt/operationkit/.ccuser-${ACCOUNT}}"
+# Must match the .ccuser-* bind-mounts in docker-compose.yml, otherwise auth
+# succeeds on the host but the container never sees the credential.
+OPERATOR_HOME="${OPERATOR_HOME:-/home/operator}"
+ACCOUNT_HOME="${HOME_OVERRIDE:-${OPERATOR_HOME}/.ccuser-${ACCOUNT}}"
 CRED="${ACCOUNT_HOME}/.claude/.credentials.json"
 
 if ! command -v claude >/dev/null 2>&1; then

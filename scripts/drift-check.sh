@@ -16,7 +16,7 @@
 # Usage: bash scripts/drift-check.sh [repo_dir]
 set -u
 
-REPO_DIR="${1:-/home/operator/projects/command-center-infra}"
+REPO_DIR="${1:-${CC_REPO_DIR:-/home/operator/projects/operationkit}}"
 SERVED_PATHS=(app/server/src app/client/src app/shared app/client/dist)
 
 if ! git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then

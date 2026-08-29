@@ -1,6 +1,8 @@
 # Telegram Rolodex Bot (Phase 5 Personal CRM)
 
-A single-owner Telegram bot that lets Mike manage his contacts vault via chat. Runs as a sibling process inside the `command-center` container, spawned by the main server (`services/rolodex-supervisor.ts`).
+**Optional component — not required to run OperationKit.** A single-owner Telegram
+bot that lets the operator manage a contacts vault via chat. It stays dormant unless
+`TELEGRAM_ROLODEX_BOT_TOKEN` and `TELEGRAM_ROLODEX_OWNER_ID` are set. Runs as a sibling process inside the `command-center` container, spawned by the main server (`services/rolodex-supervisor.ts`).
 
 ## Architecture
 
@@ -33,7 +35,7 @@ Settings → Secrets (or compose env):
 | Var | Value |
 |-----|-------|
 | `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather) → /newbot |
-| `TELEGRAM_ROLODEX_OWNER_ID` | Mike's Telegram user ID (numeric, e.g. `123456789`). Get it from [@userinfobot](https://t.me/userinfobot). |
+| `TELEGRAM_ROLODEX_OWNER_ID` | The owner's Telegram user ID (numeric, e.g. `123456789`). Get it from [@userinfobot](https://t.me/userinfobot). |
 
 New sessions pick up store keys on spawn. Compose-only vars need a Node restart (`quick-deploy.sh backend`), not a container rebuild.
 

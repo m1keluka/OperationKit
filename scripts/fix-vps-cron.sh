@@ -36,7 +36,7 @@
 
 set -u -o pipefail
 
-REPO_DIR="/home/operator/projects/command-center-infra"
+REPO_DIR="${CC_REPO_DIR:-/home/operator/projects/operationkit}"
 SCRIPTS_DIR="$REPO_DIR/scripts"
 ENV_FILE="$HOME/.config/command-center/cron.env"
 LOG_DIR="/home/operator/transcripts"
@@ -52,7 +52,7 @@ warn() { log "WARN: $*"; }
 # Step 1: Preflight
 # ---------------------------------------------------------------------------
 log "=== fix-vps-cron start ==="
-[ "$(id -un)" = "mike" ] || warn "expected to run as user 'mike', got '$(id -un)'"
+[ "$(id -un)" = "${OPERATOR_USER:-operator}" ] || warn "expected to run as user '${OPERATOR_USER:-operator}', got '$(id -un)'"
 
 command -v docker  >/dev/null 2>&1 || die "docker CLI not on host PATH"
 command -v jq      >/dev/null 2>&1 || die "jq not on host PATH"

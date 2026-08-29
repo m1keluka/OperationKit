@@ -131,7 +131,7 @@ every write.
 
 `POST /api/webhooks/example-project` is stubbed; returns `501 Not Implemented`
 until `example-project-platform` is ready. It expects a separate
-`WEIGHT_SUPPLY_WEBHOOK_SECRET` so the two workspaces rotate secrets
+`EXTRA_WEBHOOK_SECRET` so the two workspaces rotate secrets
 independently.
 
 ## Troubleshooting

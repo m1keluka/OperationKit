@@ -50,7 +50,7 @@ Every top-level path and every Example-internal integration is classified as:
 ## `scripts/` itemization
 
 ### SHIP (generic ops)
-`backup-db.sh`, `bootstrap.sh`, `deploy.sh`, `drift-check.sh`, `quick-deploy.sh`,
+`backup-db.sh`, `deploy.sh`, `drift-check.sh`, `quick-deploy.sh`,
 `self-deploy.sh`, `preview-deploy.sh`, `preview-spool-runner.sh`,
 `preview-teardown.sh`, `install-preview-spool.sh`, `install-harness-hooks.sh`,
 `apply-branch-protection.sh`, `rollout-branch-protection.sh`,

@@ -28,14 +28,14 @@ specific key wins: per-objective → per-category → per-type.
 INSERT OR REPLACE INTO settings (key, value) VALUES (
   'outcome_assertion:1234',
   '{"enabled":true,
-    "command":"OUTCOME_MIN_ROWS=50 node /home/operator/projects/command-center-infra/app/server/fixtures/outcome/data-state-delta/assert-rowcount.mjs",
+    "command":"OUTCOME_MIN_ROWS=50 node ${CC_REPO_DIR}/app/server/fixtures/outcome/data-state-delta/assert-rowcount.mjs",
     "cwd":"/tmp/cc-worktree-1234"}'
 );
 
 -- Per-category (every objective with category=marketing):
 INSERT OR REPLACE INTO settings (key, value) VALUES (
   'outcome_assertion:category:marketing',
-  '{"enabled":true,"command":"node /home/operator/projects/command-center-infra/app/server/fixtures/outcome/content-artifact/assert-published.mjs"}'
+  '{"enabled":true,"command":"node ${CC_REPO_DIR}/app/server/fixtures/outcome/content-artifact/assert-published.mjs"}'
 );
 
 -- Per-type (every objective with type=task):
