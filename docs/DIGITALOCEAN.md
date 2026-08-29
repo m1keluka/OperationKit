@@ -98,10 +98,7 @@ chown -R deploy:deploy /home/deploy/.ssh
 chmod 700 /home/deploy/.ssh && chmod 600 /home/deploy/.ssh/authorized_keys
 ```
 
-> The bundled `scripts/bootstrap.sh` automates this same user setup (it creates a
-> `operator` user) plus Docker/Caddy/firewall in one shot. You can run it instead of
-> Steps 3–5 if you prefer; this walkthrough does the steps explicitly so you
-> understand each one.
+> This walkthrough does these steps explicitly so you understand each one. The installer (`sudo ./install.sh`) handles Docker and Caddy (Steps 4–6), but it does not create the non-root user — do that first.
 
 ---
 
@@ -204,13 +201,15 @@ authenticated** with a Claude Pro/Max subscription. On the droplet:
 
 ```bash
 cd ~/operationkit
-sudo ./scripts/claude-auth.sh a --setup-token   # headless-friendly; prints an OAuth URL
+# Pass --home to match the bind-mount path in docker-compose.yml
+sudo ./scripts/claude-auth.sh a --setup-token --home /home/operator/.ccuser-a
 ```
 
-Open the printed URL on any device, approve, and the helper writes the credential to
-`/opt/operationkit/.ccuser-a/.claude/.credentials.json`. That's all — the router picks
-the account up on the next session with no restart. To run more concurrent agents or
-survive rate-limit windows, authenticate additional accounts (`b`..`e`) the same way.
+Open the printed OAuth URL on any device, approve, and the helper writes the credential to
+`/home/operator/.ccuser-a/.claude/.credentials.json` — the path the container mounts.
+The router picks the account up on the next session with no restart. To run more concurrent
+agents or survive rate-limit windows, authenticate additional accounts (`b`..`e`) the same way
+(replacing `a` and `.ccuser-a` accordingly).
 Full model, methods, and scaling: **[CLAUDE-CODE-AUTH.md](./CLAUDE-CODE-AUTH.md)**.
 
 ---

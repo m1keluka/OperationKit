@@ -18,7 +18,7 @@ There are two paths:
 
 | Requirement | Notes |
 |-------------|-------|
-| Linux host | Ubuntu 24.04 is the tested target ([`scripts/bootstrap.sh`](../scripts/bootstrap.sh) assumes it). Any modern Linux with Docker works for a manual run. |
+| Linux host | Ubuntu 24.04 is the tested target. Any modern Linux with Docker works for a manual run. |
 | Docker Engine + Compose v2 | `docker --version` and `docker compose version` must both work. Install via [Docker's official repo](https://docs.docker.com/engine/install/). |
 | ~4 GB RAM, 2 vCPU, 20 GB disk | Baseline for the three containers. More headroom if you run many concurrent agents. |
 | A **Claude Code subscription** (Pro or Max) | **This is how agent sessions are powered — the recommended primary path.** You authenticate it into an account home via OAuth (no per-token API billing); see **[CLAUDE-CODE-AUTH.md](CLAUDE-CODE-AUTH.md)**. Add more subscriptions later for higher throughput. |
@@ -27,11 +27,11 @@ There are two paths:
 
 > **Heads up — host paths (V1 rough edge).** The committed
 > [`docker-compose.yml`](../docker-compose.yml) bind-mounts a set of workspace
-> directories under `/opt/operationkit/...` (the original author's layout). The server reads
+> directories from `/home/operator/...` on the host into the container. The server reads
 > these locations from environment variables with sane fallbacks
 > ([`app/server/src/config.ts`](../app/server/src/config.ts): `PROJECTS_DIR`,
 > `AI_WORKSPACE_DIR`, `SECOND_BRAIN_DIR`, `TRANSCRIPT_DIR`, `USER_HOME`, …). On your own
-> box you'll either use the **DigitalOcean installer** (which sets these up for you) or
+> box you'll either use the **DigitalOcean installer** (which creates those directories for you) or
 > adjust the bind-mount paths in `docker-compose.yml` to real directories on your host
 > and/or override the `*_DIR` env vars. This is one of the things V1 is actively
 > smoothing out — see [CONTRIBUTING.md](../CONTRIBUTING.md) if you want to help.
@@ -111,7 +111,12 @@ docker compose logs -f command-center
 > the stack is up, authenticate at least one account (`a`) — the quickest path is the
 > helper:
 > ```bash
-> ./scripts/claude-auth.sh a          # interactive; or `a --setup-token` on a headless host
+> # Pass --home to match the bind-mount in docker-compose.yml
+> ./scripts/claude-auth.sh a --home /home/operator/.ccuser-a
+> # Headless / token-based auth:
+> # ./scripts/claude-auth.sh a --setup-token --home /home/operator/.ccuser-a
+> # For accounts b..e replace 'a' and '.ccuser-a' accordingly.
+> # Manual hosts that remapped the compose bind-mount paths: adjust --home to match.
 > ```
 > Full details, scaling to multiple subscriptions, and manual methods are in
 > **[CLAUDE-CODE-AUTH.md](CLAUDE-CODE-AUTH.md)**. No accounts authenticated ⇒ objectives
@@ -171,9 +176,9 @@ For deeper background on objective types and the planning model, see
 ## 9. (Public deploys) put it behind TLS
 
 For a real internet-facing deployment, the app ports stay bound to `127.0.0.1` and
-**Caddy** on the host terminates TLS and reverse-proxies to `:3002`.
-[`scripts/bootstrap.sh`](../scripts/bootstrap.sh) installs Caddy, a firewall (ufw:
-22/80/443), and fail2ban. The DigitalOcean installer wires the Caddyfile for you.
+**Caddy** on the host terminates TLS and reverse-proxies to `:3002`. The DigitalOcean
+installer (`sudo ./install.sh`) installs Caddy, configures a firewall (ufw: 22/80/443),
+and generates the Caddyfile for your domain — see [docs/DIGITALOCEAN.md](DIGITALOCEAN.md).
 **Read [SECURITY.md](../SECURITY.md) before exposing the board.**
 
 ---
@@ -185,7 +190,7 @@ For a real internet-facing deployment, the app ports stay bound to `127.0.0.1` a
 | `command-center` container restarts / unhealthy | Missing or blank core value in `.env`; run `docker compose logs command-center`. |
 | Health check on `:3002` fails but container is up | Give it `start_period` (~15s) to boot; re-curl. Check the log for a bind-mount path error. |
 | LLM calls fail with auth errors | Bad/absent provider key in `.env`. LiteLLM does **not** retry auth errors — fix the key and `docker compose restart litellm`. |
-| Bind-mount / `no such file or directory` on start | A `/opt/operationkit/...` path in `docker-compose.yml` doesn't exist on your host — edit it to a real dir or use the installer (§1 note). |
+| Bind-mount / `no such file or directory` on start | A `/home/operator/...` path in `docker-compose.yml` doesn't exist on your host — create the directory, edit the path, or use the DigitalOcean installer which creates them automatically. |
 | Can't log in after changing `CC_JWT_SECRET` | Expected — rotating the JWT secret invalidates existing tokens. Log in again. |
 
 Still stuck? Open a **bug report** (see [.github/ISSUE_TEMPLATE](../.github/ISSUE_TEMPLATE)).
