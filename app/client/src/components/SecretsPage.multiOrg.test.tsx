@@ -53,7 +53,7 @@ const { state, apiMock, ApiErrorMock } = vi.hoisted(() => {
     principals: {
       organizations: [
         { slug: 'example', name: 'Example Org' },
-        { slug: 'example2', name: 'Grass Fed' },
+        { slug: 'example2', name: 'Example Shop' },
         { slug: 'personal', name: 'Personal' },
       ],
       users: [{ id: 1, username: 'admin' }],
@@ -105,7 +105,7 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
     state.principals = {
       organizations: [
         { slug: 'example', name: 'Example Org' },
-        { slug: 'example2', name: 'Grass Fed' },
+        { slug: 'example2', name: 'Example Shop' },
         { slug: 'personal', name: 'Personal' },
       ],
       users: [{ id: 1, username: 'admin' }],
@@ -192,7 +192,7 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
     expect(container.querySelector('[data-testid="fanout-fail-example2"]')).toBeTruthy()
     expect(report!.textContent).toContain('Created in 1 of 2 organizations')
     expect(report!.textContent).toContain('Example Org')
-    expect(report!.textContent).toContain('Grass Fed')
+    expect(report!.textContent).toContain('Example Shop')
 
     // The modal stays OPEN and only the failed organization stays ticked, so
     // resubmitting retries just that one.

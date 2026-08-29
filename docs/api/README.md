@@ -5,16 +5,10 @@ Remote HTTP API so a person — or a **third-party agent** (Claude, Grok, ChatGP
 Live machine spec: `GET https://cc.example.com/api/openapi.json`  
 Discovery: `GET https://cc.example.com/api/agent`  
 Portable agent prompt: [AGENT-PROMPT.md](./AGENT-PROMPT.md)  
-Standing Grok Bots (names must match exactly):
-
-| Bot | Prompt |
-| --- | --- |
-| **Chief of Staff** (starred) | [chief-of-staff.md](./bots/chief-of-staff.md) |
-| **Example** | [example.md](./bots/example.md) |
-| **Example Project** | [example-project.md](./bots/example-project.md) |
-| **Grass-fed** | [example2.md](./bots/example2.md) |
-| **Shabo DL** | [shabo-dl.md](./bots/shabo-dl.md) |
-| **Inbox** (peer) | [inbox.md](./bots/inbox.md) |
+Standing bots: run one assistant per area of work, each named to match a workspace on
+your board, all sharing the same `cc_live_` key and the portable prompt above. A typical
+set is a starred **Chief of Staff** for intake and routing, one bot per company or client
+workspace, and an **Inbox** bot for mail triage.
 
 This is the **board / PM surface**. It is not the whole server. Admin, secrets, shell, deploy, and `/api/internal/*` (localhost sessions on the VPS) stay out of this contract on purpose.
 
