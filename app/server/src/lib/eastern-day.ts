@@ -18,15 +18,6 @@ function resolveDashboardTz(): string {
     console.warn(
       `[eastern-day] invalid DASHBOARD_TIMEZONE="${raw}" — falling back to ${DEFAULT_DASHBOARD_TZ}`,
     )
-function resolveTz(): string {
-  const raw = (process.env.DASHBOARD_TIMEZONE || '').trim()
-  if (!raw) return DEFAULT_DASHBOARD_TZ
-  try {
-    // Throws RangeError on an unknown/invalid IANA zone.
-    new Intl.DateTimeFormat('en-CA', { timeZone: raw })
-    return raw
-  } catch {
-    console.warn(`[eastern-day] invalid DASHBOARD_TIMEZONE=${raw}; falling back to ${DEFAULT_DASHBOARD_TZ}`)
     return DEFAULT_DASHBOARD_TZ
   }
 }
@@ -36,8 +27,6 @@ function resolveTz(): string {
  * import sites keep working; the value is now configurable.
  */
 export const EASTERN_TZ = resolveDashboardTz()
-/** The dashboard's calendar timezone. Named EASTERN_TZ for import compatibility. */
-export const EASTERN_TZ = resolveTz()
 
 const fmt = new Intl.DateTimeFormat('en-CA', {
   timeZone: EASTERN_TZ,
