@@ -1,5 +1,5 @@
 /**
- * The Mike-facing PR-health surface (obj 704700).
+ * The Operator-facing PR-health surface (obj 704700).
  *
  * WHY A ROUTE + DIGEST RATHER THAN A UI PANEL
  * -------------------------------------------
@@ -13,7 +13,7 @@
  * PR-centric view to hang this off, so a panel means new nav + new component + new
  * client build — a large diff in a repo where a sibling worker is concurrently editing
  * the remediation services, for no additional answered question. The digest is one
- * `curl` and is already the format Mike reads elsewhere (hygiene digest, Jarvis
+ * `curl` and is already the format Operator reads elsewhere (hygiene digest, Assistant
  * briefing), and the JSON endpoint means a panel can be added later with zero rework.
  *
  * WHAT THE REPORT NOW ANSWERS (obj 704763)
@@ -47,7 +47,7 @@ import {
   type SweepResult,
 } from '../services/pr-health-watchdog.js'
 // obj 704785: objectives that CLOSED on a non-green PR are rendered onto this same
-// surface rather than a new one Mike would have to remember to check. The watchdog
+// surface rather than a new one Operator would have to remember to check. The watchdog
 // answers "which open PRs are red"; this answers "which finished objectives left one
 // behind, and why the CI-green gate released them". Composed here, in the route, so
 // pr-health-watchdog.ts itself is untouched (a sibling worker owns that file).

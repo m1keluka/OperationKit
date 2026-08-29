@@ -1,6 +1,6 @@
 // Per-objective PR log (obj 2300).
 //
-// Mike's ask: "Within each objective, I want to be able to see each PR that was
+// Operator's ask: "Within each objective, I want to be able to see each PR that was
 // pushed from that objective and click links from it, instead of it just being
 // in chat. There can be multiple — I want a log of this."
 //

@@ -141,7 +141,7 @@ export function analyzeDrift(state: GitState): DriftResult {
  */
 export function collectGitState(repoDir: string = CC_REPO_DIR): GitState {
   // Root inside the container has an empty ~/.ssh. Sessions already get
-  // GIT_SSH_COMMAND (host key + mike's deploy key); drift-guard must too or
+  // GIT_SSH_COMMAND (host key + admin's deploy key); drift-guard must too or
   // `git fetch` dies on "Host key verification failed".
   const gitEnv = { ...process.env, GIT_SSH_COMMAND }
   const git = (args: string[], timeout = 15000): string =>

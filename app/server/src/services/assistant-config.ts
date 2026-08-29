@@ -12,11 +12,11 @@ import type {
 /**
  * Per-user Personal Assistant config: persistence + resolver (obj 701700).
  *
- * Replaces the single-tenant `isMikeThread()` gate in mentor-session.ts with a
+ * Replaces the single-tenant `isOwnerThread()` gate in mentor-session.ts with a
  * `(user, workspace)`-grained config lookup. The three behaviors that were
- * hardcoded to Mike (persona/manual, Google identity, confirmation gating) are
+ * hardcoded to Operator (persona/manual, Google identity, confirmation gating) are
  * now DATA read from `assistant_configs` (see db/index.ts). Every user with
- * Jarvis access resolves their OWN config; the owner migrates losslessly via
+ * Assistant access resolves their OWN config; the owner migrates losslessly via
  * the seed written at migration time.
  */
 
@@ -79,7 +79,7 @@ function rowToConfig(row: AssistantConfigRow): AssistantConfig {
 /**
  * The in-memory default config for a brand-new (user, workspace). Not yet
  * persisted — `resolveAssistantConfig` persists it via create-on-read. Enabled
- * so every Jarvis-access user gets a working (chat-first) assistant they can
+ * so every Assistant-access user gets a working (chat-first) assistant they can
  * then name/configure. Fail-safe: confirm_external gating, no connectors, so a
  * default assistant can never send email/etc. without the user wiring one up.
  */
@@ -161,7 +161,7 @@ function insertConfig(cfg: AssistantConfig): void {
  *  3. No row anywhere → create-on-read a sensible default, persist it, return it.
  *
  * Returns null only when the user id is missing (legacy NULL created_by) — this
- * is the fail-closed equivalent of the old `isMikeThread(null) === false`.
+ * is the fail-closed equivalent of the old `isOwnerThread(null) === false`.
  */
 export function resolveAssistantConfig(
   userId: number | null | undefined,

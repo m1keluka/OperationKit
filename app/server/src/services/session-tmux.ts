@@ -14,15 +14,15 @@ import { spawnSegmentOffset } from './session-registry.js'
 // ── `~`-home false-negative fix (obj 532 / 553) ──
 // Spawned sessions run as OS user `ccuser` with HOME pointed at a per-account
 // scratch dir (/home/ccuser-{a..e}). So a session that types `~/second-brain/...`
-// expands `~` to that scratch home — NOT /home/mike — and the path "does not
+// expands `~` to that scratch home — NOT /home/operator — and the path "does not
 // exist", producing false-negative reviews (obj 532's first ai_review failed this
-// way). We cannot set HOME=/home/mike (each account needs its own Claude OAuth
+// way). We cannot set HOME=/home/operator (each account needs its own Claude OAuth
 // config + Playwright profile under its own HOME), so instead we drop convenience
 // symlinks INTO each account home so `~/second-brain`, `~/projects`, and
-// `~/ai-workspace` resolve to the real /home/mike roots. Idempotent; skips any
+// `~/ai-workspace` resolve to the real /home/operator roots. Idempotent; skips any
 // name already occupied by a real (non-symlink) entry. Combined with the canonical
 // root env vars (canonicalRootEnv) injected at spawn, both `~`-relative and
-// env-based absolute paths now land on /home/mike.
+// env-based absolute paths now land on /home/operator.
 const canonicalLinkTargets: Record<string, string> = {
   'second-brain': SECOND_BRAIN_DIR,
   projects: PROJECTS_DIR,
@@ -125,7 +125,7 @@ export function spawnInTmux(opts: {
   const tmuxName = sessionId // use session ID as tmux session name
 
   // `~`-home fix: ensure ~/second-brain, ~/projects, ~/ai-workspace in this
-  // account home resolve to the real /home/mike roots before the session starts.
+  // account home resolve to the real /home/operator roots before the session starts.
   ensureCanonicalRootLinks(homeDir)
 
   fs.mkdirSync(TMUX_SCRIPT_DIR, { recursive: true })
@@ -135,7 +135,7 @@ export function spawnInTmux(opts: {
   fs.writeFileSync(promptFile, prompt)
   fs.chmodSync(promptFile, 0o666)
 
-  // Build env exports for the wrapper script. Canonical /home/mike roots are
+  // Build env exports for the wrapper script. Canonical /home/operator roots are
   // merged in (caller env wins on collision) so every session can reference the
   // real vault/projects/workspace via env vars instead of brittle `~` expansion.
   // Isolated sessions (obj 1059): expose the worktree root to the PreToolUse guard.

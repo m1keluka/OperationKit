@@ -1,4 +1,4 @@
-// Tests for the Jarvis service-auth bridge (objective 341) in routes/internal.ts.
+// Tests for the Assistant service-auth bridge (objective 341) in routes/internal.ts.
 // Covers:
 //   - auth matrix (localhost × token → 200/401/403)
 //   - fail-closed when MENTOR_SERVICE_TOKEN is unset
@@ -33,7 +33,7 @@ const { default: internalRouter } = await import('./internal.js')
 
 let server: http.Server
 let baseUrl: string
-let mikeId: number
+let ownerId: number
 let aliceId: number
 const TOKEN = 'test-service-token'
 
@@ -70,7 +70,7 @@ beforeAll(async () => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
   const db = getDb()
-  mikeId = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('mike', '', 'admin')").run().lastInsertRowid as number
+  ownerId = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', '', 'admin')").run().lastInsertRowid as number
   aliceId = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('alice', '', 'member')").run().lastInsertRowid as number
 
   const app = makeApp()
@@ -130,15 +130,15 @@ describe('bridge auth matrix (localhost × token)', () => {
 
 // ── Thread create ────────────────────────────────────────────────────────
 
-describe('POST /mentor/threads — create owned by Mike', () => {
-  it('applies defaults (title Telegram, workspace example, tag telegram) and sets created_by=mike', async () => {
+describe('POST /mentor/threads — create owned by Operator', () => {
+  it('applies defaults (title Telegram, workspace example, tag telegram) and sets created_by=admin', async () => {
     const res = await call('POST', '/api/internal/mentor/threads', { token: TOKEN, body: {} })
     expect(res.status).toBe(201)
     const t = (res.json as { thread: Record<string, unknown> }).thread
     expect(t.title).toBe('Telegram')
     expect(t.workspace).toBe('example')
     expect(t.tags).toEqual(['telegram'])
-    expect(t.created_by).toBe(mikeId)
+    expect(t.created_by).toBe(ownerId)
   })
 
   it('honors a supplied title/workspace and ensures the telegram tag is present', async () => {
@@ -156,9 +156,9 @@ describe('POST /mentor/threads — create owned by Mike', () => {
 // ── List ──────────────────────────────────────────────────────────────────
 
 describe('GET /mentor/threads — owner-scoped list', () => {
-  it("returns only Mike's threads, never a member's", async () => {
+  it("returns only Operator's threads, never a member's", async () => {
     const db = getDb()
-    db.prepare("INSERT INTO mentor_threads (title, created_by, workspace) VALUES ('mine', ?, 'example')").run(mikeId)
+    db.prepare("INSERT INTO mentor_threads (title, created_by, workspace) VALUES ('mine', ?, 'example')").run(ownerId)
     db.prepare("INSERT INTO mentor_threads (title, created_by, workspace) VALUES ('hers', ?, 'example')").run(aliceId)
     const res = await call('GET', '/api/internal/mentor/threads', { token: TOKEN })
     const titles = (res.json as { threads: Array<{ title: string }> }).threads.map(t => t.title)
@@ -167,8 +167,8 @@ describe('GET /mentor/threads — owner-scoped list', () => {
 
   it('excludes archived by default, includes with ?include_archived=1', async () => {
     const db = getDb()
-    db.prepare("INSERT INTO mentor_threads (title, created_by, archived) VALUES ('open', ?, 0)").run(mikeId)
-    db.prepare("INSERT INTO mentor_threads (title, created_by, archived) VALUES ('shut', ?, 1)").run(mikeId)
+    db.prepare("INSERT INTO mentor_threads (title, created_by, archived) VALUES ('open', ?, 0)").run(ownerId)
+    db.prepare("INSERT INTO mentor_threads (title, created_by, archived) VALUES ('shut', ?, 1)").run(ownerId)
     const def = await call('GET', '/api/internal/mentor/threads', { token: TOKEN })
     expect((def.json as { threads: Array<{ title: string }> }).threads.map(t => t.title)).toEqual(['open'])
     const all = await call('GET', '/api/internal/mentor/threads?include_archived=1', { token: TOKEN })
@@ -192,9 +192,9 @@ describe('owner-scoping on :id routes', () => {
     expect(res.status).toBe(404)
   })
 
-  it("POST messages on Mike's thread → 202 with session_id + thread_id", async () => {
+  it("POST messages on Operator's thread → 202 with session_id + thread_id", async () => {
     const db = getDb()
-    const id = db.prepare("INSERT INTO mentor_threads (title, created_by) VALUES ('mine', ?)").run(mikeId).lastInsertRowid as number
+    const id = db.prepare("INSERT INTO mentor_threads (title, created_by) VALUES ('mine', ?)").run(ownerId).lastInsertRowid as number
     sendMentorMessageMock.mockReturnValue('mentor-x-1')
     const res = await call('POST', `/api/internal/mentor/threads/${id}/messages`, { token: TOKEN, body: { content: 'hello' } })
     expect(res.status).toBe(202)
@@ -204,7 +204,7 @@ describe('owner-scoping on :id routes', () => {
 
   it('POST messages rejects empty content with 400', async () => {
     const db = getDb()
-    const id = db.prepare("INSERT INTO mentor_threads (title, created_by) VALUES ('mine', ?)").run(mikeId).lastInsertRowid as number
+    const id = db.prepare("INSERT INTO mentor_threads (title, created_by) VALUES ('mine', ?)").run(ownerId).lastInsertRowid as number
     const res = await call('POST', `/api/internal/mentor/threads/${id}/messages`, { token: TOKEN, body: { content: '   ' } })
     expect(res.status).toBe(400)
     expect(sendMentorMessageMock).not.toHaveBeenCalled()
@@ -217,9 +217,9 @@ describe('owner-scoping on :id routes', () => {
     expect(res.status).toBe(404)
   })
 
-  it("GET output on Mike's thread → 200 with state + messages + last_active_at", async () => {
+  it("GET output on Operator's thread → 200 with state + messages + last_active_at", async () => {
     const db = getDb()
-    const id = db.prepare("INSERT INTO mentor_threads (title, created_by, last_active_at) VALUES ('mine', ?, '2026-06-14T00:00:00Z')").run(mikeId).lastInsertRowid as number
+    const id = db.prepare("INSERT INTO mentor_threads (title, created_by, last_active_at) VALUES ('mine', ?, '2026-06-14T00:00:00Z')").run(ownerId).lastInsertRowid as number
     const tmpJsonl = path.join(os.tmpdir(), `bridge-out-${Date.now()}.jsonl`)
     fs.writeFileSync(tmpJsonl, [
       JSON.stringify({ type: 'prompt', text: 'hi', timestamp: '2026-06-14T00:00:00Z' }),
@@ -238,7 +238,7 @@ describe('owner-scoping on :id routes', () => {
 
   it('GET output respects ?tail=N', async () => {
     const db = getDb()
-    const id = db.prepare("INSERT INTO mentor_threads (title, created_by) VALUES ('mine', ?)").run(mikeId).lastInsertRowid as number
+    const id = db.prepare("INSERT INTO mentor_threads (title, created_by) VALUES ('mine', ?)").run(ownerId).lastInsertRowid as number
     const tmpJsonl = path.join(os.tmpdir(), `bridge-tail-${Date.now()}.jsonl`)
     fs.writeFileSync(tmpJsonl, [
       JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'one' }] } }),

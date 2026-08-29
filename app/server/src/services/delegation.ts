@@ -120,7 +120,7 @@ function buildWakeHeader(isStrategy: boolean, trustStage = 0): string {
     // would relax this; today every live strategy is stage 0.
     const gateArmed = (trustStage ?? 0) <= 0
     const gateLine = gateArmed
-      ? 'The human gate IS ARMED: you may NOT spawn a project directly. PARK a Decision Request (POST /api/internal/objectives/<your-id>/decision) for the next project and await Mike’s approval — the spawn route will refuse you otherwise.'
+      ? 'The human gate IS ARMED: you may NOT spawn a project directly. PARK a Decision Request (POST /api/internal/objectives/<your-id>/decision) for the next project and await Operator’s approval — the spawn route will refuse you otherwise.'
       : 'If a human gate is armed for this decision, PAUSE and request sign-off instead of spawning.'
     return [
       '[project-complete] One or more of your PROJECTS has finished.',
@@ -319,7 +319,7 @@ export function recentlyNudged(parentId: number, withinMs: number): boolean {
  *
  * Why a signature: `allDone` and a stuck `review` worker are STABLE states, not
  * events. A delegator that finishes every worker but parks in `review` (e.g.
- * awaiting Mike's decision) stays all-done forever — so a per-cycle "all done →
+ * awaiting Operator's decision) stays all-done forever — so a per-cycle "all done →
  * nudge" check re-wakes it every poll, a wake storm that burns budget and floods
  * the thread with "stale duplicate wake" turns. By nudging only when the child
  * signature CHANGES, a genuinely new completion still wakes the delegator while a

@@ -22,7 +22,7 @@ interface LayoutProps {
    ONE source of truth: NAV_GROUPS. Sections are grouped by *kind* so the
    structure stays coherent as sections are added:
 
-     • primary — Board, Jarvis, Jobs
+     • primary — Board, Assistant, Jobs
      • more    — Content, Docs, Dashboard. Settings lives in the user menu.
        Unfinished surfaces (Contacts, Strategies, Development, Notes, Status,
        Feed) stay routed + ⌘K-able but are not in the chrome.
@@ -31,7 +31,7 @@ interface LayoutProps {
    nav) and a `mobile` placement. Both viewports render from this same model:
 
      • Mobile bottom bar — at most 5 hits: the four `mobile:'tab'` items
-       (Board, Jarvis, Contacts, Docs) + a grouped "More" overflow holding
+       (Board, Assistant, Contacts, Docs) + a grouped "More" overflow holding
        every `mobile:'more'` item. ≤5 tabs is a hard constraint (390px).
      • Desktop top bar — has more room, so the Work / Automation / Directory
        groups render inline (hairline-separated) and the System group collapses
@@ -63,7 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Work',
     items: [
       { href: '/',       label: 'Board',  icon: 'board',  aliases: [],                    mobile: 'tab' },
-      { href: '/jarvis', label: 'Jarvis', icon: 'jarvis', aliases: ['/mentor', '/assistant'], gate: 'jarvis', mobile: 'tab' },
+      { href: '/jarvis', label: 'Assistant', icon: 'jarvis', aliases: ['/mentor', '/assistant'], gate: 'jarvis', mobile: 'tab' },
       { href: '/jobs',   label: 'Jobs',   icon: 'jobs',   aliases: [],                    gate: 'admin', mobile: 'tab' },
     ],
   },

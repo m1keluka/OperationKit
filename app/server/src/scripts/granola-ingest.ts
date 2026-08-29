@@ -28,15 +28,15 @@ interface ActionItem {
   source_excerpt: string
 }
 
-// Keep in sync with the `granola_processed_meetings.workspace` CHECK constraint
-// (declared both below and in db/index.ts) and with the workspaces seed.
+// Example workspace slugs used by the classifier prompt. Replace these with
+// your own deployment's workspace slugs (see the workspaces seed).
 const VALID_WORKSPACES = [
   'example',
   'example-project',
   'personal',
   'personal',
   'example2',
-  'shabo-dl',
+  'example-shop',
 ] as const
 type GranolaWorkspace = (typeof VALID_WORKSPACES)[number]
 
@@ -57,12 +57,12 @@ Workspace classification rules:
 - "example-project": Example Project — physical products, manufacturing, B2B wholesale, supplier logistics, pricing
 - "personal": Personal — personal holding/brand work, cross-company strategy, internal tooling
 - "example2": Example3 — real-estate agent lead-gen / MLS outreach client
-- "shabo-dl": Shabo Dental Lab — dental-lab client of Example
+- "example-shop": Example Shop — sample retail client workspace
 - "personal": Personal matters, cross-company admin, personal investments, family, health
 
 Return ONLY valid JSON matching this exact schema (no markdown fences, no extra text):
 {
-  "workspace": "example" | "example-project" | "personal" | "example2" | "shabo-dl" | "personal",
+  "workspace": "example" | "example-project" | "personal" | "example2" | "example-shop" | "personal",
   "decisions": ["string — each key decision made"],
   "action_items": [
     {
@@ -260,9 +260,9 @@ async function main() {
         id TEXT PRIMARY KEY,
         title TEXT,
         meeting_date TEXT,
-        -- Mirrors db/index.ts. NOTE: SQLite cannot ALTER a CHECK, so widening
-        -- this list only takes effect for a FRESH database.
-        workspace TEXT CHECK(workspace IN ('example', 'example-project', 'personal', 'personal', 'example2', 'shabo-dl')),
+        -- Mirrors db/index.ts. No CHECK allow-list: workspace slugs are chosen
+        -- per deployment and validated against the workspaces table, not DDL.
+        workspace TEXT,
         vault_path TEXT,
         processed_at TEXT NOT NULL DEFAULT (datetime('now'))
       );

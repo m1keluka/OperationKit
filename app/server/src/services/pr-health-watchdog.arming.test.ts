@@ -11,7 +11,7 @@
  * `dryRun: deps.dryRun !== false`, so the REPORT said "dry-run"; `runWatchdogOnce`
  * computed `armed = enabled && deps.dryRun !== true`, so the SWEEP was live. Flipping
  * pr_health_watchdog_enabled='1' went straight to acting on real PRs, while the surface
- * Mike reads insisted it was only observing. There was no runtime lever either way.
+ * Operator reads insisted it was only observing. There was no runtime lever either way.
  *
  * These tests pin the fixed contract: the act-path is reached ONLY with
  * enabled='1' AND dry_run='0'. Every dep is injected via WatchdogDeps — `exec` is a fake

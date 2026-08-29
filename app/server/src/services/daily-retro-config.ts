@@ -48,7 +48,7 @@ export function isRetroEnabled(db: Database, env: NodeJS.ProcessEnv = process.en
 }
 
 /**
- * Objective CREATION armed? OFF by default. This is the Mike-gated cutover —
+ * Objective CREATION armed? OFF by default. This is the Operator-gated cutover —
  * no worker flips it. Note the caller must ALSO satisfy the parent-objective
  * requirement (see resolveParentObjectiveId): live without a parent is refused.
  */

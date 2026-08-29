@@ -27,7 +27,7 @@ const chipOff = 'border-line text-fg-2 hover:border-line-strong hover:text-fg-1'
  *
  * Selecting a project filters the board to objectives whose `project_id`
  * matches; "All projects" is the default. Create / rename / delete all happen
- * inline here — the picker IS the management surface, so Mike never has to go
+ * inline here — the picker IS the management surface, so Operator never has to go
  * to a settings page or curl the API to make a folder.
  */
 export function ProjectFilterBar({

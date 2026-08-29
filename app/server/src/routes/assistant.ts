@@ -35,7 +35,7 @@ function requireJarvisAccess(req: AuthRequest, res: Response, next: NextFunction
     next()
     return
   }
-  res.status(403).json({ error: 'Jarvis access not enabled for your account' })
+  res.status(403).json({ error: 'Assistant access not enabled for your account' })
 }
 
 const router: Router = Router()

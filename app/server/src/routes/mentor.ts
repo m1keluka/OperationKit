@@ -7,7 +7,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 
 /**
- * Gate Jarvis chat access:
+ * Gate Assistant chat access:
  *  - admins always pass
  *  - members pass iff at least one of their workspace memberships has
  *    can_use_jarvis = true
@@ -27,7 +27,7 @@ function requireJarvisAccess(req: AuthRequest, res: Response, next: NextFunction
     next()
     return
   }
-  res.status(403).json({ error: 'Jarvis access not enabled for your account' })
+  res.status(403).json({ error: 'Assistant access not enabled for your account' })
 }
 import {
   startMentorSession,
@@ -164,7 +164,7 @@ function getThreadOr404(id: number, res: Response, req?: AuthRequest): ThreadRow
     }
     // Phase 6: mentor threads are private-by-default. Members only see threads
     // they created themselves. Legacy threads with created_by=NULL stay
-    // admin-only (they predate multi-user and belong to Mike).
+    // admin-only (they predate multi-user and belong to Operator).
     if (row.created_by !== req.user.id) {
       res.status(403).json({ error: 'No access to this thread' })
       return null

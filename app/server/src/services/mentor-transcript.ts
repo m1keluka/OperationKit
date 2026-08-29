@@ -1,7 +1,7 @@
 import fs from 'fs'
 import type { SessionMessage } from '@command-center/shared'
 
-// Shared JSONL transcript parsing for mentor/Jarvis threads. Extracted from
+// Shared JSONL transcript parsing for mentor/Assistant threads. Extracted from
 // routes/mentor.ts so both the JWT-gated web route and the service-token bridge
 // (routes/internal.ts) parse transcripts identically — same SessionMessage[]
 // shape the web UI consumes. The web route imports readJsonl from here; the

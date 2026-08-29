@@ -47,11 +47,11 @@ const SEED: Seed[] = [
     area: 'checkout', route: '/checkout', title: 'Checkout total flickers to $0 on first paint',
     description: 'The order total renders as $0.00 for roughly 400ms before settling on the real amount. Consultants think the discount wiped the cart.',
     steps_to_repro: '1. Add any product to the cart\n2. Hit /checkout with a cold cache\n3. Watch the total in the summary rail',
-    submitter_label: 'Dana R.', submitter_email: 'dana@weightsupply.co', submitted_via: 'widget',
+    submitter_label: 'Dana R.', submitter_email: 'dana@example.com', submitted_via: 'widget',
     posthog_replay_url: 'https://us.posthog.com/replay/019243ab', screenshot_path: 'ws/4711/shot.png',
     objective_id: 703012, objective_status: 'working', branch_name: 'obj-703012-checkout-total',
-    objective_pr_url: 'https://github.com/m1keluka/example-project-platform/pull/912',
-    triaged_at: ago(2100), triaged_by: 'Mike', created_at: ago(2600), updated_at: ago(30),
+    objective_pr_url: 'https://github.com/example-org/example-project-platform/pull/912',
+    triaged_at: ago(2100), triaged_by: 'Admin', created_at: ago(2600), updated_at: ago(30),
   },
   {
     id: 4712, workspace: 'example-project', project: 'example-project-platform', type: 'bug',
@@ -59,7 +59,7 @@ const SEED: Seed[] = [
     title: 'Orders export returns an empty CSV for date ranges over 30 days',
     description: 'Anything wider than a month exports headers only. No error, no toast — it looks like there were no orders.',
     steps_to_repro: '1. /admin/orders\n2. Set range to 01 Jun → 31 Jul\n3. Export CSV',
-    submitter_label: 'Colin P.', submitter_email: 'colin@weightsupply.co', submitted_via: 'widget',
+    submitter_label: 'Colin P.', submitter_email: 'colin@example.com', submitted_via: 'widget',
     posthog_replay_url: 'https://us.posthog.com/replay/019243cd', created_at: ago(95), updated_at: ago(95),
   },
   {
@@ -76,16 +76,16 @@ const SEED: Seed[] = [
     title: 'Let an agent pause a campaign from the inbox row',
     description: 'Right now pausing means opening the campaign detail. Agents want it inline on the row they are already looking at.',
     submitter_label: 'Ops (Kayla)', submitted_via: 'admin',
-    triaged_at: ago(880), triaged_by: 'Mike', created_at: ago(1500), updated_at: ago(880),
+    triaged_at: ago(880), triaged_by: 'Admin', created_at: ago(1500), updated_at: ago(880),
   },
   {
     id: 4715, workspace: 'example-project', project: 'example-project-platform', type: 'improvement',
     status: 'triaged', severity: 'low', impact: 2, effort: 1, priority_rank: 14, area: 'reporting',
     route: '/admin/reports',
     title: 'Remember the last selected report range',
-    description: 'Every visit resets to "Today". Mike almost always wants 30d.',
-    submitter_label: 'Mike', submitted_via: 'admin',
-    triaged_at: ago(700), triaged_by: 'Mike', created_at: ago(1900), updated_at: ago(700),
+    description: 'Every visit resets to "Today". The operator almost always wants 30d.',
+    submitter_label: 'Admin', submitted_via: 'admin',
+    triaged_at: ago(700), triaged_by: 'Admin', created_at: ago(1900), updated_at: ago(700),
   },
   {
     id: 4716, workspace: 'example', project: 'example-platform', type: 'bug',
@@ -100,7 +100,7 @@ const SEED: Seed[] = [
     title: 'Drop the dead calcom webhook route',
     description: 'Legacy path, nothing calls it, it just confuses new readers.',
     submitted_via: 'admin', objective_id: 703301, objective_status: 'queue',
-    triaged_at: ago(400), triaged_by: 'Mike', created_at: ago(1200), updated_at: ago(400),
+    triaged_at: ago(400), triaged_by: 'Admin', created_at: ago(1200), updated_at: ago(400),
   },
   {
     id: 4718, workspace: 'example-project', project: 'example-project-platform', type: 'feature',
@@ -108,8 +108,8 @@ const SEED: Seed[] = [
     title: 'Auto-generate a 3D mockup from an uploaded .skp',
     description: 'Convert the customer-supplied SketchUp file to GLB on upload so the buyer sees a real preview.',
     submitted_via: 'admin', objective_id: 701828, objective_status: 'review',
-    branch_name: 'obj-701828-mockup-v4', objective_pr_url: 'https://github.com/m1keluka/example-project-platform/pull/235',
-    triaged_at: ago(3000), triaged_by: 'Mike', created_at: ago(4000), updated_at: ago(120),
+    branch_name: 'obj-701828-mockup-v4', objective_pr_url: 'https://github.com/example-org/example-project-platform/pull/235',
+    triaged_at: ago(3000), triaged_by: 'Admin', created_at: ago(4000), updated_at: ago(120),
   },
   {
     id: 4719, workspace: 'example2', project: 'example3-platform', type: 'bug',
@@ -118,9 +118,9 @@ const SEED: Seed[] = [
     title: '1,092 senders silently flipped to in_repair',
     description: 'An EmailBison account_disconnected webhook flipped virgin senders with no status log entry.',
     submitted_via: 'admin', objective_id: 702611, objective_status: 'done',
-    objective_pr_url: 'https://github.com/m1keluka/example3-platform/pull/479',
+    objective_pr_url: 'https://github.com/example-org/example3-platform/pull/479',
     changelog_status: 'published',
-    triaged_at: ago(5000), triaged_by: 'Mike', closed_at: ago(4300), created_at: ago(5200), updated_at: ago(4300),
+    triaged_at: ago(5000), triaged_by: 'Admin', closed_at: ago(4300), created_at: ago(5200), updated_at: ago(4300),
   },
   {
     id: 4720, workspace: 'example-project', project: 'example-project-platform', type: 'improvement',
@@ -128,7 +128,7 @@ const SEED: Seed[] = [
     title: 'Mobile pass across the client portal',
     description: 'Ported the Command Center responsive pattern to all 13 portal routes.',
     submitted_via: 'admin', objective_id: 704128, objective_status: 'done', changelog_status: 'draft',
-    triaged_at: ago(3200), triaged_by: 'Mike', closed_at: ago(2000), created_at: ago(3600), updated_at: ago(2000),
+    triaged_at: ago(3200), triaged_by: 'Admin', closed_at: ago(2000), created_at: ago(3600), updated_at: ago(2000),
   },
   {
     id: 4721, workspace: 'example', type: 'feature', status: 'declined',
@@ -158,7 +158,7 @@ const SEED: Seed[] = [
     status: 'triaged', impact: 2, effort: 2, priority_rank: 30, area: 'appointments',
     title: 'Show which rep is assigned on the appointments list',
     description: 'Two rep systems exist; the list only reflects one of them.',
-    submitted_via: 'admin', triaged_at: ago(600), triaged_by: 'Mike',
+    submitted_via: 'admin', triaged_at: ago(600), triaged_by: 'Admin',
     created_at: ago(1000), updated_at: ago(600),
   },
   {
@@ -176,8 +176,8 @@ const SEED: Seed[] = [
     description: 'Single unambiguous board → apply; otherwise flag for a human.',
     submitted_via: 'admin', objective_id: 703336, objective_status: 'ai',
     branch_name: 'obj-703336-board-reconciler',
-    objective_pr_url: 'https://github.com/m1keluka/example3-platform/pull/559',
-    triaged_at: ago(2400), triaged_by: 'Mike', created_at: ago(2900), updated_at: ago(60),
+    objective_pr_url: 'https://github.com/example-org/example3-platform/pull/559',
+    triaged_at: ago(2400), triaged_by: 'Admin', created_at: ago(2900), updated_at: ago(60),
   },
 ]
 
@@ -251,15 +251,15 @@ const items = new Map<number, DevItemFull>(SEED.map(s => [s.id, hydrate(s)]))
 
 const notes = new Map<number, DevNote[]>([
   [4711, [
-    { id: 851, author_user_id: 1, author_label: 'Mike', body: 'Repro\'d on staging — the summary rail renders before the cart query resolves.', visibility: 'internal', created_at: ago(2050) },
+    { id: 851, author_user_id: 1, author_label: 'Admin', body: 'Repro\'d on staging — the summary rail renders before the cart query resolves.', visibility: 'internal', created_at: ago(2050) },
     { id: 852, author_user_id: null, author_label: 'agent', body: 'Traced to `useCart()` returning `{}` on first paint. Fix is a loading guard in OrderSummary.tsx:88. Opened PR #912.', visibility: 'internal', created_at: ago(1400) },
-    { id: 853, author_user_id: 1, author_label: 'Mike', body: 'Reproduced — the fix is in review and ships today. Thanks for the clear steps.', visibility: 'submitter', created_at: ago(600) },
+    { id: 853, author_user_id: 1, author_label: 'Admin', body: 'Reproduced — the fix is in review and ships today. Thanks for the clear steps.', visibility: 'submitter', created_at: ago(600) },
   ]],
   [4719, [
     { id: 861, author_user_id: null, author_label: 'agent', body: 'EB never sends a reconnect event. Debounce + a floor of 20 restores 1,092 senders; verified against EB before writing.', visibility: 'internal', created_at: ago(4800) },
   ]],
   [4714, [
-    { id: 871, author_user_id: 1, author_label: 'Mike', body: 'Worth doing after the campaign status sync lands.', visibility: 'internal', created_at: ago(870) },
+    { id: 871, author_user_id: 1, author_label: 'Admin', body: 'Worth doing after the campaign status sync lands.', visibility: 'internal', created_at: ago(870) },
   ]],
 ])
 notes.forEach((list, id) => { const it = items.get(id); if (it) it.note_count = list.length })
@@ -281,52 +281,52 @@ const attachments = new Map<number, DevAttachment[]>([
 
 const prs = new Map<number, DevPr[]>([
   [4711, [
-    { repo: 'm1keluka/example-project-platform', pr_number: 912, pr_url: 'https://github.com/m1keluka/example-project-platform/pull/912', state: 'open', via: 'objective' },
-    { repo: 'm1keluka/example-project-platform', pr_number: 918, pr_url: 'https://github.com/m1keluka/example-project-platform/pull/918', state: 'open', via: 'pr_body' },
+    { repo: 'example-org/example-project-platform', pr_number: 912, pr_url: 'https://github.com/example-org/example-project-platform/pull/912', state: 'open', via: 'objective' },
+    { repo: 'example-org/example-project-platform', pr_number: 918, pr_url: 'https://github.com/example-org/example-project-platform/pull/918', state: 'open', via: 'pr_body' },
   ]],
   [4719, [
-    { repo: 'm1keluka/example3-platform', pr_number: 479, pr_url: 'https://github.com/m1keluka/example3-platform/pull/479', state: 'merged', via: 'objective' },
+    { repo: 'example-org/example3-platform', pr_number: 479, pr_url: 'https://github.com/example-org/example3-platform/pull/479', state: 'merged', via: 'objective' },
   ]],
   [4726, [
-    { repo: 'm1keluka/example3-platform', pr_number: 559, pr_url: 'https://github.com/m1keluka/example3-platform/pull/559', state: 'open', via: 'objective' },
+    { repo: 'example-org/example3-platform', pr_number: 559, pr_url: 'https://github.com/example-org/example3-platform/pull/559', state: 'open', via: 'objective' },
   ]],
 ])
 
 const changelog: ChangelogEntryRow[] = [
   {
-    id: 809, workspace: 'example2', repo: 'm1keluka/example3-platform', pr_number: 479,
+    id: 809, workspace: 'example2', repo: 'example-org/example3-platform', pr_number: 479,
     title_eng: 'fix(mailboxes): debounce account_disconnected + floor at 20',
     headline: 'Sender health no longer flips to “needs repair” by mistake',
     body_stakeholder: 'A provider disconnect notice could mark healthy senders as broken. Those senders are back online and the false alarm is gone.',
     how_to: 'Nothing to do — 1,092 senders were restored automatically.',
-    category: 'fix', status: 'published', author: 'Mike', dev_item_id: 4719, objective_id: 702611,
+    category: 'fix', status: 'published', author: 'Admin', dev_item_id: 4719, objective_id: 702611,
     merged_at: ago(4310), published_at: ago(4200), notified_at: ago(4180),
   },
   {
-    id: 810, workspace: 'example-project', repo: 'm1keluka/example-project-platform', pr_number: 231,
+    id: 810, workspace: 'example-project', repo: 'example-org/example-project-platform', pr_number: 231,
     title_eng: 'feat(portal): responsive pass across 13 routes',
     headline: 'The client portal now works properly on a phone',
     body_stakeholder: 'Every portal screen reflows to a single column, tables become cards, and every button is a real touch target.',
     how_to: 'Just open the portal on your phone.',
-    category: 'improvement', status: 'draft', author: 'Mike', dev_item_id: 4720, objective_id: 704128,
+    category: 'improvement', status: 'draft', author: 'Admin', dev_item_id: 4720, objective_id: 704128,
     merged_at: ago(2010), published_at: null, notified_at: null,
   },
   {
-    id: 811, workspace: 'example-project', repo: 'm1keluka/example-project-platform', pr_number: 235,
+    id: 811, workspace: 'example-project', repo: 'example-org/example-project-platform', pr_number: 235,
     title_eng: 'feat(mockups): skp → glb conversion pipeline',
     headline: 'Upload a SketchUp file, get a 3D preview',
     body_stakeholder: 'Customer-supplied .skp files are converted automatically so buyers see a real rotating preview instead of a placeholder.',
     how_to: 'Upload the .skp on the product page — the preview appears within a minute.',
-    category: 'feature', status: 'draft', author: 'Mike', dev_item_id: 4718, objective_id: 701828,
+    category: 'feature', status: 'draft', author: 'Admin', dev_item_id: 4718, objective_id: 701828,
     merged_at: ago(130), published_at: null, notified_at: null,
   },
   {
-    id: 812, workspace: 'example', repo: 'm1keluka/example-platform', pr_number: 326,
+    id: 812, workspace: 'example', repo: 'example-org/example-platform', pr_number: 326,
     title_eng: 'chore(dialer): cap booking horizon at 42d',
     headline: 'Booking links stop offering slots months away',
     body_stakeholder: 'The scheduler now only offers the next six weeks.',
     how_to: 'No action needed.',
-    category: 'improvement', status: 'skipped', author: 'Mike', dev_item_id: null, objective_id: null,
+    category: 'improvement', status: 'skipped', author: 'Admin', dev_item_id: null, objective_id: null,
     merged_at: ago(1500), published_at: null, notified_at: null,
   },
 ]
@@ -472,11 +472,11 @@ export function createDevItem(body: CreateDevItemBody): Promise<{ data: DevItemR
     route: body.route ?? null,
     loom_url: body.loom_url ?? null,
     submitted_via: 'admin',
-    submitter_label: 'Mike',
+    submitter_label: 'Admin',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     triaged_at: body.severity || body.impact ? new Date().toISOString() : null,
-    triaged_by: body.severity || body.impact ? 'Mike' : null,
+    triaged_by: body.severity || body.impact ? 'Operator' : null,
   }
   const row = hydrate(seed)
   items.set(id, row)
@@ -506,7 +506,7 @@ export function triageDevItem(id: number, body: TriageBody): Promise<{ data: Dev
   if (body.effort !== undefined) item.effort = body.effort
   if (body.area !== undefined) item.area = body.area
   item.triaged_at = new Date().toISOString()
-  item.triaged_by = 'Mike'
+  item.triaged_by = 'Operator'
   if (body.status) item.status = body.status
   else if (item.status === 'new') item.status = 'triaged'
   if (body.suggest_rank && item.priority_rank === null && item.impact && item.effort) {
@@ -514,7 +514,7 @@ export function triageDevItem(id: number, body: TriageBody): Promise<{ data: Dev
   }
   if (body.note) {
     const list = notes.get(id) ?? []
-    list.push({ id: nextNoteId++, author_user_id: 1, author_label: 'Mike', body: body.note, visibility: 'internal', created_at: new Date().toISOString() })
+    list.push({ id: nextNoteId++, author_user_id: 1, author_label: 'Admin', body: body.note, visibility: 'internal', created_at: new Date().toISOString() })
     notes.set(id, list)
     item.note_count = list.length
   }
@@ -594,7 +594,7 @@ export function addDevNote(
   const item = items.get(id)
   if (!item) return Promise.reject(Object.assign(new Error('not_found'), { status: 404 }))
   const note: DevNote = {
-    id: nextNoteId++, author_user_id: 1, author_label: body.author_label ?? 'Mike',
+    id: nextNoteId++, author_user_id: 1, author_label: body.author_label ?? 'Admin',
     body: body.body, visibility: body.visibility ?? 'internal', created_at: new Date().toISOString(),
   }
   const list = notes.get(id) ?? []
@@ -625,7 +625,7 @@ export function bulkDevItems(ids: number[], op: BulkOp): Promise<{ data: { updat
         if (op.params.effort) item.effort = op.params.effort
         if (op.params.area) item.area = op.params.area
         item.triaged_at = new Date().toISOString()
-        item.triaged_by = 'Mike'
+        item.triaged_by = 'Operator'
         if (item.status === 'new') item.status = 'triaged'
         break
       case 'mark_duplicate':

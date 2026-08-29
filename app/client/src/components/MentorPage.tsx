@@ -39,9 +39,9 @@ export function MentorPage() {
   const { messages, state, loading: outputLoading, sendMessage, stopSession } = useMentorOutput(activeThreadId)
 
   // The user's configured assistant name; resolved once here and passed down.
-  // Falls back to 'Jarvis' while loading or when the name is unset.
+  // Falls back to 'Assistant' while loading or when the name is unset.
   const { config: assistantConfig } = useAssistantConfig()
-  const assistantName = assistantConfig?.persona.displayName?.trim() || 'Jarvis'
+  const assistantName = assistantConfig?.persona.displayName?.trim() || 'Assistant'
 
   // Auto-select most recent thread on first load.
   useEffect(() => {

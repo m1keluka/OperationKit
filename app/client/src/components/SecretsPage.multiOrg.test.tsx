@@ -54,9 +54,9 @@ const { state, apiMock, ApiErrorMock } = vi.hoisted(() => {
       organizations: [
         { slug: 'example', name: 'Example Org' },
         { slug: 'example2', name: 'Grass Fed' },
-        { slug: 'personal', name: 'Mike Luka' },
+        { slug: 'personal', name: 'Personal' },
       ],
-      users: [{ id: 1, username: 'mike' }],
+      users: [{ id: 1, username: 'admin' }],
       canUseGlobal: true,
     },
     /** Slugs whose POST /secrets should reject (simulated partial failure). */
@@ -86,7 +86,7 @@ const { state, apiMock, ApiErrorMock } = vi.hoisted(() => {
 })
 
 vi.mock('../lib/api', () => ({ api: apiMock, ApiError: ApiErrorMock }))
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'mike' } }) }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'admin' } }) }))
 vi.mock('./ui', () => ({
   Modal: ({ children }: { children: React.ReactNode }) => <div role="dialog">{children}</div>,
   Skeleton: () => <div />,
@@ -106,9 +106,9 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
       organizations: [
         { slug: 'example', name: 'Example Org' },
         { slug: 'example2', name: 'Grass Fed' },
-        { slug: 'personal', name: 'Mike Luka' },
+        { slug: 'personal', name: 'Personal' },
       ],
-      users: [{ id: 1, username: 'mike' }],
+      users: [{ id: 1, username: 'admin' }],
       canUseGlobal: true,
     }
     apiMock.post.mockClear()

@@ -31,7 +31,7 @@ import type { Objective } from '@command-center/shared'
 const { PROJECTS } = vi.hoisted(() => ({ PROJECTS: [] as Array<Record<string, unknown>> }))
 
 const { useAuthSpy } = vi.hoisted(() => ({
-  useAuthSpy: vi.fn(() => ({ user: { id: 1, role: 'admin', username: 'mike' } })),
+  useAuthSpy: vi.fn(() => ({ user: { id: 1, role: 'admin', username: 'admin' } })),
 }))
 
 vi.mock('../context/AuthContext', () => ({ useAuth: () => useAuthSpy() }))
@@ -207,7 +207,7 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
       const dialog = await mount(null)
       expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(0)
     } finally {
-      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'mike' } }))
+      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'admin' } }))
     }
   })
 

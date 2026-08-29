@@ -67,8 +67,8 @@ router.get('/briefing', (req: AuthRequest, res) => {
     asOf: new Date().toISOString(),
     board: { inProgress, blocked, needsReview },
     openLoops,
-    gmail: { available: false, note: 'Connect via Jarvis chat — use MCP tools gmail_list and calendar_list from within a session' },
-    calendar: { available: false, note: 'Connect via Jarvis chat — use MCP tools gmail_list and calendar_list from within a session' },
+    gmail: { available: false, note: 'Connect via Assistant chat — use MCP tools gmail_list and calendar_list from within a session' },
+    calendar: { available: false, note: 'Connect via Assistant chat — use MCP tools gmail_list and calendar_list from within a session' },
   })
 })
 

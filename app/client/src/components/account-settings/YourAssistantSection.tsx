@@ -91,7 +91,7 @@ export function YourAssistantSection() {
               type="text"
               value={displayName}
               onChange={e => { setDisplayName(e.target.value); setSaved(false) }}
-              placeholder="Jarvis"
+              placeholder="Assistant"
               className="w-full rounded border border-border bg-surface px-2.5 py-2 text-sm text-fg-0 outline-none focus:border-accent"
             />
             <p className="text-[11px] text-fg-3">What you want to call your assistant.</p>

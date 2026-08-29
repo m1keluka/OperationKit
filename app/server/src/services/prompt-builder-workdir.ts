@@ -35,7 +35,7 @@ export interface OnBehalfUser {
  *   ~/ai-workspace/users/<username>/profile.md
  * which sessions read for tone/preference/access defaults. The absolute path
  * is included so the prompt can reference it (the spawn shell HOME is the
- * ccuser dir, not /home/mike, so ~/ in instructions won't resolve correctly).
+ * ccuser dir, not /home/operator, so ~/ in instructions won't resolve correctly).
  */
 export function resolveOnBehalfUser(objective: Objective): OnBehalfUser | null {
   const userId = objective.assigned_user_id ?? objective.created_by

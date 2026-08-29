@@ -10,7 +10,7 @@ const TMP_DB = path.join(os.tmpdir(), `cc-reviewer-mask-test-${process.pid}-${Da
 process.env.DB_PATH = TMP_DB
 
 // Redirect the objective-memory root at a temp dir. The host path exists and is writable;
-// a CI runner has no /home/mike, so the artifact-PUBLISHED branch could not be exercised
+// a CI runner has no /home/operator, so the artifact-PUBLISHED branch could not be exercised
 // there at all. Every assertion below goes through the path helpers rather than a literal,
 // so the redirect is invisible to what is being tested.
 //

@@ -35,7 +35,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   getDb().exec('DELETE FROM doppler_scoped_tokens; DELETE FROM users;')
-  seedUser(1, 'mike', 'admin')
+  seedUser(1, 'admin', 'admin')
   seedUser(7, 'eva', 'member')
 })
 

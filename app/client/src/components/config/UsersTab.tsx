@@ -250,7 +250,7 @@ export function UsersTab() {
                             <input type="checkbox" checked={!!m.can_use_jarvis}
                                    onChange={e => updateMembership(user, m.workspace, { can_use_jarvis: e.target.checked })}
                                    className="rounded border-line bg-surface-1 accent-[var(--accent)]" />
-                            <span className="text-fg-1">Jarvis chat</span>
+                            <span className="text-fg-1">Assistant chat</span>
                           </label>
                           <label className="flex items-center gap-2">
                             <span className="text-fg-3">Sees:</span>

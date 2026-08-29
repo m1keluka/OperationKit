@@ -180,7 +180,7 @@ export async function runReviewGate(
     if (l1prime.refuted || !l1prime.is_real_defect) {
       // Split vote → HELD, not killed and NOT ledgered: it resurfaces next run
       // with recurrence incremented. Three consecutive holds get digested to
-      // Mike as one line rather than becoming an objective.
+      // Operator as one line rather than becoming an objective.
       return { outcome: 'held', l1, l1prime, l2, l3, cost_usd: cost, reason: 'L1/L1-prime split vote' }
     }
   }
@@ -515,7 +515,7 @@ export function tunePrecision(db: Database = getDb()): TuneResult {
     // Sample floor n>=6 prevents thrashing on 1-2 data points. One adjustment
     // per signal per run, max — the branches are mutually exclusive.
     if (precision != null && precision < 0.3 && n >= 10) {
-      threshold = 1.01 // auto-disable; Mike must re-enable
+      threshold = 1.01 // auto-disable; Operator must re-enable
       note = `auto-disabled: precision ${precision.toFixed(2)} over ${n} samples`
       console.warn(`[retro] ALERT — signal '${signal}' auto-disabled (${note})`)
     } else if (precision != null && precision < 0.5 && n >= 6) {

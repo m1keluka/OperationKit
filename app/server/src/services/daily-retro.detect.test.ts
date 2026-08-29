@@ -26,7 +26,7 @@ import {
 const REAL_HUMAN_FOLLOWUPS = [
   "1. one draft has first and last name Harish Sundar. Please make sure you use the first name from the CSV",
   'use this name instead of Z ZEYNEP ZOEY',
-  'No its ian.cesar0273@gmail.com. can you create a download link for the filtered csv',
+  'No its user@example.com. can you create a download link for the filtered csv',
   'B works, for the videos can you generate a transcript and evaluate based on that',
 ]
 
@@ -188,7 +188,7 @@ describe('scoreSignal — boosters and penalties (spec §C.2)', () => {
     expect(scoreSignal('human_correction')).toBeCloseTo(0.70, 5)
     expect(scoreSignal('human_correction', { afterCompletionClaim: true })).toBeCloseTo(0.80, 5)
     expect(scoreSignal('human_correction', { afterCompletionClaim: true, namesPath: true })).toBeCloseTo(0.85, 5)
-    // The obj-1432 trap: Mike's long-lived chat session alone produced 240
+    // The obj-1432 trap: Operator's long-lived chat session alone produced 240
     // followups on 2026-08-07. Penalised below the floor, not hard-excluded.
     expect(scoreSignal('human_correction', { chatObjective: true })).toBeCloseTo(0.40, 5)
     expect(scoreSignal('human_correction', { chatObjective: true })).toBeLessThan(DEFAULT_MIN_CONFIDENCE)

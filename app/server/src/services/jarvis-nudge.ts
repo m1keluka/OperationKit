@@ -1,5 +1,5 @@
-// Jarvis morning nudge — a daily Telegram push that acts like an EA keeping Mike on
-// his open loops. Fires once per day at 07:00 America/New_York (DST-aware) and sends a
+// Assistant morning nudge — a daily Telegram push that acts like an EA keeping the
+// operator on their open loops. Fires once per day at 07:00 America/New_York (DST-aware) and sends a
 // terse, prioritized "close these today" digest.
 //
 // Design notes:
@@ -13,6 +13,15 @@
 import { listLoops, type Loop } from './loops.js'
 import { sendTelegram } from './notifier.js'
 import { callHaikuSummarizer } from './mentor-context.js'
+
+/** Display name for the assistant in nudge copy. Env-overridable per deployment. */
+function assistantName(): string {
+  return process.env.ASSISTANT_DISPLAY_NAME || 'Assistant'
+}
+/** Display name for the human operator this nudge is written for. */
+function operatorName(): string {
+  return process.env.OPERATOR_DISPLAY_NAME || 'the operator'
+}
 
 const CHECK_INTERVAL_MS = 60 * 1000
 const FIRE_HOUR = '07' // 7am, America/New_York
@@ -75,7 +84,7 @@ export function buildNudgeText(loops: Loop[], todayET: string): string {
     lines.push(`  • ${l.title}${meta ? ` (${meta})` : ''}`)
   }
   lines.push('')
-  lines.push('Pick one and close it before noon. — Jarvis')
+  lines.push(`Pick one and close it before noon. — ${assistantName()}`)
   return lines.join('\n')
 }
 
@@ -87,10 +96,10 @@ function buildNudgePrompt(loops: Loop[], todayET: string): string {
     .map(l => `- [${l.status}] ${l.title}${l.due ? ` (due ${l.due}${l.due < todayET ? ' — OVERDUE' : ''})` : ''}${l.project ? ` {${l.project}}` : ''}`)
     .join('\n')
   return [
-    "You are Jarvis, Mike's chief-of-staff. Write a SHORT Telegram message (max ~8 lines) that pushes him to close his open loops today.",
-    'Be terse, motivating, and specific. Lead with anything OVERDUE. Name the top 2-3 he should close today. End with a one-line kick.',
+    `You are ${assistantName()}, the operator's assistant. Write a SHORT Telegram message (max ~8 lines) that pushes them to close their open loops today.`,
+    'Be terse, motivating, and specific. Lead with anything OVERDUE. Name the top 2-3 to close today. End with a one-line kick.',
     'No preamble, no markdown headers — plain text with a few emoji is fine.',
-    `Today (ET) is ${todayET}. His open loops:`,
+    `Today (ET) is ${todayET}. Their open loops:`,
     list,
   ].join('\n')
 }
@@ -116,7 +125,7 @@ export async function runJarvisNudge(): Promise<boolean> {
 }
 
 /**
- * Start the Jarvis morning-nudge scheduler.
+ * Start the Assistant morning-nudge scheduler.
  * Fires once daily at 07:00 America/New_York (DST-aware).
  * Controlled by JARVIS_NUDGE_ENABLED env var (default: true).
  */

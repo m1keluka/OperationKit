@@ -122,7 +122,7 @@ export function isGitRepo(dir: string): boolean {
 }
 
 export function ensureWorktree(objective: Objective, branchName: string): string | null {
-  // Guarantees git safe.directory is configured (root operating on mike-owned
+  // Guarantees git safe.directory is configured (root operating on admin-owned
   // repos) before any `git -C` below — independent of spawn-path call ordering.
   // ensureUser is guarded (userSetup), so this is a no-op after first run.
   try { execSync(`git config --global --add safe.directory '*'`, { timeout: 5000 }) } catch {}

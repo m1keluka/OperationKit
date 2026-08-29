@@ -36,7 +36,7 @@ function legacyInlineEnv(homeDir: string): Record<string, string> {
 }
 
 // obj-701130 — the base env above is NO LONGER the whole story for an UNLINKED
-// owner. buildSpawnEnv now ALWAYS appends the GitHub-linked m1keluka noreply
+// owner. buildSpawnEnv now ALWAYS appends the GitHub-linked operator noreply
 // fallback (GIT_AUTHOR_*/GIT_COMMITTER_*) after the base block whenever no
 // per-user identity was injected, so an env-less spawn can never fall through to
 // the poisoned root /etc/gitconfig (dev@example.com) and trip Vercel's
@@ -65,7 +65,7 @@ describe('buildSpawnEnv — no-regression base block + obj-701130 git-author fal
 
   it('base block equals the legacy inline literal, PLUS the linked git-author fallback (obj-701130)', () => {
     // Was: expect(env).toEqual(legacyInlineEnv(HOME)). DELIBERATELY CHANGED —
-    // buildSpawnEnv now always appends the m1keluka noreply fallback for an
+    // buildSpawnEnv now always appends the operator noreply fallback for an
     // unlinked owner so no spawn can hit the poisoned /etc/gitconfig. The base 8
     // keys are still byte-identical; the 4 fallback keys are the intended addition.
     const env = buildSpawnEnv({ objective: fakeObjective(), homeDir: HOME, sessionKind: 'worker' })
@@ -123,7 +123,7 @@ describe('userGitIdentityEnv — W4 hook, UNLINKED-owner fallback (filled by obj
   // The hook itself is unchanged: for an owner with no linked token it still
   // returns {} (fakeObjective().created_by = 7 has no token row in this test DB).
   // What changed (obj-701130) is what buildSpawnEnv does with that {}: it now
-  // injects the m1keluka noreply GIT_AUTHOR_*/GIT_COMMITTER_* fallback so the
+  // injects the operator noreply GIT_AUTHOR_*/GIT_COMMITTER_* fallback so the
   // spawn never inherits the poisoned /etc/gitconfig. The LINKED path (token
   // present ⇒ GH_TOKEN + per-user GIT_AUTHOR_*/GIT_COMMITTER_*) is proven in
   // session-user-git-identity.test.ts against a seeded, encrypted token row.
@@ -138,11 +138,11 @@ describe('userGitIdentityEnv — W4 hook, UNLINKED-owner fallback (filled by obj
     // No PR-actor token for an unlinked owner — PR auth still rides the shared /etc/gh.
     expect(env.GH_TOKEN).toBeUndefined()
     expect(env.GITHUB_TOKEN).toBeUndefined()
-    // But the commit author/committer are now the GitHub-linked m1keluka noreply id…
-    expect(env.GIT_AUTHOR_EMAIL).toBe('255270713+m1keluka@users.noreply.github.com')
-    expect(env.GIT_AUTHOR_NAME).toBe('m1keluka')
-    expect(env.GIT_COMMITTER_EMAIL).toBe('255270713+m1keluka@users.noreply.github.com')
-    expect(env.GIT_COMMITTER_NAME).toBe('m1keluka')
+    // But the commit author/committer are now the GitHub-linked operator noreply id…
+    expect(env.GIT_AUTHOR_EMAIL).toBe('oss-user@users.noreply.github.com')
+    expect(env.GIT_AUTHOR_NAME).toBe('oss-user')
+    expect(env.GIT_COMMITTER_EMAIL).toBe('oss-user@users.noreply.github.com')
+    expect(env.GIT_COMMITTER_NAME).toBe('oss-user')
     // …and NEVER the poisoned unlinked identity that trips Vercel COMMIT_AUTHOR_REQUIRED.
     expect(env.GIT_AUTHOR_EMAIL).not.toBe('dev@example.com')
     expect(env.GIT_AUTHOR_EMAIL).toBe(SAFE_FALLBACK_GIT_IDENTITY.email)

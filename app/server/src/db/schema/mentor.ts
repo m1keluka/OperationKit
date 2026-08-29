@@ -95,7 +95,7 @@ export function initMentorSchema(db: Database.Database): void {
 
   // ── Personal Assistant configs (obj 701700, Phase 1) ──────────────────────
   // Per-(user, workspace) assistant config that replaces the hardcoded
-  // single-user ("Mike"/Jarvis) path in services/mentor-session.ts. Grain
+  // single-user ("Operator"/Assistant) path in services/mentor-session.ts. Grain
   // mirrors user_workspaces (PK user_id, workspace). Nested persona/autonomy/
   // arrays are stored as JSON-in-TEXT, matching mentor_threads.tags. Defaults
   // are fail-closed (read_only, no capabilities/connectors) at the column level;
@@ -128,7 +128,7 @@ export function initMentorSchema(db: Database.Database): void {
   const haveAssistantCfgCols = new Set(assistantCfgCols.map(c => c.name))
   if (!haveAssistantCfgCols.has('model')) db.exec('ALTER TABLE assistant_configs ADD COLUMN model TEXT')
 
-  // Lossless seed for the assistant owner (obj 701700): reproduce TODAY's Jarvis
+  // Lossless seed for the assistant owner (obj 701700): reproduce TODAY's Assistant
   // behavior through the generic config path so the owner's assistant is
   // preserved byte-equivalent in its rule-bearing content. Idempotent — only
   // seeds when the owner user exists AND has no config row yet. The persona
@@ -136,7 +136,7 @@ export function initMentorSchema(db: Database.Database): void {
   // hardcoded google email (all now DATA, not code constants), matching the
   // pre-change buildJarvisDirective body in mentor-session.ts.
   try {
-    const ownerUsername = process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'mike'
+    const ownerUsername = process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'admin'
     const owner = db
       .prepare('SELECT id FROM users WHERE username = ?')
       .get(ownerUsername) as { id: number } | undefined
@@ -169,8 +169,8 @@ export function initMentorSchema(db: Database.Database): void {
         ).run(
           owner.id,
           ownerWorkspace,
-          'Jarvis',
-          "Mike's personal admin assistant",
+          'Assistant',
+          "the operator's personal admin assistant",
           systemPrompt,
           JSON.stringify({ id: 'assistant-md', kind: 'file', locator: ASSISTANT_AGENT_PATH, label: 'Operating manual', writable: false }),
           null,

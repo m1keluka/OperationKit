@@ -7,7 +7,7 @@ const SALT_ROUNDS = 12
 
 async function seed() {
   const users = [
-    { username: 'mike', password: 'changeme', role: 'admin', workspaces: [
+    { username: 'admin', password: 'changeme', role: 'admin', workspaces: [
       { workspace: 'example', role: 'admin' },
       { workspace: 'example-project', role: 'admin' },
       { workspace: 'personal', role: 'admin' },

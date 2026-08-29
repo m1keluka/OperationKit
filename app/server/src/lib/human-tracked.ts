@@ -8,7 +8,7 @@ import type { Objective } from '@command-center/shared'
  * Default: those cards land in `review` so a person (or the authenticated Agent
  * API — Grok Bot) signs them off. The poller must never write `done` on them.
  *
- * Carve-outs (orchestration, not board cards Mike tracks):
+ * Carve-outs (orchestration, not board cards Operator tracks):
  * - routine-spawned (`routine_id`) auto-complete so jobs don't flood Needs You
  * - delegator children (`parent_id`) auto-complete so the parent is woken
  *

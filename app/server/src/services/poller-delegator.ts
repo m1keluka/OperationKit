@@ -121,7 +121,7 @@ function isStrategyOwnedRoutineRun(objective: Objective, dp: number): boolean {
  *
  * The last-nudged signature is persisted in `objectives.reconcile_sig` (the DURABLE
  * source of truth), NOT an in-memory map. This is deliberate: an all-done delegator
- * parked in `review` (awaiting Mike's accept) has a STABLE signature that never
+ * parked in `review` (awaiting Operator's accept) has a STABLE signature that never
  * changes, so once recorded it must stay recorded ACROSS server restarts. An
  * in-memory map was wiped on every restart, making `lastSig` undefined and `changed`
  * spuriously true on the first post-restart pass — re-nudging every settled

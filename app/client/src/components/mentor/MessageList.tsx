@@ -11,13 +11,13 @@ interface MessageListProps {
   pendingUser?: string | null
   errorMessage?: string | null
   onRetry?: () => void
-  /** The user's configured assistant name; falls back to 'Jarvis' when unset. */
+  /** The user's configured assistant name; falls back to 'Assistant' when unset. */
   assistantName?: string
   /** Prefill the composer from a welcome-state quick-start chip. */
   onPickStarter?: (prompt: string) => void
 }
 
-export function MessageList({ messages, state, loading, pendingUser, errorMessage, onRetry, assistantName = 'Jarvis', onPickStarter }: MessageListProps) {
+export function MessageList({ messages, state, loading, pendingUser, errorMessage, onRetry, assistantName = 'Assistant', onPickStarter }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevSignatureRef = useRef('')
   const lockedToBottomRef = useRef(true)

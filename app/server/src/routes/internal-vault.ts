@@ -105,7 +105,7 @@ function frontmatterDirsForWorkspace(ws: string): string {
     case 'example-project': return 'workspaces/example-project/contacts'
     case 'personal': return 'workspaces/personal/contacts'
     case 'example2': return 'workspaces/example2/contacts'
-    case 'shabo-dl': return 'workspaces/shabo-dl/contacts'
+    case 'example-shop': return 'workspaces/example-shop/contacts'
     default: return 'personal/contacts'
   }
 }

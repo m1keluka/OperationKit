@@ -259,7 +259,7 @@ export function seedDevelopmentRegistry(db: Database.Database): void {
   // webhook payloads (repository.full_name) and dev_items.project.
   //
   // `github` is CORRECTED against the live git remotes rather than copied from
-  // migration §1.2: that doc says `m1keluka/example-project-platform`, but
+  // migration §1.2: that doc says `example-org/example-project-platform`, but
   // `git remote get-url origin` in /home/operator/projects/example-project-platform
   // is `Example-Project/example-project-platform`. This column is matched verbatim
   // against the webhook's `repository.full_name`, so the doc's value would have
@@ -334,7 +334,7 @@ export function seedDevelopmentRegistry(db: Database.Database): void {
         repo: 'Example-Project/example-project-platform',
         ingest_token_hash: '',
         ingest_token_prefix: 'dvi_example-project_',
-        allowed_origins: ['https://app.weightsupply.com'],
+        allowed_origins: ['https://app.example.com'],
         allow_anonymous: false,
         feed_public: false,
         feed_categories: ['feature', 'improvement', 'fix'],
@@ -343,7 +343,7 @@ export function seedDevelopmentRegistry(db: Database.Database): void {
           bucket: 'feedback-attachments',
           project_url: 'https://oftsdmfngqasevrfbwel.supabase.co',
         },
-        notify: { provider: 'resend', from: 'notifications@notify.weightsupply.com' },
+        notify: { provider: 'resend', from: 'notifications@notify.example.com' },
       },
       'connected',
     ],

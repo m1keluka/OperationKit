@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { SettingsPage } from './SettingsPage'
 
 const auth = vi.hoisted(() => ({
-  user: { id: 1, username: 'mike', role: 'admin', workspaces: [] } as {
+  user: { id: 1, username: 'admin', role: 'admin', workspaces: [] } as {
     id: number; username: string; role: string; workspaces: { role: string }[]
   },
 }))
@@ -19,7 +19,7 @@ describe('SettingsPage tabs', () => {
   let root: Root
 
   beforeEach(() => {
-    auth.user = { id: 1, username: 'mike', role: 'admin', workspaces: [] }
+    auth.user = { id: 1, username: 'admin', role: 'admin', workspaces: [] }
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)

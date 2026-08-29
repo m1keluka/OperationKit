@@ -29,7 +29,7 @@ const vaultPresent = existsSync(VAULT_ROOT)
 const hasTarget = (hits: { path: string }[]) => hits.some((h) => h.path.endsWith(TARGET))
 
 // Real-data integration test: it recalls against the live second-brain vault,
-// which is mounted in-container but NOT present on a CI runner (it is Mike's
+// which is mounted in-container but NOT present on a CI runner (it is Operator's
 // knowledge base, not a checkable fixture). Skip the whole block when the vault
 // is absent rather than failing CI — the suite still runs in full locally /
 // in-container. (SECOND_BRAIN_ROOT can point it elsewhere.)

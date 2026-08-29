@@ -45,7 +45,7 @@ vi.mock('./ui', () => ({
 }))
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, username: 'mike', role: 'admin' } }),
+  useAuth: () => ({ user: { id: 1, username: 'admin', role: 'admin' } }),
 }))
 
 describe('AccountSettings API key card', () => {
@@ -66,7 +66,7 @@ describe('AccountSettings API key card', () => {
         return Promise.resolve({
           userId: 1,
           workspace: 'example',
-          persona: { displayName: 'Jarvis', tagline: null, systemPrompt: '', manualSource: null },
+          persona: { displayName: 'Assistant', tagline: null, systemPrompt: '', manualSource: null },
           model: null,
           autonomy: { level: 'confirm_external', overrides: null },
           enabledCapabilities: [],

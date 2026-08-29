@@ -103,7 +103,7 @@ export function initTokensSchema(db: Database.Database): void {
     -- (same primitive as user_github_tokens) — the raw service token NEVER lands in
     -- the DB. token_last4 is for masked display/audit only. UNIQUE(workspace,config)
     -- is the upsert key. Rows are populated out-of-band by
-    -- scripts/provision-scoped-doppler-tokens.ts (DRY-RUN by default, Mike-gated to
+    -- scripts/provision-scoped-doppler-tokens.ts (DRY-RUN by default, Operator-gated to
     -- mint live). The resolver getScopedDopplerTokenForWorkspace fails CLOSED (empty)
     -- when no row matches — a member session then simply gets no DOPPLER_TOKEN,
     -- never the admin token. This table is consulted ONLY when
@@ -123,7 +123,7 @@ export function initTokensSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_doppler_scoped_tokens_workspace ON doppler_scoped_tokens(workspace);
 
     -- Per-user Google Workspace OAuth connections (obj-706070). Replaces the
-    -- single shared Mike credential (vault: 2026-06-12-hermes-google-suite-shared-
+    -- single shared Operator credential (vault: 2026-06-12-hermes-google-suite-shared-
     -- credential) with one row per Command Center user: when a session runs for
     -- user X, X's Google credential is injected, never someone else's.
     --

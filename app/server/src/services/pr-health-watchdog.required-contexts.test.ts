@@ -116,7 +116,7 @@ function pr(number: number, over: Partial<PrSummary> = {}): PrSummary {
     baseRefName: 'main',
     mergeStateStatus: 'UNSTABLE',
     createdAt: '2026-07-01T00:00:00Z',
-    author: { login: 'm1keluka', is_bot: false },
+    author: { login: 'oss-user', is_bot: false },
     statusCheckRollup: [],
     ...over,
   }

@@ -1,7 +1,7 @@
 import { OBJECTIVE_STATUSES, isInFlightStatus, type ObjectiveStatus } from '@command-center/shared'
 
 /**
- * Mobile board is a vertical stack — Needs You first so Mike does not scroll
+ * Mobile board is a vertical stack — Needs You first so Operator does not scroll
  * past Queue/Working. Desktop keeps pipeline order (OBJECTIVE_STATUSES).
  * Transient columns (ai_review, planning) slot next to their pipeline neighbors.
  */

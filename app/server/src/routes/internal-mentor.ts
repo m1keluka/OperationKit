@@ -1,5 +1,5 @@
 /**
- * Jarvis mentor service-auth bridge — extracted from internal.ts
+ * Assistant mentor service-auth bridge — extracted from internal.ts
  * (behavior frozen). Localhost + MENTOR_SERVICE_TOKEN gate unchanged.
  */
 import { Router } from 'express'
@@ -9,7 +9,7 @@ import { sendMentorMessage, getMentorSessionState, getMentorJsonlPath } from '..
 import { readJsonl } from '../services/mentor-transcript.js'
 import { isLocalhost } from '../lib/is-localhost.js'
 
-// ─── Jarvis service-auth bridge (objective 341) ────────────────────────────
+// ─── Assistant service-auth bridge (objective 341) ────────────────────────────
 // New routes under /api/internal/mentor for the Telegram bot (thin client).
 // Each is gated by BOTH isLocalhost(req) AND a service-token header. The
 // JWT-gated browser routes in routes/mentor.ts are UNCHANGED. See
@@ -34,12 +34,12 @@ interface MentorThreadDbRow {
 }
 
 function mentorOwnerUsername(): string {
-  return process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'mike'
+  return process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'admin'
 }
 
 /**
  * Resolve the Telegram owner's user id (username = MENTOR_TELEGRAM_OWNER_USERNAME,
- * default "mike"). Returns null if no such user exists.
+ * default "admin"). Returns null if no such user exists.
  */
 function resolveOwnerId(): number | null {
   const row = getDb()

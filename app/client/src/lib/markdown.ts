@@ -100,7 +100,7 @@ export function renderMarkdown(text: string): string {
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">$1</a>')
 
   // Clickable markdown file paths — any .md under /home/operator/
-  const docPathRe = /(?:\/home\/mike\/[\w./-]+\.md|~\/[\w./-]+\.md)/g
+  const docPathRe = /(?:\/home\/admin\/[\w./-]+\.md|~\/[\w./-]+\.md)/g
   html = html.replace(docPathRe, (match) => {
     const fullPath = match.startsWith('~/')
       ? '/home/operator/' + match.slice(2)

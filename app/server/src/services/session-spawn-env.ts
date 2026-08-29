@@ -36,7 +36,7 @@ import { resolveSecrets } from './secrets-store.js'
 // default ADMIN tier, buildSpawnEnv returns a byte-for-byte identical env to the
 // old inline block — see session-spawn-env.test.ts (no-regression assertion).
 // The member tier and the scoped-token paths are additive/dormant until a
-// Mike-gated cutover (SPAWN-ENV-SCOPING-CUTOVER.md) provisions real scoped tokens
+// Operator-gated cutover (SPAWN-ENV-SCOPING-CUTOVER.md) provisions real scoped tokens
 // and flips the flags. This worker mints/rotates NOTHING.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -88,7 +88,7 @@ export function spawnSecurityPolicy(isAdminSpawn: boolean): SpawnSecurityPolicy 
 }
 
 /**
- * Who this session is acting as. Assigned user wins (Ava working a card Mike
+ * Who this session is acting as. Assigned user wins (Ava working a card Operator
  * filed must send as Ava). Fall back to the creator. Never a third person.
  */
 export function resolveActingUserId(
@@ -129,10 +129,9 @@ export function resolveSpawnTier(objective: Objective): 'admin' | 'member' {
 /** Durable Vercel COMMIT_AUTHOR_REQUIRED guard (obj-701130).
  *
  *  The GitHub-LINKED identity every env-less spawn falls back to so its commits
- *  are always attributable. This is the GitHub `noreply` address for the
- *  `m1keluka` account (`255270713+m1keluka@users.noreply.github.com`): it is
- *  guaranteed linked to a real GitHub account, leaks no private email, and is
- *  already the identity example2 deploys under.
+ *  are always attributable. This is a GitHub `noreply` address for the
+ *  `operator` account: it is guaranteed linked to a real GitHub account, leaks
+ *  no private email, and is already the identity example2 deploys under.
  *
  *  WHY this exists: git resolves a commit's author by precedence
  *  (GIT_AUTHOR_* env > repo-local > --global HOME/.gitconfig > --system
@@ -149,8 +148,8 @@ export function resolveSpawnTier(objective: Objective): 'admin' | 'member' {
  *  env vars — the TOP of git's precedence chain — makes EVERY spawn attributable
  *  regardless of HOME/.gitconfig/system state. */
 export const SAFE_FALLBACK_GIT_IDENTITY = {
-  name: 'm1keluka',
-  email: '255270713+m1keluka@users.noreply.github.com',
+  name: 'oss-user',
+  email: 'oss-user@users.noreply.github.com',
 } as const
 
 /** Per-user GitHub PR attribution (obj-2221 / W4).
@@ -207,10 +206,10 @@ export function userGitIdentityEnv(ownerId: number | null | undefined): Record<s
 
 /** Per-user Google Workspace credential for a spawn (obj-706070).
  *
- *  Command Center's Google access was ONE shared credential (Mike's), so a
- *  session doing Workspace work for Ava wrote Docs as Mike. This resolver makes
+ *  Command Center's Google access was ONE shared credential (Operator's), so a
+ *  session doing Workspace work for Ava wrote Docs as Operator. This resolver makes
  *  the credential follow the ACTING USER: the objective's owner. Ava's session
- *  gets Ava's refresh token; Mike's gets Mike's. There is no cross-user path —
+ *  gets Ava's refresh token; Operator's gets Operator's. There is no cross-user path —
  *  the lookup is keyed on `ownerId` and nothing else.
  *
  *  Connected ⇒ inject the owner's grant:
@@ -224,7 +223,7 @@ export function userGitIdentityEnv(ownerId: number | null | undefined): Record<s
  *    GOOGLE_WORKSPACE_CONNECTION = 'absent'
  *  and ZERO token keys. A session that needs Workspace access reads that marker
  *  and tells the user to connect at Settings → Account, rather than silently
- *  acting as Mike. Mike is not special-cased: his credential was migrated to his
+ *  acting as Operator. Operator is not special-cased: his credential was migrated to his
  *  own user row (scripts/migrate-google-credential.ts), so he takes the
  *  connected branch like everyone else.
  *
@@ -301,7 +300,7 @@ export function buildSpawnEnv(opts: {
   const actingUserId = resolveActingUserId(objective)
 
   // W4 per-user GitHub identity. Assigned user wins over creator so Ava's
-  // assigned card does not open PRs as Mike (and vice versa).
+  // assigned card does not open PRs as the operator (and vice versa).
   Object.assign(env, userGitIdentityEnv(actingUserId))
 
   // Durable Vercel COMMIT_AUTHOR_REQUIRED guard (obj-701130). If the block above
@@ -311,7 +310,7 @@ export function buildSpawnEnv(opts: {
   // root-owned, POISONED /etc/gitconfig (Command Center <dev@example.com>,
   // UNLINKED to any GitHub account) → Vercel Pro blocks the pre-build with
   // COMMIT_AUTHOR_REQUIRED. Fill GIT_AUTHOR_*/GIT_COMMITTER_* with the known-good
-  // GitHub-LINKED m1keluka noreply identity so EVERY spawn commits under an
+  // GitHub-LINKED operator noreply identity so EVERY spawn commits under an
   // attributable author regardless of HOME/.gitconfig/system state. Env is the TOP
   // of git's precedence chain, so this is bulletproof. Per-user identity (when the
   // owner IS linked) already set GIT_AUTHOR_EMAIL above and MUST take precedence —
@@ -326,7 +325,7 @@ export function buildSpawnEnv(opts: {
   // obj-706070 per-user Google Workspace credential. ALWAYS adds at least
   // GOOGLE_WORKSPACE_CONNECTION ('user' | 'absent') so a session can always tell
   // "I have the acting user's Google account" from "there is none" — the explicit
-  // -absence contract that replaces the old silent fallback to Mike's shared
+  // -absence contract that replaces the old silent fallback to Operator's shared
   // credential. Token keys are added ONLY on the connected branch. This appends
   // after the git-identity block and BEFORE scoped secrets, so an explicit scoped
   // secret can still override a Google key if an operator ever needs to.
@@ -334,7 +333,7 @@ export function buildSpawnEnv(opts: {
 
   // Always isolate the Google MCP credential dir. The shared folder
   // `/home/operator/assistant/google-credentials` holds every user's JSON; workspace-mcp
-  // reads the whole directory, which is how Ava's session sent as Mike.
+  // reads the whole directory, which is how Ava's session sent as Operator.
   if (env.GOOGLE_WORKSPACE_CONNECTION === 'user' && actingUserId != null) {
     env.WORKSPACE_MCP_CREDENTIALS_DIR =
       writeIsolatedGoogleCredsDir(actingUserId) || writeEmptyGoogleCredsDir(String(actingUserId))

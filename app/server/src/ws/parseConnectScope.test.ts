@@ -27,6 +27,6 @@ describe('parseConnectScope (obj 700082 connect-time view scope)', () => {
 
   it('decodes percent-encoded workspace slugs', () => {
     expect(parseConnectScope('/ws?workspace=example-project')).toBe('example-project')
-    expect(parseConnectScope('/ws?workspace=mike%2Dluka')).toBe('personal')
+    expect(parseConnectScope('/ws?workspace=example%2Dshop')).toBe('example-shop')
   })
 })

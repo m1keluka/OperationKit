@@ -69,7 +69,7 @@ export function AgentMonogram({ agent, size = 'sm' }: { agent: string | null | u
 }
 
 // ── Thinking (§06.1) ─────────────────────────────────────
-// One language, reused on running cards, session stream, Jarvis composing.
+// One language, reused on running cards, session stream, Assistant composing.
 
 interface ThinkingIndicatorProps {
   variant?: 'dots' | 'caret'

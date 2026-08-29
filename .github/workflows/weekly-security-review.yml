@@ -15,7 +15,7 @@ name: Weekly cross-repo security review
 #
 # READY-TO-ENABLE, NOT ENABLED: the weekly schedule is intentionally left
 # COMMENTED OUT so merging this PR does not silently start a recurring, board-
-# writing, token-spending job. Mike enables it by un-commenting the `schedule:`
+# writing, token-spending job. Operator enables it by un-commenting the `schedule:`
 # block. Until then the workflow only runs on manual workflow_dispatch.
 
 on:

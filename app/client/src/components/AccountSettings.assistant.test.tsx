@@ -35,7 +35,7 @@ const { store, apiMock } = vi.hoisted(() => {
     config: {
       userId: 1,
       workspace: 'example',
-      persona: { displayName: 'Jarvis', tagline: null, systemPrompt: 'Be concise.', manualSource: null },
+      persona: { displayName: 'Assistant', tagline: null, systemPrompt: 'Be concise.', manualSource: null },
       model: null,
       autonomy: { level: 'confirm_external', overrides: null },
       enabledCapabilities: [],
@@ -70,7 +70,7 @@ const { store, apiMock } = vi.hoisted(() => {
 })
 
 vi.mock('../lib/api', () => ({ api: apiMock, ApiError: class ApiError extends Error {} }))
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'mike' } }) }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'admin' } }) }))
 vi.mock('./ui', () => ({
   Modal: ({ children }: { children: React.ReactNode }) => <div role="dialog">{children}</div>,
   useConfirm: () => ({ confirm: vi.fn(() => Promise.resolve(true)), confirmDialog: null }),
@@ -93,7 +93,7 @@ describe('Your Assistant card (obj 701701)', () => {
     // Reset the persisted config between tests.
     store.config = {
       userId: 1, workspace: 'example',
-      persona: { displayName: 'Jarvis', tagline: null, systemPrompt: 'Be concise.', manualSource: null },
+      persona: { displayName: 'Assistant', tagline: null, systemPrompt: 'Be concise.', manualSource: null },
       model: null, autonomy: { level: 'confirm_external', overrides: null },
       enabledCapabilities: [], enabledConnectors: [], enabled: true,
       createdAt: '2026-07-11T00:00:00Z', updatedAt: '2026-07-11T00:00:00Z',
@@ -119,7 +119,7 @@ describe('Your Assistant card (obj 701701)', () => {
     expect(autonomy).toBeTruthy()
     expect(enabled).toBeTruthy()
     // Seeded from GET.
-    expect(name.value).toBe('Jarvis')
+    expect(name.value).toBe('Assistant')
     expect(prompt.value).toBe('Be concise.')
     expect(autonomy.value).toBe('confirm_external')
     expect(enabled.checked).toBe(true)

@@ -22,6 +22,7 @@ import {
   buildQaConformanceCriteria,
 } from './design-context.js'
 import type { Objective } from '@command-center/shared'
+import { HOME_DIR, PROJECTS_DIR, SECOND_BRAIN_DIR } from '../config.js'
 
 // Minimal Objective factory — only the fields the UI-gate path reads.
 function obj(partial: Partial<Objective>): Objective {
@@ -113,9 +114,9 @@ describe('buildVisionRubricBlock — active modes inject the rubric', () => {
 })
 
 describe('buildReviewerDesignContextBlock — absolute paths (the ~-home fix)', () => {
-  it('resolves the token source to an absolute /home/mike path, never ~-relative', () => {
+  it('resolves the token source to an absolute projects-root path, never ~-relative', () => {
     const block = buildReviewerDesignContextBlock(uiObjective)
-    expect(block).toContain('/home/operator/projects/example-project-platform/src/design-system/tokens.css')
+    expect(block).toContain(`${PROJECTS_DIR}/example-project-platform/src/design-system/tokens.css`)
     expect(block).not.toMatch(/~\//)
   })
 })
@@ -139,12 +140,12 @@ describe('getUiGateMode — defaults to off (typo-safe)', () => {
   })
 })
 
-describe('canonicalRootEnv — injects the real /home/mike roots', () => {
+describe('canonicalRootEnv — injects the real operator roots', () => {
   it('exposes the vault + projects roots so sessions can avoid ~ expansion', () => {
     const env = canonicalRootEnv()
-    expect(env.SECOND_BRAIN_DIR).toBe('/home/operator/second-brain')
-    expect(env.PROJECTS_DIR).toBe('/home/operator/projects')
-    expect(env.MIKE_HOME).toBe('/home/mike')
+    expect(env.SECOND_BRAIN_DIR).toBe(SECOND_BRAIN_DIR)
+    expect(env.PROJECTS_DIR).toBe(PROJECTS_DIR)
+    expect(env.OWNER_HOME).toBe(HOME_DIR)
   })
 })
 

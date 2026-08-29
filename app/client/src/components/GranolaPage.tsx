@@ -19,7 +19,7 @@ import {
 import type { TabItem } from './ui'
 
 // One-click copy with a transient "Copied!" confirmation. Copies the given text
-// (the post body — not the frontmatter) so Mike can paste straight into LinkedIn.
+// (the post body — not the frontmatter) so the operator can paste straight into LinkedIn.
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   const copy = useCallback(async () => {
@@ -349,7 +349,7 @@ type Tab = 'queue' | 'hooks' | 'inbox'
 const TAB_META: Record<Tab, { label: string; descriptor: string }> = {
   queue: {
     label: 'LinkedIn Drafts',
-    descriptor: 'Full written posts in Mike’s voice — copy-paste ready for LinkedIn.',
+    descriptor: 'Full written posts in the operator’s voice — copy-paste ready for LinkedIn.',
   },
   hooks: {
     label: 'Short-form & Video',

@@ -151,7 +151,7 @@ describe('PreviewBoard — PROJECT row visibility (obj 708893)', () => {
 
   it('PROJECT row is hidden for admin in All-orgs view (workspaces=[])', async () => {
     mockUser = {
-      id: 1, username: 'mike', role: 'admin',
+      id: 1, username: 'admin', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }
@@ -162,7 +162,7 @@ describe('PreviewBoard — PROJECT row visibility (obj 708893)', () => {
 
   it('PROJECT row is hidden in genuine multi-org view (workspaces has 2)', async () => {
     mockUser = {
-      id: 1, username: 'mike', role: 'admin',
+      id: 1, username: 'admin', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }

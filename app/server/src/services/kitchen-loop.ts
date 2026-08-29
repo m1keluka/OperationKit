@@ -219,7 +219,7 @@ export interface IdeateTicket {
  * output is only LOGGED — nothing is written to the board. The seed backlog is the
  * P0 coverage gaps W3 enumerated for the command-center pilot (the highest-value
  * untested cells). Pure: no DB writes, no network. (Phase-1 will read the live
- * spec/coverage-matrix.yaml minus loop_drift_metrics; that wiring is Mike-gated.)
+ * spec/coverage-matrix.yaml minus loop_drift_metrics; that wiring is Operator-gated.)
  */
 export function computeIdeateTickets(scope: string): IdeateTicket[] {
   if (scope !== DEFAULT_SCOPE) return []
@@ -336,7 +336,7 @@ export interface PauseGateDecisions {
 /**
  * Pure evaluation of the paper's three pause gates (§7.5), each mapped onto an
  * existing primitive's threshold. Returns decisions only — the SHADOW caller LOGS
- * them and takes no action. (In a later Mike-gated phase, g1 would flip
+ * them and takes no action. (In a later Operator-gated phase, g1 would flip
  * kitchen_loop_killed for the scope, g2 would stop Ideate, g3 would drop to
  * monitor_only — none of which Phase-0 does.)
  */
@@ -719,7 +719,7 @@ let schedulerTimer: ReturnType<typeof setInterval> | null = null
  * Start the Kitchen Loop driver. COMPLETE NO-OP unless `kitchen_loop_enabled` is
  * set (settings row or CC_KITCHEN_LOOP_ENABLED) — so NOTHING arms on deploy and the
  * boot path is byte-for-byte unchanged while the flag is OFF. When enabled, each
- * slow tick re-checks the flag + kill switch (so Mike can arm/disarm live without a
+ * slow tick re-checks the flag + kill switch (so Operator can arm/disarm live without a
  * restart) and advances the SHADOW state machine one phase. Safe to call
  * unconditionally at boot.
  */

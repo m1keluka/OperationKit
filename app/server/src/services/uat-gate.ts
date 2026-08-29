@@ -289,7 +289,7 @@ export function buildBlindEvaluatorPrompt(card: SealedCard): string {
 export interface BlindSpawnContext {
   card: SealedCard
   worktreeDir: string
-  /** Default model for the evaluator — Opus (Mike all-Opus rule). */
+  /** Default model for the evaluator — Opus (Operator all-Opus rule). */
   model?: string
 }
 

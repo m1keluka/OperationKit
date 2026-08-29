@@ -2,7 +2,7 @@
 // canonical top tier of the hierarchy, stored on `objectives.is_strategy`. obj
 // 2383 originally INFERRED the marker (`delegate_mode=1 AND parent_id IS NULL`)
 // both at create/update time and via a backfill, which wrongly stamped nearly
-// every objective Mike runs (almost all are top-level delegators) → every card
+// every objective Operator runs (almost all are top-level delegators) → every card
 // showed the STRATEGY badge. obj 2835 makes the marker PURELY EXPLICIT: it is set
 // only when the create/update request opts in, NEVER derived from
 // delegate_mode/parent_id. This suite proves:

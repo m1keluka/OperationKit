@@ -42,7 +42,7 @@ interface CollapsibleDetailsProps {
   defaultExpanded?: boolean
   /** Optional status dot override (tool cards pass pending/success/error). When
    *  omitted, the colorScheme's static dot renders — preserving the existing
-   *  System/Thinking/Jarvis/PlanningPanel appearance exactly. */
+   *  System/Thinking/Assistant/PlanningPanel appearance exactly. */
   statusDot?: React.ReactNode
   /** Optional trailing meta (cost/duration) rendered before the chevron. */
   meta?: React.ReactNode
@@ -140,7 +140,7 @@ export function ErrorCard({ text }: { text?: string }) {
 // ── Tool status (dot + meta) ──
 // Additive polish for tool-call cards (obj: objective-thread-streaming-polish).
 // Purely derived from fields already on SessionMessage — no prop/signature
-// changes — so the shared Jarvis (mentor/MessageList) + PlanningPanel usages
+// changes — so the shared Assistant (mentor/MessageList) + PlanningPanel usages
 // keep rendering exactly as before, just with a status dot + optional
 // cost/duration meta when those fields happen to be present.
 
@@ -196,7 +196,7 @@ function ToolMeta({ cost, duration }: { cost?: number; duration?: number }) {
 // ── Tool-specific summaries ──
 
 function isEditableDocPath(p: string): boolean {
-  return /^\/home\/mike\/.+\.md$/.test(p)
+  return /^\/home\/admin\/.+\.md$/.test(p)
 }
 
 function getToolSummary(msg: SessionMessage): { label: string; icon: string; filePath?: string } {

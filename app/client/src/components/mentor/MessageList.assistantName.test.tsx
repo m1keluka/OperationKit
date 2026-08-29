@@ -2,7 +2,7 @@
 //
 // obj 701701 — proves the in-thread assistant name is dynamic: MessageList
 // renders the passed `assistantName` in the empty state and thinking indicator,
-// and falls back to 'Jarvis' when the prop is omitted (unset/loading config).
+// and falls back to 'Assistant' when the prop is omitted (unset/loading config).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
@@ -28,7 +28,7 @@ describe('MessageList dynamic assistant name (obj 701701)', () => {
       <MessageList messages={[]} state={'idle' as MentorSessionState} loading={false} assistantName="Ada" />,
     ))
     expect(container.textContent).toContain('Ada reads the vault and pushes back.')
-    expect(container.textContent).not.toContain('Jarvis')
+    expect(container.textContent).not.toContain('Assistant')
   })
 
   it('uses the configured name in the thinking indicator', () => {
@@ -45,10 +45,10 @@ describe('MessageList dynamic assistant name (obj 701701)', () => {
     expect(container.textContent).toContain('Ada is thinking…')
   })
 
-  it("falls back to 'Jarvis' when assistantName is omitted", () => {
+  it("falls back to 'Assistant' when assistantName is omitted", () => {
     flushSync(() => root.render(
       <MessageList messages={[]} state={'idle' as MentorSessionState} loading={false} />,
     ))
-    expect(container.textContent).toContain('Jarvis reads the vault and pushes back.')
+    expect(container.textContent).toContain('Assistant reads the vault and pushes back.')
   })
 })

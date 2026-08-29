@@ -6,7 +6,7 @@
 // sources: AUTO (the granola-intake session skill proposes candidate loops per meeting)
 // and MANUAL (the "New loop" button in the CC UI).
 //
-// Storage is Mike-only second-brain markdown — one file per loop under
+// Storage is Operator-only second-brain markdown — one file per loop under
 // workspaces/personal/loops/<slug>.md. This module READS those files for the
 // admin UI and WRITES them on manual-add / edit / status-move. It is a SEPARATE
 // stream from the granola-content engine: it never touches the drafts/hooks files
@@ -41,7 +41,7 @@ const LOOPS_DIR = path.join(WS_ROOT, 'loops')
 // existing loop files are untouched by adding this lane.
 export const LOOP_STATUSES = ['pending', 'queued', 'working', 'done'] as const
 export type LoopStatus = (typeof LOOP_STATUSES)[number]
-export const LOOP_PROJECTS = ['example', 'example2', 'shabo-dl', 'example-project', 'personal', ''] as const
+export const LOOP_PROJECTS = ['example', 'example2', 'example-shop', 'example-project', 'personal', ''] as const
 export type LoopProject = (typeof LOOP_PROJECTS)[number]
 export const PARTY_TYPES = ['team', 'client', ''] as const
 

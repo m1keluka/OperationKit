@@ -208,7 +208,7 @@ describe('buildPrompt — Talking to the human', () => {
     expect(prompt).toContain('Pause for the human only when Talking to the human says so')
     expect(prompt).toContain('Do not ask "Want me to…?" for reversible work')
     expect(prompt).toContain('Never ask them to run a shell command or paste a secret')
-    expect(prompt).not.toContain('Talking to Mike')
+    expect(prompt).not.toContain('Talking to Operator')
     expect(prompt.indexOf('## Talking to the human')).toBeLessThan(prompt.indexOf('## Operating Principles'))
   })
 })

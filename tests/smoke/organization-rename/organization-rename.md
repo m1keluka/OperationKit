@@ -16,10 +16,10 @@ Let's Encrypt cert `CN = pr-276.cc.example.com`, HTTP 200.
   preview — `gh pr create` alone does not; see decision
   `2026-08-14-cc-pr-preview-provisioning-requires-pr-created-call.md`). Spool job
   `deploy-pr276.json` drained OK at 04:22 UTC, after the fix commit.
-- Preview DB is freshly seeded by `preview-deploy.sh`: users `mike` (admin, orgs example +
+- Preview DB is freshly seeded by `preview-deploy.sh`: users `admin` (admin, orgs example +
   example-project) and `ava` (member, org example), password `changeme`. Organizations seeded:
-  Example Org / Example Project / Mike Luka. Zero objectives — the board shots are empty-state.
-- Logged in as `mike` (admin) — the Settings surface is admin-gated.
+  Example Org / Example Project / Personal. Zero objectives — the board shots are empty-state.
+- Logged in as `admin` (admin) — the Settings surface is admin-gated.
 - Settings is served at **`/config`**, not `/settings`.
 
 ## Steps and results
@@ -27,14 +27,14 @@ Let's Encrypt cert `CN = pr-276.cc.example.com`, HTTP 200.
 | # | Step | Result |
 |---|---|---|
 | 1 | Load the preview over TLS | **PASS** — HTTP 200, `ssl_verify=0`, cert CN `pr-276.cc.example.com`, issuer Let's Encrypt, valid to 2026-11-12. |
-| 2 | Log in as `mike`, open System → Config | **PASS** — Settings renders; page description reads "**Organizations**, users, agents, and platform configuration." (01) |
+| 2 | Log in as `admin`, open System → Config | **PASS** — Settings renders; page description reads "**Organizations**, users, agents, and platform configuration." (01) |
 | 3 | Read the Settings tab strip | **PASS** — first tab reads "**Organizations**" (was "Workspaces"). Remaining tabs unchanged: Users, Agents & Skills, Assignments, Skill Graph, Cron Jobs, Tools. (01) |
-| 4 | Read the manage card on the Organizations tab | **PASS** — card header "**Organizations**", primary action "**Add organization**". Three rows: Example Org `example`, Example Project `example-project`, Mike Luka `personal`. (01) |
+| 4 | Read the manage card on the Organizations tab | **PASS** — card header "**Organizations**", primary action "**Add organization**". Three rows: Example Org `example`, Example Project `example-project`, Personal `personal`. (01) |
 | 5 | Confirm the repo-link concept was NOT renamed | **PASS** — each org row still shows a "6 repos" / "2 repos" / "7 repos" chip; the `project` scope label elsewhere still reads "Project". These are the repo-link concept, deliberately untouched. (01) |
-| 6 | Open the Users tab and expand `mike` | **PASS** — section header reads "**ORGANIZATION ACCESS**" (was "Workspace access"); membership rows `example` + `example-project` with Role / Jarvis chat / Sees controls. (02) |
-| 7 | Read the per-user membership counters at the right edge of each user row | **PASS** — DOM text extracted via `allInnerTexts()`: `ava` → `"1 organization"`, `mike` → `"2 organizations"`. Previously "1 workspace" / "2 workspaces" — this was the one label the string greps missed (it is split by a pluralization ternary) and was caught only by this browser pass. (02) |
+| 6 | Open the Users tab and expand `admin` | **PASS** — section header reads "**ORGANIZATION ACCESS**" (was "Workspace access"); membership rows `example` + `example-project` with Role / Assistant chat / Sees controls. (02) |
+| 7 | Read the per-user membership counters at the right edge of each user row | **PASS** — DOM text extracted via `allInnerTexts()`: `ava` → `"1 organization"`, `admin` → `"2 organizations"`. Previously "1 workspace" / "2 workspaces" — this was the one label the string greps missed (it is split by a pluralization ternary) and was caught only by this browser pass. (02) |
 | 8 | Read the "Sees:" visibility dropdown | **PASS** — options are "own objectives" / "**all in organization**". (02) |
-| 9 | Open New Objective → expand Advanced | **PASS** — the field label reads "**Organization**" with value "Example" (options Example / Example Project / Mike Luka). (03) |
+| 9 | Open New Objective → expand Advanced | **PASS** — the field label reads "**Organization**" with value "Example" (options Example / Example Project / Personal). (03) |
 | 10 | Confirm the objective **type** concept was NOT renamed | **PASS** — the type chips still read PROJECT / BUG / TASK. This is a third, unrelated meaning of "project" (workflow tier) and is deliberately untouched. (03) |
 | 11 | View the board with the org switcher | **PASS** — switcher pill reads "Example"; it renders the org slug label, never the literal word, so no change was needed there. Columns QUEUE / WORKING / NEEDS YOU (empty — seeded DB has no objectives). (04) |
 | 12 | Re-check Settings/Organizations at 390×844 | **PASS** — "Organizations" tab active, "Add organization" button, all three org rows, mobile bottom tab bar. The longer labels do **not** overflow or truncate the tab strip or the button. (05) |
@@ -48,7 +48,7 @@ Let's Encrypt cert `CN = pr-276.cc.example.com`, HTTP 200.
 | File | Caption |
 |---|---|
 | `01-settings-organizations-1440.png` | Settings → Organizations tab at 1440×900: tab label, card header, "Add organization", and the three org rows with their untouched "N repos" chips. |
-| `02-settings-users-organization-access-1440.png` | Settings → Users at 1440×900 with `mike` expanded: "ORGANIZATION ACCESS", "1 organization" / "2 organizations" counters, "all in organization" visibility option. |
+| `02-settings-users-organization-access-1440.png` | Settings → Users at 1440×900 with `admin` expanded: "ORGANIZATION ACCESS", "1 organization" / "2 organizations" counters, "all in organization" visibility option. |
 | `03-objective-modal-organization-field-1440.png` | New Objective modal, Advanced expanded: the "Organization" field label — alongside the deliberately-unchanged PROJECT/BUG/TASK type chips. |
 | `04-board-org-switcher-1440.png` | Kanban board at 1440×900 with the "Example" org switcher in the top nav (renders the slug label, not the word). |
 | `05-settings-organizations-390.png` | Settings → Organizations at 390×844: the longer labels fit the mobile tab strip and button without truncation. |

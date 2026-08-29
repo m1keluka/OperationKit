@@ -3,7 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-// Real SQLite — the Jarvis-profile owner gate (isMikeThread) resolves
+// Real SQLite — the Assistant-profile owner gate (isOwnerThread) resolves
 // created_by → users.username. The MCP-config builder + directive are pure
 // (file + env), so we exercise them directly.
 
@@ -11,17 +11,17 @@ const TMP_DB = path.join(os.tmpdir(), `cc-mentor-session-test-${process.pid}-${D
 process.env.DB_PATH = TMP_DB
 
 const { initDb, getDb } = await import('../db/index.js')
-const { isMikeThread, buildGoogleMcpConfig, buildJarvisDirective } = await import('./mentor-session.js')
+const { isOwnerThread, buildGoogleMcpConfig, buildJarvisDirective } = await import('./mentor-session.js')
 
-let mikeId: number
+let ownerId: number
 let memberId: number
 
 beforeAll(() => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
   const db = getDb()
-  const m = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('mike', '', 'admin')").run()
-  mikeId = m.lastInsertRowid as number
+  const m = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', '', 'admin')").run()
+  ownerId = m.lastInsertRowid as number
   const u = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('alice', '', 'member')").run()
   memberId = u.lastInsertRowid as number
 })
@@ -34,35 +34,35 @@ afterAll(() => {
   }
 })
 
-describe('isMikeThread — Jarvis profile owner gate', () => {
+describe('isOwnerThread — Assistant profile owner gate', () => {
   const ORIG = process.env.MENTOR_TELEGRAM_OWNER_USERNAME
   afterEach(() => {
     if (ORIG === undefined) delete process.env.MENTOR_TELEGRAM_OWNER_USERNAME
     else process.env.MENTOR_TELEGRAM_OWNER_USERNAME = ORIG
   })
 
-  it('returns true for the admin owner (default username "mike")', () => {
+  it('returns true for the admin owner (default username "admin")', () => {
     delete process.env.MENTOR_TELEGRAM_OWNER_USERNAME
-    expect(isMikeThread(mikeId)).toBe(true)
+    expect(isOwnerThread(ownerId)).toBe(true)
   })
 
   it('returns false for a non-owner member', () => {
     delete process.env.MENTOR_TELEGRAM_OWNER_USERNAME
-    expect(isMikeThread(memberId)).toBe(false)
+    expect(isOwnerThread(memberId)).toBe(false)
   })
 
   it('returns false for null created_by (legacy threads — fail closed)', () => {
-    expect(isMikeThread(null)).toBe(false)
+    expect(isOwnerThread(null)).toBe(false)
   })
 
   it('returns false for an unknown user id', () => {
-    expect(isMikeThread(999999)).toBe(false)
+    expect(isOwnerThread(999999)).toBe(false)
   })
 
   it('honors MENTOR_TELEGRAM_OWNER_USERNAME override', () => {
     process.env.MENTOR_TELEGRAM_OWNER_USERNAME = 'alice'
-    expect(isMikeThread(memberId)).toBe(true)
-    expect(isMikeThread(mikeId)).toBe(false)
+    expect(isOwnerThread(memberId)).toBe(true)
+    expect(isOwnerThread(ownerId)).toBe(false)
   })
 })
 
@@ -123,7 +123,7 @@ describe('buildGoogleMcpConfig — MCP config builder shape', () => {
     expect(mcpServers['google-gmail']).toBeUndefined()
   })
 
-  it('with no per-user config, does not fall back to mike@ or the shared credential dir', () => {
+  it('with no per-user config, does not fall back to admin@ or the shared credential dir', () => {
     process.env.GOOGLE_OAUTH_CLIENT_ID = 'cid'
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'csec'
     const { mcpServers, hasGoogle } = buildGoogleMcpConfig(homeDir)

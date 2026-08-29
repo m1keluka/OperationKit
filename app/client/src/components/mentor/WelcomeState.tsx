@@ -8,7 +8,7 @@ export interface StarterChip {
 }
 
 interface WelcomeStateProps {
-  /** The user's configured assistant name; falls back to 'Jarvis' when unset. */
+  /** The user's configured assistant name; falls back to 'Assistant' when unset. */
   assistantName?: string
   /** Fires with the chip's prompt so the caller can prefill the composer. */
   onPick: (prompt: string) => void
@@ -29,7 +29,7 @@ const STARTERS: StarterChip[] = [
   { label: 'Pressure-test an idea', prompt: 'Pressure-test this idea and poke holes in it: ', icon: '🧪' },
 ]
 
-export function WelcomeState({ assistantName = 'Jarvis', onPick, showTagline = true }: WelcomeStateProps) {
+export function WelcomeState({ assistantName = 'Assistant', onPick, showTagline = true }: WelcomeStateProps) {
   return (
     <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center px-4 py-8 text-center">
       <div className="grid h-12 w-12 place-items-center rounded-2xl border border-[color:var(--accent-line)] bg-[var(--accent-tint)] text-2xl">

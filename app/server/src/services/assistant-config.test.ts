@@ -17,7 +17,7 @@ const {
 } = await import('./assistant-config.js')
 const { buildAssistantDirective, buildJarvisDirective, buildGoogleMcpConfig } = await import('./mentor-session.js')
 
-let mikeId: number
+let ownerId: number
 let aliceId: number
 
 beforeAll(() => {
@@ -25,12 +25,12 @@ beforeAll(() => {
   initDb()
   const db = getDb()
   // Insert the owner BEFORE re-running initDb so the idempotent owner seed fires
-  // (the seed looks up username === MENTOR_TELEGRAM_OWNER_USERNAME||'mike').
-  const m = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('mike', '', 'admin')").run()
-  mikeId = m.lastInsertRowid as number
+  // (the seed looks up username === MENTOR_TELEGRAM_OWNER_USERNAME||'admin').
+  const m = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', '', 'admin')").run()
+  ownerId = m.lastInsertRowid as number
   const a = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('alice', '', 'member')").run()
   aliceId = a.lastInsertRowid as number
-  // Re-run init: proves idempotency AND seeds the owner config now that mike exists.
+  // Re-run init: proves idempotency AND seeds the owner config now that admin exists.
   initDb()
 })
 
@@ -49,13 +49,13 @@ describe('assistant_configs migration', () => {
     for (const c of ['user_id', 'workspace', 'display_name', 'system_prompt', 'autonomy', 'enabled_connectors', 'connector_bindings', 'enabled', 'created_at', 'updated_at']) {
       expect(cols).toContain(c)
     }
-    const ownerRows = getDb().prepare('SELECT COUNT(*) AS n FROM assistant_configs WHERE user_id = ?').get(mikeId) as { n: number }
+    const ownerRows = getDb().prepare('SELECT COUNT(*) AS n FROM assistant_configs WHERE user_id = ?').get(ownerId) as { n: number }
     expect(ownerRows.n).toBe(1) // seed is idempotent across re-runs
   })
 })
 
 describe('resolveAssistantConfig — create-on-read + workspace fallback', () => {
-  it('returns null for a missing user id (fail-closed, like isMikeThread(null))', () => {
+  it('returns null for a missing user id (fail-closed, like isOwnerThread(null))', () => {
     expect(resolveAssistantConfig(null, 'example')).toBeNull()
     expect(resolveAssistantConfig(undefined, 'example')).toBeNull()
   })
@@ -100,11 +100,11 @@ describe('resolveAssistantConfig — create-on-read + workspace fallback', () =>
 })
 
 describe('generalized spawn — non-owner gets a directive using THEIR displayName', () => {
-  it('default (non-Mike) directive uses the configured displayName, not "Jarvis"', () => {
+  it('default directive uses the configured displayName and carries no owner tagline', () => {
     const cfg = resolveAssistantConfig(aliceId, 'example')!
     const d = buildAssistantDirective(cfg, 99)
     expect(d.startsWith('ASSISTANT PROFILE — this session is Assistant.')).toBe(true)
-    expect(d).not.toContain('JARVIS')
+    expect(d).not.toContain('ASSISTANT PROFILE — this session is Assistant,')
     // pending location is per-thread + global loops, driven by the generic path.
     expect(d).toContain('/home/operator/assistant/threads/99/pending.md')
     expect(d.toUpperCase()).toContain('GLOBAL')
@@ -141,7 +141,7 @@ describe('generalized spawn — non-owner gets a directive using THEIR displayNa
   })
 })
 
-describe('mike-lossless — seeded owner config reproduces the legacy Jarvis directive', () => {
+describe('admin-lossless — seeded owner config reproduces the legacy Assistant directive', () => {
   const THREAD = 42
 
   // Rule-bearing invariants that MUST carry over verbatim from the pre-change
@@ -160,24 +160,24 @@ describe('mike-lossless — seeded owner config reproduces the legacy Jarvis dir
     'Propose → Persist the pending action →\nResolve the MOST RECENT pending on an affirmative (then delete it) → Cancel on\na negation. The persisted entry IS the gate state.',
   ]
 
-  it('the owner is seeded a Jarvis config', () => {
-    const cfg = resolveAssistantConfig(mikeId, 'example')
+  it('the owner is seeded an assistant config', () => {
+    const cfg = resolveAssistantConfig(ownerId, 'example')
     expect(cfg).not.toBeNull()
-    expect(cfg!.persona.displayName).toBe('Jarvis')
+    expect(cfg!.persona.displayName).toBe('Assistant')
     expect(cfg!.enabled).toBe(true)
     expect(cfg!.autonomy.level).toBe('confirm_external')
     expect(cfg!.persona.manualSource?.locator).toBe('/home/operator/ai-workspace/agents/assistant.md')
     expect(cfg!.connectorBindings?.['google-workspace']?.identity).toBe('dev@example.com')
   })
 
-  it('buildAssistantDirective(mikeConfig) is semantically equivalent to buildJarvisDirective', () => {
-    const cfg = resolveAssistantConfig(mikeId, 'example')!
+  it('buildAssistantDirective(ownerConfig) is semantically equivalent to buildJarvisDirective', () => {
+    const cfg = resolveAssistantConfig(ownerId, 'example')!
     const generated = buildAssistantDirective(cfg, THREAD)
     const legacy = buildJarvisDirective(THREAD)
 
     // 1. Persona header line is byte-identical (name + tagline).
     expect(generated.split('\n')[0]).toBe(legacy.split('\n')[0])
-    expect(generated.split('\n')[0]).toBe("JARVIS PROFILE — this session is Jarvis, Mike's personal admin assistant.")
+    expect(generated.split('\n')[0]).toBe("ASSISTANT PROFILE — this session is Assistant, the operator's personal admin assistant.")
 
     // 2. Every rule-bearing invariant appears in BOTH (carried over verbatim).
     for (const inv of INVARIANTS) {
@@ -197,16 +197,16 @@ describe('mike-lossless — seeded owner config reproduces the legacy Jarvis dir
     // 5. Human-voice block is in the live directive (not the legacy snapshot).
     expect(generated).toContain('## Talking to the human')
     expect(generated).toContain('Anything you can do with an API, Playwright, Google, GitHub, or the filesystem')
-    expect(generated).not.toContain('Talking to Mike')
+    expect(generated).not.toContain('Talking to Operator')
   })
 
   it('the owner keeps his Google identity in the MCP config', () => {
-    const cfg = resolveAssistantConfig(mikeId, 'example')!
+    const cfg = resolveAssistantConfig(ownerId, 'example')!
     const ORIG_ID = process.env.GOOGLE_OAUTH_CLIENT_ID
     const ORIG_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET
     process.env.GOOGLE_OAUTH_CLIENT_ID = 'cid'
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'csec'
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-mike-'))
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-admin-'))
     try {
       const { mcpServers, hasGoogle } = buildGoogleMcpConfig(homeDir, cfg)
       expect(hasGoogle).toBe(true)

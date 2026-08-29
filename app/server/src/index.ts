@@ -221,7 +221,7 @@ app.use(
 // This must sit AFTER the raw-body GitHub webhook mount above (so the JSON
 // parser is never applied to webhook bytes) and BEFORE any SPA catch-all.
 app.use('/api/public', devIngestCors, publicDevRouter)     // P1-P4: ingest, attachment, "my requests", per-workspace changelog feed
-// Admin surface: CC session + admin gate (triage is Mike-only by decision; there
+// Admin surface: CC session + admin gate (triage is Operator-only by decision; there
 // is deliberately NO per-workspace ACL).
 app.use('/api/dev-items', devItemsRouter)                  // A1-A11: board list/detail/create/patch/triage/promote/rank/attach-pr/notes/delete/bulk
 app.use('/api/dev-changelog', devChangelogRouter)          // A12-A16: internal changelog list/edit/publish/retranslate/notify
@@ -340,23 +340,23 @@ startDreamCycleScheduler()
 startRoutineScheduler()
 
 // Start the anti-signal canary harness scheduler (obj-2376). Ticks are a NO-OP
-// until Mike opts in via `canary_harness_enabled=1` — nothing auto-fires on deploy.
+// until Operator opts in via `canary_harness_enabled=1` — nothing auto-fires on deploy.
 startCanaryHarnessScheduler()
 
 // Start the Kitchen Loop driver (obj 700099) — Phase-0 SHADOW. A COMPLETE no-op
-// until Mike opts in via `kitchen_loop_enabled=1`; with the flag OFF it returns
+// until Operator opts in via `kitchen_loop_enabled=1`; with the flag OFF it returns
 // before arming any timer (boot is byte-for-byte unchanged). When ON it ticks the
 // six-phase machine in SHADOW only — dry-run ideate, read-only oracle, drift
 // snapshots, logged-only pause gates. Nothing emits to the board.
 startKitchenLoop()
 
-// Start Jarvis morning-nudge scheduler (daily 07:00 America/New_York Telegram digest)
+// Start Assistant morning-nudge scheduler (daily 07:00 America/New_York Telegram digest)
 startJarvisNudgeScheduler()
 
 // Start the CI → objective feedback bridge poller (obj 701617, 5-min tick). Reads open
 // example-platform PRs' vitest check and, on FAILURE, posts the failing-test summary back
 // into the originating objective so the worker re-opens and iterates until green. The
-// timer arms but is INERT until Mike sets settings.ci_feedback_bridge_enabled=1 — while
+// timer arms but is INERT until Operator sets settings.ci_feedback_bridge_enabled=1 — while
 // off it only logs "WOULD nudge" and posts nothing (no live worker is disturbed).
 startCiFeedbackBridge()
 
@@ -370,7 +370,7 @@ startObjectivesSafety()
 // PR-health watchdog (obj 704700, 10-min sweep). The RECONCILER under the event-driven
 // remediation loop: enumerates every open PR across the tracked repos and guarantees a
 // red PR is either being remediated or explicitly escalated, so a missed webhook or an
-// ownerless PR can no longer sit red forever. The timer arms but is INERT until Mike
+// ownerless PR can no longer sit red forever. The timer arms but is INERT until Operator
 // sets settings.pr_health_watchdog_enabled=1 — while off, ticks return before shelling
 // out to gh and every decided action only logs "WOULD act". The read-only surface at
 // GET /api/internal/pr-health[/digest] works either way.

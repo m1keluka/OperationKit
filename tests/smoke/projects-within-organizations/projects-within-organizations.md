@@ -11,14 +11,14 @@ serving the branch's own `app/client/dist` build, `DB_PATH=/tmp/cc708826/cc.db`
 
 ## Pre-conditions
 
-- `npx tsx src/db/seed.ts` against the throwaway DB → users `mike` (admin, workspaces
+- `npx tsx src/db/seed.ts` against the throwaway DB → users `admin` (admin, workspaces
   example / example-project / personal) and `ava`.
 - Five objectives inserted directly into the seeded DB, all with `project_id = NULL`:
   four in `example` (one of which carries the legacy repo-link `project =
   'command-center-infra'`) and one in `example-project` as a cross-organization control.
 - **Zero** rows in `projects` at the start — every project in this run was created
   through the UI.
-- Logged in as `mike` / `changeme` through the real login form.
+- Logged in as `admin` / `changeme` through the real login form.
 
 ## Steps and results
 

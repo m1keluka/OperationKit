@@ -120,7 +120,7 @@ async function listOpenPrs(exec: ExecFn, repo: string, limit: number): Promise<P
 /**
  * Compute health for every open PR across the configured repos. PURE OBSERVATION —
  * this function issues only read-only `gh pr list` calls and never writes. It is what
- * the Mike-facing surface renders, and it runs identically whether the act-path flag is
+ * the Operator-facing surface renders, and it runs identically whether the act-path flag is
  * on or off.
  */
 export async function sweepHealth(deps: WatchdogDeps): Promise<SweepResult> {
@@ -316,7 +316,7 @@ export async function runWatchdogOnce(deps: WatchdogDeps): Promise<SweepResult> 
 
     if (acted >= cap) {
       // Budget spent. Keep the DECIDED action visible and flag the deferral separately —
-      // the surface's whole job is to tell Mike what the watchdog intends, and
+      // the surface's whole job is to tell Operator what the watchdog intends, and
       // overwriting that with 'skip-cap' would hide it behind a bookkeeping detail.
       // The queue position is included because "deferred" on its own used to imply
       // "next sweep", which was false while the order was fixed.

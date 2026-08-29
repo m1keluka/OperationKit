@@ -183,7 +183,7 @@ export function buildRemediationPrompt(args: {
     `**(d) Apply it IN THE WORKTREE** (\`/tmp/cc-worktree-${args.objective.id}/\`, absolute paths only),`,
     `   commit, and \`git push\` to your PR branch. Do NOT edit the live checkout.`,
     `**(e) Confirm the check re-runs green.** If it fails again you'll get another automated`,
-    `   nudge (bounded at ${maxAttempts} attempts). Do NOT merge — Mike merges.`,
+    `   nudge (bounded at ${maxAttempts} attempts). Do NOT merge — Operator merges.`,
     ``,
     `Token discipline: only the failing lines were pulled, never full logs. If you need`,
     `more, fetch narrowly (\`gh run view <id> --log-failed\`, annotations) — never dump whole logs.`,
@@ -213,7 +213,7 @@ const REPO_WORKSPACES: Record<string, string> = {
 }
 
 /** Fallback workspace when the repo is unmapped — the harness's own board, where
- *  Mike triages everything anyway. */
+ *  Operator triages everything anyway. */
 const DEFAULT_TRUNK_WORKSPACE = 'personal'
 
 export function workspaceForRepo(db: Database, repoFullName: string): string {
@@ -263,7 +263,7 @@ export function buildTrunkFailureObjective(args: {
     `1. Diagnose: open the details URL / fetch ONLY the failing lines (\`gh run view <id> --log-failed\`,`,
     `   never full logs). Identify the commit(s) that broke ${branch}.`,
     `2. Fix it in your worktree — never edit the live checkout.`,
-    `3. Open a PR against ${branch}. Do NOT merge — Mike merges. Do NOT redeploy by hand.`,
+    `3. Open a PR against ${branch}. Do NOT merge — Operator merges. Do NOT redeploy by hand.`,
   ].filter((l): l is string => l !== null).join('\n')
   return { title, description }
 }
@@ -929,7 +929,7 @@ function createMaintenanceObjective(deps: RemediationDeps, repo: string, kind: U
     ``,
     `Failing PRs are appended below as their checks fail. For each one: diagnose the failing check,`,
     `fix it on the PR branch (or close the PR if the bump is not worth taking), and push. Do NOT merge —`,
-    `Mike merges. Fetch only failing lines (\`gh run view <id> --log-failed\`), never full logs.`,
+    `Operator merges. Fetch only failing lines (\`gh run view <id> --log-failed\`), never full logs.`,
     ``,
     `### Failing PRs`,
   ].join('\n')
@@ -1015,7 +1015,7 @@ function handleOrphanedObjective(
     classified.targetUrl ? `- Details: ${classified.targetUrl}` : null,
     ``,
     `**What to do:** diagnose the failing check (fetch ONLY failing lines — \`gh run view <id> --log-failed\`),`,
-    `fix it in your worktree, push to the PR branch, confirm the check goes green. Do NOT merge — Mike merges.`,
+    `fix it in your worktree, push to the PR branch, confirm the check goes green. Do NOT merge — Operator merges.`,
   ].filter((l): l is string => l !== null).join('\n')
 
   try {

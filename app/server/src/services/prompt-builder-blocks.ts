@@ -42,7 +42,7 @@ export const DEFAULT_OBJECTIVE_MEMORY_ROOT = '/home/operator/ai-workspace/object
  *
  * Env-overridable (`CC_OBJECTIVE_MEMORY_ROOT`) only so the suite can exercise the
  * artifact-PUBLISHED branch: on the host the default is real and writable, on a CI runner
- * there is no `/home/mike` at all, so a test that must `mkdir` there fails for reasons
+ * there is no `/home/operator` at all, so a test that must `mkdir` there fails for reasons
  * unrelated to the code under test. Unset in production ⇒ the default, unchanged.
  *
  * Resolved LAZILY, and that detail is load-bearing. `import` is hoisted above every other
@@ -389,7 +389,7 @@ export function buildStrategyBlock(objective: Objective): string[] {
     `   (/home/operator/ai-workspace/objective-memory/${id}/NOTES.md). NOTES.md is your save file: on every`,
     '   wake you reconstruct your full state from it in ONE read.',
     gateArmed
-      ? '2. PARK THE FIRST PROJECT FOR APPROVAL. The human gate is ARMED — you may NOT spawn directly. POST a Decision Request (see "The human gate" below) describing the first project and await Mike’s approval. Record it in the registry. END YOUR TURN.'
+      ? '2. PARK THE FIRST PROJECT FOR APPROVAL. The human gate is ARMED — you may NOT spawn directly. POST a Decision Request (see "The human gate" below) describing the first project and await Operator’s approval. Record it in the registry. END YOUR TURN.'
       : '2. SPAWN THE FIRST PROJECT only (delegate_mode:true). Record its id in the registry. END YOUR TURN.',
     '3. END YOUR TURN. Do NOT poll, sleep, or loop waiting. You will be AUTOMATICALLY re-invoked with a',
     '   "[project-complete]" message each time a project finishes — that is your only cue to continue.',
@@ -414,18 +414,18 @@ export function buildStrategyBlock(objective: Objective): string[] {
           `- THE HUMAN GATE IS ARMED (trust stage ${objective.trust_stage ?? 0}). This is HARD-enforced server-side:`,
           '  the spawn route REFUSES every project spawn that lacks an owner-APPROVED Decision Request. You CANNOT',
           '  bypass it — a direct spawn returns HTTP 409. So for EVERY project (including the first), park a Decision',
-          '  Request and await Mike’s approval before spawning:',
+          '  Request and await Operator’s approval before spawning:',
           `    curl -s -X POST ${base}/${id}/decision \\`,
           `      -H 'Content-Type: application/json' \\`,
           `      -d '{"kind":"spawn-next","decision":"<one sentence: the next project>","evidence":["<concrete signal>"],"options":[{"id":"a","label":"<the project>"}],"recommendation":"a","recommendation_why":"<why>"}'`,
-          '  This parks YOU in review with a pending decision. Mike approves/denies via the board. On APPROVAL you are',
+          '  This parks YOU in review with a pending decision. Operator approves/denies via the board. On APPROVAL you are',
           '  re-woken with a [decision …] APPROVED follow-up — THEN issue the spawn POST (the approval authorizes exactly',
           '  ONE project spawn, and is consumed by it; the next project needs its own approval). On DENIAL, re-plan and',
           '  park a new request. Never attempt to spawn before the approval lands.',
         ]
       : [
           '- Before spawning the next project, if a human gate is armed for this decision, PAUSE: write your',
-          '  proposed next project to NOTES.md and request Mike\'s sign-off (leave the objective in review)',
+          '  proposed next project to NOTES.md and request Operator\'s sign-off (leave the objective in review)',
           '  instead of spawning. The gating framework owns the gate mechanics and the progressive-trust',
           '  graduation; this playbook only references and invokes it.',
         ]),

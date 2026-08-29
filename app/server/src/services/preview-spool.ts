@@ -147,13 +147,13 @@ export function enqueuePreviewTeardown(
  *
  * The drain needs host privilege this container's Node process lacks: a docker
  * build on the host daemon, a git worktree + branch fetch on the host checkout
- * (over the repo's SSH remote, whose creds belong to user `mike`), and a sudo
+ * (over the repo's SSH remote, whose creds belong to user `admin`), and a sudo
  * Caddy reload. The container DOES have the host Docker socket mounted (same
  * access the deploy UI already uses). So we launch a throwaway privileged
- * container that nsenters the host namespaces (PID 1), then drops to `mike` via
- * `su -` and runs preview-spool-runner.sh there. Running as `mike` (not root) is
- * required: preview-deploy.sh fetches over git@github.com using mike's SSH key,
- * and mike has passwordless sudo for the Caddy steps. The runner is flock
+ * container that nsenters the host namespaces (PID 1), then drops to `admin` via
+ * `su -` and runs preview-spool-runner.sh there. Running as `admin` (not root) is
+ * required: preview-deploy.sh fetches over git@github.com using admin's SSH key,
+ * and admin has passwordless sudo for the Caddy steps. The runner is flock
  * single-flight + idempotent, so racing kicks are safe.
  *
  * This makes the systemd cc-preview-spool.path unit OPTIONAL (redundant trigger
@@ -168,7 +168,7 @@ export function enqueuePreviewTeardown(
 export function kickHostDrain(): boolean {
   if (process.env.PREVIEW_SPOOL_HOST_KICK === '0') return false
   const runner = runnerPath()
-  const runAsUser = process.env.PREVIEW_SPOOL_RUN_AS || 'mike'
+  const runAsUser = process.env.PREVIEW_SPOOL_RUN_AS || 'operator'
   // Image carrying nsenter; cached on the host daemon after first pull. No
   // user-controlled values appear in argv (runner path + user are fixed/env,
   // never request data), so there is no injection surface.

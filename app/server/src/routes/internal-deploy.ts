@@ -44,7 +44,7 @@ router.post('/restart', (req, res) => {
   res.json({ ok: true, message: 'Restarting in 1 second...' })
 })
 
-// Internal deploy — localhost only, no auth; sessions and Jarvis call this for full deploys.
+// Internal deploy — localhost only, no auth; sessions and Assistant call this for full deploys.
 // Frontend build runs server-side (has correct /app/client cwd + node_modules).
 //
 // SESSION IMPACT (corrected obj-1150 — the old "kills ALL active Claude sessions"
