@@ -59,6 +59,12 @@ Bugs go to [Issues](https://github.com/m1keluka/OperationKit/issues); questions 
 [Discussions](https://github.com/m1keluka/OperationKit/discussions). See
 [SUPPORT.md](./SUPPORT.md). Release notes live in [CHANGELOG.md](./CHANGELOG.md).
 
+## Hiring
+
+Looking for a founding engineer — TypeScript/Node, serious about systems, wants ownership over architecture rather than tickets. One technical person today, founding equity, real daily use of the product you'd be building.
+
+[HIRING.md](./HIRING.md) has the full role description and a link to apply.
+
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE) and [NOTICE](./NOTICE).
