@@ -34,19 +34,22 @@ jobs:
         working-directory: app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
-      # No committed lockfile (app/package-lock.json is gitignored), so use
-      # `npm install` rather than `npm ci`. `--include=dev` is explicit because
-      # vitest/jsdom/@vitejs-plugin-react are devDependencies and would be
-      # skipped if a NODE_ENV=production leaked into the runner env.
+      # app/package-lock.json IS committed, so use `npm ci` — CI then resolves
+      # the exact tree production does, and a drifted lockfile fails loudly
+      # instead of being silently reconciled. (This comment previously claimed
+      # the lockfile was gitignored; that has not been true since it was
+      # committed, and gate.yml has used `npm ci` all along.) `--include=dev` is
+      # explicit because vitest/jsdom/@vitejs-plugin-react are devDependencies
+      # and would be skipped if a NODE_ENV=production leaked into the runner env.
       - name: Install dependencies
-        run: npm install --include=dev
+        run: npm ci --include=dev
 
       - name: Run Vitest (${{ matrix.workspace }})
         run: npm run test --workspace=${{ matrix.workspace }}
