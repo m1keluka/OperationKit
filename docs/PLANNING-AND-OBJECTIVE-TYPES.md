@@ -2,7 +2,7 @@
 
 Companion to `UNIFIED-TASK-ARCHITECTURE.md`. Specifies how the OperationKit board grows from a single "queue → working → review → done" lane into a type-aware workflow with an optional planning stage in front of execution.
 
-Status: **DESIGN — awaiting Mike's approval before implementation.**
+Status: **DESIGN — awaiting operator approval before implementation.**
 
 ---
 
@@ -13,7 +13,7 @@ Status: **DESIGN — awaiting Mike's approval before implementation.**
 Every objective in CC moves through one path: `queue → working → review → done`. The same gating applies whether the work is a one-line label fix, a database migration, or a multi-week PRD-sized feature. Two consequences:
 
 - **Heavy work skips planning.** A "design + ship the new contacts panel" objective gets the same zero-up-front planning as a typo fix — the working session has to do all its Discover/Design/Plan inside the same turn, often badly.
-- **Light work over-pays for review.** A 30-second config bump still demands a manual human review pass before it lands in done. Mike ends up bottlenecked clearing review for trivial work.
+- **Light work over-pays for review.** A 30-second config bump still demands a manual human review pass before it lands in done. The operator ends up bottlenecked clearing review for trivial work.
 
 ### End state
 
@@ -22,16 +22,16 @@ Every objective is tagged with a **type** chosen at creation (`project`, `bug`, 
 | Type | Workflow | Purpose |
 |------|----------|---------|
 | **Project** | `planning → queue → working → ai_review → human_review → done` | Substantive feature work. Full QA, mandatory human sign-off. |
-| **Bug** | `queue → working → ai_review → done` | Targeted fixes. AI-reviewed for correctness; Mike trusts the verdict. |
+| **Bug** | `queue → working → ai_review → done` | Targeted fixes. AI-reviewed for correctness; the operator trusts the verdict. |
 | **Task** | `queue → working → done` | Light ops/admin/config work. No review gates. |
 
-The **planning stage** is a guided Q&A between Mike and a planner sub-session that produces a written plan. The approved plan is stored on the objective and prepended to the working session's prompt, so the executor starts with shared context instead of re-discovering everything.
+The **planning stage** is a guided Q&A between the operator and a planner sub-session that produces a written plan. The approved plan is stored on the objective and prepended to the working session's prompt, so the executor starts with shared context instead of re-discovering everything.
 
 Acceptance criteria (drives every implementation step below):
 
 1. Objectives table carries a `type` column with values `project | bug | task`, defaulting to `task` for existing rows and per-category for new ones.
 2. The kanban has a **Planning** column to the left of Queue. Only `project`-type objectives in `status='planning'` appear there.
-3. From a `planning`-status objective, Mike can open a chat panel and converse with a planner agent. The planner produces a markdown plan; Mike approves or revises. On approval, the objective moves to `queue` with `approved_plan` populated.
+3. From a `planning`-status objective, the operator can open a chat panel and converse with a planner agent. The planner produces a markdown plan; the operator approves or revises. On approval, the objective moves to `queue` with `approved_plan` populated.
 4. Working sessions for `project` objectives receive the approved plan as part of their spawn prompt.
 5. When a `project` working session completes, status auto-advances to `ai_review`, which triggers a reviewer sub-session. Verdict `pass` auto-advances to `human_review`; verdict `fail` reverts to `working` with reviewer findings prepended to the next prompt.
 6. `bug` objectives skip `human_review` — `ai_review` pass auto-advances straight to `done`.
@@ -42,7 +42,7 @@ Acceptance criteria (drives every implementation step below):
 
 ## 2. Decisions Recorded
 
-These are the recommended defaults. Each has alternatives evaluated below; Mike can override any before implementation.
+These are the recommended defaults. Each has alternatives evaluated below; the operator can override any before implementation.
 
 | # | Decision | Choice | Reason |
 |---|----------|--------|--------|
@@ -51,8 +51,8 @@ These are the recommended defaults. Each has alternatives evaluated below; Mike 
 | D3 | Planning UI surface | **New 'Planning' column + chat panel in modal** | Strong visual signal that planning is work-in-flight. Reuses the existing SessionViewer/MentorPage chat affordances. |
 | D4 | Plan storage | **Markdown blob (`approved_plan`) + conversation log (`planning_conversations` table)** | Plans are narrative, not structured task lists — markdown stays human-readable and machine-injectable into prompts. Conversation log is for re-opening planning later. |
 | D5 | Default type for existing rows | **All existing → `task`** | Lightest workflow path. Avoids forcing in-flight work back through new review gates. |
-| D6 | Default type for new objectives | **By category** (`development → project`, `finance/legal → bug`, others → `task`) | Matches the actual nature of the work most categories produce. Mike still overrides per-objective. |
-| D7 | Effort default by type | `project → high`, `bug → normal`, `task → normal` | Project work is more involved by definition. Mike overrides. |
+| D6 | Default type for new objectives | **By category** (`development → project`, `finance/legal → bug`, others → `task`) | Matches the actual nature of the work most categories produce. The operator still overrides per-objective. |
+| D7 | Effort default by type | `project → high`, `bug → normal`, `task → normal` | Project work is more involved by definition. The operator overrides. |
 | D8 | Status enum migration | **Replace `review` with `human_review`; add `planning` + `ai_review`** | One-shot CHECK-constraint rebuild (pattern already used for `agent_context`). Backfill: any current `review` row → `human_review`. |
 
 ### Alternatives considered (briefly)
@@ -96,7 +96,7 @@ SQLite can't ALTER a CHECK constraint — we rebuild the table the same way the 
 
 ### 3.3 New table — `planning_conversations`
 
-Stores the Q&A between Mike and the planner. One row per message. Reuses the same JSONL-backed transcript pattern as Mentor would be heavier; planning conversations are short (10–40 messages) so a relational table is simpler.
+Stores the Q&A between the operator and the planner. One row per message. Reuses the same JSONL-backed transcript pattern as Mentor would be heavier; planning conversations are short (10–40 messages) so a relational table is simpler.
 
 ```sql
 CREATE TABLE planning_conversations (
@@ -214,7 +214,7 @@ Added to the same status handler:
 ### 5.1 Lifecycle
 
 ```
-[Mike creates project objective]
+[operator creates project objective]
        │
        ▼
 status='planning', planner sub-session starts (cold)
@@ -223,11 +223,11 @@ status='planning', planner sub-session starts (cold)
 Planner posts opening message (read agent file, read context, ask 2-3 questions)
        │
        ▼─◄─┐
-Mike answers│  (iterative chat — N rounds)
+answers     │  (iterative chat — N rounds)
        │   │
        ├───┘
        ▼
-Mike clicks 'Approve plan' → planner writes final plan markdown
+Operator clicks 'Approve plan' → planner writes final plan markdown
        │
        ▼
 approved_plan ← planner output
@@ -243,7 +243,7 @@ Spawned the same way as a working session (`session-manager.startSession`) but w
 - The agent file is loaded (CTO/CMO/etc.) BUT the prompt prepends a planning frame that:
   - Reads `~/ai-workspace/skills/pipeline/SKILL.md`'s Discover/Design/Plan phases
   - Forbids Execute-side tools: no `Write`, `Edit`, `Bash` against project files; only `Read`, `Glob`, `Grep`, `WebFetch`, `Agent` (for `Explore` subagent), and the planning chat I/O endpoint
-  - Instructs the planner to research the codebase, ask Mike clarifying questions one-batch-at-a-time via the planning chat endpoint, and emit `<plan>` … `</plan>` markdown when Mike approves
+  - Instructs the planner to research the codebase, ask the operator clarifying questions one-batch-at-a-time via the planning chat endpoint, and emit `<plan>` … `</plan>` markdown on approval
 
 Concretely, the planning frame is a new file at `~/ai-workspace/skills/cc-planner/SKILL.md`:
 
@@ -253,15 +253,15 @@ Concretely, the planning frame is a new file at `~/ai-workspace/skills/cc-planne
 You are running inside OperationKit as a planner for an objective. Your job is to:
 1. Read the objective + workspace + project context
 2. Use Read / Glob / Grep / Explore agent to map the relevant code surface
-3. Ask Mike clarifying questions in the planning chat
-4. Iterate until Mike approves
+3. Ask the operator clarifying questions in the planning chat
+4. Iterate until the operator approves
 5. Emit final plan as markdown inside <plan>…</plan> tags
 
 You MAY NOT call Edit, Write, NotebookEdit, Bash (except for read-only commands
 like `git log`, `ls`, `cat`), or any side-effecting MCP tool. Planning never
 modifies repo state.
 
-When Mike approves (signal: he posts "approve" or clicks the approve button),
+When the operator approves (signal: they post "approve" or click the approve button),
 emit your plan in this structure:
 
 <plan>
@@ -285,7 +285,7 @@ emit your plan in this structure:
 </plan>
 ```
 
-The server detects `<plan>…</plan>` in the planner's last assistant message and stages it as `approved_plan` when Mike clicks the approve button.
+The server detects `<plan>…</plan>` in the planner's last assistant message and stages it as `approved_plan` when the operator clicks the approve button.
 
 ### 5.3 API endpoints
 
@@ -298,7 +298,7 @@ GET    /api/objectives/:id/planning/messages?after=N
        → incremental message poll (same pattern as /output)
 
 POST   /api/objectives/:id/planning/message
-       → posts Mike's reply; routes via sendFollowUp() to the planner session
+       → posts the reply; routes via sendFollowUp() to the planner session
 
 POST   /api/objectives/:id/planning/approve
        → extracts the <plan>…</plan> block from latest assistant message
@@ -307,7 +307,7 @@ POST   /api/objectives/:id/planning/approve
        → stops planner sub-session
 
 POST   /api/objectives/:id/planning/cancel
-       → stops planner session, leaves status='planning' (Mike can re-open)
+       → stops planner session, leaves status='planning' (can be re-opened)
 ```
 
 ### 5.4 Working session inherits the plan
@@ -318,7 +318,7 @@ POST   /api/objectives/:id/planning/cancel
 if (objective.approved_plan) {
   prompt += `\n\n## Approved Plan\n\n${objective.approved_plan}\n\n` +
             `You are now in the Execute phase. Follow the plan above. ` +
-            `If you discover the plan is wrong, STOP and report back to Mike instead of silently deviating.\n\n`
+            `If you discover the plan is wrong, STOP and report back to the operator instead of silently deviating.\n\n`
 }
 ```
 
@@ -424,7 +424,7 @@ if (sessionId.startsWith('cc-review-')) {
 ### 6.4 Cost containment
 
 - Reviewer sessions use `claude-haiku-4-5` by default (cheap; only escalate to Sonnet via `effort='high'`).
-- One reviewer attempt per `working→ai_review` transition. Repeated fails are surfaced to Mike — the workflow doesn't loop reviewer→working→reviewer infinitely.
+- One reviewer attempt per `working→ai_review` transition. Repeated fails are surfaced to the operator — the workflow doesn't loop reviewer→working→reviewer infinitely.
 
 ---
 
@@ -459,7 +459,7 @@ const TYPE_BADGES: Record<ObjectiveType, { label: string; cls: string }> = {
 }
 ```
 
-For `project` cards in `planning`/`ai_review`/`human_review`, secondary status pill shows: "awaiting plan", "AI reviewing", "needs Mike". For `bug` cards in `ai_review`: "AI reviewing".
+For `project` cards in `planning`/`ai_review`/`human_review`, secondary status pill shows: "awaiting plan", "AI reviewing", "needs review". For `bug` cards in `ai_review`: "AI reviewing".
 
 ### 7.3 ObjectiveModal — type selector
 
@@ -568,13 +568,13 @@ This is a `development`-profile task (code that ships to production). Standard Q
 
 ---
 
-## 10. Open Questions for Mike
+## 10. Open Questions for the Operator
 
 Listed in priority order — answers shape implementation, not design.
 
 1. **Should the planner be allowed to spawn `Explore` sub-agents?** (cheap codebase research vs. token budget). Recommendation: yes, capped at 3 explore calls per planning session.
-2. **AI Review verdict on flaky tests** — if reviewer fails because a test is flaky, should there be a "Mike override → mark as pass" button on the card? Recommendation: yes, but only visible to admins.
-3. **`bug` → `human_review` opt-in** — should there be a per-objective "force human review" toggle even for Bug type, for cases where Mike wants a second look? Recommendation: yes, single checkbox in modal.
+2. **AI Review verdict on flaky tests** — if reviewer fails because a test is flaky, should there be an "operator override → mark as pass" button on the card? Recommendation: yes, but only visible to admins.
+3. **`bug` → `human_review` opt-in** — should there be a per-objective "force human review" toggle even for Bug type, for cases where the operator wants a second look? Recommendation: yes, single checkbox in modal.
 4. **Hermes auto-typing** — should Hermes use the category-default mapping, or call an LLM to choose `type` based on the raw signal? Recommendation: ship with category default in v1; revisit if Hermes mis-classifies frequently.
 5. **Cancelling planning** — does cancelling planning archive the conversation, delete it, or leave it for re-open? Recommendation: leave it (re-openable) but mark `status='queue'` (skips planning gate). Conversation stays in `planning_conversations` for future reference.
 
@@ -604,4 +604,4 @@ These are explicitly NOT in this phase, recorded so we don't scope-creep:
 
 ## Approval
 
-Once Mike signs off on the choices in §2 and the open questions in §10, implementation can proceed via the steps in §9. Until then this is a design doc, not a contract.
+Once the operator signs off on the choices in §2 and the open questions in §10, implementation can proceed via the steps in §9. Until then this is a design doc, not a contract.
