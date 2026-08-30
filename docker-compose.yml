@@ -60,25 +60,25 @@ services:
       - /home/operator/ai-workspace:/home/operator/ai-workspace
       - /home/operator/second-brain:/home/operator/second-brain
       - /home/operator/projects:/home/operator/projects
-      # ── obj-2202 CUTOVER TARGET (INERT — commented; do NOT uncomment without the
-      #    runbook: app/server/SPAWN-ENV-SCOPING-CUTOVER.md). Gate B3: the personal
-      #    Doppler admin token currently lives at /home/operator/projects/.doppler-admin-token
-      #    INSIDE this RW mount, so any session can `cat` it directly (audit T3).
-      #    At cutover, relocate the token to a host dir NOT mounted into member
-      #    sessions and mount it read-only to the SERVER only, e.g.:
-      # - /home/operator/.cc-secrets/.doppler-admin-token:/run/cc/doppler-admin-token:ro
-      #    then point DOPPLER_TOKEN_PATH at /run/cc/doppler-admin-token. Leaving this
-      #    commented keeps current behavior byte-identical across restarts.
+      # ── HARDENING TARGET (INERT — commented out by default). If you use the
+      #    optional Doppler integration, the admin token lives at
+      #    /home/operator/projects/.doppler-admin-token inside this read-write
+      #    mount, so any session can `cat` it. To scope it down, relocate the token
+      #    to a host directory that is NOT mounted into sessions and mount it
+      #    read-only to the server only, e.g.:
+      # - /home/operator/.secrets/.doppler-admin-token:/run/secrets/doppler-admin-token:ro
+      #    then point DOPPLER_TOKEN_PATH at /run/secrets/doppler-admin-token.
+      #    Leaving this commented keeps the default single-operator behaviour.
       - /home/operator/transcripts:/home/operator/transcripts
       - /home/operator/assistant:/home/operator/assistant
       - /home/operator/.claude-auth:/root/.claude
       # Account rotation: separate home dirs per Claude account
-      # ── obj-2202 CUTOVER TARGET (INERT). Gate B3 / audit T3: every ccuser-* home
-      #    (each holds that account's Claude/Codex OAuth creds) is mounted into the
-      #    single shared container and chowned to one ccuser, so any session can read
-      #    every account's credentials. Admin-only today = acceptable. The member-tier
-      #    service (see docker socket note) must mount ONLY the homes it needs and
-      #    enforce per-account UID isolation. Active mounts below are unchanged.
+      # ── HARDENING NOTE. Every ccuser-* home (each holding that account's
+      #    Claude/Codex OAuth credentials) is mounted into the single shared
+      #    container and chowned to one uid, so any session can read every
+      #    account's credentials. That is acceptable while all spawners are
+      #    trusted admins. A member tier must mount ONLY the homes it needs and
+      #    enforce per-account UID isolation. See SECURITY.md.
       - /home/operator/.ccuser-a:/home/ccuser-a
       - /home/operator/.ccuser-b:/home/ccuser-b
       - /home/operator/.ccuser-c:/home/ccuser-c
@@ -90,14 +90,13 @@ services:
       - /home/operator/.ssh:/home/operator/.ssh:ro
       - /home/operator/.config/gh:/etc/gh:ro
       # Docker socket — lets sessions run host commands via docker exec
-      # ── obj-2202 CUTOVER TARGET (INERT). Gate B2 / audit T2: the host docker
-      #    socket = host root. It is safe ONLY because every spawner is admin today.
-      #    Before onboarding a non-admin member, member-tier sessions MUST NOT reach
-      #    this socket. There is no per-session compose toggle, so the cutover runs
-      #    member sessions in a SEPARATE service/container (or a runuser identity not
-      #    in the dockerhost group) that omits this mount. The admin service keeps it.
-      #    Until that two-tier split ships, do NOT add any non-admin member. See
-      #    SPAWN-ENV-SCOPING-CUTOVER.md. This active mount is unchanged (admin path).
+      # ── HARDENING NOTE. The host docker socket is equivalent to host root. It
+      #    is safe ONLY because every spawner is a trusted admin. Before onboarding
+      #    a non-admin member, member-tier sessions MUST NOT reach this socket.
+      #    There is no per-session compose toggle, so that split means running
+      #    member sessions in a SEPARATE service/container (or under an identity
+      #    not in the docker group) that omits this mount. Until then, do not add
+      #    a non-admin member. See SECURITY.md.
       - /var/run/docker.sock:/var/run/docker.sock
       # Doppler service-token config (optional; created on the host by install.sh)
       - /home/operator/.doppler:/root/.doppler:ro

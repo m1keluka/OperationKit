@@ -1,4 +1,4 @@
-# Command Center — system map
+# OperationKit — system map
 
 Web control plane at `cc.example.com`. It runs AI coding agents (Claude Code, Codex) as **objectives** on a kanban board. Each working objective is a tmux session on the VPS. The Node process is a thin supervisor over host bind-mounts (projects, vault, transcripts, Claude account homes, Docker socket).
 

@@ -22,7 +22,7 @@ Chat. It can brief you, spawn board work, and use your Google/GitHub if those ar
 
 ## Another assistant (Claude / Grok / ChatGPT)
 
-Command Center has a remote HTTP API so a Project, custom GPT, or any bot can sit *beside* the board and project-manage: brief, create cards, follow up, mark done. It does not replace the coding agent on the card.
+OperationKit has a remote HTTP API so a Project, custom GPT, or any bot can sit *beside* the board and project-manage: brief, create cards, follow up, mark done. It does not replace the coding agent on the card.
 
 Paste [the portable prompt](../api/AGENT-PROMPT.md), give it an API key from **Settings → You** as `Authorization: Bearer cc_live_…`. The same key unlocks board management plus vault docs search (`GET /api/docs/search`, `GET/PUT /api/docs/file`). Spec: `GET /api/openapi.json`. Human doc: [API](../api/README.md).
 
@@ -36,7 +36,7 @@ Meeting hooks, social drafts, video. Use it when you are publishing, not when yo
 
 ## Docs
 
-Markdown over the vault and (for admins) `/home/operator/projects`. Product docs for Command Center live in this repo at `docs/product/`. Linked repos keep the same folder (see [Living docs](./LIVING.md)).
+Markdown over the vault and (for admins) `/home/operator/projects`. Product docs for OperationKit live in this repo at `docs/product/`. Linked repos keep the same folder (see [Living docs](./LIVING.md)).
 
 ## Dashboard
 

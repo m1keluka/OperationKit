@@ -67,7 +67,7 @@ Spawn unsets provider API keys so a session cannot silently fall through to pay-
 ## Seats vs people
 
 - **Seats** = Claude / Grok / Codex subscriptions. Shared, rotated, named on Dashboard.
-- **People** = Command Center users. GitHub PAT + Google OAuth on Settings → You.
+- **People** = OperationKit users. GitHub PAT + Google OAuth on Settings → You.
 - A card’s **assignee** is who the session acts as. If nobody is assigned, the creator.
 
 ## Where code lives
