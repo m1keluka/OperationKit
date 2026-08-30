@@ -1,6 +1,13 @@
 # OperationKit
 
+[![gate](https://github.com/m1keluka/OperationKit/actions/workflows/gate.yml/badge.svg?branch=main)](https://github.com/m1keluka/OperationKit/actions/workflows/gate.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
+
 **Self-hosted AI operations board** — infrastructure you run on a VPS you own. You open a card, pick a model, and an agent session starts. Your data, your machine, your subscriptions.
+
+[![The OperationKit documentation site](./docs/images/board.png)](https://m1keluka.github.io/operationkit-site/docs/)
+
+<sub>The OperationKit documentation site — the board & objective state machine reference. Click through for the full docs.</sub>
 
 ## What you get
 
@@ -25,6 +32,11 @@ Manual install on any Linux host? Start at [docs/SETUP.md](./docs/SETUP.md) dire
 
 ## Docs
 
+Two places, same project: the **Markdown docs in this repository** are the source of
+truth and version with the code, and the **rendered docs site** at
+[m1keluka.github.io/operationkit-site/docs/](https://m1keluka.github.io/operationkit-site/docs/)
+is the same material with navigation and search.
+
 | | |
 |---|---|
 | **Get started (DigitalOcean)** | [docs/DIGITALOCEAN.md](./docs/DIGITALOCEAN.md) |
@@ -41,6 +53,16 @@ Manual install on any Linux host? Start at [docs/SETUP.md](./docs/SETUP.md) dire
 
 Built to be a respectable self-host: TLS via Caddy, fail-loud secrets, login throttle, CSP, signed webhooks. It is not PE-diligence / SOC 2 SaaS — the Docker socket and auto-approved agent sessions are the product, documented as such. Read [SECURITY.md](./SECURITY.md) before you expose it to a network.
 
+## Support
+
+Bugs go to [Issues](https://github.com/m1keluka/OperationKit/issues); questions go to
+[Discussions](https://github.com/m1keluka/OperationKit/discussions). See
+[SUPPORT.md](./SUPPORT.md). Release notes live in [CHANGELOG.md](./CHANGELOG.md).
+
 ## License
 
-Apache-2.0 — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](./LICENSE) and [NOTICE](./NOTICE).
+
+Third-party dependencies carry their own licenses; the ones with obligations worth
+knowing about (notably BlockNote under MPL-2.0) are recorded in
+[THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).

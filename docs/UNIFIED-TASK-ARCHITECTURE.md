@@ -12,7 +12,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
  ┌──────────────────────────────────────────────────────────────────────────┐
  │                              CAPTURE                                     │
  │                                                                          │
- │  Mike brain dump (Telegram)──┐                                           │
+ │  Telegram brain dump─────────┐                                           │
  │  Granola meeting transcripts─┤                                           │
  │  Gmail inbox triage──────────┼──► raw signal                             │
  │  Himalaya IMAP envelope class┤                                           │
@@ -85,8 +85,8 @@ This document was produced as part of CC objective #141 ("Build unified task man
 | Component | Lives at | Inbound surface | Outbound to | Status |
 |---|---|---|---|---|
 | Hermes Telegram gateway | `/home/operator/.hermes/`, systemd `hermes-gateway` | Telegram bot DM | `POST /api/internal/objectives` (CC), `/api/internal/vault/*` (rolodex) | **Planned** — venv setup script in `scripts/setup-hermes.sh`; not yet deployed (no `/home/operator/.hermes` on disk, no systemd unit) |
-| Telegram Rolodex | `app/telegram-rolodex/index.ts` | Mike DMs | CC vault tools (search/append/update on `~/second-brain/`) | **Planned** — same systemd unit as Hermes |
-| Granola ingest | `app/server/src/scripts/granola-ingest.ts`, `scripts/run-granola-ingest.sh` | Granola API (every 15min) | Vault meeting notes (`workspaces/<ws>/meetings/YYYY-MM-DD-<slug>.md`) + `granola_action_items` SQLite queue | **Working** end-to-end. Action items reach Mike via the meeting-queue UI now that the router is mounted. Still missing host crontab entry — runs only when triggered manually. |
+| Telegram Rolodex | `app/telegram-rolodex/index.ts` | Operator DMs | CC vault tools (search/append/update on `~/second-brain/`) | **Planned** — same systemd unit as Hermes |
+| Granola ingest | `app/server/src/scripts/granola-ingest.ts`, `scripts/run-granola-ingest.sh` | Granola API (every 15min) | Vault meeting notes (`workspaces/<ws>/meetings/YYYY-MM-DD-<slug>.md`) + `granola_action_items` SQLite queue | **Working** end-to-end. Action items reach the operator via the meeting-queue UI now that the router is mounted. Still missing host crontab entry — runs only when triggered manually. |
 | Meeting-queue review | `app/server/src/routes/meeting-queue.ts` | UI badge poll + approve/dismiss | `objectives` table (status=queue) | **Working as of 2026-06-04** — router mount added (`app.use('/api/meeting-queue', …)`). Batch-approve endpoint added the same session. |
 | Gmail inbox triage | `app/server/src/services/gmail-triage.ts`, `scripts/run-gmail-triage.sh` | Gmail INBOX (cron) | Gmail labels (Live/Junk/Example Leads/Notifications) + `gmail_triage` table | **Endpoint working as of 2026-06-04** — `POST /api/internal/gmail-triage/run` added. Still missing host crontab entry. Triaged-as-Live emails do not yet create CC objectives. |
 | Himalaya envelope classifier | `scripts/inbox-triage-himalaya.sh` (host) | IMAP INBOX | Gmail labels + state TSV | **Working** but isolated — never reaches CC objectives. |
@@ -97,7 +97,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
 | Component | Role | Status |
 |---|---|---|
 | Hermes orchestrator (LLM) | Reads Telegram text → emits one or more objective JSONs → batch-creates them | **Planned** — not deployed |
-| Hermes seed memory | `scripts/hermes-seeds/MEMORY.md` (CC API contract + decomposition heuristics) + `USER.md` (Mike's profile) | **Authored** and ready to load into Hermes' system prompt the moment the service comes up |
+| Hermes seed memory | `scripts/hermes-seeds/MEMORY.md` (CC API contract + decomposition heuristics) + `USER.md` (the operator's profile) | **Authored** and ready to load into Hermes' system prompt the moment the service comes up |
 | Internal API (`routes/internal.ts`) | Localhost-only no-JWT endpoints Hermes calls (objectives, status, message, progress, briefing) | **Working** |
 | Briefing query (`/api/internal/briefing`, `/api/jarvis/briefing`) | Aggregates working + review + blocked into one daily snapshot | **Fixed 2026-06-04** — was filtering `status IN ('working','blocked','needs_review')` which never matched (`blocked` and `needs_review` are not valid statuses). Now `('working','review')` with the blocked facet derived from `has_blockers`. |
 
@@ -129,29 +129,29 @@ This document was produced as part of CC objective #141 ("Build unified task man
 
 ## 3. End-to-End Walk-Through
 
-### Path A: Mike sends a Telegram brain dump
+### Path A: the operator sends a Telegram brain dump
 
-1. Mike DMs the Hermes bot: *"three things — get the GHL sync running for Murphy, audit Cavaro's last EB sends, and someone needs to look at why the calendar webhook is dropping events"*.
+1. The operator DMs the Hermes bot: *"three things — get the GHL sync running for Murphy, audit Cavaro's last EB sends, and someone needs to look at why the calendar webhook is dropping events"*.
 2. Hermes parses, picks `agent_context`/`workspace`/`effort` per `MEMORY.md` heuristics, calls `POST /api/internal/objectives` with an array of three.
 3. CC returns three `id`s; Hermes replies *"Created 3 objectives: #N1 (cto/example), #N2 (general/example), #N3 (cto/example)"*.
-4. Mike (or Hermes via `PATCH /:id/status`) flips them to `working`; sessions spawn.
+4. The operator (or Hermes via `PATCH /:id/status`) flips them to `working`; sessions spawn.
 5. Each session runs its pipeline. On completion → `review`. State-poller calls `handleSessionDeath()` → `queueExtraction()` → session-intel summary lands in DB and activity feed.
 6. Any decision the agent wrote to `~/second-brain/workspaces/example/decisions/` is picked up live by `scanForKnowledgeWrites`. If the agent forgot to write one, the capture-gap detector flags it.
 
-**Status today:** steps 2–6 work; step 1 is the missing link (Hermes systemd unit not deployed). Until Hermes is running, Mike must curl the endpoint directly or use the CC web UI to create objectives.
+**Status today:** steps 2–6 work; step 1 is the missing link (Hermes systemd unit not deployed). Until Hermes is running, the operator must curl the endpoint directly or use the CC web UI to create objectives.
 
 ### Path B: Action item from a Granola-recorded meeting
 
 1. Cron triggers `run-granola-ingest.sh` (every 15 min — *cron entry missing today*).
 2. `granola-ingest.ts` pulls new meetings, writes vault notes, queues action items into `granola_action_items` with `status='pending-review'`.
 3. CC frontend polls `GET /api/meeting-queue/count` and shows a badge.
-4. Mike opens the queue, clicks Approve → `POST /api/meeting-queue/:id/approve` (or the new `/approve-batch` with multiple ids).
-5. Objective lands in `queue` status; Mike (or Hermes) flips to `working`.
+4. The operator opens the queue, clicks Approve → `POST /api/meeting-queue/:id/approve` (or the new `/approve-batch` with multiple ids).
+5. Objective lands in `queue` status; the operator (or Hermes) flips to `working`.
 6. Same Archive flow as Path A.
 
 **Status today:** steps 2–6 work; step 1 is the missing link (cron entry).
 
-### Path C: Mike creates an objective directly in the CC UI
+### Path C: the operator creates an objective directly in the web UI
 
 1. Click "+ New" → fill the form → POST `/api/objectives` (JWT-authenticated).
 2. Same Execute and Archive flow.

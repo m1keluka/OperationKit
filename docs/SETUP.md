@@ -36,10 +36,45 @@ There are two paths:
 > and/or override the `*_DIR` env vars. This is one of the things V1 is actively
 > smoothing out — see [CONTRIBUTING.md](../CONTRIBUTING.md) if you want to help.
 
+### 1a. Any Debian/Ubuntu VPS (not just DigitalOcean)
+
+Nothing in this guide is DigitalOcean-specific. [DIGITALOCEAN.md](DIGITALOCEAN.md) is a
+convenience runbook for one provider; the steps below work on Hetzner, Vultr, Linode,
+Scaleway, OVH, a bare-metal box, or a VM on your own hardware, as long as the host is a
+recent Debian or Ubuntu with root/sudo.
+
+Before you continue with step 2 on such a host:
+
+1. **Create a non-root user** with sudo and log in as it — the stack expects a normal user
+   home, not `/root`:
+   ```bash
+   adduser operator && usermod -aG sudo operator
+   ```
+2. **Install Docker Engine + Compose v2** from
+   [Docker's official repo](https://docs.docker.com/engine/install/), then
+   `usermod -aG docker operator` and re-login.
+3. **Open only what you need.** Ports 80 and 443 if you are terminating TLS with Caddy;
+   nothing else. The app binds to `127.0.0.1` by default — keep it that way.
+   ```bash
+   ufw allow OpenSSH && ufw allow 80,443/tcp && ufw enable
+   ```
+4. **Create the host directories** the compose file bind-mounts (the DigitalOcean
+   installer does this for you; here you do it once):
+   ```bash
+   mkdir -p ~/data/operationkit ~/ai-workspace ~/second-brain ~/projects ~/transcripts
+   ```
+   If your username is not `operator`, either adjust the `/home/operator/...` paths in
+   `docker-compose.yml` to your real home, or set `PROJECTS_DIR`, `AI_WORKSPACE_DIR`,
+   `SECOND_BRAIN_DIR`, and `TRANSCRIPT_DIR` in `.env` to match — see the heads-up above.
+5. **Point a DNS A record** at the host if you want TLS. Skip for a localhost-only run.
+
+Then carry on from step 2. Everything after this point is provider-agnostic. The only
+thing you give up versus the DigitalOcean path is `install.sh` doing steps 1–4 for you.
+
 ## 2. Clone the repo
 
 ```bash
-git clone https://github.com/your-org/OperationKit.git
+git clone https://github.com/m1keluka/OperationKit.git
 cd OperationKit
 ```
 

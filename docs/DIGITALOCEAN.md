@@ -146,7 +146,7 @@ Clone the repository (as `deploy`) and run the installer:
 
 ```bash
 cd ~
-git clone <YOUR_OPERATIONKIT_REPO_URL> operationkit
+git clone https://github.com/m1keluka/OperationKit.git operationkit
 cd operationkit
 
 # Interactive: the installer prompts for a domain (and, optionally, an Anthropic

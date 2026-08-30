@@ -11,7 +11,7 @@ STACK_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$STACK_DIR"
 
 echo "========================================"
-echo "  Deploying Command Center Stack"
+echo "  Deploying OperationKit"
 echo "========================================"
 
 # ──────────────────────────────────────────────

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OperationKit — documentation</title>
+<meta name="description" content="Documentation index for OperationKit, the self-hosted AI operations board.">
+<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 46rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem;
+         font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 1.9rem; margin-bottom: .25rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.25rem; }
+  .lede { opacity: .8; margin-top: 0; }
+  pre { background: rgba(127,127,127,.14); padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; }
+  ul { padding-left: 1.15rem; }
+  li { margin: .35rem 0; }
+  footer { margin-top: 3rem; font-size: .875rem; opacity: .7; }
+</style>
+</head>
+<body>
+
+<h1>OperationKit documentation</h1>
+<p class="lede">
+  Self-hosted AI operations board. This is the index for the Markdown docs that ship in
+  the repository — the source of truth, versioned with the code.
+</p>
+
+<h2>Quickstart</h2>
+<pre><code>git clone https://github.com/m1keluka/OperationKit.git
+cd OperationKit
+cp .env.example .env   # fill in the core values
+docker compose up -d</code></pre>
+<p>
+  Full walkthrough, including first login and seeding users, is in
+  <a href="SETUP.md">SETUP.md</a>. For a one-command droplet install, see
+  <a href="DIGITALOCEAN.md">DIGITALOCEAN.md</a>.
+</p>
+
+<h2>Start here</h2>
+<ul>
+  <li><a href="OVERVIEW.md">OVERVIEW.md</a> — how the platform works, in one sitting</li>
+  <li><a href="SETUP.md">SETUP.md</a> — from keys to a running board (any Linux host)</li>
+  <li><a href="DIGITALOCEAN.md">DIGITALOCEAN.md</a> — droplet + DNS + installer</li>
+  <li><a href="CREDENTIALS.md">CREDENTIALS.md</a> — every credential and env var</li>
+  <li><a href="CLAUDE-CODE-AUTH.md">CLAUDE-CODE-AUTH.md</a> — authenticating agent sessions</li>
+</ul>
+
+<h2>Reference</h2>
+<ul>
+  <li><a href="product/README.md">Product guide</a></li>
+  <li><a href="architecture/README.md">Architecture</a></li>
+  <li><a href="api/README.md">Agent / HTTP API</a></li>
+  <li><a href="UNIFIED-TASK-ARCHITECTURE.md">Unified task architecture</a></li>
+  <li><a href="PLANNING-AND-OBJECTIVE-TYPES.md">Planning &amp; objective types</a></li>
+  <li><a href="terminology-glossary.md">Terminology glossary</a></li>
+  <li><a href="runbooks/">Runbooks</a></li>
+</ul>
+
+<h2>Project</h2>
+<ul>
+  <li><a href="../SECURITY.md">Security &amp; threat model</a></li>
+  <li><a href="../CONTRIBUTING.md">Contributing</a></li>
+  <li><a href="../SUPPORT.md">Support</a></li>
+  <li><a href="../CHANGELOG.md">Changelog</a></li>
+  <li><a href="../LICENSE">License (Apache-2.0)</a> &middot;
+      <a href="../THIRD-PARTY-NOTICES.md">Third-party notices</a></li>
+</ul>
+
+<footer>
+  Rendered docs with navigation and search:
+  <a href="https://m1keluka.github.io/operationkit-site/docs/">m1keluka.github.io/operationkit-site/docs/</a>
+  &middot; Source: <a href="https://github.com/m1keluka/OperationKit">github.com/m1keluka/OperationKit</a>
+</footer>
+
+</body>
+</html>
