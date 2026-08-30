@@ -1,8 +1,15 @@
 # Founding Engineer (Open Source, Self-Hosted AI Infrastructure)
 
-**OperationKit** · Remote · Full-time or serious contract  
+**OperationKit** · Remote · Exploratory search — shape open (full-time, contract, part-time, advisory)  
 **Repo:** https://github.com/m1keluka/OperationKit (Apache-2.0, public, real code)  
-**Comp:** Market-competitive base; founding-engineer equity grant. Both discussed in the first conversation, not at the end.
+**This is an exploratory search, and we'd rather say so.** There's no closed requisition with a
+start date behind this. There is a real system running a real fleet daily, one technical person, and
+a genuine intent to bring on a second — plus an open question about what that should look like.
+Some conversations here turn into a founding-engineer offer, some into a paid scoped project, some
+into a good argument about our isolation model. All three are fine outcomes.
+
+**Comp:** discussed openly in the first conversation, not at the end. We're not publishing a band
+for a role whose shape is still open — that number would be fiction.
 
 ## What OperationKit is
 
@@ -66,7 +73,9 @@ If you read it and thought it was worth building on, a star genuinely helps. We'
 **Step 3 — Fill out the application form (~15 minutes)**  
 https://docs.google.com/forms/d/e/1FAIpQLSc0mJQpSv9MvOsUgxcrhGE953s90J-Nq_hoDPsbNy4GREP8nA/viewform
 
-Short. No resume upload required. The form contains questions you can't answer without having actually opened the code — a specific thing you'd change, and what you make of the security posture. That is our proof that you did step 1. We reply to everyone who completes the form.
+Short. No resume upload required. The form contains questions you can't answer without having actually opened the code — a specific thing you'd change, and what you make of the security posture. That is our proof that you did step 1. Mike reads every one and replies to everyone who submits, including the people we don't take forward — though because this is exploratory rather than a staffed pipeline, that may take a week or two.
+
+Questions before you apply? Open a [Discussion](https://github.com/m1keluka/OperationKit/discussions) or an issue — genuinely, ask in public. A sharp question about the architecture is the same signal as a good application.
 
 ---
 
