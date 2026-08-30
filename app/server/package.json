@@ -13,7 +13,7 @@
   "dependencies": {
     "@operationkit/shared": "*",
     "bcrypt": "^5.1.1",
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^13.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^4.21.0",
