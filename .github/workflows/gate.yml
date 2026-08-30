@@ -122,6 +122,10 @@ jobs:
           fetch-depth: 0
       - name: No new test skips, no deleted test files
         env:
+          # On `pull_request` the interesting range is base..head. On `push` to
+          # main (and on workflow_dispatch) there is no pull_request payload, so
+          # these are empty and the job must resolve the range itself -- see the
+          # fallback below. Fail closed: an unresolvable range fails the job.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # Every command's exit code is load-bearing: no error suppression and no
@@ -133,13 +137,23 @@ jobs:
           python3 - <<'PY'
           import os, subprocess, sys, re
 
-          base, head = os.environ['BASE_SHA'], os.environ['HEAD_SHA']
           TESTS = ['*.test.ts', '*.test.tsx', '*.spec.ts', '*.spec.tsx']
 
           def git(*args):
               # check=True: a git failure fails the job rather than reading as "clean".
               return subprocess.run(['git', *args], check=True,
                                     capture_output=True, text=True).stdout
+
+          base, head = os.environ['BASE_SHA'], os.environ['HEAD_SHA']
+          if not head:
+              # push / workflow_dispatch: HEAD is the commit being gated and its
+              # first parent is the previous tip of this branch, so HEAD^1..HEAD
+              # is exactly the range this event introduced. Resolved with
+              # rev-parse (check=True) so an unresolvable ref is a hard failure,
+              # never a silently empty diff that reads as "clean".
+              head = git('rev-parse', 'HEAD').strip()
+              base = git('rev-parse', 'HEAD^1').strip()
+          print(f'range: {base}..{head}')
 
           fail = 0
 
