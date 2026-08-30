@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildSummaryPrompt, coerceSummary } from './session-intel-summary.js'
 import type { DeterministicIntel } from './session-intel-parse.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Regression coverage for the 2026-08-09 distill finding (obj 705171): session_intel
 // mislabelled healthy delegate_mode wakes. Two effects, both fixed here:

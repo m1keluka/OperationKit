@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildReviewerPrompt } from './session-manager.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Minimal objective fixture — buildReviewerPrompt only reads a handful of
 // fields, so we cast a partial through unknown rather than build the full row.

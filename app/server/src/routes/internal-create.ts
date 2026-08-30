@@ -9,7 +9,7 @@ import { logActivity } from './feed.js'
 import { getWorkspace } from '../services/workspaces.js'
 import { defaultAgentForWorkspace } from './objectives-helpers.js'
 import { resolveObjectiveModel } from '../services/model-registry.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { hasValidObjectivesToken } from '../middleware/objectives-token.js'
 import { depthForParent } from '../lib/objective-depth.js'
 import { getEffectiveGateMode, isRegisteredFrontendRepo, criteriaHaveUiBar, buildDsConformanceCriteria, repoHasE2eSuite, criteriaHaveQaBar, buildQaConformanceCriteria } from '../services/design-context.js'
@@ -24,7 +24,7 @@ import {
 } from '../services/strategy-governance.js'
 import { isLocalhost } from '../lib/is-localhost.js'
 import { startSession } from '../services/session-manager.js'
-import { MAX_CONCURRENT_SESSIONS } from '@command-center/shared'
+import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { childCapPerParent } from '../lib/hygiene-config.js'
 
 // Strategy Layer (P0) — bounded delegation-nesting controls.

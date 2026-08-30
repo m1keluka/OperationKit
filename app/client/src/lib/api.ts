@@ -49,7 +49,7 @@ export const api = {
 // ── Objective search (obj 702389) ───────────────────────────────────────────
 // Consumes the server-side search endpoints (obj 702388). Both are RBAC-scoped
 // and span ALL statuses (incl. done/cancelled) so the Done backlog is findable.
-import type { ObjectiveStatus } from '@command-center/shared'
+import type { ObjectiveStatus } from '@operationkit/shared'
 
 // GET /api/objectives/search result row (keyword + fuzzy).
 export interface ObjectiveSearchResult {

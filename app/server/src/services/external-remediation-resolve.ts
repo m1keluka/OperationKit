@@ -6,7 +6,7 @@
  * external-remediation-act.ts.
  */
 import type { Database } from 'better-sqlite3'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { parsePrNumberFromUrl } from './pr-url.js'
 import { upsertObjectivePR } from './objective-prs.js'
 import { isHumanTerminalGuardEnabled } from './objective-audit.js'

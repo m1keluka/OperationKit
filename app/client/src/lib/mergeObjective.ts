@@ -1,4 +1,4 @@
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 /**
  * Merge a live `objective_updated` payload onto the row already on the board.

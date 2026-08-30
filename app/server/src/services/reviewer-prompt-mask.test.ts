@@ -31,7 +31,7 @@ import {
   WORKER_SCRATCH_REDACTION,
   DEFAULT_OBJECTIVE_MEMORY_ROOT,
 } from './prompt-builder.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 /**
  * P1-1 (obj 707060) — the REVIEWER CAUSAL MASK.

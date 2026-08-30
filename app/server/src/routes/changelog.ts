@@ -13,7 +13,7 @@ import {
   listAllEntries,
   type MergedPRPayload,
 } from '../services/changelog.js'
-import type { ChangelogEntry } from '@command-center/shared'
+import type { ChangelogEntry } from '@operationkit/shared'
 
 // ── helpers ──
 

@@ -5,7 +5,7 @@
 import type { Router } from 'express'
 import { getDb } from '../db/index.js'
 import { type AuthRequest } from '../middleware/auth.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { canReadObjective } from './objectives-helpers.js'
 import { DESIGN_FRAME_CSP } from '../middleware/security-headers.js'
 import {

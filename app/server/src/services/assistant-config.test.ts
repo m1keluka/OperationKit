@@ -15,7 +15,7 @@ const {
   upsertAssistantConfig,
   getAssistantConfigForThread,
 } = await import('./assistant-config.js')
-const { buildAssistantDirective, buildJarvisDirective, buildGoogleMcpConfig } = await import('./mentor-session.js')
+const { buildAssistantDirective, buildLegacyAssistantDirective, buildGoogleMcpConfig } = await import('./mentor-session.js')
 
 let ownerId: number
 let aliceId: number
@@ -145,7 +145,7 @@ describe('admin-lossless — seeded owner config reproduces the legacy Assistant
   const THREAD = 42
 
   // Rule-bearing invariants that MUST carry over verbatim from the pre-change
-  // buildJarvisDirective into the config-driven buildAssistantDirective.
+  // buildLegacyAssistantDirective into the config-driven buildAssistantDirective.
   const INVARIANTS = [
     // manual pointer
     '/home/operator/ai-workspace/agents/assistant.md',
@@ -170,10 +170,10 @@ describe('admin-lossless — seeded owner config reproduces the legacy Assistant
     expect(cfg!.connectorBindings?.['google-workspace']?.identity).toBe('dev@example.com')
   })
 
-  it('buildAssistantDirective(ownerConfig) is semantically equivalent to buildJarvisDirective', () => {
+  it('buildAssistantDirective(ownerConfig) is semantically equivalent to buildLegacyAssistantDirective', () => {
     const cfg = resolveAssistantConfig(ownerId, 'example')!
     const generated = buildAssistantDirective(cfg, THREAD)
-    const legacy = buildJarvisDirective(THREAD)
+    const legacy = buildLegacyAssistantDirective(THREAD)
 
     // 1. Persona header line is byte-identical (name + tagline).
     expect(generated.split('\n')[0]).toBe(legacy.split('\n')[0])

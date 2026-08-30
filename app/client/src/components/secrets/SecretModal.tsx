@@ -32,7 +32,7 @@ import type {
   SecretPrincipals,
   SetSecretRequest,
   MoveSecretRequest,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import {
   SCOPE_HINTS, SCOPE_HINTS_CREATE, SCOPE_LABELS, sameScope,
   type Scope,

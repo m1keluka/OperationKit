@@ -20,6 +20,29 @@ Two kinds of "secret" appear here:
 
 ---
 
+## 0. Secret management: `.env` is the primary path
+
+**You do not need Doppler, Vault, or any secrets manager to run OperationKit.**
+
+- **`.env` is the supported, primary path.** Copy `.env.example` to `.env`, fill in the
+  core values, and `docker compose up -d`. Everything in this document can be supplied
+  that way. Compose env wins wherever both sources define a variable.
+- **The native secrets store** (Settings → Secrets in the app) covers integration
+  credentials you would rather not keep in a file on disk. Values there are encrypted at
+  rest with AES-256-GCM and hydrated at boot for variables not already set by compose.
+- **[Doppler](https://doppler.com) is optional.** A few example scripts in `scripts/` and
+  `app/server/scripts/` (for example `provision-scoped-doppler-tokens.ts`) assume a
+  Doppler account and simply do nothing useful without one. That is expected: they are
+  conveniences for operators who already use Doppler, not a requirement. If you do not
+  have an account, ignore those scripts and the `DOPPLER_*` /
+  `USE_SCOPED_DOPPLER_TOKENS` variables entirely — no feature in the default stack
+  depends on them.
+
+Whichever you pick: never commit `.env`, and rotate anything that has been in a shell
+history or a screenshot.
+
+---
+
 ## 1. Core credentials (REQUIRED)
 
 > **What powers the agents is NOT in this table.** OperationKit's agent sessions are

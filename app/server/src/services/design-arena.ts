@@ -22,7 +22,7 @@
 import fs from 'fs'
 import path from 'path'
 import { execFileSync } from 'child_process'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import {
   buildDesignContextBlock,
   isUiObjective,

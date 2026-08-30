@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Real SQLite — exercises the obj-2352 PR auto-link + self-heal logic against the
 // actual schema (objectives, objective_reviews, branch_leases, settings). The `gh`

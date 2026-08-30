@@ -2,7 +2,7 @@
  * SessionViewer types and constants — extracted from SessionViewer.tsx
  * (behavior frozen).
  */
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 
 export type ViewerSize = 'half' | 'full'
 export const SIZE_KEY = 'ok.sessionViewer.size'

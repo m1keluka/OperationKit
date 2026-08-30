@@ -1,5 +1,5 @@
 import { GitPullRequest, Pencil } from 'lucide-react'
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import { AgentMonogram, LiveBadge, STATUS_META } from '../components/design/primitives'
 import { PreviewWorkers } from './PreviewWorkers'
 import { relativeTime } from '../lib/time'

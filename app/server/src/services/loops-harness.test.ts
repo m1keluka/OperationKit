@@ -6,7 +6,7 @@ import path from 'path'
 // Point the loops engine at a throwaway vault BEFORE importing it (the module reads
 // VAULT_PATH at import time). Keeps these tests off Operator's real second-brain.
 let loops: typeof import('./loops.js')
-let buildNudgeText: (typeof import('./jarvis-nudge.js'))['buildNudgeText']
+let buildNudgeText: (typeof import('./assistant-nudge.js'))['buildNudgeText']
 let LOOPS_DIR: string
 
 beforeAll(async () => {
@@ -15,7 +15,7 @@ beforeAll(async () => {
   process.env.GRANOLA_WORKSPACE = 'personal'
   LOOPS_DIR = path.join(vault, 'workspaces', 'personal', 'loops')
   loops = await import('./loops.js')
-  ;({ buildNudgeText } = await import('./jarvis-nudge.js'))
+  ;({ buildNudgeText } = await import('./assistant-nudge.js'))
 })
 
 describe('loops service — create / list / archive', () => {
@@ -68,7 +68,7 @@ describe('loops service — create / list / archive', () => {
   })
 })
 
-describe('jarvis-nudge — buildNudgeText (deterministic fallback)', () => {
+describe('assistant-nudge — buildNudgeText (deterministic fallback)', () => {
   const L = (over: Partial<import('./loops.js').Loop>): import('./loops.js').Loop => ({
     slug: 's', title: 't', status: 'queued', project: '', party: '', party_type: '',
     due: '', tags: [], source_meeting: '', source_note: '', opened: '2026-06-01', closed: '', body: '', ...over,

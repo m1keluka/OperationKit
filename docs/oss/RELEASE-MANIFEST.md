@@ -1,7 +1,7 @@
 # OperationKit — OSS Release Manifest
 
 **Status:** contract for the OSS V1 cut of `command-center-infra` → public
-`github.com/your-org/OperationKit`.
+`github.com/m1keluka/OperationKit`.
 **Owner:** W1 (security audit). The docs + installer workers rely on this file
 as the include/exclude/genericize contract.
 
@@ -101,7 +101,7 @@ repo), `notify-failure.sh`, `pick-claude-account.sh`, `setup-claude-account.sh`,
 | Weekly cross-repo security review (`weekly-security-review.yml` + `.sh`) | **EXCLUDE** | schedule commented; self-hosted runner | Hardcodes 5 Example repos + droplet-local paths. Genericize or drop. |
 | Test-credentials registry (`services/crypto.ts`, `docs/testing/*`) | **SHIP** | `TEST_CRED_ENCRYPTION_KEY` | Generic per-project non-prod test-cred store; docs reference env-var *names* only. |
 | Mentor / notifier Telegram (`services/mentor-session.ts`, `notifier.ts`) | **OPTIONAL** | `MENTOR_TELEGRAM_OWNER_USERNAME` / Telegram token | Genericize owner-username default. |
-| Arena / canary / UAT / kitchen-loop harnesses | **OPTIONAL** | `CC_ARENA_ENABLED`, `CC_CANARY_HARNESS_ENABLED`, `CC_UAT_GATE_ENABLED`, `CC_KITCHEN_LOOP_ENABLED` | Off by default; enablement docs in `docs/*-ENABLEMENT.md`. |
+| Arena / canary / UAT / kitchen-loop harnesses | **OPTIONAL** | `CC_ARENA_ENABLED`, `CC_CANARY_HARNESS_ENABLED`, `CC_UAT_GATE_ENABLED`, `CC_KITCHEN_LOOP_ENABLED` | Off by default; see [SETUP.md](../SETUP.md) for how optional harnesses are enabled. |
 | Alerts | **OPTIONAL** | `ALERTS_ENABLED` | |
 
 ---

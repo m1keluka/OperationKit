@@ -1,14 +1,14 @@
-# coverage-matrix.yaml — command-center-infra specification surface (Kitchen Loop pilot)
+# coverage-matrix.yaml — OperationKit specification surface (Kitchen Loop pilot)
 #
 # The empirical, in-repo enumeration of what the product CLAIMS, as a coverage matrix
 # (feature × surface × action), every cell prioritized P0/P1/P2/P3. Source: W3 pilot
-# spec surface (decisions/2026-06-29-cc-pilot-spec-surface-and-oracle.md §1).
+# spec surface (Kitchen Loop pilot spec surface, §1).
 #
 # ROLE IN THE LOOP (Phase 0 = artifact only):
 #   • Backlog input — the highest-priority untested/regressed cells are what an
 #     AaU1000 Ideate pass would target. In Phase-0 SHADOW the kitchen-loop service
 #     does NOT parse this file; it logs a static seed of the P0 gaps. Reading this
-#     file as the live Backlog source is a later, Mike-gated phase.
+#     file as the live Backlog source is a later, operator-gated phase.
 #   • Coverage denominator — coverage_filled / coverage_total for loop_drift_metrics.
 #
 # An empty cell = an UNTESTED claim (§6.5). Priority key:
@@ -16,8 +16,8 @@
 #   P1 breadth · P2 depth/edge · P3 frontier
 
 meta:
-  repo: command-center-infra
-  generated_by: "obj 700077/700079 (W3) → committed by obj 700099 (Phase-0 build)"
+  repo: OperationKit
+  generated_by: "Kitchen Loop Phase-0 spec-surface pass"
   test_tooling: "Vitest (server node env + client jsdom env); no executed Playwright/e2e by policy"
   oracle: spec/cc-oracle.mjs
 

@@ -1,6 +1,6 @@
-# What Command Center is
+# What OperationKit is
 
-Command Center (`cc.example.com`) is Example’s control plane for AI work. It is not a chatbot with a file picker. It is a **kanban of jobs** that become **live agent sessions** on a single VPS, with the same GitHub, Google, and repos we already use.
+OperationKit (`cc.example.com`) is Example’s control plane for AI work. It is not a chatbot with a file picker. It is a **kanban of jobs** that become **live agent sessions** on a single VPS, with the same GitHub, Google, and repos we already use.
 
 If you think in pictures, start with the chart. If you think in words, skip to **The loop**. Tables and databases sit in [Data](./07-data.md).
 

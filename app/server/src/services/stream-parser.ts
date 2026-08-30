@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import type { SessionMessage } from '@command-center/shared'
+import type { SessionMessage } from '@operationkit/shared'
 import { TRANSCRIPT_DIR } from '../config.js'
 import { evictTimelineCache } from './thread-timeline.js'
 

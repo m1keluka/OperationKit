@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import type { Objective, SessionIntel, Workspace } from '@command-center/shared'
+import type { Objective, SessionIntel, Workspace } from '@operationkit/shared'
 import { useAuth } from '../context/AuthContext'
 import { useObjectives } from '../hooks/useObjectives'
 import { groupObjectives } from '../lib/groupObjectives'

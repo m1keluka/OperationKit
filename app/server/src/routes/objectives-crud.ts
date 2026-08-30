@@ -15,7 +15,7 @@ import {
   type ObjectiveType,
   type CreateObjectiveRequest,
   type UpdateObjectiveRequest,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { stopSession } from '../services/session-manager.js'
 import {
   logObjectiveAudit,

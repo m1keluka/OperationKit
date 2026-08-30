@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 
 # Install system deps: tmux for session management, build tools for node-pty
 RUN apt-get update && apt-get install -y --no-install-recommends \

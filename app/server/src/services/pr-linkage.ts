@@ -23,7 +23,7 @@
 //            FAIL verdict to success; never double-posts when the status is present.
 
 import type { Database } from 'better-sqlite3'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { deriveBranchName } from './branch-scope.js'
 import {
   upsertObjectivePR,

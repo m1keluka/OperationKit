@@ -21,7 +21,7 @@ import {
   criteriaHaveQaBar,
   buildQaConformanceCriteria,
 } from './design-context.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { HOME_DIR, PROJECTS_DIR, SECOND_BRAIN_DIR } from '../config.js'
 
 // Minimal Objective factory — only the fields the UI-gate path reads.

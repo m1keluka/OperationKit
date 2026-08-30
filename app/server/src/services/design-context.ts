@@ -13,7 +13,7 @@
  */
 import fs from 'fs'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { PROJECTS_DIR, SECOND_BRAIN_DIR, AI_WORKSPACE_DIR, VAULT_ROOT, HOME_DIR } from '../config.js'
 
 /** One registry entry — a frontend repo's design-system pointers. All fields are
@@ -310,7 +310,7 @@ export function isUiInjectionActive(objective: Objective): boolean {
 // `buildDsConformanceCriteria` are called from the (gated) spawn path.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { AcceptanceCriterion } from '@command-center/shared'
+import type { AcceptanceCriterion } from '@operationkit/shared'
 
 /**
  * Layer B — shared anti-slop guardrails. Cross-platform, identical for every UI

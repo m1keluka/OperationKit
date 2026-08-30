@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
-import type { Objective, ObjectiveReview, ObjectivePR, SessionIntel } from '@command-center/shared'
-import { AGENT_META, type AgentContext } from '@command-center/shared'
+import type { Objective, ObjectiveReview, ObjectivePR, SessionIntel } from '@operationkit/shared'
+import { AGENT_META, type AgentContext } from '@operationkit/shared'
 import type { ConnState } from './ConnStatusPill'
 // Lazy: FileEditorOverlay pulls in the heavy BlockNote editor. It only mounts
 // when the operator opens a doc to edit — keeping it out of the board/viewer

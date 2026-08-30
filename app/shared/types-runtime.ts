@@ -2,7 +2,7 @@
  * Shared runtime types: WebSocket messages, session intel, activity feed,
  * assistant config — extracted from types.ts (behavior frozen).
  *
- * `@command-center/shared` still resolves to types.ts, which re-exports this.
+ * `@operationkit/shared` still resolves to types.ts, which re-exports this.
  */
 import type { Objective, ObjectiveStatus, SessionMessage } from './types-core.js'
 import type { Alert } from './types-surfaces.js'
@@ -217,7 +217,7 @@ export interface GoogleConnectStartResponse {
 
 // ── Personal Assistant config (obj 701700, Phase 1) ─────────────────────────
 // Per-(user, workspace) contract that replaces the hardcoded single-user
-// ("Mike"/Jarvis) assistant in services/mentor-session.ts with a config-driven,
+// ("Mike"-style) assistant in services/mentor-session.ts with a config-driven,
 // multi-tenant one. Mirrors the design kit's config-schema.ts (obj 1786). The
 // frontend has its own DTO and does not import this; the server owns it.
 
@@ -246,7 +246,7 @@ export interface KnowledgeSourceRef {
 }
 
 export interface PersonaConfig {
-  /** User-facing name of the assistant (e.g. "Jarvis", "Ada"). Required. */
+  /** User-facing name of the assistant (e.g. "Ada", "Max"). Required. */
   displayName: string
   /** One-line role description, used as a short system-prompt preamble. */
   tagline?: string | null

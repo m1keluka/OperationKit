@@ -13,7 +13,7 @@ import type {
   ModelsConfig,
   ModelRow,
   User,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { fieldCls, labelCls } from './objective-modal/form-tokens'
 import { FooterActions } from './objective-modal/FooterActions'
 

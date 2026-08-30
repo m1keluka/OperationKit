@@ -5,7 +5,7 @@ import { getDefaultModelId } from '../services/model-registry.js'
 import { requireAuth, requireAdmin, type AuthRequest } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { broadcast } from '../ws/index.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 const router = Router()
 router.use(requireAuth)

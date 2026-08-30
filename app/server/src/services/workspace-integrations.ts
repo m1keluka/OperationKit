@@ -4,7 +4,7 @@ import type {
   IntegrationKind,
   IntegrationStatus,
   WorkspaceIntegration,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 
 // ── Test seam ───────────────────────────────────────────────────────────────
 // Validation makes real HTTP calls to GitHub / PostHog in production. Tests

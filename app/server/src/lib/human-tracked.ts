@@ -1,4 +1,4 @@
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 /**
  * "Human-tracked" = a top-level objective created by hand, NOT spawned by

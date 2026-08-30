@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react'
 import { ExternalLink, AlertCircle, Clock, Play, Pause, Inbox, CheckCircle2, Loader2, Target, Plus } from 'lucide-react'
-import type { Objective, ObjectiveStatus, Workspace } from '@command-center/shared'
+import type { Objective, ObjectiveStatus, Workspace } from '@operationkit/shared'
 import { useObjectives } from '../hooks/useObjectives'
 import { useRoutines, type RoutineSummary, type StrategyOption, type StrategyJobInput } from '../hooks/useRoutines'
 import { useWorkspaces } from '../hooks/useWorkspaces'

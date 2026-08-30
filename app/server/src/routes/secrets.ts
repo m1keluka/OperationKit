@@ -34,7 +34,7 @@ import {
   type SecretScopeType,
   type SecretSummary,
 } from '../services/secrets-store.js'
-import type { User } from '@command-center/shared'
+import type { User } from '@operationkit/shared'
 
 const SCOPE_TYPES: SecretScopeType[] = ['global', 'workspace', 'user', 'workspace_user']
 

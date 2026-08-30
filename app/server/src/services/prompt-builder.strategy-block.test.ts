@@ -9,7 +9,7 @@ process.env.DB_PATH = TMP_DB
 
 import { initDb, getDb } from '../db/index.js'
 import { buildPrompt, buildDelegatorBlock, buildStrategyBlock } from './prompt-builder.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Strategy Layer P4 — the flag-gated buildStrategyBlock playbook variant.

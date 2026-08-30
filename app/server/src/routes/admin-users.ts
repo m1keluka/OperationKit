@@ -8,7 +8,7 @@ import type {
   User,
   UserRole,
   WorkspaceMembership,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 
 const router = Router()
 router.use(requireAuth, requireAdmin)
@@ -31,14 +31,14 @@ router.get('/', (_req: AuthRequest, res) => {
 
   const memberships = db
     .prepare(
-      `SELECT user_id, workspace, role, can_use_jarvis, objective_visibility
+      `SELECT user_id, workspace, role, can_use_assistant, objective_visibility
        FROM user_workspaces`
     )
     .all() as Array<{
       user_id: number
       workspace: string
       role: UserRole
-      can_use_jarvis: number
+      can_use_assistant: number
       objective_visibility: string
     }>
 
@@ -53,7 +53,7 @@ router.get('/', (_req: AuthRequest, res) => {
       username: user.username,
       workspace: m.workspace,
       role: m.role,
-      can_use_jarvis: !!m.can_use_jarvis,
+      can_use_assistant: !!m.can_use_assistant,
       objective_visibility: m.objective_visibility === 'all' ? 'all' : 'own',
     })
   }

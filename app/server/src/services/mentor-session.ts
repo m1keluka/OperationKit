@@ -18,7 +18,7 @@ import {
   writeIsolatedGoogleCredsDir,
   writeEmptyGoogleCredsDir,
 } from './user-google-connections.js'
-import type { AssistantConfig, AutonomyConfig } from '@command-center/shared'
+import type { AssistantConfig, AutonomyConfig } from '@operationkit/shared'
 import { HUMAN_VOICE } from '../lib/human-voice.js'
 
 // Mentor sessions are subprocess-per-thread. They share the same `claude --input-format
@@ -194,7 +194,7 @@ function writeMcpConfigFile(sessionId: string, homeDir: string, cfg?: AssistantC
  * Persona supersedes the mentor-workspace CLAUDE.md / chief-of-staff persona.
  * Pending confirmations are overridden to PER THREAD; loops stay GLOBAL.
  */
-export function buildJarvisDirective(threadId: number): string {
+export function buildLegacyAssistantDirective(threadId: number): string {
   const pendingPath = `${ASSISTANT_THREADS_DIR}/${threadId}/pending.md`
   return [
     'ASSISTANT PROFILE — this session is Assistant, the operator\'s personal admin assistant.',
@@ -287,7 +287,7 @@ export function renderPendingLocation(threadId: number): string {
 
 /**
  * Config-driven persona + gating + pending directive (obj 701700). This is the
- * generic replacement for buildJarvisDirective: name/tagline/manual come from
+ * generic replacement for buildLegacyAssistantDirective: name/tagline/manual come from
  * `cfg.persona` (DATA), the gating block from `cfg.autonomy` (policy), and the
  * pending location from the thread. Nothing here is user-specific — the owner's
  * seeded config reproduces today's assistant directive's rule-bearing content
@@ -548,11 +548,11 @@ ${conversationText}`
   }
 }
 
-function buildInitialPrompt(firstMessage: string, identityBlock: string, sessionContext: string, priorHistory: string, jarvisDirective = ''): string {
+function buildInitialPrompt(firstMessage: string, identityBlock: string, sessionContext: string, priorHistory: string, assistantDirective = ''): string {
   let result = ''
   // Persona directive goes FIRST so it frames everything that follows. For
   // owner-owned (assistant) threads this supersedes the mentor-workspace CLAUDE.md.
-  if (jarvisDirective.trim()) result += `<persona>\n${jarvisDirective}\n</persona>\n\n`
+  if (assistantDirective.trim()) result += `<persona>\n${assistantDirective}\n</persona>\n\n`
   if (identityBlock.trim()) result += `<identity>\n${identityBlock}\n</identity>\n\n`
   if (sessionContext.trim()) result += `<session_context>\n${sessionContext}\n</session_context>\n\n`
   if (priorHistory.trim()) result += `<prior_conversation>\n${priorHistory}\n</prior_conversation>\n\n`
@@ -773,10 +773,10 @@ export function startMentorSession(threadId: number, firstMessage: string): stri
   // Send the initial message via stdin. Threads whose creator has an enabled
   // assistant config get their persona/gating/pending directive prepended
   // (web-tab AND bridge-created), built from that config.
-  const jarvisDirective = hasAssistant && assistantCfg ? buildAssistantDirective(assistantCfg, threadId) : ''
+  const assistantDirective = hasAssistant && assistantCfg ? buildAssistantDirective(assistantCfg, threadId) : ''
   const stdinMessage = JSON.stringify({
     type: 'user',
-    message: { role: 'user', content: [{ type: 'text', text: buildInitialPrompt(firstMessage, identityBlock, sessionContext, priorHistory, jarvisDirective) }] },
+    message: { role: 'user', content: [{ type: 'text', text: buildInitialPrompt(firstMessage, identityBlock, sessionContext, priorHistory, assistantDirective) }] },
   }) + '\n'
   proc.stdin?.write(stdinMessage)
 

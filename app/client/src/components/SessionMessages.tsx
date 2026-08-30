@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SessionMessage } from '@command-center/shared'
+import type { SessionMessage } from '@operationkit/shared'
 import { renderMarkdown } from '../lib/markdown'
 import { cleanupOrphanMermaid, renderMermaidIn } from '../lib/mermaid'
 import { ObjectiveProposalCard } from './mentor/ObjectiveProposalCard'
