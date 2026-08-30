@@ -1,0 +1,12 @@
+# Code owners for OperationKit.
+#
+# Solo maintainer: every path is owned by @m1keluka. This makes review requests
+# route automatically and documents ownership for outside contributors.
+#
+# NOTE: main's branch protection deliberately does NOT set
+# `require_code_owner_reviews`. On a single-maintainer repo that rule is
+# unsatisfiable — the only code owner is also the only author, and GitHub will
+# not let an author approve their own PR, which would hard-block every merge.
+# See the W8 implementation log for the full rationale.
+
+* @m1keluka

@@ -1,0 +1,41 @@
+# Dependabot version updates for OperationKit.
+#
+# Scope note: the Node project is a single npm workspaces tree rooted at `app/`
+# (app/package.json declares the client/server/shared workspaces) and
+# app/package-lock.json is the ONE committed lockfile, so a single npm entry at
+# /app covers every workspace. Do not add per-workspace entries — Dependabot
+# would open duplicate PRs against the same lockfile.
+#
+# The github-actions ecosystem is load-bearing here: every `uses:` in
+# .github/workflows is pinned to a 40-char commit SHA, which is safe but frozen.
+# Dependabot is what keeps those pins moving as upstream ships fixes.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - changelog:infra
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - changelog:infra
+
+  - package-ecosystem: docker
+    directory: /app
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - changelog:infra
