@@ -1,4 +1,4 @@
-# Command Center API
+# OperationKit API
 
 Remote HTTP API so a person — or a **third-party agent** (Claude, Grok, ChatGPT, a cron, a bot) — can project-manage the board without sitting in the UI.
 
