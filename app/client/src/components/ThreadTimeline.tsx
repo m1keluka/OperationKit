@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { SessionMessage, ThreadSegment, ThreadTimeline as ThreadTimelineData, ThreadTimelineUnchanged } from '@command-center/shared'
+import type { SessionMessage, ThreadSegment, ThreadTimeline as ThreadTimelineData, ThreadTimelineUnchanged } from '@operationkit/shared'
 import { renderMarkdown } from '../lib/markdown'
 import { api } from '../lib/api'
 import { echoLandedInSegments } from '../lib/followup-echo'

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { deriveBranchName, deriveWorktreeBranchName, slugifyTitle, detectBranchBleed, detectProjectBleed } from './branch-scope.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 function obj(p: Partial<Objective>): Pick<Objective, 'id' | 'title' | 'project' | 'create_pr' | 'branch_name'> {
   return { id: 994, title: 'Guardrail thing', project: 'command-center-infra', create_pr: 1 as never, branch_name: null, ...p } as never

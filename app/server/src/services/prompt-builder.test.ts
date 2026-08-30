@@ -15,7 +15,7 @@ process.env.DB_PATH = TMP_DB
 import { initDb, getDb } from '../db/index.js'
 import { buildPrompt, resolveWorkdir, loadWorkspacesConfig, resolveGithubRepo } from './prompt-builder.js'
 import { HOME_DIR, PROJECTS_DIR, WORKSPACES_JSON } from '../config.js'
-import type { Objective, AcceptanceCriterion } from '@command-center/shared'
+import type { Objective, AcceptanceCriterion } from '@operationkit/shared'
 
 beforeAll(() => {
   initDb()

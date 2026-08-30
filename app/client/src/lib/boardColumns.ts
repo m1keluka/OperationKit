@@ -1,4 +1,4 @@
-import { OBJECTIVE_STATUSES, isInFlightStatus, type ObjectiveStatus } from '@command-center/shared'
+import { OBJECTIVE_STATUSES, isInFlightStatus, type ObjectiveStatus } from '@operationkit/shared'
 
 /**
  * Mobile board is a vertical stack — Needs You first so Operator does not scroll

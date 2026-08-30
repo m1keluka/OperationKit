@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Objective, ObjectiveStatus, Workspace } from '@command-center/shared'
+import type { Objective, ObjectiveStatus, Workspace } from '@operationkit/shared'
 import { api } from '../lib/api'
 
 /** Server caps ?limit at 200; walk pages until a short page. */

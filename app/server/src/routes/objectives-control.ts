@@ -10,7 +10,7 @@ import {
   type GoalDraftRequest,
   type GoalDraftResponse,
   type GoalQuestion,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { stopSession, interruptSession, sendFollowUp } from '../services/session-manager.js'
 import { releaseBranchLeasesForObjective } from '../services/branch-lease.js'
 import { cancelDelegatorWake } from '../services/delegation.js'

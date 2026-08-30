@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { useState, useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
-import type { User, Workspace } from '@command-center/shared'
+import type { User, Workspace } from '@operationkit/shared'
 
 async function flush() {
   for (let i = 0; i < 4; i++) {

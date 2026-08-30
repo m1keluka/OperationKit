@@ -6,7 +6,7 @@
  * consolidates it. With both scoping flags OFF (committed default) and the
  * default ADMIN tier, the env is byte-for-byte identical to the old inline block.
  */
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import {
   GIT_SSH_COMMAND,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ThreadFolder } from '@command-center/shared'
+import type { ThreadFolder } from '@operationkit/shared'
 
 async function jsonFetch<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, { credentials: 'include', ...init })

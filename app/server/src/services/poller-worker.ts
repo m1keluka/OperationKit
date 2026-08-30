@@ -5,7 +5,7 @@
  */
 import fs from 'fs'
 import path from 'path'
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import {
   getSessionState,

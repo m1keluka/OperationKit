@@ -4,7 +4,7 @@ import path from 'path'
 export default defineConfig({
   resolve: {
     alias: {
-      '@command-center/shared': path.resolve(__dirname, '../shared/types.ts'),
+      '@operationkit/shared': path.resolve(__dirname, '../shared/types.ts'),
     },
   },
   test: {

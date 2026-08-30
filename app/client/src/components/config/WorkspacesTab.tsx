@@ -21,7 +21,7 @@ import {
   type WorkspaceRepo,
   type WorkspaceIntegration,
   type GithubOrgRepo,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { api } from '../../lib/api'
 import { inputCls, selectCls, SectionLabel } from './config-form'
 

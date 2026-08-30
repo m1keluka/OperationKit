@@ -21,7 +21,7 @@ import {
   type ResourceType,
   type ResourceScopeType,
   type SetResourceAssignmentRequest,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { api, ApiError } from '../../lib/api'
 import { inputCls, selectCls } from './config-form'
 

@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 const TMP_DB = path.join(os.tmpdir(), `cc-extrem-res-test-${process.pid}-${Date.now()}.db`)
 process.env.DB_PATH = TMP_DB

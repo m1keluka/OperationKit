@@ -1,4 +1,4 @@
-import type { ObjectiveReview } from '@command-center/shared'
+import type { ObjectiveReview } from '@operationkit/shared'
 import { Card, Badge } from './ui'
 
 // Per-criterion AI-review results (id / pass-fail / evidence) plus screenshots,

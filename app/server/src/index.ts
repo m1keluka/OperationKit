@@ -16,7 +16,7 @@ import feedRouter from './routes/feed.js'
 import shellRouter from './routes/shell.js'
 import docsRouter from './routes/docs.js'
 import mentorRouter from './routes/mentor.js'
-import jarvisRouter from './routes/jarvis.js'
+import assistantBriefingRouter from './routes/assistant-briefing.js'
 import assistantRouter from './routes/assistant.js'
 import statusRouter from './routes/status.js'
 import webhooksRouter from './routes/webhooks.js'
@@ -69,7 +69,7 @@ import { startDreamCycleScheduler } from './services/dream-cycle.js'
 import { startRoutineScheduler } from './services/routine-scheduler.js'
 import { startCanaryHarnessScheduler } from './services/canary-harness.js'
 import { startKitchenLoop } from './services/kitchen-loop.js'
-import { startJarvisNudgeScheduler } from './services/jarvis-nudge.js'
+import { startAssistantNudgeScheduler } from './services/assistant-nudge.js'
 import { startCiFeedbackBridge } from './services/ci-feedback-bridge.js'
 import { startDriftGuard } from './services/drift-guard.js'
 import { startObjectivesSafety } from './services/objectives-safety.js'
@@ -168,7 +168,7 @@ app.use('/api/costs', costsRouter)  // /api/costs/summary, /daily, /by-objective
 app.use('/api', feedRouter)  // /api/projects/:project/feed, /api/feed/all
 app.use('/api/docs', docsRouter)  // /api/docs/tree, /api/docs/file
 app.use('/api/mentor', mentorRouter)  // /api/mentor/threads, /api/mentor/threads/:id/messages
-app.use('/api/jarvis', jarvisRouter)  // /api/jarvis/briefing
+app.use('/api/assistant', assistantBriefingRouter)  // /api/assistant/briefing
 app.use('/api/assistant', assistantRouter)  // /api/assistant/config — per-user Personal Assistant config (obj 701700)
 app.use('/api/status', statusRouter)  // /api/status/monitors, /api/status/events
 app.use('/api/webhooks', webhooksRouter)  // /api/webhooks/uptimerobot
@@ -351,7 +351,7 @@ startCanaryHarnessScheduler()
 startKitchenLoop()
 
 // Start Assistant morning-nudge scheduler (daily 07:00 America/New_York Telegram digest)
-startJarvisNudgeScheduler()
+startAssistantNudgeScheduler()
 
 // Start the CI → objective feedback bridge poller (obj 701617, 5-min tick). Reads open
 // example-platform PRs' vitest check and, on FAILURE, posts the failing-test summary back

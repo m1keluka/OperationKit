@@ -8,7 +8,7 @@ import fs from 'fs'
 import { Router } from 'express'
 import { getDb } from '../db/index.js'
 import { type AuthRequest } from '../middleware/auth.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { requireOwnership } from './objectives-helpers.js'
 
 // Upload storage — files go to /app/data/uploads/<objectiveId>/

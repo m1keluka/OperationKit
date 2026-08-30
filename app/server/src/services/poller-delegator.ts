@@ -3,7 +3,7 @@
  * Parent lookup, strategy continuation, reconcile, orphan/wedged sweeps.
  * parkDelegatorIfWaiting stays in the facade (shares stuckAlerted/watchdogRouted).
  */
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { getSessionState } from './session-manager.js'
 import { wakeDelegator, nudgeDelegator, recentlyNudged, reconcileDecision, appendChildResult } from './delegation.js'

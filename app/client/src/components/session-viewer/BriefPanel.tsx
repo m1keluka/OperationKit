@@ -2,7 +2,7 @@
  * Objective Brief panel — extracted from SessionViewer.tsx (behavior frozen).
  */
 import { GitPullRequest, GitMerge, GitPullRequestClosed } from 'lucide-react'
-import type { Objective, ObjectiveReview, ObjectivePR } from '@command-center/shared'
+import type { Objective, ObjectiveReview, ObjectivePR } from '@operationkit/shared'
 import { renderMarkdown } from '../../lib/markdown'
 import { AcceptanceCriteriaResults } from '../AcceptanceCriteriaResults'
 import { Card, Badge, cn } from '../ui'

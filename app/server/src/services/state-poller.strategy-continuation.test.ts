@@ -20,7 +20,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } 
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 
 const TMP_DB = path.join(os.tmpdir(), `cc-strategy-continuation-test-${process.pid}-${Date.now()}.db`)
 process.env.DB_PATH = TMP_DB

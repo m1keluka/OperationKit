@@ -5,7 +5,7 @@
  * buildPrompt stays on the prompt-builder.ts facade.
  */
 import fs from 'fs'
-import type { Objective, AcceptanceCriterion } from '@command-center/shared'
+import type { Objective, AcceptanceCriterion } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { isUiInjectionActive, repoHasE2eSuite } from './design-context.js'
 

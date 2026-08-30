@@ -7,7 +7,7 @@ import type {
   ConnectorId,
   KnowledgeSourceRef,
   PersonaConfig,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 
 /**
  * Per-user Personal Assistant config: persistence + resolver (obj 701700).

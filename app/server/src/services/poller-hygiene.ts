@@ -5,8 +5,8 @@
  */
 import fs from 'fs'
 import type { Database } from 'better-sqlite3'
-import type { Objective } from '@command-center/shared'
-import { MAX_CONCURRENT_SESSIONS } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
+import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { startSession } from './session-manager.js'
 import { logObjectiveAudit } from './objective-audit.js'

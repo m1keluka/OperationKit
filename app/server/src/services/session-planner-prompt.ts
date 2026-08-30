@@ -1,7 +1,7 @@
 /**
  * Planner sub-session prompt — extracted from session-manager.ts (behavior frozen).
  */
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 export function buildPlannerPrompt(objective: Objective): string {
   // Planner gets workspace-level domain context ONLY. We deliberately do NOT

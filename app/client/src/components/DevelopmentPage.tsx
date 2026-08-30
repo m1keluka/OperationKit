@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Inbox, Keyboard, Plus, RefreshCw,
 } from 'lucide-react'
-import type { Workspace } from '@command-center/shared'
+import type { Workspace } from '@operationkit/shared'
 import {
   Alert, Button, DataTable, EmptyState, PageContainer, PageHeader,
   Tabs, Toast, useConfirm, type TabItem,

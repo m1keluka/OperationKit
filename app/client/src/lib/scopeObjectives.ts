@@ -1,4 +1,4 @@
-import type { Objective, Workspace } from '@command-center/shared'
+import type { Objective, Workspace } from '@operationkit/shared'
 
 /**
  * Authoritative render-time workspace scope gate (obj 700082).

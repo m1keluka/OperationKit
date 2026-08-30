@@ -9,7 +9,7 @@ import {
   buildVisionRubricBlock,
   isUiObjective,
 } from './design-context.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 // A unique scratch path for the runtime gate file, pointed at via UI_GATE_FILE so

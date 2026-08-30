@@ -3,7 +3,7 @@ import { getDb } from '../db/index.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { userHasWorkspace } from '../middleware/workspace.js'
 import { broadcast } from '../ws/index.js'
-import type { ActivityEvent } from '@command-center/shared'
+import type { ActivityEvent } from '@operationkit/shared'
 
 const router = Router()
 

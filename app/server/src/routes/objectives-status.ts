@@ -12,7 +12,7 @@ import {
   type Objective,
   type StatusChangeRequest,
   type ObjectiveStatus,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import {
   startSession,
   stopSession,

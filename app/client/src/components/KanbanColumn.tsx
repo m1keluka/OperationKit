@@ -1,4 +1,4 @@
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import { ObjectiveCard } from './ObjectiveCard'
 import { STATUS_META } from './design/primitives'
 import { Skeleton } from './ui'

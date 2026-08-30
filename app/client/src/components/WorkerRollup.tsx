@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronRight } from 'lucide-react'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { StatusDot } from './design/primitives'
 
 /* ─────────────────────────────────────────────────────────

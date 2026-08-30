@@ -1,4 +1,4 @@
-import type { ObjectiveStatus, AgentContext } from '@command-center/shared'
+import type { ObjectiveStatus, AgentContext } from '@operationkit/shared'
 
 /* ─────────────────────────────────────────────────────────
    Command Center — design primitives (§04, §05, §06, §07)

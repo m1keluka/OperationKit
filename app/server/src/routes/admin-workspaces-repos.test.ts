@@ -6,7 +6,7 @@ import http from 'http'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
-import type { WorkspaceRepo } from '@command-center/shared'
+import type { WorkspaceRepo } from '@operationkit/shared'
 
 // Real SQLite via initDb() — exercises the actual workspaces / workspace_repos
 // schema (FK cascade included), not a fake.

@@ -26,7 +26,7 @@
  */
 import { getDb } from '../db/index.js'
 import { encryptField, decryptField } from './crypto.js'
-import type { GithubTokenType, UserGithubTokenSummary } from '@command-center/shared'
+import type { GithubTokenType, UserGithubTokenSummary } from '@operationkit/shared'
 
 // ── Test seam ───────────────────────────────────────────────────────────────
 // Validation makes real HTTP calls to GitHub in production. Tests inject a fake

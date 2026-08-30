@@ -3,7 +3,7 @@
  * Extracted from session-manager.ts (behavior frozen).
  */
 import type { ChildProcess } from 'child_process'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { recordSessionSpawn, clearSessionSpawn } from './session-spawn-clock.js'
 

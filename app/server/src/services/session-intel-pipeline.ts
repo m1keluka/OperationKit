@@ -10,7 +10,7 @@ import { getDb } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
 import { logActivity } from '../routes/feed.js'
 import { wakeDelegator } from './delegation.js'
-import type { Objective, SessionIntel } from '@command-center/shared'
+import type { Objective, SessionIntel } from '@operationkit/shared'
 import { extractDeterministic } from './session-intel-parse.js'
 import { generateSummary } from './session-intel-summary.js'
 
@@ -307,7 +307,7 @@ async function processExtraction(item: QueueItem): Promise<void> {
     // Also broadcast updated objective so UI refreshes
     const updatedObjective = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objectiveId)
     if (updatedObjective) {
-      broadcast({ type: 'objective_updated', payload: updatedObjective as unknown as import('@command-center/shared').Objective })
+      broadcast({ type: 'objective_updated', payload: updatedObjective as unknown as import('@operationkit/shared').Objective })
     }
   }
 

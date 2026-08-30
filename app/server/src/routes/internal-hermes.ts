@@ -12,7 +12,7 @@ import {
   MAX_CONCURRENT_SESSIONS,
   type Objective,
   type ObjectiveStatus,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import {
   startSession,
   stopSession,

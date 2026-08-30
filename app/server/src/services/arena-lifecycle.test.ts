@@ -12,7 +12,7 @@ import {
   type CohortVariant,
   type ArenaLifecycleIO,
 } from './arena-lifecycle.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 function obj(partial: Partial<Objective>): Objective {
   return { id: 7, title: 'New buyer dashboard', type: 'task', workspace: 'personal', project: 'example-project-platform', acceptance_criteria: null, ...partial } as Objective

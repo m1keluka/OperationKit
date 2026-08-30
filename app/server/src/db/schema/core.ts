@@ -19,7 +19,7 @@ export function initCoreSchema(db: Database.Database): void {
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       workspace TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('admin', 'member')),
-      can_use_jarvis INTEGER NOT NULL DEFAULT 1,
+      can_use_assistant INTEGER NOT NULL DEFAULT 1,
       objective_visibility TEXT NOT NULL DEFAULT 'own' CHECK(objective_visibility IN ('own', 'all')),
       PRIMARY KEY (user_id, workspace)
     );

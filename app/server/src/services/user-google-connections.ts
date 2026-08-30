@@ -30,7 +30,7 @@ import jwt from 'jsonwebtoken'
 import { getDb } from '../db/index.js'
 import { getJwtSecret } from '../middleware/auth.js'
 import { encryptField, decryptField } from './crypto.js'
-import type { UserGoogleConnectionSummary } from '@command-center/shared'
+import type { UserGoogleConnectionSummary } from '@operationkit/shared'
 
 // ── Test seam ───────────────────────────────────────────────────────────────
 // Token exchange / refresh / revoke hit Google over HTTPS in production. Tests

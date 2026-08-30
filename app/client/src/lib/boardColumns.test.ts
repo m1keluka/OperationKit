@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { OBJECTIVE_STATUSES, type ObjectiveStatus } from '@command-center/shared'
+import { OBJECTIVE_STATUSES, type ObjectiveStatus } from '@operationkit/shared'
 import { BOARD_COL_ORDER_MOBILE, boardColumnOf, orderBoardColumns } from './boardColumns'
 
 describe('orderBoardColumns', () => {

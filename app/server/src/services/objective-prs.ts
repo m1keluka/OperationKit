@@ -16,7 +16,7 @@
 
 import type { Database } from 'better-sqlite3'
 import { getDb } from '../db/index.js'
-import type { ObjectivePR, ObjectivePRState } from '@command-center/shared'
+import type { ObjectivePR, ObjectivePRState } from '@operationkit/shared'
 import { parsePrNumberFromUrl } from './pr-url.js'
 
 /** Parse `owner/name` out of a canonical GitHub PR URL, else null. Mirrors the

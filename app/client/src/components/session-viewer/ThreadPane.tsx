@@ -3,7 +3,7 @@
  * SessionViewer.tsx (behavior frozen).
  */
 import type { RefObject } from 'react'
-import type { ObjectiveStatus } from '@command-center/shared'
+import type { ObjectiveStatus } from '@operationkit/shared'
 import { ThreadTimeline } from '../ThreadTimeline'
 import { ThinkingIndicator } from '../design/primitives'
 import type { ConnState } from '../ConnStatusPill'

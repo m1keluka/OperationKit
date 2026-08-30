@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
 import { getActiveBlockers } from './context-builder.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // QW6 / audit C#5: the Active-Blockers context query must (a) age out stale
 // blockers via a recency window, (b) stay scoped to the objective's workspace,
