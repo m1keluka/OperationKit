@@ -5,7 +5,7 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { resolveWorkdir } from './prompt-builder.js'
 import { deriveBranchName } from './branch-scope.js'

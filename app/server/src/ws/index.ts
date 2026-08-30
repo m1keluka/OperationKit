@@ -7,7 +7,7 @@ import { spawn, type IPty } from 'node-pty'
 import { verifyToken } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { getDb } from '../db/index.js'
-import type { ServerMessage, ClientMessage, User, UserRole } from '@command-center/shared'
+import type { ServerMessage, ClientMessage, User, UserRole } from '@operationkit/shared'
 
 // Per-connection state. We snapshot workspace memberships at connect time —
 // see Phase 5 audit note. If admin grants a new workspace mid-session the

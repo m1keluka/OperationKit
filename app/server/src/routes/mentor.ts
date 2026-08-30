@@ -10,9 +10,9 @@ import { getUserWorkspaces } from '../middleware/workspace.js'
  * Gate Assistant chat access:
  *  - admins always pass
  *  - members pass iff at least one of their workspace memberships has
- *    can_use_jarvis = true
+ *    can_use_assistant = true
  */
-function requireJarvisAccess(req: AuthRequest, res: Response, next: NextFunction): void {
+function requireAssistantAccess(req: AuthRequest, res: Response, next: NextFunction): void {
   const user = req.user
   if (!user) {
     res.status(401).json({ error: 'Authentication required' })
@@ -23,7 +23,7 @@ function requireJarvisAccess(req: AuthRequest, res: Response, next: NextFunction
     return
   }
   const memberships = getUserWorkspaces(user.id)
-  if (memberships.some(m => m.can_use_jarvis)) {
+  if (memberships.some(m => m.can_use_assistant)) {
     next()
     return
   }
@@ -46,10 +46,10 @@ import type {
   PostMentorMessageResponse,
   MentorThreadOutput,
   SessionMessage,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 
 const router: Router = Router()
-router.use(requireAuth, requireJarvisAccess)
+router.use(requireAuth, requireAssistantAccess)
 
 // Upload storage — files go to /app/data/mentor-uploads/<threadId>/
 const MENTOR_UPLOAD_DIR = '/app/data/mentor-uploads'

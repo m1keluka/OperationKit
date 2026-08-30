@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective, ServerMessage } from '@command-center/shared'
+import type { Objective, ServerMessage } from '@operationkit/shared'
 
 // Real SQLite against the actual schema (incl. the external_check_remediations
 // migration) — mirrors changelog.test.ts. The remediation guards (dedup UNIQUE key,

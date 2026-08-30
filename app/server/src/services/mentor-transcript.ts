@@ -1,5 +1,5 @@
 import fs from 'fs'
-import type { SessionMessage } from '@command-center/shared'
+import type { SessionMessage } from '@operationkit/shared'
 
 // Shared JSONL transcript parsing for mentor/Assistant threads. Extracted from
 // routes/mentor.ts so both the JWT-gated web route and the service-token bridge

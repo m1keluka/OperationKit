@@ -3,7 +3,7 @@ import { getDb } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
 import { notify } from '../services/notifier.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import type { Alert, AlertSeverity, IngestAlertRequest } from '@command-center/shared'
+import type { Alert, AlertSeverity, IngestAlertRequest } from '@operationkit/shared'
 
 const router: Router = Router()
 

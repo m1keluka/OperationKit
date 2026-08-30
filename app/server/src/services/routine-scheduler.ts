@@ -2,7 +2,7 @@ import { getDb, resolveStrategyId } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
 import { getDefaultModelId } from './model-registry.js'
 import { notify } from './notifier.js'
-import { MAX_CONCURRENT_SESSIONS, type Objective } from '@command-center/shared'
+import { MAX_CONCURRENT_SESSIONS, type Objective } from '@operationkit/shared'
 
 const TICK_MS = 60 * 1000
 const PORT = parseInt(process.env.PORT || '3002', 10)

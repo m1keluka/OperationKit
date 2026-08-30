@@ -1,4 +1,4 @@
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { StatusDot } from '../components/design/primitives'
 
 export function SubObjectiveRail({

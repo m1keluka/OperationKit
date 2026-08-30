@@ -4,7 +4,7 @@
  * Split: core (objective/status/agent) in types-core.ts, platform surfaces in
  * types-surfaces.ts, runtime (WS/session/assistant) in types-runtime.ts.
  * Type-aware workflow helpers stay in workflow.ts. This file is the package
- * entry (`@command-center/shared`) and re-exports everything.
+ * entry (`@operationkit/shared`) and re-exports everything.
  */
 
 export * from './types-core.js'
@@ -12,7 +12,7 @@ export * from './types-surfaces.js'
 export * from './types-runtime.js'
 
 // Type-aware transitions live in `./workflow.ts` to keep this file focused on
-// the data shape. Re-exported here so `@command-center/shared` callers can get
+// the data shape. Re-exported here so `@operationkit/shared` callers can get
 // them without a subpath import.
 export {
   isTransitionAllowed,

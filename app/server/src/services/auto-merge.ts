@@ -15,7 +15,7 @@
  */
 import { execFile } from 'child_process'
 import { getDb } from '../db/index.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { isMoneyPath } from './merge-lane.js'
 
 export { isMoneyPath }

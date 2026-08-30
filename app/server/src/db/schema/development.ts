@@ -341,7 +341,7 @@ export function seedDevelopmentRegistry(db: Database.Database): void {
         attachment_storage: {
           provider: 'supabase',
           bucket: 'feedback-attachments',
-          project_url: 'https://oftsdmfngqasevrfbwel.supabase.co',
+          project_url: 'https://your-project-id.supabase.co',
         },
         notify: { provider: 'resend', from: 'notifications@notify.example.com' },
       },
@@ -362,7 +362,7 @@ export function seedDevelopmentRegistry(db: Database.Database): void {
         attachment_storage: {
           provider: 'supabase',
           bucket: 'feedback-attachments',
-          project_url: 'https://gaomuvxsybezkmykrkfm.supabase.co',
+          project_url: 'https://your-project-id.supabase.co',
         },
         notify: { provider: 'none' },
       },

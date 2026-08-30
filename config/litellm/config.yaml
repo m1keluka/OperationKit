@@ -1,0 +1,118 @@
+# LiteLLM proxy configuration — OperationKit template
+#
+# This file is bind-mounted read-only into the `litellm` container by
+# docker-compose.yml (`./config/litellm/config.yaml:/app/config.yaml:ro`), so it
+# must exist before `docker compose up -d` or the proxy fails to start.
+#
+# Every credential is read from the environment at runtime — never put a literal
+# API key in this file. Set the keys you actually use in `.env`; providers whose
+# key is unset simply fail over to the next entry in the same model group.
+#
+# Model groups below are logical names the application asks for ("orchestrator",
+# "research", …). Within a group, `order: 1` is tried first and higher numbers are
+# fallbacks. Delete or add providers to taste — the group names are the only part
+# other services depend on.
+
+model_list:
+  # Strategic reasoning and task delegation.
+  - model_name: orchestrator
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 1
+  - model_name: orchestrator
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
+
+  # Enrichment and large-context analysis.
+  - model_name: research
+    litellm_params:
+      model: gemini/gemini-2.0-flash
+      api_key: os.environ/GEMINI_API_KEY
+      order: 1
+  - model_name: research
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
+
+  # Code generation and data processing.
+  # The first entry points at a self-hosted Ollama server; if you do not run one,
+  # leave GPU_OLLAMA_URL unset and the group falls through to the hosted models.
+  - model_name: code
+    litellm_params:
+      model: ollama_chat/qwen3:32b
+      api_base: ${GPU_OLLAMA_URL:-http://ollama:11434}
+      order: 1
+  - model_name: code
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
+  - model_name: code
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 3
+
+  # Copy, outreach, and other tone-sensitive content.
+  - model_name: writing
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 1
+  - model_name: writing
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
+
+  # Deep analysis, QA, and complex decisions.
+  - model_name: reasoning
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 1
+
+  # Example of adding a non-Anthropic provider: uncomment and set OPENAI_API_KEY.
+  # - model_name: reasoning
+  #   litellm_params:
+  #     model: openai/gpt-5
+  #     api_key: os.environ/OPENAI_API_KEY
+  #     order: 2
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  timeout: 120
+  allowed_fails: 3
+  cooldown_time: 60
+  max_fallbacks: 5
+  retry_policy:
+    AuthenticationErrorRetries: 0
+    BadRequestErrorRetries: 0
+    ContentPolicyViolationErrorRetries: 0
+    InternalServerErrorRetries: 2
+    RateLimitErrorRetries: 3
+    TimeoutErrorRetries: 2
+  fallbacks:
+    - orchestrator: ["orchestrator"]
+    - research: ["research"]
+    - code: ["code"]
+    - writing: ["writing"]
+    - reasoning: ["reasoning"]
+
+litellm_settings:
+  drop_params: true
+  num_retries: 3
+  request_timeout: 120
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  # Monthly spend ceiling in USD across the proxy. Raise, lower, or remove.
+  max_budget: 500
+  budget_duration: 30d
+  store_prompts_in_spend_logs: false

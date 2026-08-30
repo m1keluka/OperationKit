@@ -32,7 +32,7 @@
  *    so a duplicate wake rebinds to the running session instead of double-spawning.
  */
 import type { Database } from 'better-sqlite3'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { slugifyTitle } from './branch-scope.js'
 
 /** Seconds after the last heartbeat before a lease is considered stale/reclaimable. */

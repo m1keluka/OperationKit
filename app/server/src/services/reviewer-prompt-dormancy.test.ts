@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildReviewerPrompt } from './session-manager.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // A UI objective (registered frontend repo) — the case most at risk of leaking
 // rubric text into the prompt when the gate is supposed to be dormant.

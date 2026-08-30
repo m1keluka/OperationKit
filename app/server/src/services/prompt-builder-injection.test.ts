@@ -4,7 +4,7 @@ import os from 'os'
 import path from 'path'
 import { buildDelegatorBlock } from './prompt-builder.js'
 import { clearGateConfigCache } from './design-context.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Spawn-prompt injection on the FILE control-plane (obj 1117).

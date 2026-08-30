@@ -134,7 +134,7 @@ export function initMentorSchema(db: Database.Database): void {
   // seeds when the owner user exists AND has no config row yet. The persona
   // systemPrompt carries the assistant.md pointer + capability map + the
   // hardcoded google email (all now DATA, not code constants), matching the
-  // pre-change buildJarvisDirective body in mentor-session.ts.
+  // pre-change buildLegacyAssistantDirective body in mentor-session.ts.
   try {
     const ownerUsername = process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'admin'
     const owner = db

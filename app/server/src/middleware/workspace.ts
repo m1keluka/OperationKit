@@ -1,7 +1,7 @@
 import type { Response, NextFunction } from 'express'
 import { getDb } from '../db/index.js'
 import type { AuthRequest } from './auth.js'
-import type { UserWorkspace } from '@command-center/shared'
+import type { UserWorkspace } from '@operationkit/shared'
 
 export function getUserWorkspaces(userId: number): UserWorkspace[] {
   const db = getDb()

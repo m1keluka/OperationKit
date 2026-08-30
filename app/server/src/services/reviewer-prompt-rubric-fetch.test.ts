@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildReviewerPrompt } from './session-manager.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Regression guard for the shared-/tmp rubric clobber (distill 2026-08-14, obj 706156).
 //

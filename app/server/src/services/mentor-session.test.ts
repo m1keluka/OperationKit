@@ -11,7 +11,7 @@ const TMP_DB = path.join(os.tmpdir(), `cc-mentor-session-test-${process.pid}-${D
 process.env.DB_PATH = TMP_DB
 
 const { initDb, getDb } = await import('../db/index.js')
-const { isOwnerThread, buildGoogleMcpConfig, buildJarvisDirective } = await import('./mentor-session.js')
+const { isOwnerThread, buildGoogleMcpConfig, buildLegacyAssistantDirective } = await import('./mentor-session.js')
 
 let ownerId: number
 let memberId: number
@@ -88,7 +88,7 @@ describe('buildGoogleMcpConfig — MCP config builder shape', () => {
     enabledConnectors: ['google-workspace'],
     connectorBindings: { 'google-workspace': { identity: 'dev@example.com', credentialRef: 'env:GOOGLE_CREDENTIALS_DIR' } },
     enabled: true,
-  } as unknown as import('@command-center/shared').AssistantConfig
+  } as unknown as import('@operationkit/shared').AssistantConfig
 
   it('injects google-workspace for THAT user, never the shared multi-account folder', () => {
     process.env.GOOGLE_OAUTH_CLIENT_ID = 'cid-123'
@@ -132,28 +132,28 @@ describe('buildGoogleMcpConfig — MCP config builder shape', () => {
   })
 })
 
-describe('buildJarvisDirective — persona + gating + per-thread pending', () => {
+describe('buildLegacyAssistantDirective — persona + gating + per-thread pending', () => {
   it('references assistant.md as the operating manual and supersedes the mentor persona', () => {
-    const d = buildJarvisDirective(42)
+    const d = buildLegacyAssistantDirective(42)
     expect(d).toContain('/home/operator/ai-workspace/agents/assistant.md')
     expect(d.toLowerCase()).toContain('supersede')
   })
 
   it('pins pending confirmations PER THREAD and loops GLOBAL', () => {
-    const d = buildJarvisDirective(42)
+    const d = buildLegacyAssistantDirective(42)
     expect(d).toContain('/home/operator/assistant/threads/42/pending.md')
     expect(d).toContain('/home/operator/assistant/loops.md')
     expect(d.toUpperCase()).toContain('GLOBAL')
   })
 
   it('points at the CC internal API and vault retrieval', () => {
-    const d = buildJarvisDirective(7)
+    const d = buildLegacyAssistantDirective(7)
     expect(d).toContain('http://localhost:3002/api/internal/')
     expect(d).toContain('/home/operator/second-brain')
   })
 
   it('states the §5 confirmation-gating contract', () => {
-    const d = buildJarvisDirective(1)
+    const d = buildLegacyAssistantDirective(1)
     expect(d.toLowerCase()).toContain('confirmation')
     expect(d.toLowerCase()).toContain('two-step')
   })

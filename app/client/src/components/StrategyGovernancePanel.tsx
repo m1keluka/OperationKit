@@ -3,7 +3,7 @@ import { ChevronRight, ShieldCheck } from 'lucide-react'
 import { api } from '../lib/api'
 import { Button, Badge } from './ui'
 import { StatusDot } from './design/primitives'
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 
 /* ─────────────────────────────────────────────────────────
    StrategyGovernancePanel — the body of the Stage-0 human-confirm

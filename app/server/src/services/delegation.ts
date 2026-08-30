@@ -2,7 +2,7 @@ import fs from 'fs'
 import { getDb } from '../db/index.js'
 import { isStrategyTierEnabled } from './strategy-governance.js'
 import { runMachineStatusUpdate } from '../lib/status-lock.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Wake-on-completion for delegator orchestration.
 //

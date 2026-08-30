@@ -1,4 +1,4 @@
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 /* ─────────────────────────────────────────────────────────
    Project filter — pure logic for the board's "open a

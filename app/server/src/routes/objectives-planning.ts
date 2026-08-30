@@ -5,9 +5,9 @@
 import { Router } from 'express'
 import { getDb } from '../db/index.js'
 import { type AuthRequest } from '../middleware/auth.js'
-import type { Objective, PlanningMessage, SessionMessage } from '@command-center/shared'
+import type { Objective, PlanningMessage, SessionMessage } from '@operationkit/shared'
 import { getSessionOutput, sendFollowUp, spawnPlannerSession, stopPlannerSession, startSession } from '../services/session-manager.js'
-import { MAX_CONCURRENT_SESSIONS } from '@command-center/shared'
+import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { broadcast } from '../ws/index.js'
 import { mapObjective, requireOwnership } from './objectives-helpers.js'
 

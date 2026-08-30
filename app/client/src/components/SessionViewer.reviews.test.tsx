@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { ObjectiveReview } from '@command-center/shared'
+import type { ObjectiveReview } from '@operationkit/shared'
 import { AcceptanceCriteriaResults } from './AcceptanceCriteriaResults'
 
 // QW4 — prove the SessionViewer per-criterion results UI renders id / pass-fail /

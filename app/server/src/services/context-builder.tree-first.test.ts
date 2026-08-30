@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // P1-2 / gap G8 — tree-first session context, gated by CONTEXT_TREE_FIRST.
 //

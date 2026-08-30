@@ -48,8 +48,8 @@ import { runMachineStatusUpdate } from '../lib/status-lock.js'
 import type {
   Objective,
   ObjectiveStatus,
-} from '@command-center/shared'
-import { MAX_CONCURRENT_SESSIONS } from '@command-center/shared'
+} from '@operationkit/shared'
+import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { TRANSCRIPT_DIR, WATCHDOG_IDLE_FORCE_MS, WATCHDOG_WALLCLOCK_MS } from '../config.js'
 import {
   MAX_NOOP_RESPAWNS,

@@ -7,7 +7,7 @@ import type {
   PostMentorMessageResponse,
   SessionMessage,
   MentorSessionState,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { api } from '../lib/api'
 
 export function useMentorThreads() {

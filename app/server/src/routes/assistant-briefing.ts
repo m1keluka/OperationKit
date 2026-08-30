@@ -7,7 +7,7 @@ import { getOpenTasksBlock } from '../services/mentor-context.js'
 const router = Router()
 router.use(requireAuth)
 
-// GET /api/jarvis/briefing
+// GET /api/assistant/briefing
 // Aggregates live board state + vault open loops for the daily briefing.
 // Phase 5: members only see board rows from workspaces they belong to AND that
 // they created/are assigned to — mirroring `GET /api/objectives`. Admins see all.

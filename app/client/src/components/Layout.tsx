@@ -4,7 +4,7 @@ import { useBoardTheme } from '../preview/BoardShell'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from '../context/nav'
 import { useWorkspaces } from '../hooks/useWorkspaces'
-import type { Workspace } from '@command-center/shared'
+import type { Workspace } from '@operationkit/shared'
 import { CommandPalette } from './CommandPalette'
 import { AlertBell } from './AlertBell'
 import { NavIcon, type NavIconName } from './nav-icons'
@@ -40,7 +40,7 @@ interface LayoutProps {
    Same grouping, different overflow threshold per viewport = responsive IA.
    ───────────────────────────────────────────────────────────────────────── */
 
-type NavGate = 'jarvis' | 'admin'
+type NavGate = 'assistant' | 'admin'
 
 interface NavItem {
   href: string
@@ -63,7 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Work',
     items: [
       { href: '/',       label: 'Board',  icon: 'board',  aliases: [],                    mobile: 'tab' },
-      { href: '/jarvis', label: 'Assistant', icon: 'jarvis', aliases: ['/mentor', '/assistant'], gate: 'jarvis', mobile: 'tab' },
+      { href: '/assistant', label: 'Assistant', icon: 'assistant', aliases: ['/mentor'], gate: 'assistant', mobile: 'tab' },
       { href: '/jobs',   label: 'Jobs',   icon: 'jobs',   aliases: [],                    gate: 'admin', mobile: 'tab' },
     ],
   },
@@ -123,9 +123,9 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     || /^\/w\/[\w-]+\/?$/.test(currentPath)
     || /^\/o\/\d+\/?$/.test(currentPath)
 
-  const canUseJarvis = useMemo(() => {
+  const canUseAssistant = useMemo(() => {
     if (isAdmin) return true
-    return user?.workspaces?.some(w => w.can_use_jarvis) ?? false
+    return user?.workspaces?.some(w => w.can_use_assistant) ?? false
   }, [isAdmin, user?.workspaces])
 
   const canSeeSettings = useMemo(() => {
@@ -144,7 +144,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   // Apply permission gating once, against the single nav model.
   const gatePass = (item: NavItem) => {
     if (item.gate === 'admin') return isAdmin
-    if (item.gate === 'jarvis') return canUseJarvis
+    if (item.gate === 'assistant') return canUseAssistant
     return true
   }
 
@@ -154,7 +154,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       NAV_GROUPS
         .map(g => ({ ...g, items: g.items.filter(gatePass) }))
         .filter(g => g.items.length > 0),
-    [isAdmin, canUseJarvis]
+    [isAdmin, canUseAssistant]
   )
 
   const allItems = useMemo(() => groups.flatMap(g => g.items), [groups])
@@ -272,11 +272,11 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     }
     for (const extra of PALETTE_ONLY) {
       if (extra.gate === 'admin' && !isAdmin) continue
-      if (extra.gate === 'jarvis' && !canUseJarvis) continue
+      if (extra.gate === 'assistant' && !canUseAssistant) continue
       items.push({ label: extra.label, hint: extra.href, onSelect: () => { navigate(extra.href) } })
     }
     return items
-  }, [allItems, canSeeSettings, isAdmin, canUseJarvis, navigate])
+  }, [allItems, canSeeSettings, isAdmin, canUseAssistant, navigate])
 
   const systemActive = systemGroup?.items.some(isActive) ?? false
 

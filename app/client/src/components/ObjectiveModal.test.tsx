@@ -13,7 +13,7 @@ async function flush() {
   flushSync(() => {})
   await Promise.resolve()
 }
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // obj 700128 — prove ObjectiveModal is memoized so board-level WebSocket
 // broadcasts (which re-render KanbanBoard every few seconds while live sessions

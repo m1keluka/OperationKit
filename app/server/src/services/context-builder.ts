@@ -4,7 +4,7 @@ import { getDb } from '../db/index.js'
 import { searchKnowledge } from './knowledge-search.js'
 import { getCorrectionsForContext } from './corrections.js'
 import { SKILLS_REGISTRY, SESSION_MINING_SENTINEL, SESSION_MINING_LOOKBACK_DAYS, SESSION_MINING_MAX_SURFACED, contextTreeFirstEnabled } from '../config.js'
-import type { Objective, SessionDecision, SessionBlocker, SessionFollowUp } from '@command-center/shared'
+import type { Objective, SessionDecision, SessionBlocker, SessionFollowUp } from '@operationkit/shared'
 
 // QW6 / audit C#5: how far back a blocker stays "active". Older session_intel
 // rows age out so the section isn't a graveyard of resolved/abandoned work.

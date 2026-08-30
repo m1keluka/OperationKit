@@ -2,7 +2,7 @@
  * Shared core types: status/agent enums, Objective, AI review —
  * extracted from types.ts (behavior frozen).
  *
- * `@command-center/shared` still resolves to types.ts, which re-exports this.
+ * `@operationkit/shared` still resolves to types.ts, which re-exports this.
  */
 // ── Enums & Literals ──
 
@@ -196,7 +196,7 @@ export type ObjectiveVisibility = 'own' | 'all'
 export interface UserWorkspace {
   workspace: string
   role: UserRole
-  can_use_jarvis?: boolean
+  can_use_assistant?: boolean
   objective_visibility?: ObjectiveVisibility
 }
 
@@ -214,7 +214,7 @@ export interface WorkspaceMembership {
   username: string
   workspace: string
   role: UserRole
-  can_use_jarvis: boolean
+  can_use_assistant: boolean
   objective_visibility: ObjectiveVisibility
 }
 
@@ -222,7 +222,7 @@ export interface WorkspaceMembership {
 export interface GrantWorkspaceRequest {
   user_id: number
   role?: UserRole
-  can_use_jarvis?: boolean
+  can_use_assistant?: boolean
   objective_visibility?: ObjectiveVisibility
 }
 

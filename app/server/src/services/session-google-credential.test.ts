@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // obj-706070 — the ACTING-USER resolution proof for per-user Google Workspace.
 //

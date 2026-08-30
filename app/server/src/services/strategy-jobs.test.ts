@@ -14,7 +14,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import type { RoutineRow } from './routine-scheduler.js'
 
 const TMP_DB = path.join(os.tmpdir(), `cc-strategy-jobs-test-${process.pid}-${Date.now()}.db`)

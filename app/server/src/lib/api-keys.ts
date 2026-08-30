@@ -5,7 +5,7 @@
  */
 import { createHash, randomBytes } from 'crypto'
 import { getDb } from '../db/index.js'
-import type { User } from '@command-center/shared'
+import type { User } from '@operationkit/shared'
 
 export const API_KEY_PREFIX = 'cc_live_'
 

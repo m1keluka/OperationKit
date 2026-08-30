@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pencil, Search } from 'lucide-react'
-import type { Objective, ObjectiveStatus, UpdateObjectiveRequest, Workspace } from '@command-center/shared'
+import type { Objective, ObjectiveStatus, UpdateObjectiveRequest, Workspace } from '@operationkit/shared'
 import { useArchiveLibrary } from '../hooks/useArchiveLibrary'
 import { useSlashSearch } from '../hooks/useSlashSearch'
 import { useNavigate } from '../context/nav'

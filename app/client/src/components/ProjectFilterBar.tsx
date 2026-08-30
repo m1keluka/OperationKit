@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react'
 import { Plus, Pencil, Trash2, Check, X, FolderOpen } from 'lucide-react'
-import type { Project } from '@command-center/shared'
+import type { Project } from '@operationkit/shared'
 import { useConfirm } from './ui'
 import { ALL_PROJECTS, UNASSIGNED_PROJECT, type ProjectSelection } from '../lib/projectFilter'
 

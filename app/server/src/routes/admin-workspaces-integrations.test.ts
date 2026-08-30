@@ -6,7 +6,7 @@ import http from 'http'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
-import type { WorkspaceIntegration, GithubOrgRepo, WorkspaceRepo } from '@command-center/shared'
+import type { WorkspaceIntegration, GithubOrgRepo, WorkspaceRepo } from '@operationkit/shared'
 
 // Real SQLite via initDb() — exercises the actual workspace_integrations schema.
 const TMP_DB = path.join(os.tmpdir(), `cc-wsintg-test-${process.pid}-${Date.now()}.db`)

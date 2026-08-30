@@ -2,7 +2,7 @@
  * Auto-resume on limit / overload / max-turns — extracted from session-manager.ts
  * (behavior frozen). Counters live in session-death.ts. sendFollowUp is on the facade.
  */
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { pickAccount, enqueueSession } from './account-router.js'
 import { MAX_TURNS_AUTO_CONTINUE } from '../config.js'

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { WorkspaceRecord } from '@command-center/shared'
+import type { WorkspaceRecord } from '@operationkit/shared'
 
 interface UseWorkspacesResult {
   workspaces: WorkspaceRecord[]

@@ -6,7 +6,7 @@
  */
 import fs from 'fs'
 import path from 'path'
-import type { Objective, AgentContext } from '@command-center/shared'
+import type { Objective, AgentContext } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import {
   AGENTS_DIR,

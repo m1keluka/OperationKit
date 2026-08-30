@@ -6,7 +6,7 @@ import http from 'http'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
-import type { SecretSummary, SecretVersionSummary } from '@command-center/shared'
+import type { SecretSummary, SecretVersionSummary } from '@operationkit/shared'
 
 // Dedicated crypto key + isolated DB + JWT secret BEFORE importing modules.
 process.env.SECRETS_MASTER_KEY = Buffer.alloc(32, 7).toString('base64')
