@@ -9,7 +9,7 @@
  * branch the spawn prompt tells the session to create, or the lease and the
  * session will disagree.
  */
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 /** Slugify a title the same way the git-workflow prompt block does. */
 export function slugifyTitle(title: string): string {

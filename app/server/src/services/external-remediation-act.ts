@@ -7,7 +7,7 @@
  */
 import { execFile } from 'child_process'
 import type { Database } from 'better-sqlite3'
-import type { Objective, ServerMessage } from '@command-center/shared'
+import type { Objective, ServerMessage } from '@operationkit/shared'
 import { parsePrNumberFromUrl } from './pr-url.js'
 import { isHumanTerminalGuardEnabled } from './objective-audit.js'
 import {

@@ -4,7 +4,7 @@
  * prompt-builder-blocks.ts. This file is buildPrompt + re-exports.
  */
 import fs from 'fs'
-import type { Objective, AcceptanceCriterion } from '@command-center/shared'
+import type { Objective, AcceptanceCriterion } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { buildContext } from './context-builder.js'
 import { PROJECTS_DIR } from '../config.js'

@@ -20,7 +20,7 @@ import { initDb } from '../db/index.js'
 import { buildPrompt } from './prompt-builder.js'
 import { buildReviewerPrompt } from './session-reviewer-prompt.js'
 import { buildPlannerPrompt } from './session-planner-prompt.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 beforeAll(() => {
   initDb()

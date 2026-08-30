@@ -11,7 +11,7 @@ import { BoardShell, BoardThemeProvider } from './preview/BoardShell'
 import { PreviewBoard } from './preview/PreviewBoard'
 import { PreviewArchive } from './preview/PreviewArchive'
 import { PreviewWorkspace } from './preview/PreviewWorkspace'
-import type { Workspace } from '@command-center/shared'
+import type { Workspace } from '@operationkit/shared'
 
 // Route-level code-splitting (obj 700585): the board is the landing surface
 // and stays eager. Every secondary route is lazy-loaded so its code — most
@@ -201,9 +201,8 @@ function AppContent() {
           <Route path="/preview/*" element={<Navigate to="/" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/config" element={<Navigate to="/settings/org" replace />} />
-          <Route path="/assistant" element={<Navigate to="/jarvis" replace />} />
           <Route path="/mentor" element={<MentorPage />} />
-          <Route path="/jarvis" element={<MentorPage />} />
+          <Route path="/assistant" element={<MentorPage />} />
           <Route path="/feed" element={<ProjectFeed workspace={workspace} />} />
           <Route path="/development/*" element={<DevelopmentPage workspace={workspace} />} />
           <Route path="/feedback" element={<Navigate to="/development" replace />} />

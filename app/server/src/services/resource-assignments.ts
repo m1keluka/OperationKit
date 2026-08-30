@@ -26,7 +26,7 @@ import type {
   ResourceType,
   ResourceScopeType,
   ResourceAssignment,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 
 export type { ResourceType, ResourceScopeType, ResourceAssignment }
 

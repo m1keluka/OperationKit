@@ -1,4 +1,4 @@
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 export interface GroupedObjectives {
   /** parent objective id → its child objectives (sorted by id ascending). */

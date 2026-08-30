@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useRef } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { useObjectives } from './useObjectives'
 
 // obj 700082 — filter-lapse regression. When an optimistic changeStatus() fails,

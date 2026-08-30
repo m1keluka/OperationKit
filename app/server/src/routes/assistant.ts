@@ -5,22 +5,22 @@ import {
   resolveAssistantConfig,
   upsertAssistantConfig,
 } from '../services/assistant-config.js'
-import type { AssistantConfigPatch } from '@command-center/shared'
+import type { AssistantConfigPatch } from '@operationkit/shared'
 
 /**
  * Personal Assistant config API (obj 701700).
  *   GET  /api/assistant/config  → caller's resolved config (create-on-read)
  *   PUT  /api/assistant/config  → merge a partial patch onto caller's config
  *
- * Gated by requireAuth + requireJarvisAccess (same policy as routes/mentor.ts)
+ * Gated by requireAuth + requireAssistantAccess (same policy as routes/mentor.ts)
  * and strictly scoped to `req.user` — a caller can only read/write their OWN
  * config. The optional `?workspace=` selects which per-workspace config to act
  * on; it defaults to the caller's primary workspace membership (or 'example').
  */
 
 // Mirrors routes/mentor.ts:15 — admins always pass; members need at least one
-// workspace membership with can_use_jarvis enabled.
-function requireJarvisAccess(req: AuthRequest, res: Response, next: NextFunction): void {
+// workspace membership with can_use_assistant enabled.
+function requireAssistantAccess(req: AuthRequest, res: Response, next: NextFunction): void {
   const user = req.user
   if (!user) {
     res.status(401).json({ error: 'Authentication required' })
@@ -31,7 +31,7 @@ function requireJarvisAccess(req: AuthRequest, res: Response, next: NextFunction
     return
   }
   const memberships = getUserWorkspaces(user.id)
-  if (memberships.some(m => m.can_use_jarvis)) {
+  if (memberships.some(m => m.can_use_assistant)) {
     next()
     return
   }
@@ -39,7 +39,7 @@ function requireJarvisAccess(req: AuthRequest, res: Response, next: NextFunction
 }
 
 const router: Router = Router()
-router.use(requireAuth, requireJarvisAccess)
+router.use(requireAuth, requireAssistantAccess)
 
 /** Resolve which workspace the caller is acting on. */
 function targetWorkspace(req: AuthRequest): string {

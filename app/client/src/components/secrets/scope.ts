@@ -8,7 +8,7 @@
  * the wire, the query params, the shared types and the DB columns still say
  * `workspace` / `workspace_user`, and nothing here renames them.
  */
-import type { SecretScopeType, SecretSummary } from '@command-center/shared'
+import type { SecretScopeType, SecretSummary } from '@operationkit/shared'
 
 /** Display labels. The wire values stay `global`/`workspace`/`user`/`workspace_user`. */
 export const SCOPE_LABELS: Record<SecretScopeType, string> = {

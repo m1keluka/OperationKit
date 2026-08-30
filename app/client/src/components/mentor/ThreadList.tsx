@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { MentorThread, MentorSessionState } from '@command-center/shared'
+import type { MentorThread, MentorSessionState } from '@operationkit/shared'
 
 type ThreadStatus = 'working' | 'ready' | 'idle' | 'done'
 

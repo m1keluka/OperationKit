@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { Project } from '@command-center/shared'
+import type { Project } from '@operationkit/shared'
 import { api } from '../lib/api'
 
 /**

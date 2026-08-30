@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // obj-2221 / W4 — per-user GitHub PR attribution wired into the spawn env.
 //

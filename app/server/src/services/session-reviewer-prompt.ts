@@ -4,7 +4,7 @@
  */
 import fs from 'fs'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { classifyObjectiveRepo } from './objective-prs.js'
 import { PR_LINKAGE_REPO } from './pr-linkage.js'

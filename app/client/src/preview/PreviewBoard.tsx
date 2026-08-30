@@ -5,7 +5,7 @@ import {
   type Objective,
   type ObjectiveStatus,
   type Workspace,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { useObjectives } from '../hooks/useObjectives'
 import { useSlashSearch } from '../hooks/useSlashSearch'
 import { useIsBoardMobile } from '../hooks/useMediaQuery'

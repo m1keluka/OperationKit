@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Temp-file DB so initDb's real schema runs (mirrors model-registry.test.ts).
 // Must set DB_PATH before importing the db module.

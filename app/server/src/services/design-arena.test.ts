@@ -20,7 +20,7 @@ import {
   type ArenaDeps,
 } from './design-arena.js'
 import { clearGateConfigCache, getEffectiveGateMode } from './design-context.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 function obj(partial: Partial<Objective>): Objective {
   return {

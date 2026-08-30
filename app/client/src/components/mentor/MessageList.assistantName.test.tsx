@@ -11,7 +11,7 @@ import { createRoot, type Root } from 'react-dom/client'
 vi.mock('../SessionMessages', () => ({ GroupedMessages: () => null }))
 
 import { MessageList } from './MessageList'
-import type { SessionMessage, MentorSessionState } from '@command-center/shared'
+import type { SessionMessage, MentorSessionState } from '@operationkit/shared'
 
 describe('MessageList dynamic assistant name (obj 701701)', () => {
   let container: HTMLElement

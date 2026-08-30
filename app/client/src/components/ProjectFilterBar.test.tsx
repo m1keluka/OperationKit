@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
-import type { Project } from '@command-center/shared'
+import type { Project } from '@operationkit/shared'
 
 // Same harness idiom as ObjectiveModal.test.tsx: the container ships a PRODUCTION
 // React build (no `act`), so commits are driven with flushSync.

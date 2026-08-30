@@ -9,7 +9,7 @@ import {
   clearLoginFailures,
 } from '../middleware/login-rate-limit.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
-import type { LoginRequest, TokenResponse, User } from '@command-center/shared'
+import type { LoginRequest, TokenResponse, User } from '@operationkit/shared'
 
 const TOKEN_EXPIRES_IN_SEC = 7 * 24 * 60 * 60
 

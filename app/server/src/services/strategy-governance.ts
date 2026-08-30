@@ -18,7 +18,7 @@
 // decision-record shape, the validator, and the ceiling math.
 import type Database from 'better-sqlite3'
 import { getDb } from '../db/index.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // ── Strategy-tier dark-launch flag (obj 700030, Part A) ──────────────────────
 // The ONE shared definition of "is the Strategy Layer turned on?". Replaces four

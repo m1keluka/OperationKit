@@ -9,7 +9,7 @@ import type {
   SecretSummary,
   SecretVersionSummary,
   RollbackSecretRequest,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { SCOPE_LABELS, scopeQuery, type Scope } from './scope'
 
 interface VersionHistoryProps {

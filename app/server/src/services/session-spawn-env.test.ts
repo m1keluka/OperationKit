@@ -7,7 +7,7 @@ import {
   SAFE_FALLBACK_GIT_IDENTITY,
 } from './session-manager.js'
 import { GIT_SSH_COMMAND } from '../config.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // obj-2202 / onboarding gate B1–B4 — spawn-env scoping refactor.
 //

@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { isTransitionAllowed, VALID_TRANSITIONS, OBJECTIVE_STATUSES } from '@command-center/shared'
+import { isTransitionAllowed, VALID_TRANSITIONS, OBJECTIVE_STATUSES } from '@operationkit/shared'
 
 // obj 700595 — the `cancelled` soft-retire terminal state. It must be a real
 // member of the status enum, distinct from `done`, reachable from every
 // non-terminal state (so the hygiene sweeps + orphan cleanup can retire items),
 // and reopenable (so a human can un-cancel). These lock that contract. Placed in
 // the server workspace so it is collected by CI (the shared package has no test
-// runner); it exercises the shared workflow module via the @command-center/shared
+// runner); it exercises the shared workflow module via the @operationkit/shared
 // alias.
 
 describe('cancelled status enum membership', () => {

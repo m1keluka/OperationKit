@@ -357,7 +357,7 @@ export const AGENT_OPENAPI = {
         responses: { '200': { description: 'Parked' } },
       },
     },
-    '/api/jarvis/briefing': {
+    '/api/assistant/briefing': {
       get: {
         tags: ['briefing'],
         summary: 'Working / blocked / needs-you snapshot',

@@ -7,7 +7,7 @@ import { type AuthRequest } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { getWorkspace } from '../services/workspaces.js'
 import { resolveAvailable } from '../services/resource-assignments.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 /**
  * Lightweight card projection for the board LIST (obj 700512). This is EVERY

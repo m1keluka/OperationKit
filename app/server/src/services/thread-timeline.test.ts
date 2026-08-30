@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { SessionMessage } from '@command-center/shared'
+import type { SessionMessage } from '@operationkit/shared'
 import { buildThreadTimeline, buildThreadTimelineCached, evictTimelineCache } from './thread-timeline.js'
 
 // Builds a SessionMessage of a given kind with minimal fields. Timestamps are

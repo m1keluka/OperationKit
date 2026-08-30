@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import type { ObjectiveStatus, Workspace } from '@command-center/shared'
+import type { ObjectiveStatus, Workspace } from '@operationkit/shared'
 import {
   searchObjectives,
   searchObjectivesAi,

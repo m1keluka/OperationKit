@@ -5,7 +5,7 @@
  * No JSONL parse, no DB writes. extractDeterministic stays in
  * session-intel-parse.ts; processExtraction stays in session-intel-pipeline.ts.
  */
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import type { DeterministicIntel } from './session-intel-parse.js'
 
 export interface LLMSummary {

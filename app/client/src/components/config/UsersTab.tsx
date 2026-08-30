@@ -13,7 +13,7 @@ import {
   type Workspace,
   type WorkspaceMembership,
   type ObjectiveVisibility,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { api } from '../../lib/api'
 import { inputCls, selectCls, SectionLabel } from './config-form'
 
@@ -100,7 +100,7 @@ export function UsersTab() {
   async function updateMembership(
     user: AdminUser,
     workspace: string,
-    patch: Partial<{ role: UserRole; can_use_jarvis: boolean; objective_visibility: ObjectiveVisibility }>,
+    patch: Partial<{ role: UserRole; can_use_assistant: boolean; objective_visibility: ObjectiveVisibility }>,
   ) {
     const existing = user.workspaces.find(w => w.workspace === workspace)
     if (!existing) return
@@ -108,7 +108,7 @@ export function UsersTab() {
       await api.post(`/admin/workspaces/${workspace}/users`, {
         user_id: user.id,
         role: patch.role ?? existing.role,
-        can_use_jarvis: patch.can_use_jarvis ?? existing.can_use_jarvis,
+        can_use_assistant: patch.can_use_assistant ?? existing.can_use_assistant,
         objective_visibility: patch.objective_visibility ?? existing.objective_visibility,
       })
       await reload()
@@ -247,8 +247,8 @@ export function UsersTab() {
                             </select>
                           </label>
                           <label className="flex items-center gap-2">
-                            <input type="checkbox" checked={!!m.can_use_jarvis}
-                                   onChange={e => updateMembership(user, m.workspace, { can_use_jarvis: e.target.checked })}
+                            <input type="checkbox" checked={!!m.can_use_assistant}
+                                   onChange={e => updateMembership(user, m.workspace, { can_use_assistant: e.target.checked })}
                                    className="rounded border-line bg-surface-1 accent-[var(--accent)]" />
                             <span className="text-fg-1">Assistant chat</span>
                           </label>

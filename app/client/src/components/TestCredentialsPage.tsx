@@ -20,7 +20,7 @@ import type {
   CreateTestCredentialRequest,
   TestCredential,
   UpdateTestCredentialRequest,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 
 type FieldRow = { key: string; value: string; revealed: boolean }
 

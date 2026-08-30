@@ -210,8 +210,13 @@ export function initDb(): Database.Database {
   // Per-workspace permission flags (additive migrations — idempotent)
   const uwCols = db.prepare("PRAGMA table_info(user_workspaces)").all() as { name: string }[]
   const uwNames = new Set(uwCols.map(c => c.name))
-  if (!uwNames.has('can_use_jarvis')) {
-    db.exec("ALTER TABLE user_workspaces ADD COLUMN can_use_jarvis INTEGER NOT NULL DEFAULT 1")
+  // Forward migration: the permission flag was originally named `can_use_jarvis`.
+  // On a pre-existing DB, RENAME it (preserving each membership's setting); on a
+  // fresh DB, just ADD the new column. Idempotent either way.
+  if (uwNames.has('can_use_jarvis') && !uwNames.has('can_use_assistant')) {
+    db.exec("ALTER TABLE user_workspaces RENAME COLUMN can_use_jarvis TO can_use_assistant")
+  } else if (!uwNames.has('can_use_assistant')) {
+    db.exec("ALTER TABLE user_workspaces ADD COLUMN can_use_assistant INTEGER NOT NULL DEFAULT 1")
   }
   if (!uwNames.has('objective_visibility')) {
     // SQLite ADD COLUMN can't add a CHECK constraint after creation, so we just
@@ -809,7 +814,7 @@ export function initDb(): Database.Database {
         description: [
           'Compose the daily morning brief.',
           '',
-          '1. GET http://localhost:3002/api/jarvis/briefing for board state and open loops.',
+          '1. GET http://localhost:3002/api/assistant/briefing for board state and open loops.',
           '2. Write a concise brief covering: board state (working / blocked / needs-review), stale items, and account/budget status.',
           "3. Write it to /home/operator/ai-workspace/briefings/YYYY-MM-DD.md using today's date (create the directory if needed).",
           '4. If a Telegram/Hermes send path is available, send the brief there too; otherwise the file is enough.',

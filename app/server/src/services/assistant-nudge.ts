@@ -9,7 +9,7 @@
 // - Reuses sendTelegram() (notifier.ts) for outbound and callHaikuSummarizer()
 //   (mentor-context.ts) to phrase the nudge in a human EA tone, with a DETERMINISTIC
 //   text fallback (buildNudgeText) when the LLM is unavailable.
-// - Gated by JARVIS_NUDGE_ENABLED (default ON). One-way only — replies are out of scope.
+// - Gated by ASSISTANT_NUDGE_ENABLED (default ON). One-way only — replies are out of scope.
 import { listLoops, type Loop } from './loops.js'
 import { sendTelegram } from './notifier.js'
 import { callHaikuSummarizer } from './mentor-context.js'
@@ -105,7 +105,7 @@ function buildNudgePrompt(loops: Loop[], todayET: string): string {
 }
 
 // Run one nudge: compose (LLM with deterministic fallback) and send. Never throws.
-export async function runJarvisNudge(): Promise<boolean> {
+export async function runAssistantNudge(): Promise<boolean> {
   try {
     const todayET = nowEastern().date
     const loops = listLoops()
@@ -119,7 +119,7 @@ export async function runJarvisNudge(): Promise<boolean> {
     }
     return await sendTelegram(text)
   } catch (err) {
-    console.error('[jarvis-nudge] run failed:', err)
+    console.error('[assistant-nudge] run failed:', err)
     return false
   }
 }
@@ -127,11 +127,11 @@ export async function runJarvisNudge(): Promise<boolean> {
 /**
  * Start the Assistant morning-nudge scheduler.
  * Fires once daily at 07:00 America/New_York (DST-aware).
- * Controlled by JARVIS_NUDGE_ENABLED env var (default: true).
+ * Controlled by ASSISTANT_NUDGE_ENABLED env var (default: true).
  */
-export function startJarvisNudgeScheduler(): void {
-  if (process.env.JARVIS_NUDGE_ENABLED === 'false') {
-    console.log('[jarvis-nudge] Scheduler disabled via JARVIS_NUDGE_ENABLED=false')
+export function startAssistantNudgeScheduler(): void {
+  if (process.env.ASSISTANT_NUDGE_ENABLED === 'false') {
+    console.log('[assistant-nudge] Scheduler disabled via ASSISTANT_NUDGE_ENABLED=false')
     return
   }
   if (schedulerTimer) return
@@ -140,11 +140,11 @@ export function startJarvisNudgeScheduler(): void {
     const { date, hour, minute } = nowEastern()
     if (hour === FIRE_HOUR && minute === FIRE_MINUTE && lastFiredDate !== date) {
       lastFiredDate = date
-      runJarvisNudge()
-        .then(ok => console.log(`[jarvis-nudge] Morning nudge ${ok ? 'sent' : 'failed to send'} (${date} 07:00 ET)`))
-        .catch(err => console.error('[jarvis-nudge] Scheduled nudge failed:', err))
+      runAssistantNudge()
+        .then(ok => console.log(`[assistant-nudge] Morning nudge ${ok ? 'sent' : 'failed to send'} (${date} 07:00 ET)`))
+        .catch(err => console.error('[assistant-nudge] Scheduled nudge failed:', err))
     }
   }, CHECK_INTERVAL_MS)
 
-  console.log('[jarvis-nudge] Scheduler started — daily 07:00 America/New_York')
+  console.log('[assistant-nudge] Scheduler started — daily 07:00 America/New_York')
 }

@@ -18,7 +18,7 @@ import {
   SKILLS_DIR,
   TRANSCRIPT_DIR,
 } from '../config.js'
-import { AGENT_META, type AgentContext } from '@command-center/shared'
+import { AGENT_META, type AgentContext } from '@operationkit/shared'
 
 const router = Router()
 

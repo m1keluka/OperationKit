@@ -13,7 +13,7 @@ import type {
   ChangelogStatus,
   ChangelogEntry,
   FeatureBrief,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 
 // ── Conventional-commit / label classification ──
 

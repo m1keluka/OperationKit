@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js'
-import type { Correction } from '@command-center/shared'
+import type { Correction } from '@operationkit/shared'
 
 /**
  * Human mistake-labeling surface (ST5).
