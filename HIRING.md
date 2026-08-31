@@ -59,11 +59,9 @@ Start with these five files:
 4. [`app/shared/workflow.ts`](./app/shared/workflow.ts) + [`app/server/src/services/poller-loop.ts`](./app/server/src/services/poller-loop.ts) — state machine and the 3s loop
 5. [`docs/architecture/`](./docs/architecture/) — including `GOD-FILES.md`, a public list of our worst files
 
-Form an opinion. Including a negative one.
+Form an opinion. Including a negative one. Star it on your way through if it's worth building on.
 
-**Step 2 — Star it if you liked it.** Optional, and we don't check.
-
-**Step 3 — Fill out the application form (~15 minutes)**  
+**Step 2 — Fill out the application form (~15 minutes)**  
 https://docs.google.com/forms/d/e/1FAIpQLSc0mJQpSv9MvOsUgxcrhGE953s90J-Nq_hoDPsbNy4GREP8nA/viewform
 
 Short, no resume upload. It asks a couple of things you can't answer without having opened the code — a specific thing you'd change, and what you make of the security posture. That's the whole screen. Mike reads every one and replies to everyone.
