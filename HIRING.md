@@ -1,15 +1,9 @@
-# Founding Engineer — exploratory (Open Source, Self-Hosted AI Infrastructure)
+# Founding Engineer (Open Source, Self-Hosted AI Infrastructure)
 
-**OperationKit** · Remote · Exploratory search — shape open (full-time, contract, part-time, advisory)  
+**OperationKit** · Remote · Full-time or contract  
 **Repo:** https://github.com/m1keluka/OperationKit (Apache-2.0, public, real code)  
-**This is an exploratory search, and we'd rather say so.** There's no closed requisition with a
-start date behind this. There is a real system running a real fleet daily, one technical person, and
-a genuine intent to bring on a second — plus an open question about what that should look like.
-Some conversations here turn into a founding-engineer offer, some into a paid scoped project, some
-into a good argument about our isolation model. All three are fine outcomes.
-
-**Comp:** discussed openly in the first conversation, not at the end. We're not publishing a band
-for a role whose shape is still open — that number would be fiction.
+**Comp:** A real base plus a founding-engineer equity grant. Real numbers in the first
+conversation rather than after four rounds. Contract-to-hire is fine.
 
 ## What OperationKit is
 
@@ -67,13 +61,12 @@ Start with these five files:
 
 Form an opinion. Including a negative one.
 
-**Step 2 — Star the repo, if you actually found it interesting (optional)**  
-If you read it and thought it was worth building on, a star genuinely helps. We're asking plainly. It is not required, not rewarded, not scored, and we do not check it. If you read the code and didn't like it, please don't.
+**Step 2 — Star it if you liked it.** Optional, and we don't check.
 
 **Step 3 — Fill out the application form (~15 minutes)**  
 https://docs.google.com/forms/d/e/1FAIpQLSc0mJQpSv9MvOsUgxcrhGE953s90J-Nq_hoDPsbNy4GREP8nA/viewform
 
-Short. No resume upload required. The form contains questions you can't answer without having actually opened the code — a specific thing you'd change, and what you make of the security posture. That is our proof that you did step 1. Mike reads every one and replies to everyone who submits, including the people we don't take forward — though because this is exploratory rather than a staffed pipeline, that may take a week or two.
+Short, no resume upload. It asks a couple of things you can't answer without having opened the code — a specific thing you'd change, and what you make of the security posture. That's the whole screen. Mike reads every one and replies to everyone.
 
 Questions before you apply? Open a [Discussion](https://github.com/m1keluka/OperationKit/discussions) or an issue — genuinely, ask in public. A sharp question about the architecture is the same signal as a good application.
 
