@@ -41,7 +41,7 @@ function legacyDb(): Database.Database {
       description TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'queue',
       ${OLD_CHECK},
-      workspace TEXT NOT NULL DEFAULT 'example',
+      workspace TEXT NOT NULL DEFAULT 'acme',
       deleted_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
