@@ -208,7 +208,7 @@ export function raiseCanaryAlarm(db: Database, canary: { id: string; tier: numbe
   try {
     db.prepare(
       `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
-       VALUES ('command-center-infra', 'personal', NULL, NULL, 'error', ?, ?)`,
+       VALUES ('command-center-infra', 'operator', NULL, NULL, 'error', ?, ?)`,
     ).run(`Canary escape: ${canary.id}`, msg)
   } catch (err) {
     console.error('[canary-harness] failed to write alarm to activity_log:', err)
@@ -245,7 +245,7 @@ export interface RunCanaryOptions {
  */
 export function runCanaryHarness(db: Database = getDb(), opts: RunCanaryOptions = {}): CanaryRunSummary {
   const runner = opts.runner ?? execRunner
-  const workspace = opts.workspace ?? 'personal'
+  const workspace = opts.workspace ?? 'operator'
   const trigger = opts.trigger ?? 'manual'
   // Stage-C: enforcement is read from the flag unless explicitly overridden (tests).
   const enforcing = opts.enforce ?? isReviewEnforceEnabled(db)

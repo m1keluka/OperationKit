@@ -16,7 +16,7 @@ import feedRouter from './routes/feed.js'
 import shellRouter from './routes/shell.js'
 import docsRouter from './routes/docs.js'
 import mentorRouter from './routes/mentor.js'
-import assistantRouter from './routes/assistant.js'
+import briefingRouter from './routes/briefing.js'
 import assistantRouter from './routes/assistant.js'
 import statusRouter from './routes/status.js'
 import webhooksRouter from './routes/webhooks.js'
@@ -170,7 +170,7 @@ app.use('/api/costs', costsRouter)  // /api/costs/summary, /daily, /by-objective
 app.use('/api', feedRouter)  // /api/projects/:project/feed, /api/feed/all
 app.use('/api/docs', docsRouter)  // /api/docs/tree, /api/docs/file
 app.use('/api/mentor', mentorRouter)  // /api/mentor/threads, /api/mentor/threads/:id/messages
-app.use('/api/assistant', assistantRouter)  // /api/assistant/briefing
+app.use('/api/briefing', briefingRouter)  // /api/briefing/briefing
 app.use('/api/assistant', assistantRouter)  // /api/assistant/config — per-user Personal Assistant config (obj 701700)
 app.use('/api/status', statusRouter)  // /api/status/monitors, /api/status/events
 app.use('/api/webhooks', webhooksRouter)  // /api/webhooks/uptimerobot
@@ -192,9 +192,9 @@ app.use('/api/admin/agents-registry', adminAgentsRouter)  // agent registry CRUD
 app.use('/api/models', modelsRouter)                      // model registry: GET enabled (auth) / all + PATCH toggle (admin)
 app.use('/api/contacts', contactsRouter)                  // Phase 1 Personal CRM: POST /reindex (admin)
 app.use('/api/meeting-queue', meetingQueueRouter)         // Granola action-item review queue → CC objectives
-app.use('/api/loops', loopsRouter)                        // personal loops tracker (Kanban: pending/queued/working/done; admin-only)
+app.use('/api/loops', loopsRouter)                        // operator loops tracker (Kanban: pending/queued/working/done; admin-only)
 app.use('/api/scratchpad', scratchpadRouter)              // per-user human markdown store (auth; strictly per-account)
-app.use('/api/granola-content', granolaContentRouter)     // personal Granola Content surface (drafts/hooks/ideas; admin-only)
+app.use('/api/granola-content', granolaContentRouter)     // operator Granola Content surface (drafts/hooks/ideas; admin-only)
 app.use('/api/objectives', reviewsRouter)                 // /api/objectives/:id/reviews — AI Review iteration history
 app.use('/api/objectives', correctionsRouter)             // /api/objectives/:id/corrections — human mistake-labeling (ST5)
 app.use('/api/internal/reviews', internalReviewsRouter)   // /api/internal/reviews/:id/criteria (localhost-only)

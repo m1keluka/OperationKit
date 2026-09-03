@@ -47,7 +47,7 @@ function linkEva(userId: number): void {
 }
 
 function objectiveOwnedBy(ownerId: number | null): Objective {
-  return { id: 2221, workspace: 'personal', project: 'command-center-infra', created_by: ownerId } as Objective
+  return { id: 2221, workspace: 'operator', project: 'command-center-infra', created_by: ownerId } as Objective
 }
 
 beforeAll(() => {

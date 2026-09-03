@@ -35,7 +35,7 @@ export interface OnBehalfUser {
  *   ~/ai-workspace/users/<username>/profile.md
  * which sessions read for tone/preference/access defaults. The absolute path
  * is included so the prompt can reference it (the spawn shell HOME is the
- * ccuser dir, not /home/mike, so ~/ in instructions won't resolve correctly).
+ * ccuser dir, not /home/operator, so ~/ in instructions won't resolve correctly).
  */
 export function resolveOnBehalfUser(objective: Objective): OnBehalfUser | null {
   const userId = objective.assigned_user_id ?? objective.created_by
@@ -104,7 +104,7 @@ export function loadWorkspacesConfig(): Record<string, { projects: Array<{ name:
  *
  *  1. Search EVERY workspace, not just `objective.workspace`. A project is
  *     registered under one workspace (e.g. command-center-infra under
- *     'personal'), but objectives can be tagged with a different workspace
+ *     'operator'), but objectives can be tagged with a different workspace
  *     (e.g. 'example'). The old code only looked in `workspaces[objective.workspace]`,
  *     so an example-tagged command-center-infra objective missed the lookup and fell
  *     through to the bare projects root.

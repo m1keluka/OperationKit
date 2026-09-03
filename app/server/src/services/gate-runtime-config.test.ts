@@ -23,7 +23,7 @@ function obj(partial: Partial<Objective>): Objective {
     id: 1,
     title: 't',
     type: 'task',
-    workspace: 'personal',
+    workspace: 'operator',
     project: null,
     acceptance_criteria: null,
     ...partial,

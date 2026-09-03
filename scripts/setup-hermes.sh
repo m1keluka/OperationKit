@@ -175,7 +175,7 @@ Group=mike
 Environment=HERMES_HOME=$HERMES_HOME
 Environment=PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=$VENV_DIR/bin/hermes gateway run
-WorkingDirectory=/home/mike
+WorkingDirectory=/home/operator
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

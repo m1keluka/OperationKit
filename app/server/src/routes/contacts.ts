@@ -93,7 +93,7 @@ router.post('/extract/apply', (req: AuthRequest, res) => {
   }
 })
 
-// GET /api/contacts/by-path?path=workspaces/example/contacts/alex-hinch.md
+// GET /api/contacts/by-path?path=workspaces/example/contacts/alex-rivera.md
 // Query string instead of `/api/contacts/:path` because vault paths contain
 // slashes — matches the `/api/docs/file?path=` convention used elsewhere.
 router.get('/by-path', (req: AuthRequest, res) => {

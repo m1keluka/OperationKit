@@ -52,7 +52,7 @@ function connect(u: { id: number; email: string; refresh: string }): void {
 }
 
 function objectiveOwnedBy(ownerId: number | null): Objective {
-  return { id: 706070, workspace: 'personal', project: 'command-center-infra', created_by: ownerId } as Objective
+  return { id: 706070, workspace: 'operator', project: 'command-center-infra', created_by: ownerId } as Objective
 }
 
 function envFor(ownerId: number | null): Record<string, string> {

@@ -58,7 +58,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   getDb().exec('DELETE FROM workspace_repos')
-  getDb().exec("DELETE FROM workspaces WHERE slug NOT IN ('example','example-project','personal')")
+  getDb().exec("DELETE FROM workspaces WHERE slug NOT IN ('example','example-project','operator')")
   invalidateWorkspacesCache()
 })
 

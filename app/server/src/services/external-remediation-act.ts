@@ -203,10 +203,10 @@ export function buildRemediationPrompt(args: {
 //      re-deliveries and flapping checks must never spam the board.
 
 /** repo short-name → workspace slug. Slugs verified against the live `workspaces`
- *  table (example / example2 / personal / example-project all exist). Keyed on the short
+ *  table (example / example2 / operator / example-project all exist). Keyed on the short
  *  name so a fork/owner rename doesn't break the map. */
 const REPO_WORKSPACES: Record<string, string> = {
-  'command-center-infra': 'personal',
+  'command-center-infra': 'operator',
   'example-platform': 'example',
   'example-project-platform': 'example-project',
   'example3-platform': 'example2',
@@ -214,7 +214,7 @@ const REPO_WORKSPACES: Record<string, string> = {
 
 /** Fallback workspace when the repo is unmapped — the harness's own board, where
  *  Mike triages everything anyway. */
-const DEFAULT_TRUNK_WORKSPACE = 'personal'
+const DEFAULT_TRUNK_WORKSPACE = 'operator'
 
 export function workspaceForRepo(db: Database, repoFullName: string): string {
   const short = (repoFullName || '').split('/').pop() || ''

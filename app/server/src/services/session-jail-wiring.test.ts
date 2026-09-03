@@ -134,7 +134,7 @@ describe('SESSION_ISOLATION=docker → createSessionJail path', () => {
     const flat = argv.join(' ')
     expect(flat).not.toContain('docker.sock')
     expect(flat).not.toContain('/var/run')
-    expect(flat).not.toContain('/home/mike')
+    expect(flat).not.toContain('/home/operator')
     expect(flat).not.toContain('/home/ccuser-')
     for (const bad of ['--privileged', '--pid=host', '--network=host', '--net=host', '--ipc=host', '--userns=host']) {
       expect(argv).not.toContain(bad)
@@ -160,7 +160,7 @@ describe('SESSION_ISOLATION=docker → createSessionJail path', () => {
     )
     expect(script).toContain('cd "/workspace"')
     expect(script).toContain('/home/jailuser/.cc/')
-    expect(script).not.toContain('/home/mike')
+    expect(script).not.toContain('/home/operator')
   })
 
   it('FAILS CLOSED: a docker-run failure throws and never falls back to host tmux', async () => {

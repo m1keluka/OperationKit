@@ -29,7 +29,7 @@ function obj(partial: Partial<Objective>): Objective {
     id: 42,
     title: 'Delegate UI work',
     type: 'objective',
-    workspace: 'personal',
+    workspace: 'operator',
     project: 'example-project-platform',
     agent_context: 'cto',
     delegate_mode: 1,

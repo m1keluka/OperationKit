@@ -70,7 +70,7 @@ export function recordReopenFalsePass(obj: ReopenedObjective): number | null {
 export interface CanaryFalsePass {
   /** The fixture id (namespaces the row; no real objective exists). */
   canary_id: string
-  /** Bookkeeping workspace; canary escapes are platform-level, default 'personal'. */
+  /** Bookkeeping workspace; canary escapes are platform-level, default 'operator'. */
   workspace: string
   /** The tier of the escaped canary (Tier-1 = a critical alarm). */
   tier?: number

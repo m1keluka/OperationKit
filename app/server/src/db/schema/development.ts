@@ -246,7 +246,7 @@ export function initDevelopmentSchema(db: Database.Database): void {
  */
 export function seedDevelopmentRegistry(db: Database.Database): void {
   // `example2` is NOT in the workspaces seed at :963-1091 (only example,
-  // example-project, personal are), and `dev_items.workspace` is a hard FK to
+  // example-project, operator are), and `dev_items.workspace` is a hard FK to
   // workspaces(slug) with foreign_keys=ON. Seeding the repo/integration rows
   // below — and every later dev_items insert — would fail on a fresh DB
   // without this. INSERT OR IGNORE leaves a pre-existing prod row untouched.

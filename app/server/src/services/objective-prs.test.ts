@@ -22,7 +22,7 @@ function prUrl(n: number): string {
 function makeObjective(title = 'Test objective'): number {
   const r = getDb()
     .prepare(
-      "INSERT INTO objectives (title, description, status, agent_context, workspace) VALUES (?, '', 'queue', 'cto', 'personal')"
+      "INSERT INTO objectives (title, description, status, agent_context, workspace) VALUES (?, '', 'queue', 'cto', 'operator')"
     )
     .run(title)
   return Number(r.lastInsertRowid)

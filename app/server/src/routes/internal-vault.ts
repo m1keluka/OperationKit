@@ -23,7 +23,7 @@ const ALLOWED_CONTACT_DIRS = [
   'personal/contacts',
   'workspaces/example/contacts',
   'workspaces/example-project/contacts',
-  'workspaces/personal/contacts',
+  'workspaces/operator/contacts',
   'workspaces/personal/contacts',
 ]
 
@@ -103,9 +103,9 @@ function frontmatterDirsForWorkspace(ws: string): string {
     case 'personal': return 'personal/contacts'
     case 'example': return 'workspaces/example/contacts'
     case 'example-project': return 'workspaces/example-project/contacts'
-    case 'personal': return 'workspaces/personal/contacts'
+    case 'operator': return 'workspaces/operator/contacts'
     case 'example2': return 'workspaces/example2/contacts'
-    case 'shabo-dl': return 'workspaces/shabo-dl/contacts'
+    case 'example5': return 'workspaces/example5/contacts'
     default: return 'personal/contacts'
   }
 }

@@ -356,7 +356,7 @@ function resolveMentorIdentity(threadId: number, workspaceSlug: string, createdB
       .all(createdBy) as { workspace: string }[]
     const profileAbs = `/home/operator/ai-workspace/users/${row.username}/profile.md`
     const wsContextAbs = `/home/operator/ai-workspace/workspaces/${workspaceSlug}/context.md`
-    const overlayAbs = `/home/operator/ai-workspace/workspaces/${workspaceSlug}/agent-profiles/chief-of-staff.md`
+    const overlayAbs = `/home/operator/ai-workspace/workspaces/${workspaceSlug}/agent-profiles/general.md`
     return {
       username: row.username,
       role: row.role,

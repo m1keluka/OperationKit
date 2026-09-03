@@ -58,7 +58,7 @@ function insertObjective(f: ObjFixture): number {
   getDb()
     .prepare(
       `INSERT INTO objectives (id, title, status, pr_number, pr_url, project, ai_review_verdict, workspace, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'personal', COALESCE(?, datetime('now')))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'operator', COALESCE(?, datetime('now')))`,
     )
     .run(
       f.id,

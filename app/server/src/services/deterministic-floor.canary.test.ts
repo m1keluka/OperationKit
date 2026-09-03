@@ -78,7 +78,7 @@ afterAll(() => {
   try { fs.rmSync(TMP_DB, { force: true }); fs.rmSync(PROJ, { recursive: true, force: true }) } catch {}
 })
 
-const ref = (id: number): FloorObjectiveRef => ({ id, project: PILOT, workspace: 'personal', session_id: null, ai_review_iteration: 0 })
+const ref = (id: number): FloorObjectiveRef => ({ id, project: PILOT, workspace: 'operator', session_id: null, ai_review_iteration: 0 })
 
 describe.skipIf(!tscBin)('CANARY PROOF — pilot armed via DB row, global default stays 0', () => {
   it('pilot opt-in arms the floor while deterministic_floor_enabled stays 0', () => {

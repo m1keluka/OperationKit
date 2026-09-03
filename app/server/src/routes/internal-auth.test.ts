@@ -22,7 +22,7 @@ import http from 'http'
 import express from 'express'
 
 // Env + DB must be set BEFORE importing the routers / db (read at load time).
-const SECRET = 'test-internal-secret-abc123'
+const SECRET = 'test-internal-secret-abc123' // gitleaks:allow — literal test fixture, not a credential
 process.env.INTERNAL_API_SECRET = SECRET
 const TMP_DB = path.join(os.tmpdir(), `cc-internal-auth-test-${process.pid}-${Date.now()}.db`)
 process.env.DB_PATH = TMP_DB

@@ -144,11 +144,11 @@ describe('POST /mentor/threads — create owned by Mike', () => {
   it('honors a supplied title/workspace and ensures the telegram tag is present', async () => {
     const res = await call('POST', '/api/internal/mentor/threads', {
       token: TOKEN,
-      body: { title: 'Q3 planning', workspace: 'personal', tags: ['planning'] },
+      body: { title: 'Q3 planning', workspace: 'operator', tags: ['planning'] },
     })
     const t = (res.json as { thread: Record<string, unknown> }).thread
     expect(t.title).toBe('Q3 planning')
-    expect(t.workspace).toBe('personal')
+    expect(t.workspace).toBe('operator')
     expect(t.tags).toEqual(expect.arrayContaining(['telegram', 'planning']))
   })
 })

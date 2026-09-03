@@ -2,7 +2,7 @@
 
 This directory holds **committed, browsable test evidence**: numbered full-page
 screenshots plus a PASS/FAIL markdown walkthrough, one folder per scenario. It is
-the command-center port of the grass-fed (`example3-platform`) `tests/smoke/`
+the command-center port of the example3 (`example3-platform`) `tests/smoke/`
 convention (obj #2392).
 
 > **This is evidence, not an executed suite.** Nothing here is run by `pnpm test`

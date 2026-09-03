@@ -20,7 +20,7 @@ export const CC_SERVED_PATHS = ['app/server/src', 'app/client/src', 'app/shared'
 export const SECOND_BRAIN_DIR = process.env.SECOND_BRAIN_DIR || '/home/operator/second-brain'
 export const TRANSCRIPT_DIR = process.env.TRANSCRIPT_DIR || '/home/operator/transcripts'
 export const ASSISTANT_DIR = process.env.ASSISTANT_DIR || '/home/operator/assistant'
-export const HOME_DIR = process.env.USER_HOME || '/home/mike'
+export const HOME_DIR = process.env.USER_HOME || '/home/operator'
 
 // ── Derived Paths ──
 export const AGENTS_DIR = `${AI_WORKSPACE_DIR}/agents`

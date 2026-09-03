@@ -9,7 +9,7 @@
 // - Reuses sendTelegram() (notifier.ts) for outbound and callHaikuSummarizer()
 //   (mentor-context.ts) to phrase the nudge in a human EA tone, with a DETERMINISTIC
 //   text fallback (buildNudgeText) when the LLM is unavailable.
-// - Gated by JARVIS_NUDGE_ENABLED (default ON). One-way only — replies are out of scope.
+// - Gated by ASSISTANT_NUDGE_ENABLED (default ON). One-way only — replies are out of scope.
 import { listLoops, type Loop } from './loops.js'
 import { sendTelegram } from './notifier.js'
 import { callHaikuSummarizer } from './mentor-context.js'
@@ -87,7 +87,7 @@ function buildNudgePrompt(loops: Loop[], todayET: string): string {
     .map(l => `- [${l.status}] ${l.title}${l.due ? ` (due ${l.due}${l.due < todayET ? ' — OVERDUE' : ''})` : ''}${l.project ? ` {${l.project}}` : ''}`)
     .join('\n')
   return [
-    "You are Assistant, Mike's chief-of-staff. Write a SHORT Telegram message (max ~8 lines) that pushes him to close his open loops today.",
+    "You are Assistant, Mike's general. Write a SHORT Telegram message (max ~8 lines) that pushes him to close his open loops today.",
     'Be terse, motivating, and specific. Lead with anything OVERDUE. Name the top 2-3 he should close today. End with a one-line kick.',
     'No preamble, no markdown headers — plain text with a few emoji is fine.',
     `Today (ET) is ${todayET}. His open loops:`,
@@ -118,11 +118,11 @@ export async function runAssistantNudge(): Promise<boolean> {
 /**
  * Start the Assistant morning-nudge scheduler.
  * Fires once daily at 07:00 America/New_York (DST-aware).
- * Controlled by JARVIS_NUDGE_ENABLED env var (default: true).
+ * Controlled by ASSISTANT_NUDGE_ENABLED env var (default: true).
  */
 export function startAssistantNudgeScheduler(): void {
-  if (process.env.JARVIS_NUDGE_ENABLED === 'false') {
-    console.log('[assistant-nudge] Scheduler disabled via JARVIS_NUDGE_ENABLED=false')
+  if (process.env.ASSISTANT_NUDGE_ENABLED === 'false') {
+    console.log('[assistant-nudge] Scheduler disabled via ASSISTANT_NUDGE_ENABLED=false')
     return
   }
   if (schedulerTimer) return

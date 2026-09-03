@@ -34,9 +34,9 @@ const VALID_WORKSPACES = [
   'example',
   'example-project',
   'personal',
-  'personal',
+  'operator',
   'example2',
-  'shabo-dl',
+  'example5',
 ] as const
 type GranolaWorkspace = (typeof VALID_WORKSPACES)[number]
 
@@ -55,14 +55,14 @@ const SYSTEM_PROMPT = `You are a meeting intelligence assistant. Extract structu
 Workspace classification rules:
 - "example": Example Growth — digital marketing agency, SEO, content strategy, client campaigns, growth consulting
 - "example-project": Example Project — physical products, manufacturing, B2B wholesale, supplier logistics, pricing
-- "personal": Mike Luka — personal holding/brand work, cross-company strategy, internal tooling
+- "operator": Operator — personal holding/brand work, cross-company strategy, internal tooling
 - "example2": Example3 — real-estate agent lead-gen / MLS outreach client
-- "shabo-dl": Shabo Dental Lab — dental-lab client of Example
+- "example5": Example Dental Lab — dental-lab client of Example
 - "personal": Personal matters, cross-company admin, personal investments, family, health
 
 Return ONLY valid JSON matching this exact schema (no markdown fences, no extra text):
 {
-  "workspace": "example" | "example-project" | "personal" | "example2" | "shabo-dl" | "personal",
+  "workspace": "example" | "example-project" | "operator" | "example2" | "example5" | "personal",
   "decisions": ["string — each key decision made"],
   "action_items": [
     {
@@ -262,7 +262,7 @@ async function main() {
         meeting_date TEXT,
         -- Mirrors db/index.ts. NOTE: SQLite cannot ALTER a CHECK, so widening
         -- this list only takes effect for a FRESH database.
-        workspace TEXT CHECK(workspace IN ('example', 'example-project', 'personal', 'personal', 'example2', 'shabo-dl')),
+        workspace TEXT CHECK(workspace IN ('example', 'example-project', 'personal', 'operator', 'example2', 'example5')),
         vault_path TEXT,
         processed_at TEXT NOT NULL DEFAULT (datetime('now'))
       );

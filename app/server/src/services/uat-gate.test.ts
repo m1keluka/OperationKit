@@ -191,7 +191,7 @@ describe('persistence — verdict taxonomy + criteria_results slot', () => {
   it('recordUatRun writes the verdict and a criteria_results-shaped column', () => {
     const db = getDb()
     const result = runUatGate({ card: okCard, worktreeDir: '/tmp/wt', runner: echoExitRunner, gitStatus: () => '', noSpawn: true })
-    const id = recordUatRun(db, { id: 4242, project: 'command-center-infra', workspace: 'personal', session_id: 'sess-1' }, result, true)
+    const id = recordUatRun(db, { id: 4242, project: 'command-center-infra', workspace: 'operator', session_id: 'sess-1' }, result, true)
     expect(id).toBeGreaterThan(0)
     const row = db.prepare('SELECT * FROM objective_uat_runs WHERE id = ?').get(id) as any
     expect(row.verdict).toBe('PASS')
@@ -229,11 +229,11 @@ describe('flags: OFF + shadow by default; kill switch; enforce', () => {
 
   it('SHADOW: evaluateUatGate records but does NOT block on PRODUCT_FAIL', () => {
     const db = getDb()
-    db.prepare("INSERT INTO objectives (id, title, workspace, status) VALUES (99, 'uat shadow', 'personal', 'working')").run()
+    db.prepare("INSERT INTO objectives (id, title, workspace, status) VALUES (99, 'uat shadow', 'operator', 'working')").run()
     process.env.CC_UAT_GATE_ENABLED = '1' // active, but shadow (no blocking flag)
     const decision = evaluateUatGate(
       db,
-      { id: 99, project: 'command-center-infra', workspace: 'personal', session_id: null },
+      { id: 99, project: 'command-center-infra', workspace: 'operator', session_id: null },
       { card: okCard, worktreeDir: '/tmp/wt', runner: exitRunner(0), gitStatus: () => '', noSpawn: true },
     )
     expect(decision.action).toBe('record') // recorded, not blocked
@@ -247,12 +247,12 @@ describe('flags: OFF + shadow by default; kill switch; enforce', () => {
 
   it('ENFORCE: blocks on PRODUCT_FAIL when the blocking flag is set', () => {
     const db = getDb()
-    db.prepare("INSERT INTO objectives (id, title, workspace, status) VALUES (100, 'uat enforce', 'personal', 'working')").run()
+    db.prepare("INSERT INTO objectives (id, title, workspace, status) VALUES (100, 'uat enforce', 'operator', 'working')").run()
     process.env.CC_UAT_GATE_ENABLED = '1'
     process.env.CC_UAT_GATE_BLOCKING = '1'
     const decision = evaluateUatGate(
       db,
-      { id: 100, project: 'command-center-infra', workspace: 'personal', session_id: null },
+      { id: 100, project: 'command-center-infra', workspace: 'operator', session_id: null },
       { card: okCard, worktreeDir: '/tmp/wt', runner: exitRunner(0), gitStatus: () => '', noSpawn: true },
     )
     expect(decision.action).toBe('block')
@@ -262,7 +262,7 @@ describe('flags: OFF + shadow by default; kill switch; enforce', () => {
     const db = getDb()
     const decision = evaluateUatGate(
       db,
-      { id: 101, project: 'some-other-project', workspace: 'personal', session_id: null },
+      { id: 101, project: 'some-other-project', workspace: 'operator', session_id: null },
       { card: okCard, worktreeDir: '/tmp/wt', runner: echoExitRunner, gitStatus: () => '', noSpawn: true },
     )
     expect(decision.action).toBe('skip')
@@ -297,11 +297,11 @@ describe('kitchen_loop_review_enforce — cheat-check log-only → blocking, com
 
   it('[review-enforce-off-logonly] flag OFF → PRODUCT_FAIL stays SHADOW (record, not block)', () => {
     const db = getDb()
-    db.prepare("INSERT INTO objectives (id, title, workspace, status) VALUES (700316, 'enforce off', 'personal', 'working')").run()
+    db.prepare("INSERT INTO objectives (id, title, workspace, status) VALUES (700316, 'enforce off', 'operator', 'working')").run()
     process.env.CC_UAT_GATE_ENABLED = '1' // active but shadow; review_enforce OFF
     const decision = evaluateUatGate(
       db,
-      { id: 700316, project: 'command-center-infra', workspace: 'personal', session_id: null },
+      { id: 700316, project: 'command-center-infra', workspace: 'operator', session_id: null },
       { card: okCard, worktreeDir: '/tmp/wt', runner: exitRunner(0), gitStatus: () => '', noSpawn: true },
     )
     expect(decision.action).toBe('record')
@@ -311,12 +311,12 @@ describe('kitchen_loop_review_enforce — cheat-check log-only → blocking, com
 
   it('[review-enforce-on-cc-only] flag ON + command-center + PRODUCT_FAIL → BLOCK', () => {
     const db = getDb()
-    db.prepare("INSERT INTO objectives (id, title, workspace, status) VALUES (700317, 'enforce on cc', 'personal', 'working')").run()
+    db.prepare("INSERT INTO objectives (id, title, workspace, status) VALUES (700317, 'enforce on cc', 'operator', 'working')").run()
     process.env.CC_UAT_GATE_ENABLED = '1' // active, shadow by uat_gate_blocking…
     db.prepare("INSERT INTO settings (key, value) VALUES ('kitchen_loop_review_enforce', '1')").run() // …flipped by review_enforce
     const decision = evaluateUatGate(
       db,
-      { id: 700317, project: 'command-center-infra', workspace: 'personal', session_id: null },
+      { id: 700317, project: 'command-center-infra', workspace: 'operator', session_id: null },
       { card: okCard, worktreeDir: '/tmp/wt', runner: exitRunner(0), gitStatus: () => '', noSpawn: true },
     )
     expect(decision.action).toBe('block')

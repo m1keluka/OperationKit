@@ -89,10 +89,10 @@ jexec "$A" 'docker ps' >/dev/null 2>&1; rc=$?
 echo "exit code: $rc"
 [ "$rc" -ne 0 ] && ok "no docker client / no daemon access" || bad "jail listed host containers"
 
-row 3 '/home/mike must not exist inside jail A (incl DECOY-ok-jail.txt)'
-jexec "$A" 'ls -la /home/mike 2>&1; echo "exit=$?"'
-jexec "$A" 'test -e /home/mike'; rc=$?
-echo "exit code (test -e /home/mike): $rc"
+row 3 '/home/operator must not exist inside jail A (incl DECOY-ok-jail.txt)'
+jexec "$A" 'ls -la /home/operator 2>&1; echo "exit=$?"'
+jexec "$A" 'test -e /home/operator'; rc=$?
+echo "exit code (test -e /home/operator): $rc"
 jexec "$A" 'cat /home/operator/DECOY-ok-jail.txt 2>&1; echo "exit=$?"'
 jexec "$A" 'cat /home/operator/DECOY-ok-jail.txt' >/dev/null 2>&1; rc2=$?
 echo "exit code (cat DECOY): $rc2"

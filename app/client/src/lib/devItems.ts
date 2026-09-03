@@ -2,7 +2,7 @@
    Universal Development — typed client for the LOCKED admin API contract.
 
    Every function here is a 1:1 binding of one endpoint in
-   `second-brain/workspaces/personal/projects/universal-development-api.md`
+   `second-brain/workspaces/operator/projects/universal-development-api.md`
    (§5, routes A1–A16). Request params, response envelopes and field names are
    the contract's verbatim shapes — this file is written contract-first and
    makes ZERO server-side assumptions beyond that document.
