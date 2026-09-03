@@ -59,7 +59,7 @@ function seedObjective(opts: {
   const r = getDb()
     .prepare(
       `INSERT INTO objectives (title, agent_context, workspace, status, parent_id, depth, delegate_mode, is_strategy, trust_stage)
-       VALUES (?, 'cto', 'personal', ?, ?, ?, ?, ?, ?)`
+       VALUES (?, 'cto', 'operator', ?, ?, ?, ?, ?, ?)`
     )
     .run(
       opts.title,

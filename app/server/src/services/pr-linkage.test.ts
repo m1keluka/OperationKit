@@ -31,7 +31,7 @@ function makeObjective(over: Partial<Objective> = {}): Objective {
   const db = getDb()
   const r = db
     .prepare(
-      "INSERT INTO objectives (title, description, status, agent_context, workspace) VALUES (?, '', 'queue', 'cto', 'personal')",
+      "INSERT INTO objectives (title, description, status, agent_context, workspace) VALUES (?, '', 'queue', 'cto', 'operator')",
     )
     .run(over.title ?? 'Test objective')
   const id = Number(r.lastInsertRowid)

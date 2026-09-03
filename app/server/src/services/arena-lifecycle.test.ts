@@ -15,7 +15,7 @@ import {
 import type { Objective } from '@operationkit/shared'
 
 function obj(partial: Partial<Objective>): Objective {
-  return { id: 7, title: 'New buyer dashboard', type: 'task', workspace: 'personal', project: 'example-project-platform', acceptance_criteria: null, ...partial } as Objective
+  return { id: 7, title: 'New buyer dashboard', type: 'task', workspace: 'operator', project: 'example-project-platform', acceptance_criteria: null, ...partial } as Objective
 }
 
 const COHORT: CohortVariant[] = [

@@ -12,8 +12,8 @@ let LOOPS_DIR: string
 beforeAll(async () => {
   const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'loops-vault-'))
   process.env.VAULT_PATH = vault
-  process.env.GRANOLA_WORKSPACE = 'personal'
-  LOOPS_DIR = path.join(vault, 'workspaces', 'personal', 'loops')
+  process.env.GRANOLA_WORKSPACE = 'operator'
+  LOOPS_DIR = path.join(vault, 'workspaces', 'operator', 'loops')
   loops = await import('./loops.js')
   ;({ buildNudgeText } = await import('./assistant-nudge.js'))
 })

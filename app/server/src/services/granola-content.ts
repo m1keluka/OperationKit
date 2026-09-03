@@ -1,4 +1,4 @@
-// Granola content engine — read/drive surface for the personal content streams.
+// Granola content engine — read/drive surface for the operator content streams.
 //
 // This is the server-side companion to Worker A's `granola-intake` SESSION skill
 // (objective 762/771). The skill writes Mike-only markdown into the second-brain
@@ -18,7 +18,7 @@ import { chownToVaultUser } from './vault-fs.js'
 
 // host path == container path (bind-mounted, verified writable per CONTRACT §1)
 const VAULT_BASE = process.env.VAULT_PATH || '/home/operator/second-brain'
-export const GRANOLA_WORKSPACE = process.env.GRANOLA_WORKSPACE || 'personal'
+export const GRANOLA_WORKSPACE = process.env.GRANOLA_WORKSPACE || 'operator'
 const WS_ROOT = path.join(VAULT_BASE, 'workspaces', GRANOLA_WORKSPACE)
 
 const DRAFTS_DIR = path.join(WS_ROOT, 'content', 'drafts')
@@ -29,7 +29,7 @@ export const DRAFT_STATUSES = ['draft', 'ready', 'posted'] as const
 export type DraftStatus = (typeof DRAFT_STATUSES)[number]
 
 // The routine that IS the nightly schedule; "Run now" fires the same row.
-export const GRANOLA_ROUTINE_NAME = 'granola-intake-personal'
+export const GRANOLA_ROUTINE_NAME = 'granola-intake-operator'
 
 // ── Minimal frontmatter parser ───────────────────────────────────────────────
 // The CONTRACT schemas are flat `key: value` YAML (plus one array field,
@@ -344,7 +344,7 @@ function writeHookVideos(abs: string, file: string, videos: VideoMeta[]): HookPa
   return { ok: true, hook: parseHookDoc(file, newRaw) }
 }
 
-// Build the storage object path for a hook video: personal/<hookbase>/<ts>-<sanitized-filename>.
+// Build the storage object path for a hook video: operator/<hookbase>/<ts>-<sanitized-filename>.
 export function hookVideoObjectPath(file: string, filename: string): string {
   const base = file.replace(/\.md$/, '')
   const safeName = filename.replace(/[^A-Za-z0-9._-]/g, '_').slice(-80) || 'video'

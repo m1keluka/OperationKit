@@ -138,8 +138,8 @@ export function initWebSocket(server: Server): void {
         name: 'xterm-256color',
         cols: 80,
         rows: 24,
-        env: { ...process.env as Record<string, string>, HOME: '/home/mike', USER: 'mike', TERM: 'xterm-256color' },
-        cwd: '/home/mike',
+        env: { ...process.env as Record<string, string>, HOME: '/home/operator', USER: 'mike', TERM: 'xterm-256color' },
+        cwd: '/home/operator',
       })
     } catch (err) {
       ws.send(`\r\nFailed to spawn shell: ${err}\r\n`)

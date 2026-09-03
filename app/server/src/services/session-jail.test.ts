@@ -54,7 +54,7 @@ describe('session-jail argv contract', () => {
 
   it('never mounts anything from the operator or ccuser homes', () => {
     const argv = buildJailRunArgv(base).join(' ')
-    expect(argv).not.toContain('/home/mike')
+    expect(argv).not.toContain('/home/operator')
     expect(argv).not.toContain('/home/ccuser-')
   })
 

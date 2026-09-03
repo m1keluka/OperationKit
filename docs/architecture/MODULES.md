@@ -30,7 +30,7 @@ Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env i
 | `/api/projects/:project/feed`, `/api/feed/all` | `routes/feed.ts` | yes | activity feed |
 | `/api/docs` | `routes/docs.ts` | yes | vault tree + file R/W + search |
 | `/api/mentor` | `routes/mentor.ts` | yes | Assistant threads |
-| `/api/assistant` | `routes/assistant.ts` | yes | briefing |
+| `/api/briefing` | `routes/briefing.ts` | yes | briefing |
 | `/api/assistant` | `routes/assistant.ts` | yes | personal assistant config |
 | `/api/status` | `routes/status.ts` | yes | UptimeRobot |
 | `/api/webhooks` | `routes/webhooks.ts` | yes | UptimeRobot ingest |
@@ -50,7 +50,7 @@ Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env i
 | `/api/models` | `routes/models.ts` | yes | model registry |
 | `/api/contacts` | `routes/contacts.ts` | yes | vault CRM |
 | `/api/meeting-queue` | `routes/meeting-queue.ts` | yes | Granola action items → objectives |
-| `/api/loops` | `routes/loops.ts` | yes | personal loops markdown kanban |
+| `/api/loops` | `routes/loops.ts` | yes | operator loops markdown kanban |
 | `/api/scratchpad` | `routes/scratchpad.ts` | yes | per-user markdown |
 | `/api/granola-content` | `routes/granola-content.ts` | yes | drafts/hooks/ideas |
 | `/api/test-credentials` | `routes/test-credentials.ts` | yes | encrypted CRUD |

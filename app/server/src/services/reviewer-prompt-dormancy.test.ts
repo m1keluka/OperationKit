@@ -9,7 +9,7 @@ function uiObjective(): Objective {
     id: 42,
     title: 'Build the dashboard',
     type: 'task',
-    workspace: 'personal',
+    workspace: 'operator',
     project: 'example-project-platform',
     description: 'desc',
     completion_goal: 'goal',

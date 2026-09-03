@@ -1,7 +1,7 @@
-// Admin-only surface for the Loops tracker (personal / holdco threads-with-people).
+// Admin-only surface for the Loops tracker (operator / holdco threads-with-people).
 //
 // Gating: requireAuth + requireAdmin. Mike is the only admin, so a non-admin member
-// of ANY workspace — including a member of personal itself — receives 403 on every
+// of ANY workspace — including a member of operator itself — receives 403 on every
 // endpoint. Mirrors the granola-content route's gating (Mike-only vault data) with
 // the existing RBAC primitives; no new auth scheme.
 //

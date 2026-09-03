@@ -56,7 +56,7 @@ fi
 # 3) Regenerable package caches. EXCLUDES yarn-berry / pnpm-store (can be
 #    hardlink-linked into live node_modules) and ms-playwright browsers
 #    (sessions need them until the next image rebuild).
-cache_homes=(/home/mike /home/operator/.ccuser-* /home/operator/data/command-center/cc-accounts/*)
+cache_homes=(/home/operator /home/operator/.ccuser-* /home/operator/data/command-center/cc-accounts/*)
 for h in "${cache_homes[@]}"; do
   [ -d "$h" ] || continue
   $SUDO rm -rf "$h"/.npm/_cacache "$h"/.npm/_npx "$h"/.cache/uv 2>/dev/null || true

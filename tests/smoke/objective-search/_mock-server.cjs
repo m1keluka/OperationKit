@@ -22,7 +22,7 @@ const USER = {
 }
 const WORKSPACES = [
   { slug: 'example', name: 'Example', short_label: 'AX', badge_color: null, vault_path: null, doc_read_roots: [], doc_write_roots: [], default_agent_pool: [], archived: false, sort_order: 0, created_at: '', updated_at: '' },
-  { slug: 'example2', name: 'Grass-Fed', short_label: 'GF', badge_color: null, vault_path: null, doc_read_roots: [], doc_write_roots: [], default_agent_pool: [], archived: false, sort_order: 1, created_at: '', updated_at: '' },
+  { slug: 'example2', name: 'Example3', short_label: 'GF', badge_color: null, vault_path: null, doc_read_roots: [], doc_write_roots: [], default_agent_pool: [], archived: false, sort_order: 1, created_at: '', updated_at: '' },
   { slug: 'example-project', name: 'Example Project', short_label: 'WS', badge_color: null, vault_path: null, doc_read_roots: [], doc_write_roots: [], default_agent_pool: [], archived: false, sort_order: 2, created_at: '', updated_at: '' },
 ]
 

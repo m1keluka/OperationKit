@@ -32,7 +32,7 @@ function makeObjective(overrides: Partial<Objective> = {}): Objective {
     description: 'A sample objective for prompt-builder tests.',
     status: 'working',
     agent_context: 'cto',
-    workspace: 'personal',
+    workspace: 'operator',
     project: null,
     category: 'build',
     parent_id: null,
@@ -325,12 +325,12 @@ describe('Git Workflow — evidence gate on completion (both integration modes)'
 // objective and FAIL CLOSED (never the bare projects root) when it can't resolve.
 describe('resolveWorkdir — obj 1451 (cross-workspace resolution + fail-closed)', () => {
   // Mirrors the production registry shape that caused the bug:
-  // command-center-infra is registered ONLY under 'personal'; the 'example'
+  // command-center-infra is registered ONLY under 'operator'; the 'example'
   // workspace has projects but NOT command-center-infra.
   const CC_PATH = `${HOME_DIR}/projects/command-center-infra`
   const fixtureWorkspaces = {
     example: { projects: [{ name: 'example-platform', path: '~/projects/example-platform' }] },
-    'personal': {
+    'operator': {
       projects: [{ name: 'command-center-infra', path: '~/projects/command-center-infra' }],
     },
   }
@@ -338,7 +338,7 @@ describe('resolveWorkdir — obj 1451 (cross-workspace resolution + fail-closed)
   it('resolves an EXAMPLE-tagged command-center-infra objective to the real repo path (the exact regression)', () => {
     const obj = makeObjective({
       id: 1451,
-      workspace: 'example', // tagged example, but project lives under personal
+      workspace: 'example', // tagged example, but project lives under operator
       project: 'command-center-infra',
     })
     const resolved = resolveWorkdir(obj, {
@@ -359,7 +359,7 @@ describe('resolveWorkdir — obj 1451 (cross-workspace resolution + fail-closed)
   })
 
   it('still resolves when the project lives in the objective’s own workspace', () => {
-    const obj = makeObjective({ id: 7, workspace: 'personal', project: 'command-center-infra' })
+    const obj = makeObjective({ id: 7, workspace: 'operator', project: 'command-center-infra' })
     const resolved = resolveWorkdir(obj, {
       workspaces: fixtureWorkspaces,
       existsSync: (p) => p === CC_PATH,

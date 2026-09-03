@@ -6,8 +6,8 @@ Do not put the password in this prompt if the host has a secrets box. Prefer a m
 
 Mike’s standing Grok Bots (names must match; same `cc_live_` key):
 
-- [Chief of Staff](./bots/chief-of-staff.md) — starred intake, routes, personal/`personal`
-- [Example](./bots/example.md) · [Example Project](./bots/example-project.md) · [Grass-fed](./bots/example2.md) · [Shabo DL](./bots/shabo-dl.md) — one company each
+- [General](./bots/general.md) — starred intake, routes, personal/`operator`
+- [Example](./bots/example.md) · [Example Project](./bots/example-project.md) · [example3](./bots/example2.md) · [Example5 DL](./bots/example5.md) — one company each
 - [Inbox](./bots/inbox.md) — two Gmails; Mike may DM it directly
 
 ---
@@ -81,7 +81,7 @@ Default list **hides done and cancelled**. Use `?status=done` only when asked ab
 ## API you actually use
 
 ```
-GET  /api/assistant/briefing
+GET  /api/briefing/briefing
 GET  /api/objectives?workspace={slug}&limit=50
 GET  /api/objectives/search?q={text}
 GET  /api/objectives/{id}                 # full card

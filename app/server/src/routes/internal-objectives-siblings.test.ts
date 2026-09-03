@@ -81,7 +81,7 @@ beforeAll(async () => {
     `INSERT INTO objectives (title, status, agent_context, workspace, project, parent_id, depth,
                              description, last_session_summary, ai_review_verdict, ai_review_findings,
                              acceptance_criteria, completion_goal, approved_plan, session_id)
-     VALUES (?, ?, 'cto', 'personal', 'command-center-infra', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, 'cto', 'operator', 'command-center-infra', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const add = (title: string, parent: number | null, depth: number, status = 'done') =>
     Number(

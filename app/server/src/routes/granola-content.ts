@@ -1,7 +1,7 @@
-// Admin-only surface for the Granola content engine (personal / holdco content).
+// Admin-only surface for the Granola content engine (operator / holdco content).
 //
 // Gating: requireAuth + requireAdmin. Mike is the only admin, so a non-admin member
-// of ANY workspace — including a member of personal itself — receives 403 on every
+// of ANY workspace — including a member of operator itself — receives 403 on every
 // endpoint. This satisfies the CONTRACT's hard cross-workspace isolation requirement
 // (Mike-only / holdco content) with the existing RBAC primitives; no new auth scheme.
 //

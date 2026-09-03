@@ -18,7 +18,7 @@ Chromium from `PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright`).
   commit drained `OK` at 16:49 UTC.
 - Preview DB freshly seeded by `preview-deploy.sh`: users `mike` (admin, orgs example +
   example-project) and `ava` (member, org example only), password `changeme`. Organizations seeded:
-  Example / Example Project / Mike Luka. Zero secrets at start.
+  Example / Example Project / Operator. Zero secrets at start.
 - Logged in as `mike` (admin) for the UI steps; `ava` (member) used for the constraint check.
 - Secrets page is served at `/settings/secrets`.
 

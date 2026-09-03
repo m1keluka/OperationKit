@@ -256,7 +256,7 @@ export function computeIdeateTickets(scope: string): IdeateTicket[] {
 /** Pilot project the live-emit lands board rows under (the command-center repo). */
 export const PILOT_PROJECT = 'command-center-infra'
 /** Pilot workspace for emitted tickets. */
-export const PILOT_WORKSPACE = 'personal'
+export const PILOT_WORKSPACE = 'operator'
 /** Board port the in-process driver POSTs to (localhost-only internal route). */
 export const INTERNAL_API_PORT = 3002
 

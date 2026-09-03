@@ -85,7 +85,7 @@ export function JobsBoard(_props: JobsBoardProps) {
   )
 
   // Workspace filter options: the union of workspaces present across scheduled
-  // routines AND past job runs — so e.g. a grass-fed job/routine shows up
+  // routines AND past job runs — so e.g. a example3 job/routine shows up
   // without any hardcoded list (workspaces are created dynamically).
   const wsOptions = useMemo(() => {
     const set = new Set<string>()
@@ -422,7 +422,7 @@ export function JobsBoard(_props: JobsBoardProps) {
         <NewStrategyJobModal
           strategies={strategies}
           workspaces={workspaces.map(w => ({ slug: w.slug, name: w.name }))}
-          defaultWorkspace={wsFilter !== ALL ? wsFilter : (workspaces[0]?.slug ?? 'personal')}
+          defaultWorkspace={wsFilter !== ALL ? wsFilter : (workspaces[0]?.slug ?? 'operator')}
           onClose={() => setAuthoring(false)}
           onCreate={createStrategyJob}
         />

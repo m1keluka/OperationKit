@@ -59,7 +59,7 @@ beforeAll(async () => {
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace, role) VALUES (2, 'example', 'member')`).run()
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace, role) VALUES (3, 'example4', 'member')`).run()
   // GET /principals joins the `workspaces` table. initDb seeds example/example-project/
-  // personal; 'example4' (user 3's org) has to be added, plus an ARCHIVED org that
+  // operator; 'example4' (user 3's org) has to be added, plus an ARCHIVED org that
   // must never show up in either principals view.
   db.prepare(`INSERT OR IGNORE INTO workspaces (slug, name, sort_order) VALUES ('example4', 'Example4', 4)`).run()
   db.prepare(`INSERT OR IGNORE INTO workspaces (slug, name, sort_order, archived) VALUES ('retired-co', 'Retired Co', 5, 1)`).run()

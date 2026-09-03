@@ -285,7 +285,7 @@ CREATE TABLE objective_uat_runs (
       evidence_json TEXT NOT NULL DEFAULT '{}',
       cheat_paths TEXT,
       worktree TEXT,
-      workspace TEXT NOT NULL DEFAULT 'personal',
+      workspace TEXT NOT NULL DEFAULT 'operator',
       session_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );

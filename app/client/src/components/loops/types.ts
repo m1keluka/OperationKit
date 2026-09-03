@@ -9,7 +9,7 @@ import type { PipelineStatus } from '../ui'
 // above the board — never rendered as a Kanban column.
 export type LoopStatus = 'queued' | 'working' | 'done'
 export type LoopStatusAny = LoopStatus | 'pending'
-export type Project = '' | 'example' | 'example2' | 'shabo-dl' | 'example-project' | 'personal'
+export type Project = '' | 'example' | 'example2' | 'example5' | 'example-project' | 'personal'
 
 export interface Loop {
   slug: string
@@ -37,12 +37,12 @@ export const ALL = '__all__'
 export const STATUSES: LoopStatus[] = ['queued', 'working', 'done']
 export const STATUS_LABEL: Record<LoopStatus, string> = { queued: 'Queued', working: 'Working', done: 'Done' }
 
-export const PROJECT_KEYS: Exclude<Project, ''>[] = ['example', 'example2', 'shabo-dl', 'example-project', 'personal']
+export const PROJECT_KEYS: Exclude<Project, ''>[] = ['example', 'example2', 'example5', 'example-project', 'personal']
 export const PROJECT_LABEL: Record<Project, string> = {
   '': '—',
   example: 'Example',
   example2: 'EXAMPLE2',
-  'shabo-dl': 'Shabo Dental Lab',
+  'example5': 'Example Dental Lab',
   'example-project': 'Example Project',
   personal: 'Personal',
 }

@@ -750,7 +750,7 @@ export function initDb(): Database.Database {
         description: [
           'Compose the daily morning brief.',
           '',
-          '1. GET http://localhost:3002/api/assistant/briefing for board state and open loops.',
+          '1. GET http://localhost:3002/api/briefing/briefing for board state and open loops.',
           '2. Write a concise brief covering: board state (working / blocked / needs-review), stale items, and account/budget status.',
           "3. Write it to /home/operator/ai-workspace/briefings/YYYY-MM-DD.md using today's date (create the directory if needed).",
           '4. If a Telegram/Hermes send path is available, send the brief there too; otherwise the file is enough.',
@@ -847,7 +847,7 @@ export function initDb(): Database.Database {
   // Supply's `portal_feedback` and Example3's `dev_feedback` into ONE table in
   // CC, so every platform's Development board is served from here.
   //
-  // Spec: ~/second-brain/workspaces/personal/projects/universal-development-schema.md
+  // Spec: ~/second-brain/workspaces/operator/projects/universal-development-schema.md
   // (§2.1-§2.6). Phase-0 plan: universal-development-migration.md §1.1-§1.2.
   //
   // Purely additive. Nothing below drops, renames or rewrites an existing

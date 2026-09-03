@@ -281,7 +281,7 @@ function HookCard({ hook, onUpdated }: { hook: HookDoc; onUpdated: (h: HookDoc) 
   )
 }
 
-// Admin-only surface for the Granola content engine (personal / holdco content).
+// Admin-only surface for the Granola content engine (operator / holdco content).
 // Backend: /api/granola-content/* (requireAuth + requireAdmin). Reads the second-brain
 // markdown streams; drives the posting-queue status round-trip + the granola-intake
 // session spawn ("Run now" / nightly).
@@ -516,7 +516,7 @@ export function GranolaPage() {
     <PageContainer>
       <PageHeader
         title="Content"
-        description="personal content streams — LinkedIn drafts, short-form & video, ideas."
+        description="operator content streams — LinkedIn drafts, short-form & video, ideas."
         actions={
           <>
             {schedule && (

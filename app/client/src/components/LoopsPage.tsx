@@ -21,7 +21,7 @@ import { BulkActionBar } from './loops/BulkActionBar'
 import { Scratchpad } from './loops/Scratchpad'
 import { ReviewQueue } from './loops/ReviewQueue'
 
-// Admin-only surface for the Loops tracker (personal / holdco threads-with-people).
+// Admin-only surface for the Loops tracker (operator / holdco threads-with-people).
 // Backend: /api/loops/* (requireAuth + requireAdmin). Reads the second-brain `loops/`
 // markdown stream; manual-add + body edit + project/due/People(party)/tag edit + a
 // 3-stage Kanban move (queued -> working -> done).

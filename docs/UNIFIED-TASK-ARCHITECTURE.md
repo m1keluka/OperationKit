@@ -99,7 +99,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
 | Hermes orchestrator (LLM) | Reads Telegram text → emits one or more objective JSONs → batch-creates them | **Planned** — not deployed |
 | Hermes seed memory | `scripts/hermes-seeds/MEMORY.md` (CC API contract + decomposition heuristics) + `USER.md` (Mike's profile) | **Authored** and ready to load into Hermes' system prompt the moment the service comes up |
 | Internal API (`routes/internal.ts`) | Localhost-only no-JWT endpoints Hermes calls (objectives, status, message, progress, briefing) | **Working** |
-| Briefing query (`/api/internal/briefing`, `/api/assistant/briefing`) | Aggregates working + review + blocked into one daily snapshot | **Fixed 2026-06-04** — was filtering `status IN ('working','blocked','needs_review')` which never matched (`blocked` and `needs_review` are not valid statuses). Now `('working','review')` with the blocked facet derived from `has_blockers`. |
+| Briefing query (`/api/internal/briefing`, `/api/briefing/briefing`) | Aggregates working + review + blocked into one daily snapshot | **Fixed 2026-06-04** — was filtering `status IN ('working','blocked','needs_review')` which never matched (`blocked` and `needs_review` are not valid statuses). Now `('working','review')` with the blocked facet derived from `has_blockers`. |
 
 ### 2.3 Execute Layer
 
@@ -165,7 +165,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
 | Gap | Fix | File:Line |
 |---|---|---|
 | Granola action items unreachable — router not mounted | Added `app.use('/api/meeting-queue', meetingQueueRouter)` | `app/server/src/index.ts:28,127` |
-| Daily/internal briefing queried invalid statuses (`needs_review`, `blocked`) and always returned empty `needsReview` array | Rewrote queries to use `('working','review')`; derived `blocked` from `has_blockers` column | `app/server/src/routes/assistant.ts:28-54`, `app/server/src/routes/internal.ts:391-401` |
+| Daily/internal briefing queried invalid statuses (`needs_review`, `blocked`) and always returned empty `needsReview` array | Rewrote queries to use `('working','review')`; derived `blocked` from `has_blockers` column | `app/server/src/routes/briefing.ts:28-54`, `app/server/src/routes/internal.ts:391-401` |
 | Session-intel extraction only ran on server boot — every completed session in steady-state stayed un-summarised | Added `queueExtraction(...)` call inside `handleSessionDeath()` | `app/server/src/services/session-manager.ts:23,237-243` |
 | `run-gmail-triage.sh` posted to a non-existent endpoint | Added `POST /api/internal/gmail-triage/run` that invokes `runGmailTriage()` | `app/server/src/routes/internal.ts:12,291-309` |
 | Granola review queue required one click per item | Added `POST /api/meeting-queue/approve-batch` (transactional, idempotent on already-reviewed items) | `app/server/src/routes/meeting-queue.ts:124-176` |

@@ -36,7 +36,7 @@ function setSetting(db: Database.Database, key: string, value: string) {
 const OBJ = (over: Partial<OutcomeObjectiveRef> = {}): OutcomeObjectiveRef => ({
   id: 1234,
   project: null,
-  workspace: 'personal',
+  workspace: 'operator',
   session_id: null,
   type: 'task',
   category: 'general',
@@ -254,7 +254,7 @@ describe('recordOutcomeRunRow — source discriminator', () => {
     recordOutcomeRunRow(db, obj, 'done', '/tmp', outcomeRun)
     // A code-floor run (pass) via the EXISTING recorder — must leave source NULL.
     const floorRun: FloorRunResult = runFloor({ enabled: true, commands: ['tsc'] }, '/tmp', fakeRunner({}))
-    recordFloorRunRow(db, { id: 1234, project: null, workspace: 'personal', session_id: null }, 'done', '/tmp', floorRun, false)
+    recordFloorRunRow(db, { id: 1234, project: null, workspace: 'operator', session_id: null }, 'done', '/tmp', floorRun, false)
 
     const rows = db.prepare('SELECT outcome, passed, command, source, layer4_outcome FROM objective_floor_runs ORDER BY id').all() as Array<Record<string, unknown>>
     expect(rows).toHaveLength(2)
