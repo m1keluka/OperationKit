@@ -18,7 +18,7 @@ import {
   SKILLS_DIR,
   TRANSCRIPT_DIR,
 } from '../config.js'
-import { AGENT_META, type AgentContext } from '@operationkit/shared'
+import { getAgent } from '../services/agent-registry.js'
 
 const router = Router()
 
@@ -124,11 +124,11 @@ router.get('/agents', (_req: AuthRequest, res) => {
     const agentFiles = fs.readdirSync(AGENTS_DIR).filter(f => f.endsWith('.md'))
     const agents = agentFiles.map(filename => {
       const stat = fs.statSync(path.join(AGENTS_DIR, filename))
-      const slug = filename.replace('.md', '') as AgentContext
-      // Persona intent classification (obj-2387 / D7). A persona present on disk
-      // but absent from AGENT_META is shown as routing-only + non-assignable so
-      // nothing is silently mislabeled (e.g. an unmapped new persona file).
-      const meta = AGENT_META[slug]
+      const slug = filename.replace('.md', '')
+      // Persona intent classification. A persona present on disk but absent from
+      // the registry is shown as routing-only + non-assignable so nothing is
+      // silently mislabeled (e.g. an unregistered new persona file).
+      const meta = getAgent(slug)
       return {
         name: slug.replace(/-/g, ' '),
         filename,

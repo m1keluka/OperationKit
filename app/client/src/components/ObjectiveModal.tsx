@@ -38,7 +38,11 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
   const [title, setTitle] = useState(objective?.title || '')
   const [description, setDescription] = useState(objective?.description || '')
   const [descHydrated, setDescHydrated] = useState(!objective)
-  const [objWorkspace, setObjWorkspace] = useState(objective?.workspace || (workspace === 'all' ? 'example' : workspace))
+  // All / multi-org views must not silently default to Example — that routed
+  // Example Project creates into the wrong organization.
+  const [objWorkspace, setObjWorkspace] = useState(
+    objective?.workspace || (workspace && workspace !== 'all' ? workspace : ''),
+  )
   const [objProjectId, setObjProjectId] = useState<number | null>(
     objective ? objective.project_id ?? null : defaultProjectId
   )
@@ -164,6 +168,10 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    if (!objWorkspace) {
+      setError('Pick an organization')
+      return
+    }
     setLoading(true)
     setError('')
 
@@ -295,7 +303,12 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
               value={objWorkspace}
               onChange={e => setObjWorkspace(e.target.value)}
               className={fieldCls}
+              required
+              aria-invalid={!objWorkspace}
             >
+              <option value="" disabled>
+                Select organization…
+              </option>
               {workspaceOptions.map(ws => (
                 <option key={ws} value={ws}>{labelOf(ws)}</option>
               ))}

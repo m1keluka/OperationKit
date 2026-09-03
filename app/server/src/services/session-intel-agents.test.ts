@@ -27,14 +27,14 @@ describe('session-intel agent/skill/sub-agent extraction', () => {
       assistantToolUse([
         { type: 'tool_use', name: 'Read', input: { file_path: '/home/operator/ai-workspace/skills/deep-research/SKILL.md' } },
         { type: 'tool_use', name: 'Read', input: { file_path: '/home/operator/ai-workspace/agents/cfo.md' } },
-        { type: 'tool_use', name: 'Read', input: { file_path: '/home/operator/ai-workspace/agents/data-sourcing.md' } },
+        { type: 'tool_use', name: 'Read', input: { file_path: '/home/operator/ai-workspace/agents/coo.md' } },
         { type: 'tool_use', name: 'Agent', input: { subagent_type: 'Explore', prompt: 'look around' } },
         { type: 'tool_use', name: 'Task', input: { subagent_type: 'qa-reviewer' } },
       ]),
     ])
     const intel = await extractDeterministic(p)
     expect(intel.skillsUsed).toContain('deep-research')
-    expect(intel.agentsInvoked.sort()).toEqual(['cfo', 'data-sourcing'])
+    expect(intel.agentsInvoked.sort()).toEqual(['cfo', 'coo'])
     expect(intel.subagentsSpawned.sort()).toEqual(['Explore', 'qa-reviewer'])
   })
 

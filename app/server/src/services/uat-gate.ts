@@ -289,7 +289,7 @@ export function buildBlindEvaluatorPrompt(card: SealedCard): string {
 export interface BlindSpawnContext {
   card: SealedCard
   worktreeDir: string
-  /** Default model for the evaluator — Opus (Operator all-Opus rule). */
+  /** Default model for the evaluator — Opus (Mike all-Opus rule). */
   model?: string
 }
 
@@ -331,6 +331,7 @@ export const defaultBlindSpawn: BlindSpawnFn = (ctx) => {
     }
     spawnInTmux({
       sessionId,
+      objectiveId: `${ctx.card.objectiveId ?? 'x'}-uat`,
       homeDir: account.homeDir,
       workdir: ctx.worktreeDir,
       prompt: buildBlindEvaluatorPrompt(ctx.card),

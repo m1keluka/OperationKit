@@ -201,6 +201,7 @@ function AppContent() {
           <Route path="/preview/*" element={<Navigate to="/" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/config" element={<Navigate to="/settings/org" replace />} />
+          <Route path="/assistant" element={<Navigate to="/assistant" replace />} />
           <Route path="/mentor" element={<MentorPage />} />
           <Route path="/assistant" element={<MentorPage />} />
           <Route path="/feed" element={<ProjectFeed workspace={workspace} />} />

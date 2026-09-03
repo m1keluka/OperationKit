@@ -17,6 +17,7 @@ import { getPersistedSpawnStart, resolveSpawnStartMs } from './session-spawn-clo
 import { extractFinalUsage } from './session-usage.js'
 import { tmuxSessionAlive } from './session-tmux.js'
 import { readJsonlTail, jsonlHasResult } from './session-jsonl.js'
+import { destroyJailSync } from './session-jail.js'
 import { activeSessions, forgetSpawnClock } from './session-registry.js'
 
 // Queued follow-up messages per objective (sent when current turn finishes)
@@ -80,6 +81,12 @@ export async function stopSession(sessionId: string): Promise<void> {
     if (session.tmuxName) {
       try { execSync(`tmux kill-session -t ${JSON.stringify(session.tmuxName)} 2>/dev/null`, { timeout: 5000 }) } catch {}
     }
+    // Reap the sibling-container jail (PRD §6.5). NO-OP unless
+    // SESSION_ISOLATION=docker — on the live droplet no jail was ever created,
+    // so destroyJailSync returns false without shelling out to docker at all.
+    if (session.objective?.id !== undefined) {
+      try { destroyJailSync(session.objective.id) } catch { /* idempotent — never block a stop */ }
+    }
     // Legacy: kill child process if it exists
     if (session.process) {
       try { (session.stdin as any)?.end?.() } catch {}
@@ -141,7 +148,7 @@ export function getSessionState(sessionId: string): 'working' | 'review' | 'dead
     // tail from the end and stop at the first parseable typed event — O(1) per
     // call instead of re-reading + parsing the whole file every poll tick.
     try {
-      const lines = readJsonlTail(jsonlPath).split('\n')
+      const lines = readJsonlTail(jsonlPath, 64_000).split('\n')
       for (let i = lines.length - 1; i >= 0; i--) {
         const trimmed = lines[i].trim()
         if (!trimmed) continue

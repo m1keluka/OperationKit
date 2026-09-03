@@ -146,6 +146,7 @@ const POLL_INTERVAL_MS = Math.max(1000, Number(process.env.CC_POLL_INTERVAL_MS) 
 // is resurrected to `working` (via chat/upload/reopen). A `pass` is terminal and
 // an objective can never accumulate more than this many review iterations.
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollInFlight = false
 
 export function startPoller(): void {
   if (pollTimer) return
@@ -155,7 +156,13 @@ export function startPoller(): void {
   sweepStaleWorkingSessions()
 
   pollTimer = setInterval(() => {
-    void pollActiveSessions()
+    // A tick that overruns the cadence used to stack overlapping polls, each
+    // doing sync sqlite + tmux execSync, which starved HTTP accept (creates
+    // sitting on Saving… for tens of seconds). Skip if the previous tick is
+    // still running.
+    if (pollInFlight) return
+    pollInFlight = true
+    void pollActiveSessions().finally(() => { pollInFlight = false })
   }, POLL_INTERVAL_MS)
 
   console.log(`State poller started (every ${POLL_INTERVAL_MS}ms)`)

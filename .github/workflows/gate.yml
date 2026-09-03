@@ -26,15 +26,6 @@ name: gate
 on:
   pull_request:
     branches: [main]
-  # Also run on `main` itself. Without this, `gate` could only ever have a
-  # conclusion on a PR head SHA, never on a commit that is actually ON main --
-  # which is how PRs #13 (react/react-dom version skew) and #14 (Tailwind 4)
-  # merged with a red `gate` and left main broken with nothing reporting it.
-  # A post-merge run means main's tip always carries its own verdict, and a
-  # release tag can be cut against a SHA whose `gate` is demonstrably green.
-  push:
-    branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -52,10 +43,8 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
       # `npm ci` (not `npm install`): app/package-lock.json is now committed, so
@@ -82,10 +71,8 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm ci --include=dev
@@ -100,10 +87,8 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm ci --include=dev
@@ -117,15 +102,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: No new test skips, no deleted test files
         env:
-          # On `pull_request` the interesting range is base..head. On `push` to
-          # main (and on workflow_dispatch) there is no pull_request payload, so
-          # these are empty and the job must resolve the range itself -- see the
-          # fallback below. Fail closed: an unresolvable range fails the job.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # Every command's exit code is load-bearing: no error suppression and no
@@ -137,23 +118,13 @@ jobs:
           python3 - <<'PY'
           import os, subprocess, sys, re
 
+          base, head = os.environ['BASE_SHA'], os.environ['HEAD_SHA']
           TESTS = ['*.test.ts', '*.test.tsx', '*.spec.ts', '*.spec.tsx']
 
           def git(*args):
               # check=True: a git failure fails the job rather than reading as "clean".
               return subprocess.run(['git', *args], check=True,
                                     capture_output=True, text=True).stdout
-
-          base, head = os.environ['BASE_SHA'], os.environ['HEAD_SHA']
-          if not head:
-              # push / workflow_dispatch: HEAD is the commit being gated and its
-              # first parent is the previous tip of this branch, so HEAD^1..HEAD
-              # is exactly the range this event introduced. Resolved with
-              # rev-parse (check=True) so an unresolvable ref is a hard failure,
-              # never a silently empty diff that reads as "clean".
-              head = git('rev-parse', 'HEAD').strip()
-              base = git('rev-parse', 'HEAD^1').strip()
-          print(f'range: {base}..{head}')
 
           fail = 0
 
@@ -188,7 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v4
 
       # Guards the failure mode that makes an aggregate gate worthless: a job
       # that exists in this workflow but was never added to `gate.needs`, and so

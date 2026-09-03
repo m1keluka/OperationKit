@@ -85,7 +85,7 @@ export function JobsBoard(_props: JobsBoardProps) {
   )
 
   // Workspace filter options: the union of workspaces present across scheduled
-  // routines AND past job runs — so e.g. an example-shop job/routine shows up
+  // routines AND past job runs — so e.g. a grass-fed job/routine shows up
   // without any hardcoded list (workspaces are created dynamically).
   const wsOptions = useMemo(() => {
     const set = new Set<string>()

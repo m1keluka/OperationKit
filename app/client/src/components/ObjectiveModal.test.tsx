@@ -31,15 +31,15 @@ import type { Objective } from '@operationkit/shared'
 const { PROJECTS } = vi.hoisted(() => ({ PROJECTS: [] as Array<Record<string, unknown>> }))
 
 const { useAuthSpy } = vi.hoisted(() => ({
-  useAuthSpy: vi.fn(() => ({ user: { id: 1, role: 'admin', username: 'admin' } })),
+  useAuthSpy: vi.fn(() => ({ user: { id: 1, role: 'admin', username: 'mike' } })),
 }))
 
 vi.mock('../context/AuthContext', () => ({ useAuth: () => useAuthSpy() }))
 
 vi.mock('../hooks/useWorkspaces', () => ({
   useWorkspaces: () => ({
-    slugs: ['example'],
-    labelOf: (s: string) => s,
+    slugs: ['example', 'example-project'],
+    labelOf: (s: string) => s === 'example-project' ? 'Example Project' : s,
     agentPoolOf: () => [],
   }),
 }))
@@ -90,13 +90,13 @@ const onDelete = vi.fn(() => Promise.resolve())
 
 let forceParentRender: () => void = () => {}
 
-function Harness({ objective }: { objective: Objective | null }) {
+function Harness({ objective, workspace = 'example' }: { objective: Objective | null; workspace?: string }) {
   const [, setTick] = useState(0)
   forceParentRender = () => setTick(t => t + 1)
   return (
     <ObjectiveModal
       objective={objective}
-      workspace="example"
+      workspace={workspace}
       onClose={onClose}
       onCreate={onCreate}
       onUpdate={onUpdate}
@@ -167,8 +167,8 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
     root = createRoot(container)
   })
 
-  async function mount(objective: Objective | null) {
-    flushSync(() => root.render(<Harness objective={objective} />))
+  async function mount(objective: Objective | null, workspace?: string) {
+    flushSync(() => root.render(<Harness objective={objective} workspace={workspace} />))
     await flush()
     return container.querySelector('[role="dialog"]') as HTMLElement
   }
@@ -207,7 +207,7 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
       const dialog = await mount(null)
       expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(0)
     } finally {
-      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'admin' } }))
+      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'mike' } }))
     }
   })
 
@@ -264,5 +264,52 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
     const dialog = await mount(SAMPLE_OBJECTIVE)
     expect(dialog.textContent).toContain('Edit Objective')
     expect(dialog.querySelectorAll('textarea')).toHaveLength(2)
+  })
+
+  it('does not default Organization to Example on the All-orgs board', async () => {
+    const dialog = await mount(null, 'all')
+    const orgSelect = [...dialog.querySelectorAll('select')].find(s =>
+      [...s.options].some(o => o.value === 'example-project'),
+    ) as HTMLSelectElement
+    expect(orgSelect).toBeTruthy()
+    expect(orgSelect.value).toBe('')
+    expect([...orgSelect.options].map(o => o.textContent)).toContain('Select organization…')
+    expect([...orgSelect.options].map(o => o.textContent)).toContain('Example Project')
+  })
+
+  it('refuses to create from All orgs until an organization is picked', async () => {
+    const dialog = await mount(null, 'all')
+    const title = dialog.querySelector('textarea') as HTMLTextAreaElement
+    setNativeValue(title, 'MFG delete messages')
+    flushSync(() => title.dispatchEvent(new Event('input', { bubbles: true })))
+
+    const form = dialog.querySelector('form') as HTMLFormElement
+    flushSync(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await flush()
+
+    expect(onCreate).not.toHaveBeenCalled()
+    expect(dialog.textContent).toContain('Pick an organization')
+  })
+
+  it('creates into Example Project when that org is picked from All', async () => {
+    const dialog = await mount(null, 'all')
+    const title = dialog.querySelector('textarea') as HTMLTextAreaElement
+    setNativeValue(title, 'MFG delete messages')
+    flushSync(() => title.dispatchEvent(new Event('input', { bubbles: true })))
+
+    const orgSelect = [...dialog.querySelectorAll('select')].find(s =>
+      [...s.options].some(o => o.value === 'example-project'),
+    ) as HTMLSelectElement
+    setNativeSelectValue(orgSelect, 'example-project')
+    flushSync(() => orgSelect.dispatchEvent(new Event('change', { bubbles: true })))
+
+    const form = dialog.querySelector('form') as HTMLFormElement
+    flushSync(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await flush()
+
+    expect(onCreate).toHaveBeenCalledTimes(1)
+    const payload = onCreate.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.workspace).toBe('example-project')
+    expect(payload.title).toBe('MFG delete messages')
   })
 })

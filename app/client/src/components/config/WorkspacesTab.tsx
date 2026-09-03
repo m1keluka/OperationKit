@@ -10,9 +10,9 @@ import {
   Card, CardHeader, Button, Badge, Alert, EmptyState, Skeleton, useConfirm, cn,
 } from '../ui'
 import { useWorkspaces } from '../../hooks/useWorkspaces'
+import { useAgents } from '../../hooks/useAgents'
 import { useAuth } from '../../context/AuthContext'
 import {
-  AGENT_CONTEXTS,
   type AgentContext,
   type WorkspacesConfig,
   type WorkspaceConfig,
@@ -41,6 +41,7 @@ export function WorkspacesTab() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const { workspaces: canonicalWorkspaces, loading: canonicalLoading, refresh: refreshWorkspaces } = useWorkspaces()
+  const { slugs: agentSlugs, loading: agentsLoading, labelOf: agentLabelOf } = useAgents()
   const [config, setConfig] = useState<WorkspacesConfig | null>(null)
   const [adminRecords, setAdminRecords] = useState<Record<string, WorkspaceRecord>>({})
   const [repos, setRepos] = useState<Record<string, WorkspaceRepo[]>>({})
@@ -371,7 +372,8 @@ export function WorkspacesTab() {
                       {poolSaving === key && <span className="text-[11px] text-fg-3">saving…</span>}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {AGENT_CONTEXTS.map(a => {
+                      {agentsLoading && <Skeleton className="h-7 w-56" />}
+                      {agentSlugs.map(a => {
                         const on = adminRecords[key].default_agent_pool.includes(a)
                         return (
                           <button
@@ -385,7 +387,7 @@ export function WorkspacesTab() {
                                 : 'border-line bg-surface-1 text-fg-3 hover:text-fg-1',
                             )}
                           >
-                            {a}
+                            {agentLabelOf(a)}
                           </button>
                         )
                       })}

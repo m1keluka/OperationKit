@@ -52,12 +52,12 @@ export type CiGateAction =
   /** Not green, but holding would deadlock (absent checks past the bound, or the
    *  hold cap on an unschedulable check). Completion proceeds WITH a durable record. */
   | 'complete-with-red'
-  /** Hold cap reached on a genuine failure. Stop bouncing; raise it to Operator. */
+  /** Hold cap reached on a genuine failure. Stop bouncing; raise it to Mike. */
   | 'escalate'
 
 export interface CiGateDecision {
   action: CiGateAction
-  /** One line, human-readable, safe to persist and to show Operator. */
+  /** One line, human-readable, safe to persist and to show Mike. */
   reason: string
   failingRequired: string[]
   /** Required contexts with no entry, or an entry that is queued/cancelled. */
@@ -80,7 +80,7 @@ export interface CiGateDecision {
 export type GateMode = 'enforce' | 'record-only'
 
 export interface CiGateConfig {
-  /** Max hold cycles for one objective, ever. Beyond this we escalate to Operator. */
+  /** Max hold cycles for one objective, ever. Beyond this we escalate to Mike. */
   holdCap: number
   /** Wall-clock bound (minutes, from first gate evaluation) for ABSENT/queued
    *  required checks. Past this the objective completes with a record. */
@@ -323,7 +323,7 @@ export function evaluateCiGate(input: CiGateInput): CiGateDecision {
         missingRequired,
         reason:
           `Hold cap reached (${holdCount}/${config.holdCap}) with required check(s) still FAILING: ` +
-          `${failingRequired.join(', ')}. Escalated to Operator rather than bouncing worker→review again.`,
+          `${failingRequired.join(', ')}. Escalated to Mike rather than bouncing worker→review again.`,
       }
     }
     if (mode === 'record-only') {
@@ -395,7 +395,7 @@ export function buildHandback(decision: CiGateDecision, repo: string, prNumber: 
     `## Completion blocked — PR #${prNumber} (${repo}) is not green`,
     '',
     'Your work was NOT accepted. An objective must not reach `done` leaving a red PR behind,',
-    'because the PR then has no owner and Operator has to hunt down who is responsible for it.',
+    'because the PR then has no owner and Mike has to hunt down who is responsible for it.',
     '',
   ]
   if (decision.failingRequired.length) {
@@ -426,7 +426,7 @@ export function buildHandback(decision: CiGateDecision, repo: string, prNumber: 
   lines.push('')
   lines.push(
     `_Required-vs-advisory was read from the repo's live branch ${decision.requiredSource}. ` +
-    `Hold ${decision.holdCount + 1}/${DEFAULT_CONFIG.holdCap} — after the cap this escalates to Operator instead of bouncing again._`,
+    `Hold ${decision.holdCount + 1}/${DEFAULT_CONFIG.holdCap} — after the cap this escalates to Mike instead of bouncing again._`,
   )
   lines.push('')
   lines.push('Do NOT merge the PR. Fix the checks, push, then complete again.')

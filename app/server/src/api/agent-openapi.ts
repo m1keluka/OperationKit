@@ -69,11 +69,11 @@ export const AGENT_OPENAPI = {
       ObjectiveType: { type: 'string', enum: ['project', 'bug', 'task'] },
       AgentContext: {
         type: 'string',
-        enum: [
-          'cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel',
-          'chief-of-staff', 'assistant', 'campaign-auditor', 'campaign-launcher',
-          'data-sourcing', 'fundraising-advisor', 'example2-campaign-ops', 'ma-advisor', 'rolodex',
-        ],
+        description:
+          'Agent slug, validated at runtime against the DB-backed agent registry (GET /api/agents) ' +
+          'rather than a fixed enum — an install may add, rename or archive personas. The values ' +
+          'below are the conventional defaults a fresh install ships with.',
+        examples: ['cto', 'cmo', 'coo', 'cfo', 'general'],
       },
       Objective: {
         type: 'object',

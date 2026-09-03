@@ -37,7 +37,7 @@ How to read it: a **person** belongs to **organizations**. An organization links
 | GitHub as you | `user_github_tokens` |
 | Google as you | `user_google_connections` |
 | Secrets | `secrets`, `secret_versions`, `secret_access_log` |
-| Jarvis | `mentor_threads`, `mentor_summaries`, `thread_folders`, `assistant_configs` |
+| Assistant | `mentor_threads`, `mentor_summaries`, `thread_folders`, `assistant_configs` |
 | Linked repos | `workspace_repos`, `workspace_integrations` |
 | Models on Dashboard | `models` |
 | Reviewer QA logins | `test_credentials` |
@@ -54,7 +54,7 @@ Hidden chrome (still in the DB): `dev_items*` (Development), `contacts_index`, `
 | `/home/operator/projects/…` | Git checkouts the agents edit |
 | `/home/operator/second-brain` | Vault Docs reads/writes |
 | `/home/ccuser-*`, `/app/data/cc-accounts/grok` | Subscription homes (OAuth files) |
-| LiteLLM Postgres | Sibling LLM proxy — **not** OperationKit’s DB |
+| LiteLLM Postgres | Sibling LLM proxy — **not** Command Center’s DB |
 | Caddy | TLS in front of `:3002` |
 
 ## Full SQLite inventory

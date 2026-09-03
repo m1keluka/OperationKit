@@ -45,7 +45,7 @@ vi.mock('./ui', () => ({
 }))
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, username: 'admin', role: 'admin' } }),
+  useAuth: () => ({ user: { id: 1, username: 'mike', role: 'admin' } }),
 }))
 
 describe('AccountSettings API key card', () => {

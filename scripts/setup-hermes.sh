@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # setup-hermes.sh — Install and configure Hermes agent on the VPS
-# Run this as the operator user on the VPS host (not inside Docker).
-# Override the systemd identity with OPERATOR_USER / OPERATOR_HOME.
+# Run this as user 'mike' on the VPS host (not inside Docker).
 #
 # Usage:
-#   bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/setup-hermes.sh [install|gateway|status|uninstall]
+#   bash /home/operator/projects/command-center-infra/scripts/setup-hermes.sh [install|gateway|status|uninstall]
 #
 # Phases:
 #   install  — Create virtualenv, pip install, write config (Phase 0)
@@ -117,7 +116,7 @@ memory:
 #   command-center:
 #     type: stdio
 #     command: node
-#     args: [${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/hermes-mcp-server.js]
+#     args: [/home/operator/projects/command-center-infra/scripts/hermes-mcp-server.js]
 CFGEOF
   else
     warn "config.yaml already exists — skipping"
@@ -125,15 +124,15 @@ CFGEOF
 
   # Seed memory files
   mkdir -p "$HERMES_HOME/memories"
-  if [ -f ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/hermes-seeds/MEMORY.md ]; then
+  if [ -f /home/operator/projects/command-center-infra/scripts/hermes-seeds/MEMORY.md ]; then
     if [ ! -f "$HERMES_HOME/memories/MEMORY.md" ]; then
-      cp ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/hermes-seeds/MEMORY.md "$HERMES_HOME/memories/MEMORY.md"
+      cp /home/operator/projects/command-center-infra/scripts/hermes-seeds/MEMORY.md "$HERMES_HOME/memories/MEMORY.md"
       log "Seeded MEMORY.md"
     fi
   fi
-  if [ -f ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/hermes-seeds/USER.md ]; then
+  if [ -f /home/operator/projects/command-center-infra/scripts/hermes-seeds/USER.md ]; then
     if [ ! -f "$HERMES_HOME/memories/USER.md" ]; then
-      cp ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/hermes-seeds/USER.md "$HERMES_HOME/memories/USER.md"
+      cp /home/operator/projects/command-center-infra/scripts/hermes-seeds/USER.md "$HERMES_HOME/memories/USER.md"
       log "Seeded USER.md"
     fi
   fi
@@ -171,12 +170,12 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=${OPERATOR_USER:-operator}
-Group=${OPERATOR_USER:-operator}
+User=mike
+Group=mike
 Environment=HERMES_HOME=$HERMES_HOME
 Environment=PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=$VENV_DIR/bin/hermes gateway run
-WorkingDirectory=${OPERATOR_HOME:-/home/operator}
+WorkingDirectory=/home/mike
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

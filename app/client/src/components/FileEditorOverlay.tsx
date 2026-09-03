@@ -121,7 +121,7 @@ export function FileEditorOverlay({ filePath, onClose }: FileEditorOverlayProps)
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
-  const displayPath = filePath.replace(/^\/home\/admin\//, '~/')
+  const displayPath = filePath.replace(/^\/home\/mike\//, '~/')
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-6">

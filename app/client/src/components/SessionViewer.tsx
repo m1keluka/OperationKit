@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import type { Objective, ObjectiveReview, ObjectivePR, SessionIntel } from '@operationkit/shared'
-import { AGENT_META, type AgentContext } from '@operationkit/shared'
+
 import type { ConnState } from './ConnStatusPill'
 // Lazy: FileEditorOverlay pulls in the heavy BlockNote editor. It only mounts
 // when the operator opens a doc to edit — keeping it out of the board/viewer
 // chunk shrinks the initial bundle (obj 700585).
 const FileEditorOverlay = lazy(() => import('./FileEditorOverlay').then(m => ({ default: m.FileEditorOverlay })))
+import { useAgents } from '../hooks/useAgents'
 import { relativeTime } from '../lib/time'
 import { api } from '../lib/api'
 import { cn } from './ui'
@@ -32,6 +33,7 @@ export function SessionViewer({
   onDesignModeChange,
   onEdit,
 }: SessionViewerProps) {
+  const { labelOf: agentLabelOf } = useAgents()
   const [objective, setObjective] = useState(initialObjective)
   // Sync if parent updates the objective (e.g. via WebSocket). MERGE rather than
   // replace: the board LIST is now slim (obj 700512) and omits heavy text fields
@@ -173,7 +175,9 @@ export function SessionViewer({
     .filter(a => a !== objective.agent_context)
   const subagentWorkers = uniq(intel.map(i => i.subagents_spawned || []))
   const hasActivity = skillsInvoked.length > 0 || subagentPersonas.length > 0 || subagentWorkers.length > 0
-  const agentLabel = (slug: string) => AGENT_META[slug as AgentContext]?.label || slug
+  // Label comes from the DB-backed registry; falls back to the raw slug so a
+  // persona archived after a session ran still renders.
+  const agentLabel = (slug: string) => agentLabelOf(slug)
 
   // Keyboard: Esc closes; `f` toggles fullscreen (ignored while typing so it
   // doesn't swallow the letter in the composer / correction fields).

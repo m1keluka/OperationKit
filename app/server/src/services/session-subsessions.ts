@@ -68,6 +68,8 @@ export async function spawnPlannerSession(objective: Objective): Promise<string>
 
   const tmuxName = spawnInTmux({
     sessionId,
+    // Planner shares the objective with its worker, so the jail name is suffixed.
+    objectiveId: `${objective.id}-plan`,
     homeDir: account.homeDir,
     workdir,
     prompt,
@@ -208,6 +210,8 @@ export async function spawnReviewerSession(objective: Objective): Promise<string
   const reviewerModel = getReviewerModelId()
   const tmuxName = spawnInTmux({
     sessionId,
+    // Reviewer can run alongside the worker's jail — suffix keeps the name unique.
+    objectiveId: `${objective.id}-review`,
     homeDir: account.homeDir,
     workdir,
     prompt,

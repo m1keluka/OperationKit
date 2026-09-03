@@ -103,8 +103,8 @@ describe('parseFrontmatter', () => {
   })
 
   it('strips wrapping double quotes from values', () => {
-    const fm = parseFrontmatter('---\nname: "Alex Example"\n---\nbody')
-    expect(fm?.name).toBe('Alex Example')
+    const fm = parseFrontmatter('---\nname: "Jane Doe"\n---\nbody')
+    expect(fm?.name).toBe('Jane Doe')
   })
 
   it('parses inline arrays', () => {
@@ -154,11 +154,11 @@ describe('computeNextTouchpoint', () => {
 describe('parseContactFile', () => {
   it('parses existing-schema contact file (no email/follow_up_days)', () => {
     writeFile('workspaces/example/contacts/alex.md',
-      '---\ntype: contact\nname: "Alex Example"\ncategory: client\nlast_interaction: 2026-03-11\nworkspace: example\ntags: [example4, m-and-a]\n---\n## About\nbody')
+      '---\ntype: contact\nname: "Jane Doe"\ncategory: client\nlast_interaction: 2026-03-11\nworkspace: example\ntags: [example4, m-and-a]\n---\n## About\nbody')
     const row = parseContactFile(vaultRoot, path.join(vaultRoot, 'workspaces/example/contacts/alex.md'))
     expect(row).toMatchObject({
       vault_path: 'workspaces/example/contacts/alex.md',
-      name: 'Alex Example',
+      name: 'Jane Doe',
       last_interaction: '2026-03-11',
       workspace: 'example',
       follow_up_days: null,
@@ -331,7 +331,7 @@ describe('listContacts', () => {
     // Seed three rows with distinct cadence + workspace + tag shapes
     db.prepare(
       'INSERT INTO contacts_index (vault_path, name, email, tags, follow_up_days, last_interaction, next_touchpoint, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run('workspaces/example/contacts/alex.md', 'Alex Example', 'alex@example4.com', JSON.stringify(['example4', 'm-and-a']), 30, '2026-03-11', '2026-04-10', 'example')
+    ).run('workspaces/example/contacts/alex.md', 'Jane Doe', 'alex@example4.com', JSON.stringify(['example4', 'm-and-a']), 30, '2026-03-11', '2026-04-10', 'example')
     db.prepare(
       'INSERT INTO contacts_index (vault_path, name, email, tags, follow_up_days, last_interaction, next_touchpoint, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run('personal/contacts/zane.md', 'Zane Smith', null, JSON.stringify(['friend']), 60, '2026-05-01', '2026-06-30', 'personal')
@@ -342,17 +342,17 @@ describe('listContacts', () => {
 
   it('default sort puts earliest next_touchpoint first, NULL last', () => {
     const rows = listContacts(db)
-    expect(rows.map(r => r.name)).toEqual(['Alex Example', 'Zane Smith', 'Bea Lee'])
+    expect(rows.map(r => r.name)).toEqual(['Jane Doe', 'Zane Smith', 'Bea Lee'])
   })
 
   it('sort=name orders alphabetically (case-insensitive)', () => {
     const rows = listContacts(db, { sort: 'name' })
-    expect(rows.map(r => r.name)).toEqual(['Alex Example', 'Bea Lee', 'Zane Smith'])
+    expect(rows.map(r => r.name)).toEqual(['Jane Doe', 'Bea Lee', 'Zane Smith'])
   })
 
   it('sort=recent puts the most recent interaction first', () => {
     const rows = listContacts(db, { sort: 'recent' })
-    expect(rows.map(r => r.name)).toEqual(['Zane Smith', 'Bea Lee', 'Alex Example'])
+    expect(rows.map(r => r.name)).toEqual(['Zane Smith', 'Bea Lee', 'Jane Doe'])
   })
 
   it('filter by workspace narrows to one segment', () => {
@@ -369,7 +369,7 @@ describe('listContacts', () => {
   it('tag filter is case-insensitive', () => {
     const rows = listContacts(db, { tag: 'EXAMPLE4' })
     expect(rows).toHaveLength(1)
-    expect(rows[0].name).toBe('Alex Example')
+    expect(rows[0].name).toBe('Jane Doe')
   })
 
   it('parses tags from the JSON column into a string array', () => {
@@ -387,7 +387,7 @@ describe('serializeFrontmatter', () => {
   })
 
   it('quotes strings with colons and renders arrays inline', () => {
-    const fm = { name: 'Alex Example', tags: ['example4', 'm-and-a'], note: 'role: senior' }
+    const fm = { name: 'Jane Doe', tags: ['example4', 'm-and-a'], note: 'role: senior' }
     const yaml = serializeFrontmatter(fm)
     expect(yaml).toContain('tags: [example4, m-and-a]')
     expect(yaml).toContain('"role: senior"')

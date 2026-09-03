@@ -79,7 +79,7 @@ function pr(number: number, over: Partial<PrSummary> = {}): PrSummary {
     headRefOid: `sha${number}`.padEnd(40, '0'),
     headRefName: `branch-${number}`,
     createdAt: '2026-08-01T00:00:00Z',
-    author: { login: 'oss-user', is_bot: false },
+    author: { login: 'm1keluka', is_bot: false },
     statusCheckRollup: [],
     ...over,
   }
@@ -603,7 +603,7 @@ describe('ships dark', () => {
 
   it('the cap defers rather than hiding what the watchdog intended', async () => {
     // Regression lock: an earlier build overwrote `action` with 'skip-cap', which turned
-    // the digest into a wall of "skip-cap" and hid every real intention from Operator.
+    // the digest into a wall of "skip-cap" and hid every real intention from Mike.
     const many = Array.from({ length: 4 }, (_, i) => pr(810 + i, {
       author: { login: 'app/dependabot', is_bot: true },
       statusCheckRollup: [checkRun('Vitest', 'COMPLETED', 'FAILURE', '2026-07-01T00:00:00Z')],
@@ -781,7 +781,7 @@ describe('distinctRunIds', () => {
   })
 })
 
-// ── 7. The Operator-facing surface ──────────────────────────────────────────────────
+// ── 7. The Mike-facing surface ──────────────────────────────────────────────────
 
 describe('renderDigest', () => {
   it('answers which/why/who/attempts for every red PR, worst-first', async () => {

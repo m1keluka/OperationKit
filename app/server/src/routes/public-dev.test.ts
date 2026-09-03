@@ -133,7 +133,7 @@ const VALID_BODY = {
   area: 'checkout',
   route: '/checkout?token=secret#frag',
   submitter_platform_user_id: 'user-abc',
-  submitter_email: 'dana@example-shop.com',
+  submitter_email: 'dana@weightsupply.com',
   route_history: [{ path: '/cart', ts: '2026-08-02T14:02:41Z' }],
   client_meta: { viewport: { w: 1512, h: 858 }, role: 'consultant' },
 }
@@ -466,7 +466,7 @@ describe('P4 GET /api/public/changelog/:workspace/feed.json', () => {
       pr_number: Math.floor(Math.random() * 100000),
       pr_url: 'https://github.com/Example-Project/example-project-platform/pull/912',
       platform: 'Example Project',
-      author: 'oss-user',
+      author: 'm1keluka',
       merged_at: '2026-08-05T22:41:00Z',
       category: 'fix',
       status: 'published',

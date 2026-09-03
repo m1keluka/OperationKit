@@ -1,41 +1,61 @@
 # Changelog
 
-All notable changes to OperationKit are documented in this file.
+Notable operator-facing changes. Newest first.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
-project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+> Not a release log — this repo deploys from `main`. Entries here are the changes
+> that need an operator to *do* or *know* something. Day-to-day product changes are
+> tracked in the board's own changelog (`GET /api/changelog`, Development → Changelog).
 
-## [Unreleased]
+## Unreleased
 
-Changes landed on `main` since `v0.1.0`. Entries are added as they merge.
+### Agent roster is now data (obj 709939 + 709956)
 
-### Added
-- `config/litellm/config.yaml` — a generic, env-var-driven LiteLLM template so
-  `docker compose up -d` succeeds on a fresh clone instead of failing on a missing
-  bind-mount source.
-- `SUPPORT.md`, `NOTICE`, `THIRD-PARTY-NOTICES.md`, and this `CHANGELOG.md`.
-- Documented `PROJECTS_DIR`, `AI_WORKSPACE_DIR`, `CC_REPO_DIR`, `DOPPLER_TOKEN_PATH`, and
-  `USE_SCOPED_DOPPLER_TOKENS` in `.env.example`.
-- A "Secret management" section in `docs/CREDENTIALS.md` stating that `.env` is the
-  primary path and Doppler is optional.
-- An "Any Debian/Ubuntu VPS" section in `docs/SETUP.md`.
+**What changed.** The 17-persona roster used to be a closed TypeScript union
+(`AgentContext`) duplicated across six tracked files. `AGENT_META`,
+`AGENT_CONTEXTS`, `AGENT_MAP` and `WORKDIR_MAP` are **deleted**; `AgentContext`
+is now `string`, and the roster lives in an `agents` table seeded from a
+gitignored `app/server/seed.agents.json`. A fresh install ships five generic
+executives — `cto`, `cmo`, `coo`, `cfo`, `general` — and nothing else. The
+`objectives.agent_context` CHECK constraint is dropped.
 
-### Changed
-- Setup docs now use the real clone URL, `https://github.com/m1keluka/OperationKit.git`.
-- `SECURITY.md` names OperationKit (not the pre-release internal product name) and its
-  self-host checklist names both seeded accounts, `admin` and `ava`.
-- Documentation and script output use operator-generic wording rather than the original
-  operator's name.
+**Operator action.**
 
-### Removed
-- Seven internal runbooks that were published by accident
-  (`docs/supabase-webhook-setup.md`, five `docs/*-ENABLEMENT.md`, and
-  `docs/per-user-google-workspace.md`).
+- *Adding your own agents:* copy `app/server/seed.agents.example.json` to
+  `app/server/seed.agents.json` (gitignored) and edit it before first boot, or
+  use `POST /api/admin/agents-registry` on a running install. Full field
+  reference and both flows: [`docs/MIGRATION.md`](docs/MIGRATION.md).
+- *Existing databases are untouched.* The seed is `INSERT OR IGNORE`; no row is
+  updated or deleted. A pre-existing out-of-band `agents` table is renamed to
+  `agents_legacy_okit` with its rows preserved.
+- *If you use the mentor/assistant surface:* it no longer hardcodes an
+  `assistant` slug or an `<ai-workspace>/agents/assistant.md` path. Set
+  `ASSISTANT_AGENT_SLUG` to a slug in your registry to keep the persona-backed
+  behaviour on a fresh DB. Leaving it unset is fully supported — the assistant
+  degrades to generic wording rather than crashing.
 
-## [0.1.0]
+**Integrations.** `agent_context` is a free-form string in the OpenAPI schema.
+Read the live roster from `GET /api/agents` instead of hardcoding slugs.
 
-First public release of OperationKit: the self-hosted agent operations board — objectives,
-sessions, workspaces, live terminals, and the docs to run it on your own host.
+### OSS publish gate hardened (obj 709956)
 
-[Unreleased]: https://github.com/m1keluka/OperationKit/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/m1keluka/OperationKit/releases/tag/v0.1.0
+`scripts/oss-sync-gate.sh` gained two checks that close the hole through which
+the roster shipped in the first place:
+
+- **check 0 — pre-genericize denylist.** The denylist now also runs against the
+  assembled tree *before* `scripts/oss-genericize.sh` rewrites it. The old
+  single post-genericize pass could only prove "no raw business string
+  survived", never "no business entity was here"; a renamed persona slug
+  would pass the post-genericize check green because the genericizer rewrote
+  its business-identity prefix. CI sets `PREGEN_DIR`; the gate warns loudly
+  when it is unset.
+- **check 4 — roster conformance.** Every agent slug the published tree would
+  seed must appear in `scripts/oss-agent-allowlist.txt`. Fails closed on
+  anything else.
+- **check 3** additionally asserts `seed.agents.json` is absent from the
+  published tree while `seed.agents.example.json` is present.
+
+`scripts/oss-gate-roster-test.sh` proves all three against a throwaway fixture
+(clean → PASS, injected private slug → FAIL).
+
+The `app/telegram-rolodex/` sibling process is now stripped from the public cut
+— see [`docs/oss/RELEASE-MANIFEST.md`](docs/oss/RELEASE-MANIFEST.md).

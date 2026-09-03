@@ -33,10 +33,7 @@ import { execFileSync } from 'child_process'
 import fs from 'fs'
 
 // Projects whose `prd` config feeds the broadcast secret set today.
-// Doppler project names to import from. Override with a comma-separated
-// DOPPLER_PROJECTS env var; the defaults are placeholders, not real projects.
-const PROJECTS = (process.env.DOPPLER_PROJECTS || 'example,operationkit')
-  .split(',').map((s) => s.trim()).filter(Boolean)
+const PROJECTS = ['example', 'command-center-infra']
 const CONFIG = 'prd'
 const ADMIN_TOKEN_PATH = '/home/operator/projects/.doppler-admin-token'
 

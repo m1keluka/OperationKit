@@ -14,8 +14,8 @@ A **refactor PR** may not change anything in this file. If a change is required,
 | `/api/objectives/search` | JWT |
 | `/api/costs` | admin |
 | `/api/docs` | JWT or `cc_live_` API key (tree, file, search) |
-| `/api/mentor` | JWT + Jarvis flag |
-| `/api/jarvis` | JWT |
+| `/api/mentor` | JWT + Assistant flag |
+| `/api/assistant` | JWT |
 | `/api/assistant` | JWT |
 | `/api/status` | JWT |
 | `/api/webhooks` | UptimeRobot (no JWT) |

@@ -5,7 +5,7 @@
  * credential scope-chooser UX from SecretsPage: a scope-type selector that
  * conditionally reveals workspace / project / userId inputs. Adds a
  * resource-type toggle (Agent | Skill) and a resource picker (agent dropdown
- * from AGENT_CONTEXTS; free-text for skills). Backend at
+ * from the DB-backed agent registry via useAgents(); free-text for skills). Backend at
  * /api/resource-assignments (obj-2388) — this UI only surfaces it.
  */
 import { useState, useEffect, useCallback } from 'react'
@@ -14,8 +14,8 @@ import {
   Card, CardHeader, Button, Alert, EmptyState, Skeleton, useConfirm, cn,
 } from '../ui'
 import { useWorkspaces } from '../../hooks/useWorkspaces'
+import { useAgents } from '../../hooks/useAgents'
 import {
-  AGENT_CONTEXTS,
   type AgentContext,
   type ResourceAssignment,
   type ResourceType,
@@ -50,16 +50,27 @@ function scopeLabel(a: ResourceAssignment): string {
 
 export function AssignmentsTab() {
   const { slugs: workspaceSlugs } = useWorkspaces()
+  const { slugs: agentSlugs, loading: agentsLoading, labelOf: agentLabelOf } = useAgents()
   const { confirm, confirmDialog } = useConfirm()
 
   // Filter / form state.
   const [resourceType, setResourceType] = useState<ResourceType>('agent')
   const [scopeType, setScopeType] = useState<ResourceScopeType>('global')
-  const [agentId, setAgentId] = useState<AgentContext>(AGENT_CONTEXTS[0])
+  // Seeded from the bundled default roster, then reconciled once the registry
+  // fetch lands — never an empty selection.
+  const [agentId, setAgentId] = useState<AgentContext>(agentSlugs[0] ?? 'general')
   const [skillId, setSkillId] = useState('')
   const [workspace, setWorkspace] = useState('')
   const [project, setProject] = useState('')
   const [userId, setUserId] = useState('')
+
+  // If the fetched roster doesn't contain the seeded selection (a custom
+  // roster, or the bundled fallback was used), snap to the first real slug.
+  useEffect(() => {
+    if (!agentsLoading && agentSlugs.length && !agentSlugs.includes(agentId)) {
+      setAgentId(agentSlugs[0])
+    }
+  }, [agentsLoading, agentSlugs, agentId])
 
   const [assignments, setAssignments] = useState<ResourceAssignment[]>([])
   const [loading, setLoading] = useState(true)
@@ -176,15 +187,19 @@ export function AssignmentsTab() {
               {resourceType === 'agent' ? 'Agent' : 'Skill name'}
             </label>
             {resourceType === 'agent' ? (
-              <select
-                value={agentId}
-                onChange={e => setAgentId(e.target.value as AgentContext)}
-                className={selectCls}
-              >
-                {AGENT_CONTEXTS.map(a => (
-                  <option key={a} value={a}>{a}</option>
-                ))}
-              </select>
+              agentsLoading ? (
+                <Skeleton className="h-8 w-48" />
+              ) : (
+                <select
+                  value={agentId}
+                  onChange={e => setAgentId(e.target.value)}
+                  className={selectCls}
+                >
+                  {agentSlugs.map(a => (
+                    <option key={a} value={a}>{agentLabelOf(a)}</option>
+                  ))}
+                </select>
+              )
             ) : (
               <input
                 type="text"

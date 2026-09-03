@@ -11,3 +11,7 @@ data
 sms-*.csv
 app/client/tsconfig.tsbuildinfo
 .playwright-mcp/
+
+# Real (non-example) registry seeds — never published to the OSS mirror.
+seed.agents.json
+app/server/seed.agents.json

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { fileURLToPath } from 'url'
 
 // SAFETY: bind the DB to a per-process temp FILE BEFORE importing db/index.
 // db/index reads DB_PATH at module-load; setting it here (then dynamic-importing)
@@ -13,7 +14,7 @@ const { initDb, getDb } = await import('../db/index.js')
 const { decideDeadSessionRepark } = await import('./state-poller.js')
 
 // The EXACT main-poll select query (state-poller.ts) — the churn's selection set.
-const SELECT = "SELECT * FROM objectives WHERE status IN ('working', 'review') AND session_id IS NOT NULL"
+const SELECT = "SELECT * FROM objectives WHERE status IN ('working', 'review') AND session_id IS NOT NULL AND deleted_at IS NULL"
 
 function seedReviewWithDeadSession(sessionId: string): number {
   const r = getDb().prepare(
@@ -96,5 +97,24 @@ describe('MODE-1 churn is killed after one pass (flag ON)', () => {
     const row = getDb().prepare('SELECT * FROM objectives WHERE id = ?').get(id) as { session_id: string | null }
     expect(row.session_id).toBe('cc-9-dead') // NOT cleared
     expect((getDb().prepare(SELECT).all() as { id: number }[]).some(o => o.id === id)).toBe(true) // still churning
+  })
+})
+
+describe('live poller does not tmux-probe Needs-You cards (HTTP-starve fix)', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url))
+
+  it('poller-loop sweeps review session_id before the live select', () => {
+    const src = fs.readFileSync(path.join(here, 'poller-loop.ts'), 'utf8')
+    const sweep = src.indexOf("WHERE status = 'review'")
+    const select = src.indexOf(SELECT)
+    expect(sweep).toBeGreaterThan(0)
+    expect(select).toBeGreaterThan(0)
+    expect(sweep).toBeLessThan(select)
+    expect(src).toContain("if (objective.status === 'review') continue")
+  })
+
+  it('poller skips overlapping ticks', () => {
+    const src = fs.readFileSync(path.join(here, 'state-poller.ts'), 'utf8')
+    expect(src).toContain('if (pollInFlight) return')
   })
 })

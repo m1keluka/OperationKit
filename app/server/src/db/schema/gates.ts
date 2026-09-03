@@ -157,7 +157,7 @@ export function initGatesSchema(db: Database.Database): void {
   //  - hygiene_auto_accept_enabled: advance review + verdict='pass' rows to done after
   //    REVIEW_PASS_TTL (never touches verdict IS NULL — those need a human).
   //  - hygiene_review_hard_expiry_enabled: soft-close verdict=null review items older
-  //    than REVIEW_HARD_EXPIRY to done (digest-visible). Operator wants digest-only by
+  //    than REVIEW_HARD_EXPIRY to done (digest-visible). Mike wants digest-only by
   //    default, so this stays OFF until explicitly armed.
   // Env overrides: CC_HYGIENE_QUEUE_DRAINER / CC_HYGIENE_AUTO_ACCEPT /
   // CC_HYGIENE_REVIEW_HARD_EXPIRY. See lib/hygiene-config.ts.
@@ -191,7 +191,7 @@ export function initGatesSchema(db: Database.Database): void {
   // loop_drift_metrics snapshot is written each Regress, and the three pause gates
   // are evaluated-and-LOGGED but take no action. `kitchen_loop_killed` is the
   // instant disarm (mirrors the governance.ts isXEnabled/isXKilled pattern). Flipping
-  // emission ON / a single-repo pilot is a SEPARATE Operator-gated step, not this flag.
+  // emission ON / a single-repo pilot is a SEPARATE Mike-gated step, not this flag.
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('kitchen_loop_enabled', '0')").run()
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('kitchen_loop_killed', '0')").run()
   // Kitchen Loop Stage-C live-execution flags (obj 700315) — ALL default OFF. These

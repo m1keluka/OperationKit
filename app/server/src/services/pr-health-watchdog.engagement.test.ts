@@ -115,7 +115,7 @@ function livePr(): PrSummary {
     headRefOid: SHA,
     headRefName: 'cto/704687-value-gate',
     createdAt: '2026-08-06T18:00:00Z',
-    author: { login: 'oss-user', is_bot: false },
+    author: { login: 'm1keluka', is_bot: false },
     statusCheckRollup: [
       {
         __typename: 'CheckRun',
@@ -280,7 +280,7 @@ describe('runWatchdogOnce — convergence on a PR stuck at skip-owner-engaged', 
     expect(p.action).not.toBe('skip-owner-engaged')
     expect(p.action).toBe('rerun-cancelled')
     expect(p.wouldOnly).toBe(false)
-    // WHY it stopped counting stays on the surface for Operator.
+    // WHY it stopped counting stays on the surface for Mike.
     expect(p.ownerReason).toContain('owner finished')
     expect(p.ownerReason).toContain('objective is done')
     // It really acted: one `gh run rerun` for the cancelled job's run.

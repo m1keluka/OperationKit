@@ -155,7 +155,7 @@ EXPECTED to create/modify zero files beyond its own NOTES.md and to spawn worker
 Do NOT invent "not built", "no files created", "UI mockup not created", "implementation not
 begun", or "awaiting developer" blockers from an empty file list or from the objective's
 description. Report a blocker ONLY if the delegator's own output explicitly states one
-(e.g. an unanswered decision it is waiting on Operator for). Likewise set "outcome": use
+(e.g. an unanswered decision it is waiting on Mike for). Likewise set "outcome": use
 "outcome":"success" whenever the delegator advanced its plan — spawned or iterated a worker,
 recorded the registry, or handed off. Only use "partial"/"blocked" if the delegator ITSELF
 reports it could not proceed. The "summary" must describe what the delegator ORCHESTRATED —

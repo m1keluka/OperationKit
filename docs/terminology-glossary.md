@@ -1,4 +1,4 @@
-# OperationKit — Canonical Hierarchy Terminology
+# Command Center — Canonical Hierarchy Terminology
 
 > Ratified glossary (obj 2383, 2026-06-28). One vocabulary across schema, server,
 > and UI. Before this, "strategy" was inferred (`depth-0 + delegate_mode=1`) and

@@ -1,7 +1,7 @@
 // Scratchpad engine — a dead-simple, per-USER human markdown store.
 //
 // One row per user in the `scratchpads` table (user_id PRIMARY KEY): a single free-text
-// markdown blob Operator (or any authenticated user) types into. Strictly per-account —
+// markdown blob Mike (or any authenticated user) types into. Strictly per-account —
 // every read/write is keyed off the authenticated user id, so two users never see each
 // other's content.
 //

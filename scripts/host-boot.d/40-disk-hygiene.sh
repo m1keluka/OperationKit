@@ -3,7 +3,7 @@
 # run disk-cleanup.sh. Cheap no-op otherwise. flock so a long prune can't stack.
 set -uo pipefail
 LOCK=/tmp/cc-disk-hygiene.lock
-SCRIPT=${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/disk-cleanup.sh
+SCRIPT=/home/operator/projects/command-center-infra/scripts/disk-cleanup.sh
 
 exec 9>"$LOCK"
 if ! flock -n 9; then

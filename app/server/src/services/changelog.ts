@@ -71,9 +71,9 @@ export function classifyPR(
 // ── Platform / brand mapping ──
 
 const PLATFORM_MAP: Record<string, string> = {
-  'your-org/command-center-infra': 'Command Center',
-  'your-org/example-platform': 'Example Platform',
-  'your-org/example-project-platform': 'Example Project',
+  'example-growth/command-center-infra': 'Command Center',
+  'example-growth/example-platform': 'Example Platform',
+  'example-growth/example-project-platform': 'Example Project',
 }
 
 function titleCase(s: string): string {

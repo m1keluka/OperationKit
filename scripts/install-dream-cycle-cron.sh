@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-SCRIPT_PATH="${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/dream-cycle.sh"
+SCRIPT_PATH="/home/operator/projects/command-center-infra/scripts/dream-cycle.sh"
 ENV_FILE="$HOME/.config/command-center/cron.env"
 MARKER="# command-center: dream-cycle"
 

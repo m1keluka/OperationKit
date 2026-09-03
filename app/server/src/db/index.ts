@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url'
 import { backfillAllDepths } from '../lib/objective-depth.js'
 import { initDevelopmentSchema, seedDevelopmentRegistry } from './schema/development.js'
 import { initCoreSchema } from './schema/core.js'
+import { initAgentsSchema } from './schema/agents.js'
+import { rebuildObjectivesTable } from './schema/objectives-rebuild.js'
 import { initKitchenLoopSchema } from './schema/kitchen.js'
 import { initSecretsSchema } from './schema/secrets.js'
 import { initDsrSchema } from './schema/dsr.js'
@@ -58,36 +60,10 @@ export function initDb(): Database.Database {
 
   initCoreSchema(db)
 
-  // Fix agent_context CHECK constraint for existing DBs — old constraint only allowed 5 values,
-  // but we now support 8 (added designer, hr, general-counsel). SQLite can't ALTER CHECK constraints,
-  // so we drop and recreate the constraint by rebuilding the table if the old constraint is detected.
-  try {
-    // Test if the old constraint blocks new values
-    db.exec("INSERT INTO objectives (title, agent_context) VALUES ('__constraint_test__', 'designer')")
-    db.exec("DELETE FROM objectives WHERE title = '__constraint_test__'")
-  } catch {
-    // Old constraint is blocking — need to rebuild the table
-    console.log('[db] Rebuilding objectives table to expand agent_context CHECK constraint...')
-    db.exec(`
-      CREATE TABLE objectives_new AS SELECT * FROM objectives;
-      DROP TABLE objectives;
-      CREATE TABLE objectives (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('queue', 'working', 'review', 'done')),
-        agent_context TEXT NOT NULL DEFAULT 'general' CHECK(agent_context IN ('cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel')),
-        assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        session_id TEXT,
-        transcript_path TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      INSERT INTO objectives SELECT id, title, description, status, agent_context, assigned_user_id, session_id, transcript_path, created_at, updated_at FROM objectives_new;
-      DROP TABLE objectives_new;
-      CREATE INDEX IF NOT EXISTS idx_objectives_status ON objectives(status);
-    `)
-  }
+  // Agent registry (table + seeds) and the agent_context CHECK drop. Runs right
+  // after the core schema so every later migration and every runtime read sees a
+  // populated `agents` table and an unconstrained agent_context column.
+  initAgentsSchema(db)
 
   // Status CHECK constraint management. The current allowed set is:
   //   planning, queue, working, ai_review, review, done, cancelled
@@ -128,47 +104,12 @@ export function initDb(): Database.Database {
     // new CHECK doesn't reject them during the data copy.
     db.exec("UPDATE objectives SET status = 'review' WHERE status = 'human_review'")
     console.log('[db] Rebuilding objectives table to apply current status CHECK (planning/queue/working/ai_review/review/done)...')
-    const cols = db.prepare("PRAGMA table_info(objectives)").all() as { name: string; type: string; dflt_value: string | null; notnull: number; pk: number }[]
-    const colNames = cols.map(c => c.name)
-    const colList = colNames.join(', ')
-
-    // Build CREATE statement with the expanded CHECK constraint. Keep every
-    // existing column with its current type/default — we only touch the
-    // status constraint; everything else passes through unchanged.
-    const colDefs = cols.map(c => {
-      if (c.name === 'status') {
-        return `status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('planning','queue','working','ai_review','review','done','cancelled'))`
-      }
-      // The status-rebuild path used to drop the agent_context CHECK because the
-      // generic branch below only re-emits type/NOT NULL/DEFAULT. Restate it.
-      if (c.name === 'agent_context') {
-        return `agent_context TEXT NOT NULL DEFAULT 'general' CHECK(agent_context IN ('cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel'))`
-      }
-      if (c.name === 'id') return `id INTEGER PRIMARY KEY AUTOINCREMENT`
-      const notNull = c.notnull ? ' NOT NULL' : ''
-      // PRAGMA strips outer parens from expression defaults (e.g. `(datetime('now'))` → `datetime('now')`).
-      // SQLite requires compound-expression defaults to be parenthesized, so re-wrap anything that
-      // isn't a bare literal (string-literal starting with `'`, plain number, NULL, or CURRENT_*).
-      let dflt = ''
-      if (c.dflt_value !== null) {
-        const v = String(c.dflt_value)
-        const isLiteral = /^'.*'$/.test(v) || /^-?\d+(\.\d+)?$/.test(v) || /^(NULL|CURRENT_TIMESTAMP|CURRENT_DATE|CURRENT_TIME)$/i.test(v)
-        dflt = isLiteral ? ` DEFAULT ${v}` : ` DEFAULT (${v})`
-      }
-      return `${c.name} ${c.type}${notNull}${dflt}`
-    }).join(',\n        ')
-
-    db.exec(`
-      BEGIN;
-      CREATE TABLE objectives_new (
-        ${colDefs}
-      );
-      INSERT INTO objectives_new (${colList}) SELECT ${colList} FROM objectives;
-      DROP TABLE objectives;
-      ALTER TABLE objectives_new RENAME TO objectives;
-      CREATE INDEX IF NOT EXISTS idx_objectives_status ON objectives(status);
-      COMMIT;
-    `)
+    // Only the status column definition changes; every other column (including
+    // agent_context, whose CHECK the agent registry deliberately dropped) is
+    // passed through verbatim, and all indexes are restored.
+    rebuildObjectivesTable(db, {
+      status: `status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('planning','queue','working','ai_review','review','done','cancelled'))`,
+    })
   }
 
   // Migrations: add columns if they don't exist (safe for existing DBs)
@@ -210,12 +151,7 @@ export function initDb(): Database.Database {
   // Per-workspace permission flags (additive migrations — idempotent)
   const uwCols = db.prepare("PRAGMA table_info(user_workspaces)").all() as { name: string }[]
   const uwNames = new Set(uwCols.map(c => c.name))
-  // Forward migration: the permission flag was originally named `can_use_jarvis`.
-  // On a pre-existing DB, RENAME it (preserving each membership's setting); on a
-  // fresh DB, just ADD the new column. Idempotent either way.
-  if (uwNames.has('can_use_jarvis') && !uwNames.has('can_use_assistant')) {
-    db.exec("ALTER TABLE user_workspaces RENAME COLUMN can_use_jarvis TO can_use_assistant")
-  } else if (!uwNames.has('can_use_assistant')) {
+  if (!uwNames.has('can_use_assistant')) {
     db.exec("ALTER TABLE user_workspaces ADD COLUMN can_use_assistant INTEGER NOT NULL DEFAULT 1")
   }
   if (!uwNames.has('objective_visibility')) {
@@ -360,7 +296,7 @@ export function initDb(): Database.Database {
     // Strategy progressive-trust ladder (obj 2511, 2026-06-29). Per-strategy
     // autonomy stage on the 4-rung ladder from the gating framework
     // (architecture/strategy-layer-gating-review-framework.md §2):
-    //   0 = full-gate (every strategic decision parks for Operator — the safe default)
+    //   0 = full-gate (every strategic decision parks for Mike — the safe default)
     //   1 = partial-autonomy   2 = supervised-autonomy   3 = autonomous
     // What is auto-allowed vs gated at each stage is a PURE function of this
     // column (decideTrustStageAction in services/strategy-governance.ts); the
@@ -378,7 +314,7 @@ export function initDb(): Database.Database {
   // Corrective one-time reset (obj 2835). obj 2383 shipped a backfill that stamped
   // is_strategy=1 on every top-level delegator (`delegate_mode=1 AND parent_id IS
   // NULL`) AND inferred the marker ungated at create/update time. Since nearly every
-  // objective Operator runs is a top-level delegator, his entire history got wrongly
+  // objective Mike runs is a top-level delegator, his entire history got wrongly
   // stamped is_strategy=1 and showed the STRATEGY badge. is_strategy is now an
   // EXPLICIT opt-in marker only (set at creation, never inferred). To clear the
   // bad historical data we reset is_strategy=0 for ALL currently-stamped rows.
@@ -407,7 +343,7 @@ export function initDb(): Database.Database {
     // Durable wake-storm guard (2026-06-21): the per-delegator child-state
     // "signature" the reconcile safety net (state-poller.reconcileDelegators)
     // last nudged for. Persisting it across restarts stops an all-done delegator
-    // parked in `review` (awaiting Operator's accept) from being spuriously re-woken
+    // parked in `review` (awaiting Mike's accept) from being spuriously re-woken
     // on every server restart — each spurious wake spawned a ~$7 [child-complete]
     // session. NULL until the reconcile pass first records a signature; cleared
     // when the delegator reaches `done`. See
@@ -506,7 +442,7 @@ export function initDb(): Database.Database {
   // ── Strategy decision gate (obj 2385, 2026-06-28) ──────────────────────────
   // Broaden objective_reviews to store a strategy node's Stage-0 Decision
   // Request as a review row: mode='decision' (a fourth review surface alongside
-  // browser/api/doc/noop) with verdict='pending' while it awaits Operator's
+  // browser/api/doc/noop) with verdict='pending' while it awaits Mike's
   // confirm/deny, then 'pass' (approved) / 'fail' (denied). This REUSES the
   // reviews table per the strategy-layer gating design (decision history,
   // review history, and the false-pass join all stay in one place) instead of a
@@ -697,7 +633,7 @@ export function initDb(): Database.Database {
   //   - origin: how the objective was created (manual|strategy|routine|job_reply).
   //   - strategy_id: the Strategy (is_strategy=1) this objective belongs to /
   //     is associated with. Inherited from the parent chain at insert, OR set
-  //     explicitly on a MANUAL objective (even when parent_id IS NULL) so Operator
+  //     explicitly on a MANUAL objective (even when parent_id IS NULL) so Mike
   //     can associate a hand-created objective with a strategy and still see it.
   // Both default such that absence preserves prior behavior (origin='manual',
   // strategy_id=NULL). See docs/terminology-glossary.md.
@@ -804,7 +740,7 @@ export function initDb(): Database.Database {
 
   initLeasesSchema(db)
 
-  // Seed routines — both DISABLED (enabled=0); Operator flips them on after review.
+  // Seed routines — both DISABLED (enabled=0); Mike flips them on after review.
   const seedRoutines: Array<{ name: string; cron_expr: string; template: Record<string, unknown>; enabled?: number }> = [
     {
       name: 'morning-briefing',

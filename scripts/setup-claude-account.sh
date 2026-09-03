@@ -2,7 +2,7 @@
 # Setup a Claude Code account slot for the account rotation system.
 #
 # Usage (run from INSIDE the command-center container):
-#   bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/setup-claude-account.sh <slot>
+#   bash /home/operator/projects/command-center-infra/scripts/setup-claude-account.sh <slot>
 #
 # Slots: a, b, c, d, e
 # Each slot gets its own home directory at /home/ccuser-<slot>/

@@ -23,7 +23,7 @@ beforeAll(async () => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
   const hash = bcrypt.hashSync('pw', 4)
-  getDb().prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('admin', hash, 'admin')
+  getDb().prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('mike', hash, 'admin')
   const app = express()
   app.use(express.json())
   app.use(cookieParser())
@@ -32,7 +32,7 @@ beforeAll(async () => {
   const addr = server.address()
   if (!addr || typeof addr === 'string') throw new Error('no address')
   baseUrl = `http://127.0.0.1:${addr.port}`
-  cookie = `token=${jwt.sign({ id: 1, username: 'admin', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
+  cookie = `token=${jwt.sign({ id: 1, username: 'mike', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
 })
 
 afterAll(async () => {

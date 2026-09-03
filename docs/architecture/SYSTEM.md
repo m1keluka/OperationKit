@@ -1,4 +1,4 @@
-# OperationKit — system map
+# Command Center — system map
 
 Web control plane at `cc.example.com`. It runs AI coding agents (Claude Code, Codex) as **objectives** on a kanban board. Each working objective is a tmux session on the VPS. The Node process is a thin supervisor over host bind-mounts (projects, vault, transcripts, Claude account homes, Docker socket).
 
@@ -7,7 +7,7 @@ Web control plane at `cc.example.com`. It runs AI coding agents (Claude Code, Co
 ```
 capture          dispatch              execute                    archive
 Gmail/Granola    UI or                 tmux Claude/Codex          session-intel
-Jarvis/loops     /api/internal         3s state-poller            vault writes
+Assistant/loops     /api/internal         3s state-poller            vault writes
 dev-items        routines              AI review + floors         dream-cycle
 meetings         Hermes (planned)      PR health (flag-gated)     daily digest
 ```
@@ -43,7 +43,7 @@ Self-deploy bind-mounts `app/server/src`, `app/client/src`, `app/shared`, `app/c
 
 ## What is in-process vs sibling
 
-**In this Node process (must stay green):** session spawn, poller, intel, Jarvis/mentor, costs, workspaces, board HTTP, flag-gated gates/watchdogs.
+**In this Node process (must stay green):** session spawn, poller, intel, Assistant/mentor, costs, workspaces, board HTTP, flag-gated gates/watchdogs.
 
 **Siblings:** LiteLLM, Caddy, host cron (`scripts/install-*-cron.sh`), optional Hermes/n8n/OpenHands/telegram-rolodex.
 

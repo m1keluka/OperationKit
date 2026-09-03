@@ -50,4 +50,4 @@ Source artifacts: captured to `.playwright-mcp/` (gitignored), curated + renumbe
 - **Live-preview board, not a seeded fixture.** The card list in `02`/`04` is
   whatever PR-110's board held at run time; a re-run will show a different set.
   For evidence that must be reproducible, seed a tagged fixture first (see the
-  example-shop `s3-1-workbench` run for that pattern).
+  grass-fed `s3-1-workbench` run for that pattern).

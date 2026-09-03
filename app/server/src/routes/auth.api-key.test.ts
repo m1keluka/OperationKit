@@ -26,7 +26,7 @@ beforeAll(async () => {
   const hash = bcrypt.hashSync('correct-horse', 4)
   getDb().prepare(
     'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
-  ).run('admin', hash, 'admin')
+  ).run('mike', hash, 'admin')
 
   const app = express()
   app.set('trust proxy', true)
@@ -39,7 +39,7 @@ beforeAll(async () => {
   const addr = server.address()
   if (!addr || typeof addr === 'string') throw new Error('server has no address')
   baseUrl = `http://127.0.0.1:${addr.port}`
-  cookie = `token=${jwt.sign({ id: 1, username: 'admin', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
+  cookie = `token=${jwt.sign({ id: 1, username: 'mike', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
 })
 
 afterAll(async () => {
@@ -82,7 +82,7 @@ describe('API key (Settings → You)', () => {
       headers: { Authorization: `Bearer ${body.token}` },
     })
     expect(me.status).toBe(200)
-    expect((await me.json() as { username: string }).username).toBe('admin')
+    expect((await me.json() as { username: string }).username).toBe('mike')
   })
 
   it('rotating kills the old key', async () => {

@@ -3,9 +3,9 @@
 # The script itself no-ops into a cheap light pass when the disk is under 80%.
 set -euo pipefail
 
-SCRIPT_PATH="${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/disk-cleanup.sh"
+SCRIPT_PATH="/home/operator/projects/command-center-infra/scripts/disk-cleanup.sh"
 MARKER="# command-center: disk-cleanup"
-HOST_BOOT_SRC="${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/host-boot.d/40-disk-hygiene.sh"
+HOST_BOOT_SRC="/home/operator/projects/command-center-infra/scripts/host-boot.d/40-disk-hygiene.sh"
 HOST_BOOT_DST="/home/operator/ai-workspace/host-boot.d/40-disk-hygiene.sh"
 
 chmod +x "$SCRIPT_PATH"

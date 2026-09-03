@@ -33,7 +33,7 @@ import {
 } from './deterministic-floor.js'
 import { heartbeatBranchLease, releaseBranchLease } from './branch-lease.js'
 import { heartbeatSessionLeasesForObjective, releaseSessionLeasesForObjective } from './session-lease.js'
-import { logObjectiveAudit } from './objective-audit.js'
+import { logObjectiveAudit, isClearDeadSessionEnabled } from './objective-audit.js'
 import { deriveBranchName } from './branch-scope.js'
 import {
   isGateRejectionMemoryEnabled,
@@ -238,12 +238,35 @@ export async function pollActiveSessions(): Promise<void> {
   }
 
   const db = getDb()
+
+  // Cards already at the human gate (status=review) used to stay in this
+  // select forever: getSessionState returns 'review' (not 'dead') when the
+  // jsonl has a result event, so FIX A's clear-session branch never ran.
+  // Each 3s tick then paid `tmux has-session` + a 1MB jsonl tail per row
+  // (~100 Needs-You cards on a busy board) and starved HTTP — creating an
+  // objective hung for several seconds. Drop them out of the live set first.
+  if (isClearDeadSessionEnabled()) {
+    try {
+      db.prepare(
+        `UPDATE objectives
+            SET session_id = NULL
+          WHERE status = 'review'
+            AND session_id IS NOT NULL
+            AND deleted_at IS NULL`,
+      ).run()
+    } catch (err) {
+      console.error('[state-poller] review session_id sweep failed:', err)
+    }
+  }
+
   const actives = db
-    .prepare("SELECT * FROM objectives WHERE status IN ('working', 'review') AND session_id IS NOT NULL")
+    .prepare("SELECT * FROM objectives WHERE status IN ('working', 'review') AND session_id IS NOT NULL AND deleted_at IS NULL")
     .all() as Objective[]
 
   for (const objective of actives) {
     if (!objective.session_id) continue
+    // Defense in depth: never pay tmux/jsonl for a card already at Needs You.
+    if (objective.status === 'review') continue
     // Human already clicked Done/Cancelled this tick (or earlier). Do not
     // route a dying tmux session back to Needs You / Working over that.
     if (skipMachineStatusWrite(db, objective.id)) continue
@@ -472,19 +495,22 @@ export async function pollActiveSessions(): Promise<void> {
       }
 
       // route-to-review: working→review (session died) — unchanged behavior. Audit the transition.
-      if (objective.status !== 'review') {
-        logObjectiveAudit(db, {
-          objectiveId: objective.id,
-          eventType: 'status_change',
-          fromStatus: objective.status,
-          toStatus: 'review',
-          actor: 'state-poller',
-          pathway: 'dead-session-route-to-review',
-          sessionId: objective.session_id,
-          titleSnapshot: objective.title,
-          workspace: objective.workspace,
-        })
-      }
+      // No `status !== 'review'` guard: `decideDeadSessionRepark` returns
+      // 'clear-session' or 'skip-noop' for every already-`review` row and both
+      // branches `continue` above, so reaching here means the status is not
+      // 'review'. TypeScript proves it (the narrowed union excludes 'review'),
+      // and the guard was a compile error — TS2367 on main after #448.
+      logObjectiveAudit(db, {
+        objectiveId: objective.id,
+        eventType: 'status_change',
+        fromStatus: objective.status,
+        toStatus: 'review',
+        actor: 'state-poller',
+        pathway: 'dead-session-route-to-review',
+        sessionId: objective.session_id,
+        titleSnapshot: objective.title,
+        workspace: objective.workspace,
+      })
       runMachineStatusUpdate(
         db,
         "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",

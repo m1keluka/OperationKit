@@ -1,7 +1,7 @@
 /**
  * CI → objective feedback bridge — DROPLET-SIDE POLLER (obj 701617).
  *
- * WHAT THE OPERATOR ASKED: "Is there a way we can push test results back to the objective
+ * WHAT MIKE ASKED: "Is there a way we can push test results back to the objective
  * that kicked off the PR so it will keep iterating until it is passing?" — yes. When
  * an example-platform PR's `vitest` check fails, post a concise failing-test summary into
  * the originating Command Center objective (via the LOCAL internal API) so the worker
@@ -14,7 +14,7 @@
  *  - This is a PULL loop: it is READ-ONLY against GitHub (`gh pr list/checks/run view`)
  *    and POSTs only to localhost. It does NOT require a public webhook endpoint, an
  *    inbound tunnel, or any GitHub org/repo settings change, and it never executes
- *    untrusted PR code (a self-hosted runner would — that path is deferred to Operator).
+ *    untrusted PR code (a self-hosted runner would — that path is deferred to Mike).
  *  - A webhook-driven sibling already exists (services/external-remediation.ts, obj
  *    1960) but depends on GitHub → droplet delivery. This poller is the pull-based
  *    complement and SHARES the same dedupe table (`external_check_remediations`) so the
@@ -217,7 +217,7 @@ export function buildNudgeMessage(args: { pr: number; repo: string; headSha: str
       : `(Could not extract the failing-test lines — open the check run link above.)`,
     ``,
     `Fix in your PR-branch worktree (absolute paths only), commit, and \`git push\`. Do NOT`,
-    `merge — Operator merges. If it fails again you'll get another automated nudge (bounded at ${cap}).`,
+    `merge — Mike merges. If it fails again you'll get another automated nudge (bounded at ${cap}).`,
   ].join('\n')
 }
 

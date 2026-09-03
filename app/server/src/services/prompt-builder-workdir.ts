@@ -6,13 +6,13 @@
  */
 import fs from 'fs'
 import path from 'path'
-import type { Objective, AgentContext } from '@operationkit/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
+import { resolveAgentWorkdir } from './agent-registry.js'
 import {
   AGENTS_DIR,
   WORKSPACES_JSON,
   PROJECTS_DIR,
-  AI_WORKSPACE_DIR,
   HOME_DIR,
 } from '../config.js'
 
@@ -35,7 +35,7 @@ export interface OnBehalfUser {
  *   ~/ai-workspace/users/<username>/profile.md
  * which sessions read for tone/preference/access defaults. The absolute path
  * is included so the prompt can reference it (the spawn shell HOME is the
- * ccuser dir, not /home/operator, so ~/ in instructions won't resolve correctly).
+ * ccuser dir, not /home/mike, so ~/ in instructions won't resolve correctly).
  */
 export function resolveOnBehalfUser(objective: Objective): OnBehalfUser | null {
   const userId = objective.assigned_user_id ?? objective.created_by
@@ -70,53 +70,6 @@ export const OBJ_COMPACTION_TAIL_TURNS = 15
 export const COMPACTION_SESSION_SENTINEL = 'compaction'
 
 export type ObjectiveTurn = { role: 'user' | 'assistant'; text: string }
-
-// agent_context → persona filename (no `.md`). Identity for every persona file
-// in `~/ai-workspace/agents/`. All 17 are mapped (obj-2387, D7) so every
-// assignable agent inlines its real instructions — no broken/empty reads.
-export const AGENT_MAP: Record<AgentContext, string> = {
-  cto: 'cto',
-  cmo: 'cmo',
-  coo: 'coo',
-  cfo: 'cfo',
-  general: 'general',
-  designer: 'designer',
-  hr: 'hr',
-  'general-counsel': 'general-counsel',
-  'chief-of-staff': 'chief-of-staff',
-  assistant: 'assistant',
-  'campaign-auditor': 'campaign-auditor',
-  'campaign-launcher': 'campaign-launcher',
-  'data-sourcing': 'data-sourcing',
-  'fundraising-advisor': 'fundraising-advisor',
-  'example2-campaign-ops': 'example2-campaign-ops',
-  'ma-advisor': 'ma-advisor',
-  rolodex: 'rolodex',
-}
-
-// agent_context → default working directory. cto is the only code-shipping role
-// (→ the projects checkout); `general` runs from $HOME; every other persona is
-// an ops/strategy role that runs from the ai-workspace. Project-linked
-// objectives override this entirely via resolveWorkdir() (the worktree path).
-export const WORKDIR_MAP: Record<AgentContext, string> = {
-  cto: PROJECTS_DIR,
-  cmo: AI_WORKSPACE_DIR,
-  coo: AI_WORKSPACE_DIR,
-  cfo: AI_WORKSPACE_DIR,
-  general: HOME_DIR,
-  designer: AI_WORKSPACE_DIR,
-  hr: AI_WORKSPACE_DIR,
-  'general-counsel': AI_WORKSPACE_DIR,
-  'chief-of-staff': AI_WORKSPACE_DIR,
-  assistant: AI_WORKSPACE_DIR,
-  'campaign-auditor': AI_WORKSPACE_DIR,
-  'campaign-launcher': AI_WORKSPACE_DIR,
-  'data-sourcing': AI_WORKSPACE_DIR,
-  'fundraising-advisor': AI_WORKSPACE_DIR,
-  'example2-campaign-ops': AI_WORKSPACE_DIR,
-  'ma-advisor': AI_WORKSPACE_DIR,
-  rolodex: AI_WORKSPACE_DIR,
-}
 
 // ── Functions ──
 
@@ -157,7 +110,7 @@ export function loadWorkspacesConfig(): Record<string, { projects: Array<{ name:
  *     through to the bare projects root.
  *
  *  2. FAIL CLOSED for a project-linked objective that resolves to nothing.
- *     Never return the bare `PROJECTS_DIR` root (the WORKDIR_MAP['cto'] fallback):
+ *     Never return the bare `PROJECTS_DIR` root (the `cto` registry-workdir fallback):
  *     that root is not a git repo, so `ensureWorktree` fails and the session
  *     spawns UNGUARDED in the live tree — the 2026-04-25 crash-loop class. We
  *     throw a descriptive error instead so the spawn aborts before any status
@@ -202,6 +155,6 @@ export function resolveWorkdir(
     )
   }
   // Non-project objective → agent-based workdir (unchanged).
-  return WORKDIR_MAP[objective.agent_context] || HOME_DIR
+  return resolveAgentWorkdir(objective.agent_context)
 }
 

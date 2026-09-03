@@ -4,7 +4,7 @@ import os from 'os'
 import path from 'path'
 
 // Point the loops engine at a throwaway vault BEFORE importing it (the module reads
-// VAULT_PATH at import time). Keeps these tests off Operator's real second-brain.
+// VAULT_PATH at import time). Keeps these tests off Mike's real second-brain.
 let loops: typeof import('./loops.js')
 let buildNudgeText: (typeof import('./assistant-nudge.js'))['buildNudgeText']
 let LOOPS_DIR: string

@@ -5,7 +5,7 @@ set -euo pipefail
 
 PR_NUM="${1:?Usage: preview-teardown.sh <pr_number>}"
 CONTAINER_NAME="cc-preview-${PR_NUM}"
-REPO_DIR="${CC_REPO_DIR:-/home/operator/projects/operationkit}"
+REPO_DIR="/home/operator/projects/command-center-infra"
 WORKTREE_DIR="/tmp/cc-preview-${PR_NUM}"
 PREVIEW_DATA_DIR="/tmp/cc-preview-${PR_NUM}-data"
 CADDY_SITE="/etc/caddy/sites-enabled/pr-${PR_NUM}.caddy"

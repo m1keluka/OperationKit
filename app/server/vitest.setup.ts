@@ -4,7 +4,7 @@
 // (default /home/operator/projects/...), which does NOT exist on a CI runner. Point it at a
 // committed fixture (a copy of the real registry) so registry-dependent suites
 // (design-arena, design-context, gate-runtime-config, reviewer-prompt-dormancy) run
-// identically locally and in CI without depending on a real /home/operator checkout.
+// identically locally and in CI without depending on a real /home/mike checkout.
 // Only set it if a caller hasn't already chosen a registry explicitly.
 import path from 'node:path'
 import os from 'node:os'

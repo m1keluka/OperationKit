@@ -164,7 +164,7 @@ function getThreadOr404(id: number, res: Response, req?: AuthRequest): ThreadRow
     }
     // Phase 6: mentor threads are private-by-default. Members only see threads
     // they created themselves. Legacy threads with created_by=NULL stay
-    // admin-only (they predate multi-user and belong to Operator).
+    // admin-only (they predate multi-user and belong to Mike).
     if (row.created_by !== req.user.id) {
       res.status(403).json({ error: 'No access to this thread' })
       return null

@@ -7,14 +7,14 @@
 // every session from the target day, detects the issues that a human or the
 // agent itself had to correct, puts each candidate through THREE independent
 // fresh-context review lenses, and — only when all three agree and only when
-// Operator has flipped `dsr_live` — raises a fix objective on the board.
+// Mike has flipped `dsr_live` — raises a fix objective on the board.
 //
 // WHAT IT DOES NOT DO AS SHIPPED. Both `dsr_enabled` and `dsr_live` default to
 // '0'. With `dsr_enabled=0` the dream-cycle phase returns before touching
 // anything. With `dsr_enabled=1, dsr_live=0` (SHADOW — the intended first
 // cutover step) the FULL pipeline runs, including the lenses, and writes
 // `dsr_candidates` rows — but posts NOTHING to the board. Shadow deliberately
-// exercises the whole gate so the output Operator reviews is the actual set of
+// exercises the whole gate so the output Mike reviews is the actual set of
 // objectives that WOULD have been created, not a raw candidate dump.
 //
 // THREE-TIER READ (§C.1), cheapest first:
@@ -181,7 +181,7 @@ export async function runDailyRetro(opts: RunOptions = {}): Promise<RunResult> {
     console.log('[retro] killed — no-op')
     return { ...base, skipped: 'killed' }
   }
-  // The dry-run CLI is the artefact Operator reviews at cutover, so it must run
+  // The dry-run CLI is the artefact Mike reviews at cutover, so it must run
   // even while dsr_enabled=0 — it writes nothing either way.
   if (!dryRun && !isRetroEnabled(db, env)) {
     console.log('[retro] disabled — no-op')

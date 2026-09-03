@@ -13,14 +13,14 @@
  * │   • To actually mint live Doppler tokens and write live rows you must    │
  * │     pass BOTH `--commit` AND set env PROVISION_SCOPED_DOPPLER_COMMIT=1.   │
  * │     (Defense in depth: a stray `--commit` alone cannot mint.)            │
- * │   • This is a deliberate, Operator-gated action — see the runbook.           │
+ * │   • This is a deliberate, Mike-gated action — see the runbook.           │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
  * Usage (from app/server):
  *   tsx scripts/provision-scoped-doppler-tokens.ts                 # DRY-RUN plan
  *   tsx scripts/provision-scoped-doppler-tokens.ts --status        # show current map (masked)
  *   PROVISION_SCOPED_DOPPLER_COMMIT=1 \
- *     tsx scripts/provision-scoped-doppler-tokens.ts --commit      # LIVE mint + store (Operator-gated)
+ *     tsx scripts/provision-scoped-doppler-tokens.ts --commit      # LIVE mint + store (Mike-gated)
  *
  * Requirements for a live run:
  *   • `doppler` CLI authenticated with an account that can create service tokens
@@ -112,7 +112,7 @@ function main(): void {
     console.error(
       '[provision] REFUSING to mint: --commit was passed but ' +
         'PROVISION_SCOPED_DOPPLER_COMMIT=1 is NOT set. This double-gate prevents an ' +
-        'accidental live mint. Set the env var to proceed (Operator-gated).',
+        'accidental live mint. Set the env var to proceed (Mike-gated).',
     )
     process.exit(1)
   }
@@ -162,7 +162,7 @@ function main(): void {
   } else {
     console.log(
       '\n(DRY-RUN complete. Edit TARGETS to match real Doppler project names, then ' +
-        'do a Operator-gated live run.)',
+        'do a Mike-gated live run.)',
     )
   }
 }

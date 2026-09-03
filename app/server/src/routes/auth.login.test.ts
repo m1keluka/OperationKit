@@ -24,7 +24,7 @@ beforeAll(async () => {
   const hash = bcrypt.hashSync('correct-horse', 4)
   getDb().prepare(
     'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)'
-  ).run('admin', hash, 'admin')
+  ).run('mike', hash, 'admin')
 
   const app = express()
   app.set('trust proxy', true)
@@ -62,19 +62,19 @@ async function login(body: object, headers: Record<string, string> = {}) {
 
 describe('POST /api/auth/login', () => {
   it('sets an httpOnly cookie on success', async () => {
-    const res = await login({ username: 'admin', password: 'correct-horse' })
+    const res = await login({ username: 'mike', password: 'correct-horse' })
     expect(res.status).toBe(200)
     const setCookie = res.headers.get('set-cookie') || ''
     expect(setCookie).toMatch(/token=/)
     expect(setCookie.toLowerCase()).toContain('httponly')
     expect(setCookie.toLowerCase()).toContain('samesite=strict')
     const json = await res.json() as { user: { username: string } }
-    expect(json.user.username).toBe('admin')
+    expect(json.user.username).toBe('mike')
   })
 
   it('returns the same 401 for a missing user and a wrong password', async () => {
     const missing = await login({ username: 'nope', password: 'whatever' })
-    const wrong = await login({ username: 'admin', password: 'nope' })
+    const wrong = await login({ username: 'mike', password: 'nope' })
     expect(missing.status).toBe(401)
     expect(wrong.status).toBe(401)
     expect(await missing.json()).toEqual({ error: 'Invalid credentials' })
@@ -85,7 +85,7 @@ describe('POST /api/auth/login', () => {
     let last: Response | undefined
     for (let i = 0; i < LOGIN_RATE_LIMIT.MAX_PER_IDENTITY + 1; i++) {
       last = await login(
-        { username: 'admin', password: 'wrong' },
+        { username: 'mike', password: 'wrong' },
         { 'X-Forwarded-For': '203.0.113.9' },
       )
     }
@@ -98,17 +98,17 @@ describe('POST /api/auth/login', () => {
   it('successful login clears the failure bucket', async () => {
     const ip = { 'X-Forwarded-For': '203.0.113.10' }
     for (let i = 0; i < LOGIN_RATE_LIMIT.MAX_PER_IDENTITY - 1; i++) {
-      const fail = await login({ username: 'admin', password: 'wrong' }, ip)
+      const fail = await login({ username: 'mike', password: 'wrong' }, ip)
       expect(fail.status).toBe(401)
     }
-    const ok = await login({ username: 'admin', password: 'correct-horse' }, ip)
+    const ok = await login({ username: 'mike', password: 'correct-horse' }, ip)
     expect(ok.status).toBe(200)
-    const failAgain = await login({ username: 'admin', password: 'wrong' }, ip)
+    const failAgain = await login({ username: 'mike', password: 'wrong' }, ip)
     expect(failAgain.status).toBe(401)
   })
 
   it('does not put the JWT in the login JSON body (cookie only)', async () => {
-    const res = await login({ username: 'admin', password: 'correct-horse' })
+    const res = await login({ username: 'mike', password: 'correct-horse' })
     const json = await res.json() as Record<string, unknown>
     expect(json.token).toBeUndefined()
     expect(json.user).toBeTruthy()
@@ -125,7 +125,7 @@ describe('POST /api/auth/token', () => {
   }
 
   it('returns a Bearer JWT in JSON and does not set a cookie', async () => {
-    const res = await token({ username: 'admin', password: 'correct-horse' })
+    const res = await token({ username: 'mike', password: 'correct-horse' })
     expect(res.status).toBe(200)
     const setCookie = res.headers.get('set-cookie') || ''
     expect(setCookie).not.toMatch(/token=/)
@@ -133,22 +133,22 @@ describe('POST /api/auth/token', () => {
     expect(json.token_type).toBe('Bearer')
     expect(json.token.split('.')).toHaveLength(3)
     expect(json.expires_in).toBe(7 * 24 * 60 * 60)
-    expect(json.user.username).toBe('admin')
+    expect(json.user.username).toBe('mike')
   })
 
   it('the token authenticates GET /api/auth/me', async () => {
-    const issued = await token({ username: 'admin', password: 'correct-horse' })
+    const issued = await token({ username: 'mike', password: 'correct-horse' })
     const { token: jwt } = await issued.json() as { token: string }
     const me = await fetch(`${baseUrl}/api/auth/me`, {
       headers: { Authorization: `Bearer ${jwt}` },
     })
     expect(me.status).toBe(200)
     const user = await me.json() as { username: string }
-    expect(user.username).toBe('admin')
+    expect(user.username).toBe('mike')
   })
 
   it('rejects bad credentials with 401', async () => {
-    const res = await token({ username: 'admin', password: 'nope' })
+    const res = await token({ username: 'mike', password: 'nope' })
     expect(res.status).toBe(401)
     expect(await res.json()).toEqual({ error: 'Invalid credentials' })
   })

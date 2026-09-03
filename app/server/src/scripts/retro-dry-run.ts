@@ -6,7 +6,7 @@
 // Runs the FULL pipeline for a past day — three-tier detection plus the three
 // review lenses — and prints the objectives it WOULD create. It writes nothing:
 // no dsr_* rows, no fingerprint ledger entries, no session_corrections, and no
-// objectives. This is the artefact Operator reviews at cutover (§D.5).
+// objectives. This is the artefact Mike reviews at cutover (§D.5).
 //
 // Point DB_PATH at a COPY of prod, never prod itself:
 //   cp /app/data/command-center.db /tmp/dsr-audit.db

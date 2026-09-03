@@ -10,7 +10,7 @@ Snapshot of `origin/main`. `boot` = `startX()` from `app/server/src/index.ts`. `
 4. Express + `trust proxy` + CORS + GitHub raw webhook + JSON
 5. Route mounts (below)
 6. `initWebSocket`
-7. Schedulers: `startPoller`, `startDreamCycleScheduler`, `startRoutineScheduler`, `startCanaryHarnessScheduler`, `startKitchenLoop`, `startJarvisNudgeScheduler`, `startCiFeedbackBridge`, `startDriftGuard`, `startObjectivesSafety`, `startPrHealthWatchdog`, `startHostBootDaemons`
+7. Schedulers: `startPoller`, `startDreamCycleScheduler`, `startRoutineScheduler`, `startCanaryHarnessScheduler`, `startKitchenLoop`, `startAssistantNudgeScheduler`, `startCiFeedbackBridge`, `startDriftGuard`, `startObjectivesSafety`, `startPrHealthWatchdog`, `startHostBootDaemons`
 8. `setQueueDrainCallback` → HTTP PATCH localhost internal status
 9. listen `:3002` then `requeueParsedSessions`, `backfillDailyUsage`
 
@@ -29,8 +29,8 @@ Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env i
 | `/api/costs` | `routes/costs.ts` | yes | spend summary/daily/range/by-objective/by-account |
 | `/api/projects/:project/feed`, `/api/feed/all` | `routes/feed.ts` | yes | activity feed |
 | `/api/docs` | `routes/docs.ts` | yes | vault tree + file R/W + search |
-| `/api/mentor` | `routes/mentor.ts` | yes | Jarvis threads |
-| `/api/jarvis` | `routes/jarvis.ts` | yes | briefing |
+| `/api/mentor` | `routes/mentor.ts` | yes | Assistant threads |
+| `/api/assistant` | `routes/assistant.ts` | yes | briefing |
 | `/api/assistant` | `routes/assistant.ts` | yes | personal assistant config |
 | `/api/status` | `routes/status.ts` | yes | UptimeRobot |
 | `/api/webhooks` | `routes/webhooks.ts` | yes | UptimeRobot ingest |
@@ -124,7 +124,7 @@ Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env i
 | `routine-scheduler.ts` | `startRoutineScheduler` | cron → board objectives |
 | `canary-harness.ts` | `startCanaryHarnessScheduler` | anti-signal canary (flag) |
 | `kitchen-loop.ts` | `startKitchenLoop` | six-phase shadow loop (flag) |
-| `jarvis-nudge.ts` | `startJarvisNudgeScheduler` | 07:00 ET Telegram digest |
+| `assistant-nudge.ts` | `startAssistantNudgeScheduler` | 07:00 ET Telegram digest |
 | `drift-guard.ts` | `startDriftGuard` | live checkout vs origin/main |
 | `objectives-safety.ts` | `startObjectivesSafety` | snapshot + drop-guard |
 | `host-boot-daemons.ts` | `startHostBootDaemons` | `host-boot.d/run-all.sh` watchdog |
@@ -138,8 +138,8 @@ Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env i
 | `dev-items.ts` | no | development board store |
 | `changelog.ts` | no | shipping changelog |
 | `secrets-store.ts` / `secrets-crypto.ts` | no | encrypted scoped secrets |
-| `mentor-session.ts` | on message | Jarvis Claude subprocess (dies with Node) |
-| `mentor-context.ts` / `mentor-transcript.ts` | no | Jarvis prompt + JSONL |
+| `mentor-session.ts` | on message | Assistant Claude subprocess (dies with Node) |
+| `mentor-context.ts` / `mentor-transcript.ts` | no | Assistant prompt + JSONL |
 | `workspaces.ts` | no | workspace table cache |
 | `notifier.ts` | no | alerts table + email/telegram |
 | `uptimerobot.ts` | no | monitor API cache |
@@ -159,7 +159,7 @@ users, user_workspaces, objectives, schema_meta, objective_audit, external_check
 | Path | Component | Nav |
 |---|---|---|
 | `/`, `/w/:slug` | `KanbanBoard` (eager) | Work → Board |
-| `/jarvis`, `/mentor` | `MentorPage` | Work → Jarvis |
+| `/assistant`, `/mentor` | `MentorPage` | Work → Assistant |
 | `/strategies`, `/strategy/:id` | `StrategiesPage` / `StrategyDetailPage` | Work → Strategies (admin) |
 | `/development`, `/feedback` | `DevelopmentPage` | Work → Development (admin) |
 | `/jobs` | `JobsBoard` | Automation |

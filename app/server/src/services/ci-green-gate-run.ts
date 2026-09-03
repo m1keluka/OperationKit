@@ -329,7 +329,7 @@ export function applyGateHandback(
   return landed
 }
 
-// ── Operator-facing surface ─────────────────────────────────────────────────────────
+// ── Mike-facing surface ─────────────────────────────────────────────────────────
 
 export interface CompletedWithRedEntry {
   objectiveId: number
@@ -354,7 +354,7 @@ function parseList(raw: string | null): string[] {
 
 /**
  * Every objective that reached a terminal state on a PR that was NOT green, newest
- * first. `escalated` rows are included: they are the ones that need Operator personally.
+ * first. `escalated` rows are included: they are the ones that need Mike personally.
  */
 export function listNonGreenCompletions(db: Database, limit = 30): CompletedWithRedEntry[] {
   ensureGateTable(db)
@@ -390,7 +390,7 @@ const RESOLUTION_LABEL: Record<string, string> = {
 }
 
 /**
- * Markdown section appended to the pr-health digest. It answers, without Operator asking:
+ * Markdown section appended to the pr-health digest. It answers, without Mike asking:
  * which finished objectives closed on a red PR, and why the gate let them.
  */
 export function renderNonGreenCompletions(entries: CompletedWithRedEntry[]): string {

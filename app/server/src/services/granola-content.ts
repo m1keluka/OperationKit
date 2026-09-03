@@ -1,7 +1,7 @@
 // Granola content engine — read/drive surface for the personal content streams.
 //
 // This is the server-side companion to Worker A's `granola-intake` SESSION skill
-// (objective 762/771). The skill writes Operator-only markdown into the second-brain
+// (objective 762/771). The skill writes Mike-only markdown into the second-brain
 // vault across four streams; this module READS those streams for the admin UI and
 // drives the engine (status round-trip on the posting queue + "Run now" / nightly
 // session spawn). It deliberately never touches the `granola_processed_meetings` /
@@ -225,7 +225,7 @@ export function patchDraftBody(file: string, newBody: string): PatchResult {
 }
 
 // ── Hooks (short-form video) ─────────────────────────────────────────────────
-// A raw video Operator recorded riffing on a hook. Persisted as a single-line flow-style JSON
+// A raw video Mike recorded riffing on a hook. Persisted as a single-line flow-style JSON
 // array on a `videos:` frontmatter key (CONTRACT §2c) — added/updated only by this UI, never
 // by the granola-intake skill. Single-line JSON keeps the array valid YAML AND lets the flat
 // frontmatter parser read it as one scalar string (then JSON.parse), avoiding a multi-line YAML

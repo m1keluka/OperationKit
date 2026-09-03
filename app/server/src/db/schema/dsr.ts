@@ -94,7 +94,7 @@ export function initDsrSchema(db: Database.Database): void {
   `)
 
   // DSR flags — shipped OFF (§D.3). `dsr_enabled` arms detection + the lens
-  // gate in SHADOW; `dsr_live` is the objective-creation cutover and is Operator's
+  // gate in SHADOW; `dsr_live` is the objective-creation cutover and is Mike's
   // flip, not a worker's. `dsr_killed` is the instant disarm checked first.
   // Env (CC_DSR_*) overrides settings, fail-closed — the kitchen-loop idiom.
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('dsr_enabled', '0')").run()

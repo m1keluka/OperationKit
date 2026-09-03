@@ -63,7 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Work',
     items: [
       { href: '/',       label: 'Board',  icon: 'board',  aliases: [],                    mobile: 'tab' },
-      { href: '/assistant', label: 'Assistant', icon: 'assistant', aliases: ['/mentor'], gate: 'assistant', mobile: 'tab' },
+      { href: '/assistant', label: 'Assistant', icon: 'assistant', aliases: ['/mentor', '/assistant'], gate: 'assistant', mobile: 'tab' },
       { href: '/jobs',   label: 'Jobs',   icon: 'jobs',   aliases: [],                    gate: 'admin', mobile: 'tab' },
     ],
   },

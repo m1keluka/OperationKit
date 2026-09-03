@@ -797,7 +797,7 @@ export function buildVisionRubricBlock(
     '  at 360px, 768px, and 1440px width. Grade R1–R9 below pass/warn/fail with a one-line evidence',
     '  note per dimension citing the screenshot. Save screenshots to ABSOLUTE paths only (e.g.',
     '  under /tmp/ui-review-<objective>/) — never a "~/"-relative path (your $HOME is a per-account',
-    '  scratch home, NOT /home/operator). Return those absolute paths in screenshot_paths.',
+    '  scratch home, NOT /home/mike). Return those absolute paths in screenshot_paths.',
     '',
     'THE 9-POINT RUBRIC:',
     ...VISION_RUBRIC.map((r) => `  ${r}`),
@@ -808,7 +808,7 @@ export function buildVisionRubricBlock(
 
 /** Canonical filesystem roots injected into every spawned session's env so that
  *  `~`-relative paths can be replaced with absolute ones, and so prompts/scripts can
- *  reference the real /home/operator vault & projects regardless of the session's own
+ *  reference the real /home/mike vault & projects regardless of the session's own
  *  per-account `$HOME`. See the `~`-home false-negative fix (obj 532 / 553). */
 export function canonicalRootEnv(): Record<string, string> {
   return {
@@ -816,6 +816,6 @@ export function canonicalRootEnv(): Record<string, string> {
     SECOND_BRAIN_DIR,
     AI_WORKSPACE_DIR,
     VAULT_ROOT,
-    OWNER_HOME: HOME_DIR,
+    MIKE_HOME: HOME_DIR,
   }
 }

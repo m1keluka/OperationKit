@@ -310,7 +310,7 @@ router.post('/', (req: AuthRequest, res) => {
   // Stored Strategy marker (obj 2383, corrected obj 2835): a Strategy is a NEW,
   // intentional top tier — it must be set EXPLICITLY by the caller, NEVER inferred
   // from delegate_mode/parent_id. The prior inference (`delegate_mode && parent_id
-  // IS NULL`) wrongly stamped nearly every objective Operator runs, since almost all
+  // IS NULL`) wrongly stamped nearly every objective Mike runs, since almost all
   // top-level objectives are delegators. is_strategy now defaults to 0 and only
   // becomes 1 when the create request explicitly opts in.
   const isStrategy = is_strategy === true

@@ -22,7 +22,7 @@ const { selectAgedEarnedStatusTargets, selfHealHarnessStatus, discoverAndBackfil
 
 const HARNESS = 'your-org/command-center-infra'
 const EXAMPLE3 = 'EXAMPLE2/example3-platform'
-const EXAMPLE_PROJECT = 'Example-Project/example-project-platform'
+const WEIGHT_SUPPLY = 'Example-Project/example-project-platform'
 
 beforeAll(() => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
@@ -80,8 +80,8 @@ function getObjective(id: number) {
 /** The three REAL cross-repo collisions with cc-infra PR numbers, all `pass` verdict. */
 function insertLiveCollisions() {
   insertObjective({ id: 2040, pr_number: 202, pr_url: `https://github.com/${EXAMPLE3}/pull/202`, project: 'example3-platform', updated_at: '2026-06-26 15:16:59' })
-  insertObjective({ id: 702028, pr_number: 245, pr_url: `https://github.com/${EXAMPLE_PROJECT}/pull/245`, project: 'example-project-platform', updated_at: '2026-07-14 13:45:48' })
-  insertObjective({ id: 701986, pr_number: 241, pr_url: `https://github.com/${EXAMPLE_PROJECT}/pull/241`, project: 'example-project-platform', updated_at: '2026-07-14 01:28:33' })
+  insertObjective({ id: 702028, pr_number: 245, pr_url: `https://github.com/${WEIGHT_SUPPLY}/pull/245`, project: 'example-project-platform', updated_at: '2026-07-14 13:45:48' })
+  insertObjective({ id: 701986, pr_number: 241, pr_url: `https://github.com/${WEIGHT_SUPPLY}/pull/241`, project: 'example-project-platform', updated_at: '2026-07-14 01:28:33' })
 }
 
 // ── DEFECT 1 ───────────────────────────────────────────────────────────────────
@@ -143,13 +143,13 @@ describe('defect 2 — pr_number is repo-scoped at every reader', () => {
 
   it('repoForObjective names a repo from pr_url, else from the objective_prs log, else null', () => {
     const db = getDb()
-    insertObjective({ id: 800001, pr_number: 245, pr_url: `https://github.com/${EXAMPLE_PROJECT}/pull/245` })
-    expect(repoForObjective(db, getObjective(800001))).toBe(EXAMPLE_PROJECT)
+    insertObjective({ id: 800001, pr_number: 245, pr_url: `https://github.com/${WEIGHT_SUPPLY}/pull/245` })
+    expect(repoForObjective(db, getObjective(800001))).toBe(WEIGHT_SUPPLY)
 
     // No pr_url, but the per-objective PR log knows the repo.
     insertObjective({ id: 800002, pr_number: 245, pr_url: null })
-    db.prepare('INSERT INTO objective_prs (objective_id, repo, pr_number) VALUES (?,?,?)').run(800002, EXAMPLE_PROJECT, 245)
-    expect(repoForObjective(db, getObjective(800002))).toBe(EXAMPLE_PROJECT)
+    db.prepare('INSERT INTO objective_prs (objective_id, repo, pr_number) VALUES (?,?,?)').run(800002, WEIGHT_SUPPLY, 245)
+    expect(repoForObjective(db, getObjective(800002))).toBe(WEIGHT_SUPPLY)
 
     // A bare `project` name is NOT strong enough to name a repo.
     insertObjective({ id: 800003, pr_number: 245, pr_url: null, project: 'command-center-infra' })
@@ -162,7 +162,7 @@ describe('defect 2 — pr_number is repo-scoped at every reader', () => {
 
   it('classifyObjectiveRepo distinguishes same / other / unknown — unknown is never "mine"', () => {
     const db = getDb()
-    insertObjective({ id: 800005, pr_number: 245, pr_url: `https://github.com/${EXAMPLE_PROJECT}/pull/245` })
+    insertObjective({ id: 800005, pr_number: 245, pr_url: `https://github.com/${WEIGHT_SUPPLY}/pull/245` })
     expect(classifyObjectiveRepo(db, getObjective(800005), HARNESS)).toBe('other')
 
     insertObjective({ id: 800006, pr_number: 243, pr_url: `https://github.com/${HARNESS}/pull/243` })
@@ -215,7 +215,7 @@ describe('defect 2 — pr_number is repo-scoped at every reader', () => {
   it('discoverAndBackfillPR refuses to attach a harness PR to a known other-repo objective', async () => {
     // Branch names are templated across repos, so a `--head` match is not ownership.
     insertObjective({ id: 800020, pr_number: null, pr_url: null, project: 'example-project-platform', status: 'review' })
-    getDb().prepare('INSERT INTO objective_prs (objective_id, repo, pr_number) VALUES (?,?,?)').run(800020, EXAMPLE_PROJECT, 99)
+    getDb().prepare('INSERT INTO objective_prs (objective_id, repo, pr_number) VALUES (?,?,?)').run(800020, WEIGHT_SUPPLY, 99)
     getDb().prepare('UPDATE objectives SET branch_name = ? WHERE id = ?').run('cc/obj-800020-shared-template', 800020)
 
     let ghCalled = false

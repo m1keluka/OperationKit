@@ -12,10 +12,10 @@ import { isUiObjective, buildDesignContextBlock, isUiInjectionActive } from './d
 import { deriveBranchName, deriveWorktreeBranchName } from './branch-scope.js'
 import { resolveAvailable } from './resource-assignments.js'
 import { isStrategyNode } from './delegation.js'
+import { resolveAgentPromptFile } from './agent-registry.js'
 import { isStrategyTierEnabled } from './strategy-governance.js'
 import { HUMAN_VOICE } from '../lib/human-voice.js'
 import {
-  AGENT_MAP,
   readAgentInstructions,
   resolveOnBehalfUser,
   resolveWorkdir,
@@ -30,12 +30,10 @@ import {
 } from './prompt-builder-blocks.js'
 
 export {
-  AGENT_MAP,
   COMPACTION_SESSION_SENTINEL,
   MAX_OBJECTIVE_HISTORY_CHARS,
   OBJ_COMPACTION_TAIL_TURNS,
   OBJ_COMPACTION_THRESHOLD,
-  WORKDIR_MAP,
   loadWorkspacesConfig,
   readAgentInstructions,
   resolveWorkdir,
@@ -124,7 +122,9 @@ function isStrategyDelegator(objective: Objective): boolean {
 }
 
 export function buildPrompt(objective: Objective): string {
-  const agent = AGENT_MAP[objective.agent_context]
+  // Registry lookup, with the slug itself as the fallback so a persona that was
+  // archived mid-flight never renders as "You are the undefined agent".
+  const agent = resolveAgentPromptFile(objective.agent_context)
   const context = buildContext(objective)
   const workspace = objective.workspace || 'example'
   const onBehalf = resolveOnBehalfUser(objective)
@@ -289,7 +289,7 @@ export function buildPrompt(objective: Objective): string {
       '',
       objective.approved_plan,
       '',
-      'You are now in the Execute phase. Follow the plan above. If you discover the plan is wrong, STOP and report back to Operator with the conflict instead of silently deviating.',
+      'You are now in the Execute phase. Follow the plan above. If you discover the plan is wrong, STOP and report back to Mike with the conflict instead of silently deviating.',
     )
   }
 
@@ -609,10 +609,10 @@ export function buildPrompt(objective: Objective): string {
       '',
       '## Jobs Disposition (REQUIRED — you are an automated daily job)',
       '',
-      'This run is a scheduled **job**, logged on the Jobs board (not the main Board). As the FINAL step of your run, record your disposition so Operator can triage at a glance:',
+      'This run is a scheduled **job**, logged on the Jobs board (not the main Board). As the FINAL step of your run, record your disposition so Mike can triage at a glance:',
       '',
       '```bash',
-      '# Clean run, nothing for Operator to do:',
+      '# Clean run, nothing for Mike to do:',
       `curl -s -X POST http://localhost:3002/api/internal/objectives/${objective.id}/job-disposition \\`,
       "  -H 'Content-Type: application/json' \\",
       `  -d '{"disposition":"complete"}'`,
@@ -620,12 +620,12 @@ export function buildPrompt(objective: Objective): string {
       '# You have a question, OR you saw a concrete way to improve our system:',
       `curl -s -X POST http://localhost:3002/api/internal/objectives/${objective.id}/job-disposition \\`,
       "  -H 'Content-Type: application/json' \\",
-      `  -d '{"disposition":"needs_review","note":"<one-line reason Operator should look>"}'`,
+      `  -d '{"disposition":"needs_review","note":"<one-line reason Mike should look>"}'`,
       '```',
       '',
-      'Use `needs_review` only when you genuinely want Operator\'s attention (a question, a decision, or a system-improvement opportunity you noticed while running). Otherwise use `complete`.',
+      'Use `needs_review` only when you genuinely want Mike\'s attention (a question, a decision, or a system-improvement opportunity you noticed while running). Otherwise use `complete`.',
       '',
-      `If Operator later replies in this thread asking you to "create an objective for X", create it with \`POST http://localhost:3002/api/internal/objectives\` (a JSON array of objective objects). Include \`"source_job_id":${objective.id}\` on each so the new card links back to this job. Then reply telling Operator the new objective id(s). Example:`,
+      `If Mike later replies in this thread asking you to "create an objective for X", create it with \`POST http://localhost:3002/api/internal/objectives\` (a JSON array of objective objects). Include \`"source_job_id":${objective.id}\` on each so the new card links back to this job. Then reply telling Mike the new objective id(s). Example:`,
       '```bash',
       `curl -s -X POST http://localhost:3002/api/internal/objectives \\`,
       "  -H 'Content-Type: application/json' \\",

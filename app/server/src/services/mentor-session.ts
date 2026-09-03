@@ -13,6 +13,7 @@ import { getDb } from '../db/index.js'
 import { buildSessionContext, callHaikuSummarizer } from './mentor-context.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { resolveAssistantConfig } from './assistant-config.js'
+import { ASSISTANT_DIR } from '../config.js'
 import {
   getForUser as getGoogleConnectionForUser,
   writeIsolatedGoogleCredsDir,
@@ -36,20 +37,21 @@ const MENTOR_WORKDIR = '/home/operator/ai-workspace/mentor-workspace'
 const TRANSCRIPT_DIR = '/home/operator/transcripts'
 const ACCOUNT_HOME_BASE = '/home/ccuser'
 
-// ── Assistant profile (objective 341) ─────────────────────────────────────────
-// A mentor thread owned by the admin Telegram owner is upgraded to the
-// "assistant profile": persona = /home/operator/ai-workspace/agents/assistant.md,
-// google-workspace MCP injected at spawn, §5 confirmation gating active, and
-// pending confirmations stored PER THREAD. Non-owner/member threads keep the
-// existing mentor-workspace behavior unchanged.
-const ASSISTANT_AGENT_PATH = '/home/operator/ai-workspace/agents/assistant.md'
-// Per-thread pending-confirmation + global loop files (override assistant.md's
-// hardcoded single loops.md path for pending; loops stay global/shared).
-const ASSISTANT_THREADS_DIR = '/home/operator/assistant/threads'
-const ASSISTANT_LOOPS_PATH = '/home/operator/assistant/loops.md'
+// ── Assistant profile (objective 341; genericized obj 701700 / 709956) ─────
+// A mentor thread is upgraded to the assistant profile from the thread owner's
+// `assistant_configs` row: persona name / operating-manual pointer / capability
+// map are DATA on that row, gating comes from its autonomy policy, and pending
+// confirmations are stored PER THREAD. There is no hardcoded persona slug and
+// no hardcoded persona-file path here any more — see services/assistant-persona.ts
+// for how the manual pointer is resolved from the agent registry. Threads whose
+// owner has no config keep the plain mentor-workspace behavior unchanged.
+// Per-thread pending-confirmation + global loop files (these override a manual's
+// single loops.md path for pending; loops stay global/shared).
+const ASSISTANT_THREADS_DIR = `${ASSISTANT_DIR}/threads`
+const ASSISTANT_LOOPS_PATH = `${ASSISTANT_DIR}/loops.md`
 
 function mentorOwnerUsername(): string {
-  return process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'admin'
+  return process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'mike'
 }
 
 interface ActiveMentorSession {
@@ -75,15 +77,15 @@ function homeDirForAccount(accountId: string): string {
 }
 
 /**
- * Does this thread belong to the admin Telegram owner ("admin")? Only such
- * threads get the assistant profile (persona + Google MCP + §5 gating). The owner
- * username is env-overridable (MENTOR_TELEGRAM_OWNER_USERNAME, default "admin").
+ * Does this thread belong to the admin Telegram owner ("mike")? Only such
+ * threads get the Assistant profile (persona + Google MCP + §5 gating). The owner
+ * username is env-overridable (MENTOR_TELEGRAM_OWNER_USERNAME, default "mike").
  *
  * Resolves `created_by` → users.username and compares to the configured owner.
  * Returns false on any miss (legacy NULL created_by, unknown user, db error) so
- * the assistant profile is fail-closed — members never get the owner's inbox.
+ * the Assistant profile is fail-closed — members never get Mike's inbox.
  */
-export function isOwnerThread(createdBy: number | null): boolean {
+export function isMikeThread(createdBy: number | null): boolean {
   if (!createdBy) return false
   try {
     const row = getDb()
@@ -91,7 +93,7 @@ export function isOwnerThread(createdBy: number | null): boolean {
       .get(createdBy) as { username: string } | undefined
     return !!row && row.username === mentorOwnerUsername()
   } catch (err) {
-    console.warn(`[mentor-session] isOwnerThread(${createdBy}) lookup failed:`, (err as Error).message)
+    console.warn(`[mentor-session] isMikeThread(${createdBy}) lookup failed:`, (err as Error).message)
     return false
   }
 }
@@ -126,8 +128,8 @@ export function buildGoogleMcpConfig(homeDir: string, cfg?: AssistantConfig | nu
   delete mcpServers['google-workspace']
 
   // Per-user Google identity. Wire Google ONLY when this user enabled the
-  // connector AND we can name THEIR account. Never default to a hardcoded
-  // mailbox — a shared credential dir made one user's assistant send as another.
+  // connector AND we can name THEIR account. Never default to mike@ — that is
+  // how Ava's Assistant sent as Mike (shared credential dir + hardcoded identity).
   if (!cfg || !cfg.enabledConnectors.includes('google-workspace')) {
     return { mcpServers, hasGoogle: false }
   }
@@ -145,7 +147,7 @@ export function buildGoogleMcpConfig(homeDir: string, cfg?: AssistantConfig | nu
 
   if (!clientId || !clientSecret) {
     console.warn(
-      '[mentor-session] GOOGLE_OAUTH_CLIENT_ID/SECRET unset — assistant Google Workspace MCP ' +
+      '[mentor-session] GOOGLE_OAUTH_CLIENT_ID/SECRET unset — Assistant Google Workspace MCP ' +
       'will run on the stored token only (refresh uses the credential-embedded client). ' +
       'Provision these in Doppler to enable new-auth flows.'
     )
@@ -184,47 +186,6 @@ function writeMcpConfigFile(sessionId: string, homeDir: string, cfg?: AssistantC
     return null
   }
   return mcpTmpFile
-}
-
-/**
- * The assistant-profile persona + capability + gating directive injected into the
- * initial prompt for owner-owned threads. Uses absolute /home/operator/... paths
- * (HOME is a per-session home, so `~` won't resolve to the operator home).
- *
- * Persona supersedes the mentor-workspace CLAUDE.md / chief-of-staff persona.
- * Pending confirmations are overridden to PER THREAD; loops stay GLOBAL.
- */
-export function buildLegacyAssistantDirective(threadId: number): string {
-  const pendingPath = `${ASSISTANT_THREADS_DIR}/${threadId}/pending.md`
-  return [
-    'ASSISTANT PROFILE — this session is Assistant, the operator\'s personal admin assistant.',
-    '',
-    `Read ${ASSISTANT_AGENT_PATH} NOW as your complete operating manual. It is your`,
-    'persona, capability map, and rules. It SUPERSEDES the mentor-workspace CLAUDE.md',
-    'and any chief-of-staff persona — when they conflict, assistant.md wins.',
-    '',
-    'Capabilities (assistant.md documents these in full):',
-    '- Google Workspace (Gmail/Calendar/Drive/Docs/Sheets/Slides) via the',
-    '  `google-workspace` MCP server, already wired into this session. Always pass',
-    '  user_google_email: "dev@example.com"; never start an OAuth flow.',
-    '- The Command Center board internal API at http://localhost:3002/api/internal/...',
-    '  (briefing, objectives read, objective create — create is confirmation-gated).',
-    '- Vault retrieval over /home/operator/second-brain (active.md → index.md → kb_search).',
-    '',
-    'CONFIRMATION GATING (assistant.md §5 — hard rule): actions that leave the',
-    'machine are two-step. Gated: sending email; calendar create/modify WITH',
-    'attendees; POSTing board objectives; Drive share/permission change/delete;',
-    'deleting any Google content; anything messaging a human or changing a shared',
-    'system. Not gated: reads, Gmail drafts, vault writes, loops, board reads,',
-    'Operator-only Docs/Sheets/Slides. Protocol: Propose → Persist the pending action →',
-    'Resolve the MOST RECENT pending on an affirmative (then delete it) → Cancel on',
-    'a negation. The persisted entry IS the gate state.',
-    '',
-    'OVERRIDE — pending-confirmation location (supersedes assistant.md\'s single',
-    `loops.md path): write/read this thread's pending confirmations at`,
-    `${pendingPath} (this directory has been created for you). Open Loops and Closed`,
-    `Loops remain GLOBAL/shared across all of the operator's threads in ${ASSISTANT_LOOPS_PATH}.`,
-  ].join('\n')
 }
 
 /**
@@ -287,11 +248,12 @@ export function renderPendingLocation(threadId: number): string {
 
 /**
  * Config-driven persona + gating + pending directive (obj 701700). This is the
- * generic replacement for buildLegacyAssistantDirective: name/tagline/manual come from
- * `cfg.persona` (DATA), the gating block from `cfg.autonomy` (policy), and the
- * pending location from the thread. Nothing here is user-specific — the owner's
- * seeded config reproduces today's assistant directive's rule-bearing content
- * (persona name, assistant.md pointer, gated-action set, email, paths).
+ * generic replacement for the deleted, hardcoded Assistant directive: name /
+ * tagline / operating-manual pointer come from `cfg.persona` (DATA), the gating
+ * block from `cfg.autonomy` (policy), and the pending location from the thread.
+ * Nothing here is user-specific — an operator's seeded config reproduces the
+ * rule-bearing content the old directive inlined (persona name, manual pointer,
+ * gated-action set, connector identity, paths).
  *
  * The block layout matches buildInitialPrompt's <persona> wrapper: a header
  * line, then the persona systemPrompt, then the gating policy, then the pending
@@ -423,7 +385,7 @@ function buildIdentityBlock(identity: MentorIdentity | null): string {
     lines.push(`Read ${identity.workspaceContextPathAbs} for business context.`)
   }
   if (identity.agentOverlayPathAbs) {
-    lines.push(`Read ${identity.agentOverlayPathAbs} for ${identity.workspaceSlug}-specific overlay on the assistant (priorities, conventions, integrations).`)
+    lines.push(`Read ${identity.agentOverlayPathAbs} for ${identity.workspaceSlug}-specific overlay on Assistant (priorities, conventions, integrations).`)
   }
   return lines.join('\n')
 }
@@ -478,7 +440,7 @@ function extractMentorTurns(threadId: number): ConversationTurn[] {
 }
 
 function formatMentorTurns(turns: ConversationTurn[]): string {
-  return turns.map(t => (t.role === 'user' ? `[User]: ${t.text}` : `[Assistant]: ${t.text}`)).join('\n\n')
+  return turns.map(t => (t.role === 'user' ? `[Mike]: ${t.text}` : `[Assistant]: ${t.text}`)).join('\n\n')
 }
 
 function buildConversationHistory(threadId: number): string {
@@ -514,7 +476,7 @@ async function refreshMentorSummary(threadId: number): Promise<void> {
   const turnsToSummarize = turns.slice(0, turns.length - COMPACTION_TAIL_TURNS)
   const conversationText = formatMentorTurns(turnsToSummarize)
 
-  const prompt = `You are summarizing a conversation between the operator and their assistant (an AI assistant) for context injection into future sessions.
+  const prompt = `You are summarizing a conversation between Mike and Assistant (an AI assistant) for context injection into future sessions.
 
 Produce a 300-500 word summary covering:
 - Key decisions made
@@ -523,7 +485,7 @@ Produce a 300-500 word summary covering:
 - Preferences or patterns established
 - Important context for continuing the conversation
 
-Write in third person (e.g. "The operator asked about X", "The assistant suggested Y"). Be factual and dense — this summary replaces the full early conversation.
+Write in third person (e.g. "Mike asked about X", "Assistant suggested Y"). Be factual and dense — this summary replaces the full early conversation.
 
 Conversation to summarize:
 ${conversationText}`
@@ -551,7 +513,7 @@ ${conversationText}`
 function buildInitialPrompt(firstMessage: string, identityBlock: string, sessionContext: string, priorHistory: string, assistantDirective = ''): string {
   let result = ''
   // Persona directive goes FIRST so it frames everything that follows. For
-  // owner-owned (assistant) threads this supersedes the mentor-workspace CLAUDE.md.
+  // Mike-owned (Assistant) threads this supersedes the mentor-workspace CLAUDE.md.
   if (assistantDirective.trim()) result += `<persona>\n${assistantDirective}\n</persona>\n\n`
   if (identityBlock.trim()) result += `<identity>\n${identityBlock}\n</identity>\n\n`
   if (sessionContext.trim()) result += `<session_context>\n${sessionContext}\n</session_context>\n\n`
@@ -585,7 +547,7 @@ function checkStreamForRateLimit(data: Buffer, accountId: string): void {
 }
 
 /** Exported for tests. Quotes interpolations and unsets provider API keys so
- *  mentor/assistant uses the account OAuth token instead of the server's
+ *  mentor/Assistant uses the account OAuth token instead of the server's
  *  ANTHROPIC_API_KEY (same contract as the board tmux wrapper). */
 export function buildMentorBashCommand(homeDir: string, mcpConfigPath: string | null): string {
   const mcpFlag = mcpConfigPath ? ` --mcp-config ${JSON.stringify(mcpConfigPath)}` : ''
@@ -598,7 +560,7 @@ export function buildMentorBashCommand(homeDir: string, mcpConfigPath: string | 
 }
 
 function spawnMentorProcess(threadId: number, accountId: string, homeDir: string, jsonlPath: string, logPath: string, mcpConfigPath: string | null): ChildProcess {
-  // Base spawn is unchanged for non-assistant threads. Assistant (owner) threads add
+  // Base spawn is unchanged for non-Assistant threads. Assistant (Mike) threads add
   // `--mcp-config <tmpfile>` so the google-workspace server is available.
   const proc = spawn('runuser', ['-u', 'ccuser', '--', 'bash', '-c',
     buildMentorBashCommand(homeDir, mcpConfigPath),
@@ -695,11 +657,11 @@ export function startMentorSession(threadId: number, firstMessage: string): stri
   // Build the per-session MCP config from the account home's mcp.json, then wire
   // the user's enabled connectors.
   // obj 701700: resolve the thread creator's per-user assistant config instead
-  // of the single-tenant isOwnerThread() gate. The assistant profile (persona +
+  // of the single-tenant isMikeThread() gate. The assistant profile (persona +
   // MCP + gating) applies whenever the user has an ENABLED config. Legacy
   // threads with no creator resolve null → bare mentor behavior (fail-closed,
-  // exactly like the old non-owner path). The owner's seeded config
-  // reproduces today's assistant behavior through this generic path.
+  // exactly like the old isMike === false path). The owner's seeded config
+  // reproduces today's Assistant behavior through this generic path.
   const assistantCfg = resolveAssistantConfig(row.created_by, row.workspace || 'example')
   const hasAssistant = !!assistantCfg && assistantCfg.enabled
   let mcpConfigPath: string | null = null

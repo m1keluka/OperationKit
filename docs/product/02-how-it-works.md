@@ -6,7 +6,7 @@ The **objective** row is the source of truth. An agent finishing a sentence does
 flowchart LR
   subgraph in["In"]
     U[You]
-    J[Jarvis]
+    J[Assistant]
     R[Jobs]
   end
 
@@ -67,7 +67,7 @@ Spawn unsets provider API keys so a session cannot silently fall through to pay-
 ## Seats vs people
 
 - **Seats** = Claude / Grok / Codex subscriptions. Shared, rotated, named on Dashboard.
-- **People** = OperationKit users. GitHub PAT + Google OAuth on Settings → You.
+- **People** = Command Center users. GitHub PAT + Google OAuth on Settings → You.
 - A card’s **assignee** is who the session acts as. If nobody is assigned, the creator.
 
 ## Where code lives

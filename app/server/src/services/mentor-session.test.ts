@@ -3,7 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-// Real SQLite — the Assistant-profile owner gate (isOwnerThread) resolves
+// Real SQLite — the Assistant-profile owner gate (isMikeThread) resolves
 // created_by → users.username. The MCP-config builder + directive are pure
 // (file + env), so we exercise them directly.
 
@@ -11,17 +11,18 @@ const TMP_DB = path.join(os.tmpdir(), `cc-mentor-session-test-${process.pid}-${D
 process.env.DB_PATH = TMP_DB
 
 const { initDb, getDb } = await import('../db/index.js')
-const { isOwnerThread, buildGoogleMcpConfig, buildLegacyAssistantDirective } = await import('./mentor-session.js')
+const { isMikeThread, buildGoogleMcpConfig, buildAssistantDirective } = await import('./mentor-session.js')
+const { defaultAssistantConfig } = await import('./assistant-config.js')
 
-let ownerId: number
+let mikeId: number
 let memberId: number
 
 beforeAll(() => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
   const db = getDb()
-  const m = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', '', 'admin')").run()
-  ownerId = m.lastInsertRowid as number
+  const m = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('mike', '', 'admin')").run()
+  mikeId = m.lastInsertRowid as number
   const u = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('alice', '', 'member')").run()
   memberId = u.lastInsertRowid as number
 })
@@ -34,35 +35,35 @@ afterAll(() => {
   }
 })
 
-describe('isOwnerThread — Assistant profile owner gate', () => {
+describe('isMikeThread — Assistant profile owner gate', () => {
   const ORIG = process.env.MENTOR_TELEGRAM_OWNER_USERNAME
   afterEach(() => {
     if (ORIG === undefined) delete process.env.MENTOR_TELEGRAM_OWNER_USERNAME
     else process.env.MENTOR_TELEGRAM_OWNER_USERNAME = ORIG
   })
 
-  it('returns true for the admin owner (default username "admin")', () => {
+  it('returns true for the admin owner (default username "mike")', () => {
     delete process.env.MENTOR_TELEGRAM_OWNER_USERNAME
-    expect(isOwnerThread(ownerId)).toBe(true)
+    expect(isMikeThread(mikeId)).toBe(true)
   })
 
   it('returns false for a non-owner member', () => {
     delete process.env.MENTOR_TELEGRAM_OWNER_USERNAME
-    expect(isOwnerThread(memberId)).toBe(false)
+    expect(isMikeThread(memberId)).toBe(false)
   })
 
   it('returns false for null created_by (legacy threads — fail closed)', () => {
-    expect(isOwnerThread(null)).toBe(false)
+    expect(isMikeThread(null)).toBe(false)
   })
 
   it('returns false for an unknown user id', () => {
-    expect(isOwnerThread(999999)).toBe(false)
+    expect(isMikeThread(999999)).toBe(false)
   })
 
   it('honors MENTOR_TELEGRAM_OWNER_USERNAME override', () => {
     process.env.MENTOR_TELEGRAM_OWNER_USERNAME = 'alice'
-    expect(isOwnerThread(memberId)).toBe(true)
-    expect(isOwnerThread(ownerId)).toBe(false)
+    expect(isMikeThread(memberId)).toBe(true)
+    expect(isMikeThread(mikeId)).toBe(false)
   })
 })
 
@@ -123,7 +124,7 @@ describe('buildGoogleMcpConfig — MCP config builder shape', () => {
     expect(mcpServers['google-gmail']).toBeUndefined()
   })
 
-  it('with no per-user config, does not fall back to admin@ or the shared credential dir', () => {
+  it('with no per-user config, does not fall back to mike@ or the shared credential dir', () => {
     process.env.GOOGLE_OAUTH_CLIENT_ID = 'cid'
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'csec'
     const { mcpServers, hasGoogle } = buildGoogleMcpConfig(homeDir)
@@ -132,28 +133,48 @@ describe('buildGoogleMcpConfig — MCP config builder shape', () => {
   })
 })
 
-describe('buildLegacyAssistantDirective — persona + gating + per-thread pending', () => {
-  it('references assistant.md as the operating manual and supersedes the mentor persona', () => {
-    const d = buildLegacyAssistantDirective(42)
-    expect(d).toContain('/home/operator/ai-workspace/agents/assistant.md')
+// The hardcoded Assistant directive (a literal `assistant` slug + a literal
+// `<ai-workspace>/agents/assistant.md` path compiled into this module) was
+// deleted in obj 709956, Phase 4. The directive is now built entirely from the
+// caller's assistant_configs row, so these tests drive the generic builder with
+// a config whose persona data stands in for what used to be string literals.
+describe('buildAssistantDirective — persona + gating + per-thread pending', () => {
+  const MANUAL = '/srv/personas/ops-assistant.md'
+  const cfgWithManual = () => {
+    const cfg = defaultAssistantConfig(1, 'default')
+    cfg.persona.displayName = 'Assistant'
+    cfg.persona.systemPrompt = [
+      `Read ${MANUAL} NOW as your complete operating manual. It SUPERSEDES the`,
+      'mentor-workspace CLAUDE.md and any other persona.',
+      '- The Command Center board internal API at http://localhost:3002/api/internal/...',
+      '- Vault retrieval over /srv/vault (active.md → index.md → kb_search).',
+    ].join('\n')
+    return cfg
+  }
+
+  it('carries the operating-manual pointer from config DATA, not a compiled-in path', () => {
+    const d = buildAssistantDirective(cfgWithManual(), 42)
+    expect(d).toContain(MANUAL)
     expect(d.toLowerCase()).toContain('supersede')
+    // the deleted hardcode must not reappear
+    expect(d).not.toContain('agents/assistant.md')
   })
 
   it('pins pending confirmations PER THREAD and loops GLOBAL', () => {
-    const d = buildLegacyAssistantDirective(42)
-    expect(d).toContain('/home/operator/assistant/threads/42/pending.md')
-    expect(d).toContain('/home/operator/assistant/loops.md')
+    const d = buildAssistantDirective(cfgWithManual(), 42)
+    expect(d).toContain('/threads/42/pending.md')
+    expect(d).toContain('/loops.md')
     expect(d.toUpperCase()).toContain('GLOBAL')
   })
 
   it('points at the CC internal API and vault retrieval', () => {
-    const d = buildLegacyAssistantDirective(7)
+    const d = buildAssistantDirective(cfgWithManual(), 7)
     expect(d).toContain('http://localhost:3002/api/internal/')
-    expect(d).toContain('/home/operator/second-brain')
+    expect(d).toContain('/srv/vault')
   })
 
-  it('states the §5 confirmation-gating contract', () => {
-    const d = buildLegacyAssistantDirective(1)
+  it('states the confirmation-gating contract', () => {
+    const d = buildAssistantDirective(cfgWithManual(), 1)
     expect(d.toLowerCase()).toContain('confirmation')
     expect(d.toLowerCase()).toContain('two-step')
   })

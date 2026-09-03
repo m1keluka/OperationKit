@@ -8,12 +8,11 @@
 #
 # Modes:
 #   soft     Create/update the ruleset WITH repo-admin bypass (bypass_mode:always).
-#            Non-admins must PR + pass the check; repo admins can still push
+#            Non-admins must PR + pass the check; Mike (admin) can still push
 #            directly. Safe to run first — no lockout. (default)
 #   enforce  Remove bypass_actors so NOBODY can push directly to main, including
-#            admins. This is the true push-to-prod block. ⚠ Requires an explicit
-#            owner decision — do not run until the loop is dogfooded and the repo
-#            owner has signed off.
+#            admins. This is the true push-to-prod block. ⚠ Mike must confirm —
+#            do not run until the loop is dogfooded and Mike has explicitly OK'd.
 #   status   Print the current ruleset.
 #   delete   Remove the ruleset (full rollback).
 #
@@ -21,7 +20,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO="${HARNESS_REPO:-m1keluka/OperationKit}"
+REPO="${HARNESS_REPO:-your-org/command-center-infra}"
 RULESET_NAME="harness-gate-main"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JSON="${SCRIPT_DIR}/branch-protection-ruleset.json"
@@ -46,7 +45,7 @@ case "${MODE}" in
       echo "[harness] Updating ruleset #${id} to soft (admin bypass on)..."
       gh api -X PUT "repos/${REPO}/rulesets/${id}" --input "${JSON}" --jq '.id,.enforcement'
     fi
-    echo "[harness] Soft gate active. Repo admins can still push; non-admins need PR + gate."
+    echo "[harness] Soft gate active. Mike (admin) can still push; non-admins need PR + gate."
     ;;
   enforce)
     id="$(ruleset_id || true)"

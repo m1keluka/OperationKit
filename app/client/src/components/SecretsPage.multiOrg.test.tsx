@@ -52,11 +52,11 @@ const { state, apiMock, ApiErrorMock } = vi.hoisted(() => {
   const state = {
     principals: {
       organizations: [
-        { slug: 'example', name: 'Example Org' },
-        { slug: 'example2', name: 'Example Shop' },
-        { slug: 'personal', name: 'Personal' },
+        { slug: 'example', name: 'Example Growth' },
+        { slug: 'example2', name: 'Grass Fed' },
+        { slug: 'personal', name: 'Mike Luka' },
       ],
-      users: [{ id: 1, username: 'admin' }],
+      users: [{ id: 1, username: 'mike' }],
       canUseGlobal: true,
     },
     /** Slugs whose POST /secrets should reject (simulated partial failure). */
@@ -86,7 +86,7 @@ const { state, apiMock, ApiErrorMock } = vi.hoisted(() => {
 })
 
 vi.mock('../lib/api', () => ({ api: apiMock, ApiError: ApiErrorMock }))
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'admin' } }) }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'mike' } }) }))
 vi.mock('./ui', () => ({
   Modal: ({ children }: { children: React.ReactNode }) => <div role="dialog">{children}</div>,
   Skeleton: () => <div />,
@@ -104,11 +104,11 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
     state.posts = []
     state.principals = {
       organizations: [
-        { slug: 'example', name: 'Example Org' },
-        { slug: 'example2', name: 'Example Shop' },
-        { slug: 'personal', name: 'Personal' },
+        { slug: 'example', name: 'Example Growth' },
+        { slug: 'example2', name: 'Grass Fed' },
+        { slug: 'personal', name: 'Mike Luka' },
       ],
-      users: [{ id: 1, username: 'admin' }],
+      users: [{ id: 1, username: 'mike' }],
       canUseGlobal: true,
     }
     apiMock.post.mockClear()
@@ -191,8 +191,8 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
     expect(container.querySelector('[data-testid="fanout-ok-example"]')).toBeTruthy()
     expect(container.querySelector('[data-testid="fanout-fail-example2"]')).toBeTruthy()
     expect(report!.textContent).toContain('Created in 1 of 2 organizations')
-    expect(report!.textContent).toContain('Example Org')
-    expect(report!.textContent).toContain('Example Shop')
+    expect(report!.textContent).toContain('Example Growth')
+    expect(report!.textContent).toContain('Grass Fed')
 
     // The modal stays OPEN and only the failed organization stays ticked, so
     // resubmitting retries just that one.
@@ -229,7 +229,7 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
   it('only offers the organizations the principals endpoint scoped to the caller', async () => {
     // A member: /secrets/principals returns only their memberships.
     state.principals = {
-      organizations: [{ slug: 'example', name: 'Example Org' }],
+      organizations: [{ slug: 'example', name: 'Example Growth' }],
       users: [{ id: 2, username: 'member' }],
       canUseGlobal: false,
     }

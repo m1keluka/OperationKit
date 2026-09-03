@@ -58,7 +58,7 @@
  *   - Ships DARK: the act-path is gated on settings.pr_health_watchdog_enabled, read at
  *     CALL TIME so flipping it arms/disarms with no restart. With the flag off the sweep
  *     still computes and returns the full health report (that is what feeds the
- *     Operator-facing surface) but every action degrades to a logged "WOULD act".
+ *     Mike-facing surface) but every action degrades to a logged "WOULD act".
  *
  * NO DOUBLE-DRIVING
  * -----------------

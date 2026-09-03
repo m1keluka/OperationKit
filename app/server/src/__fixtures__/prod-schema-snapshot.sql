@@ -294,7 +294,7 @@ CREATE TABLE "objectives" (
         title TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('planning','queue','working','ai_review','review','done')),
-        agent_context TEXT NOT NULL DEFAULT 'general' CHECK(agent_context IN ('cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel')),
+        agent_context TEXT NOT NULL DEFAULT 'general',
         assigned_user_id INTEGER,
         session_id TEXT,
         transcript_path TEXT,
@@ -555,7 +555,7 @@ CREATE TABLE user_workspaces (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       workspace TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('admin', 'member')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')), can_use_jarvis INTEGER NOT NULL DEFAULT 1, objective_visibility TEXT NOT NULL DEFAULT 'own',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')), can_use_assistant INTEGER NOT NULL DEFAULT 1, objective_visibility TEXT NOT NULL DEFAULT 'own',
       UNIQUE(user_id, workspace)
     );
 CREATE TABLE users (

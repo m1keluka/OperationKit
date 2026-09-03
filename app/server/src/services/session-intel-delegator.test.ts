@@ -64,7 +64,7 @@ describe('coerceSummary — delegator wakes are not defaulted to partial', () =>
 
   it('an explicit outcome from the model always wins over the delegator default', () => {
     const blocked = coerceSummary(
-      { summary: 'Waiting on Operator for the commission tranche rule.', outcome: 'blocked' },
+      { summary: 'Waiting on Mike for the commission tranche rule.', outcome: 'blocked' },
       false,
       true
     )

@@ -70,7 +70,7 @@ const { store, apiMock } = vi.hoisted(() => {
 })
 
 vi.mock('../lib/api', () => ({ api: apiMock, ApiError: class ApiError extends Error {} }))
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'admin' } }) }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'mike' } }) }))
 vi.mock('./ui', () => ({
   Modal: ({ children }: { children: React.ReactNode }) => <div role="dialog">{children}</div>,
   useConfirm: () => ({ confirm: vi.fn(() => Promise.resolve(true)), confirmDialog: null }),

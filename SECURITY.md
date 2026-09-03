@@ -59,10 +59,7 @@ We will acknowledge, fix, and credit (unless you ask not to).
 2. Generate `CC_JWT_SECRET` and `INTERNAL_API_SECRET`. Confirm the process will not boot without them.
 3. Pre-populate `~/.ssh/known_hosts` on the host (`ssh-keyscan github.com`) — the `.ssh` mount is read-only, so `accept-new` cannot append.
 4. Set `UPTIMEROBOT_WEBHOOK_TOKEN` and `GITHUB_WEBHOOK_SECRET` if those routes are reachable.
-5. Change **both** seeded account passwords immediately. `app/server/src/db/seed.ts`
-   creates two first-boot accounts with the same default password `changeme`:
-   `admin:changeme` (admin role) and `ava:changeme` (member role). Changing only
-   `admin` leaves a second known-credential login active.
+5. Change the seed password immediately (`changeme` in `app/server/src/db/seed.ts` is a first-boot default).
 6. Do not publish the Docker socket to a network, and do not add untrusted session spawners.
 
 ## Known gaps (documented, not hidden)

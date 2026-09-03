@@ -34,12 +34,12 @@ interface MentorThreadDbRow {
 }
 
 function mentorOwnerUsername(): string {
-  return process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'admin'
+  return process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'mike'
 }
 
 /**
  * Resolve the Telegram owner's user id (username = MENTOR_TELEGRAM_OWNER_USERNAME,
- * default "admin"). Returns null if no such user exists.
+ * default "mike"). Returns null if no such user exists.
  */
 function resolveOwnerId(): number | null {
   const row = getDb()

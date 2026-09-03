@@ -1,14 +1,20 @@
-# OperationKit API
+# Command Center API
 
 Remote HTTP API so a person — or a **third-party agent** (Claude, Grok, ChatGPT, a cron, a bot) — can project-manage the board without sitting in the UI.
 
 Live machine spec: `GET https://cc.example.com/api/openapi.json`  
 Discovery: `GET https://cc.example.com/api/agent`  
 Portable agent prompt: [AGENT-PROMPT.md](./AGENT-PROMPT.md)  
-Standing bots: run one assistant per area of work, each named to match a workspace on
-your board, all sharing the same `cc_live_` key and the portable prompt above. A typical
-set is a starred **Chief of Staff** for intake and routing, one bot per company or client
-workspace, and an **Inbox** bot for mail triage.
+Standing Grok Bots (names must match exactly):
+
+| Bot | Prompt |
+| --- | --- |
+| **Chief of Staff** (starred) | [chief-of-staff.md](./bots/chief-of-staff.md) |
+| **Example** | [example.md](./bots/example.md) |
+| **Example Project** | [example-project.md](./bots/example-project.md) |
+| **Grass-fed** | [example2.md](./bots/example2.md) |
+| **Shabo DL** | [shabo-dl.md](./bots/shabo-dl.md) |
+| **Inbox** (peer) | [inbox.md](./bots/inbox.md) |
 
 This is the **board / PM surface**. It is not the whole server. Admin, secrets, shell, deploy, and `/api/internal/*` (localhost sessions on the VPS) stay out of this contract on purpose.
 
@@ -49,7 +55,7 @@ Default `GET /api/objectives` is the **live pipeline only** (excludes done + can
 
 ## Agent loop (the whole job)
 
-1. `GET /api/jarvis/briefing` — what is working / blocked / needs you
+1. `GET /api/assistant/briefing` — what is working / blocked / needs you
 2. `GET /api/objectives?workspace=<slug>` — the live board
 3. `POST /api/objectives` — create work (lands in `queue` or `planning`; does **not** start a session)
 4. `PATCH /api/objectives/:id/status` `{ "status": "working" }` — start the coding agent
@@ -82,7 +88,7 @@ Do **not** create a card to answer “what's the status?”. Read the board.
 | GET | `/api/objectives/:id/output` | Thread |
 | GET | `/api/objectives/:id/timeline` | Session events |
 | POST | `/api/objectives/:id/stop` | Kill session, park in review |
-| GET | `/api/jarvis/briefing` | Working / blocked / needs-you |
+| GET | `/api/assistant/briefing` | Working / blocked / needs-you |
 | GET | `/api/docs/search?q=` | Second-brain search |
 | GET | `/api/docs/file?path=` | Read a vault markdown file |
 | PUT | `/api/docs/file` | Write a `.md` file |
@@ -110,6 +116,6 @@ TOKEN=$(curl -s -X POST $BASE/api/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"username":"YOU","password":"YOU"}' | jq -r .token)
 
-curl -s $BASE/api/jarvis/briefing -H "Authorization: Bearer $TOKEN" | jq .board
+curl -s $BASE/api/assistant/briefing -H "Authorization: Bearer $TOKEN" | jq .board
 curl -s "$BASE/api/objectives?workspace=example&limit=20" -H "Authorization: Bearer $TOKEN"
 ```

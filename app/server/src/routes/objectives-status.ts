@@ -319,7 +319,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
           const landed = applyGateHandback(db, existing, gate, { sendFollowUp, broadcast })
           res.status(409).json({
             error: gate.decision.action === 'escalate'
-              ? 'PR required checks still failing after the hold cap — escalated to Operator'
+              ? 'PR required checks still failing after the hold cap — escalated to Mike'
               : 'PR required checks not green — completion blocked',
             ciGate: {
               action: gate.decision.action,

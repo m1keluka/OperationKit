@@ -12,9 +12,9 @@ import type {
 /**
  * Per-user Personal Assistant config: persistence + resolver (obj 701700).
  *
- * Replaces the single-tenant `isOwnerThread()` gate in mentor-session.ts with a
+ * Replaces the single-tenant `isMikeThread()` gate in mentor-session.ts with a
  * `(user, workspace)`-grained config lookup. The three behaviors that were
- * hardcoded to Operator (persona/manual, Google identity, confirmation gating) are
+ * hardcoded to Mike (persona/manual, Google identity, confirmation gating) are
  * now DATA read from `assistant_configs` (see db/index.ts). Every user with
  * Assistant access resolves their OWN config; the owner migrates losslessly via
  * the seed written at migration time.
@@ -161,7 +161,7 @@ function insertConfig(cfg: AssistantConfig): void {
  *  3. No row anywhere → create-on-read a sensible default, persist it, return it.
  *
  * Returns null only when the user id is missing (legacy NULL created_by) — this
- * is the fail-closed equivalent of the old `isOwnerThread(null) === false`.
+ * is the fail-closed equivalent of the old `isMikeThread(null) === false`.
  */
 export function resolveAssistantConfig(
   userId: number | null | undefined,

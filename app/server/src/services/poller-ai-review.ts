@@ -226,7 +226,7 @@ export function escalateCapOut(
   // Human-tracked objectives never auto-complete — park in review for admin sign-off (obj-1074).
   if (mustRouteToHumanReview(obj) && nextStatus === 'done') nextStatus = 'review'
   // PR-gated harness loop (#840): when any persisted criterion is a critical failure,
-  // prepend an explicit UNRESOLVED CRITICAL FAILURES block so Operator sees them in the
+  // prepend an explicit UNRESOLVED CRITICAL FAILURES block so Mike sees them in the
   // review column. Non-PR objectives keep the plain note.
   const criticalBlock = obj.pr_number ? buildCriticalFailureBlock(obj.id) : ''
   const capNote =
@@ -724,7 +724,7 @@ export async function pollAIReviewSessions(): Promise<void> {
     // looked at the PR's checks. This is the exact seam that produced PRs 675/677/678
     // with their owning objectives already `done`. Returns true when the caller must
     // NOT complete: the objective has been bounced back to the worker (or parked in
-    // review, or escalated to Operator at the hold cap) with the failing check names.
+    // review, or escalated to Mike at the hold cap) with the failing check names.
     const ciGateBlocks = async (intended: ObjectiveStatus): Promise<boolean> => {
       if (intended !== 'done') return false
       const gate = await runCompletionGate(db, obj, { pathway: 'reviewer-verdict', alert: insertAlert })

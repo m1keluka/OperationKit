@@ -1,97 +1,75 @@
-import { Router, type Response, type NextFunction } from 'express'
+import { Router } from 'express'
+import { getDb } from '../db/index.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
-import {
-  resolveAssistantConfig,
-  upsertAssistantConfig,
-} from '../services/assistant-config.js'
-import type { AssistantConfigPatch } from '@operationkit/shared'
+import { getOpenTasksBlock } from '../services/mentor-context.js'
 
-/**
- * Personal Assistant config API (obj 701700).
- *   GET  /api/assistant/config  → caller's resolved config (create-on-read)
- *   PUT  /api/assistant/config  → merge a partial patch onto caller's config
- *
- * Gated by requireAuth + requireAssistantAccess (same policy as routes/mentor.ts)
- * and strictly scoped to `req.user` — a caller can only read/write their OWN
- * config. The optional `?workspace=` selects which per-workspace config to act
- * on; it defaults to the caller's primary workspace membership (or 'example').
- */
+const router = Router()
+router.use(requireAuth)
 
-// Mirrors routes/mentor.ts:15 — admins always pass; members need at least one
-// workspace membership with can_use_assistant enabled.
-function requireAssistantAccess(req: AuthRequest, res: Response, next: NextFunction): void {
-  const user = req.user
-  if (!user) {
-    res.status(401).json({ error: 'Authentication required' })
-    return
+// GET /api/assistant/briefing
+// Aggregates live board state + vault open loops for the daily briefing.
+// Phase 5: members only see board rows from workspaces they belong to AND that
+// they created/are assigned to — mirroring `GET /api/objectives`. Admins see all.
+router.get('/briefing', (req: AuthRequest, res) => {
+  const db = getDb()
+  const user = req.user!
+
+  type Row = {
+    id: number
+    title: string
+    status: string
+    workspace: string
+    updated_at: string
+    has_blockers: number
   }
+
+  let rows: Row[]
+  // Status set reflects shared types: queue|working|review|done. The `blocked`
+  // facet is derived from has_blockers (column), not a status value.
   if (user.role === 'admin') {
-    next()
-    return
+    rows = db.prepare(`
+      SELECT id, title, status, workspace, updated_at, has_blockers
+      FROM objectives
+      WHERE status IN ('working', 'review')
+      ORDER BY updated_at DESC
+    `).all() as Row[]
+  } else {
+    const userWs = getUserWorkspaces(user.id).map(w => w.workspace)
+    if (userWs.length === 0) {
+      rows = []
+    } else {
+      const placeholders = userWs.map(() => '?').join(',')
+      rows = db.prepare(`
+        SELECT id, title, status, workspace, updated_at, has_blockers
+        FROM objectives
+        WHERE status IN ('working', 'review')
+          AND workspace IN (${placeholders})
+          AND (assigned_user_id = ? OR created_by = ?)
+        ORDER BY updated_at DESC
+      `).all(...userWs, user.id, user.id) as Row[]
+    }
   }
-  const memberships = getUserWorkspaces(user.id)
-  if (memberships.some(m => m.can_use_assistant)) {
-    next()
-    return
-  }
-  res.status(403).json({ error: 'Assistant access not enabled for your account' })
-}
 
-const router: Router = Router()
-router.use(requireAuth, requireAssistantAccess)
+  const inProgress = rows.filter(r => r.status === 'working' && !r.has_blockers)
+  const blocked = rows.filter(r => r.status === 'working' && !!r.has_blockers)
+  const needsReview = rows.filter(r => r.status === 'review')
 
-/** Resolve which workspace the caller is acting on. */
-function targetWorkspace(req: AuthRequest): string {
-  const q = typeof req.query.workspace === 'string' ? req.query.workspace.trim() : ''
-  if (q) return q
-  const memberships = req.user ? getUserWorkspaces(req.user.id) : []
-  return memberships[0]?.workspace || 'example'
-}
+  // Phase 6: getOpenTasksBlock now honors `allowedWorkspaces`. Admin gets null
+  // (no filter); members get their actual workspace list so other workspaces'
+  // open loops are filtered out at the disk-walk stage.
+  const allowedWorkspaces = user.role === 'admin'
+    ? null
+    : getUserWorkspaces(user.id).map(w => w.workspace)
+  const openLoops = getOpenTasksBlock({ allowedWorkspaces })
 
-// GET /api/assistant/config — caller's resolved config (create-on-read default).
-router.get('/config', (req: AuthRequest, res: Response) => {
-  const user = req.user
-  if (!user) {
-    res.status(401).json({ error: 'Authentication required' })
-    return
-  }
-  const workspace = targetWorkspace(req)
-  const cfg = resolveAssistantConfig(user.id, workspace)
-  if (!cfg) {
-    res.status(500).json({ error: 'Failed to resolve assistant config' })
-    return
-  }
-  res.json(cfg)
-})
-
-// PUT /api/assistant/config — merge a partial patch, return the full config.
-router.put('/config', (req: AuthRequest, res: Response) => {
-  const user = req.user
-  if (!user) {
-    res.status(401).json({ error: 'Authentication required' })
-    return
-  }
-  const workspace = targetWorkspace(req)
-  const body = (req.body ?? {}) as AssistantConfigPatch
-  // Never trust userId/workspace/timestamps from the body — scope to req.user.
-  const patch: AssistantConfigPatch = {}
-  if (body.persona !== undefined) patch.persona = body.persona
-  if (body.model !== undefined) patch.model = body.model
-  if (body.autonomy !== undefined) patch.autonomy = body.autonomy
-  if (body.enabledCapabilities !== undefined) patch.enabledCapabilities = body.enabledCapabilities
-  if (body.enabledConnectors !== undefined) patch.enabledConnectors = body.enabledConnectors
-  if (body.connectorBindings !== undefined) patch.connectorBindings = body.connectorBindings
-  if (body.knowledgeSources !== undefined) patch.knowledgeSources = body.knowledgeSources
-  if (body.enabled !== undefined) patch.enabled = body.enabled
-
-  try {
-    const updated = upsertAssistantConfig(user.id, workspace, patch)
-    res.json(updated)
-  } catch (err) {
-    console.warn('[assistant] PUT /config failed:', (err as Error).message)
-    res.status(500).json({ error: 'Failed to update assistant config' })
-  }
+  res.json({
+    asOf: new Date().toISOString(),
+    board: { inProgress, blocked, needsReview },
+    openLoops,
+    gmail: { available: false, note: 'Connect via Assistant chat — use MCP tools gmail_list and calendar_list from within a session' },
+    calendar: { available: false, note: 'Connect via Assistant chat — use MCP tools gmail_list and calendar_list from within a session' },
+  })
 })
 
 export default router

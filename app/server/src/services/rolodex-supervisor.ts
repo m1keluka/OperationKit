@@ -11,8 +11,16 @@
 
 import { spawn, type ChildProcess } from 'child_process'
 import fs from 'fs'
+import { CC_REPO_DIR } from '../config.js'
 
-const SIBLING_ENTRY = '/home/operator/projects/command-center-infra/app/telegram-rolodex/index.ts'
+// Resolved from config rather than hardcoded (obj 709956): the literal used to be
+// `/home/operator/projects/command-center-infra/app/telegram-rolodex/index.ts`, which
+// pinned both the operator's home and the PRIVATE upstream repo name into shipped
+// source. The sibling itself is operator-specific and is stripped from the public
+// cut (scripts/oss-strip-paths.txt), so in a public install this path simply does
+// not exist — which the existsSync guard below already handles by skipping.
+const SIBLING_ENTRY =
+  process.env.ROLODEX_SIBLING_ENTRY || `${CC_REPO_DIR}/app/telegram-rolodex/index.ts`
 const MIN_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
 const RESET_BACKOFF_AFTER_MS = 60_000  // a run that lasted this long resets backoff

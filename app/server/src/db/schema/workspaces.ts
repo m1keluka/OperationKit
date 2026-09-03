@@ -61,8 +61,8 @@ export function initWorkspacesSchema(db: Database.Database): void {
     },
     {
       slug: 'personal',
-      name: 'Personal',
-      short_label: 'PER',
+      name: 'Mike Luka',
+      short_label: 'ML',
       badge_color: 'bg-purple-500/20 text-purple-400',
       vault_path: '/home/operator/second-brain/workspaces/personal',
       doc_read_roots: [
@@ -80,20 +80,20 @@ export function initWorkspacesSchema(db: Database.Database): void {
       sort_order: 3,
     },
     {
-      // Example Shop — a sample client workspace. Modeled on the `example2`
+      // Shabo Dental Lab — a dental-lab client of Example. Modeled on the `example2`
       // client workspace (seeded separately in seedDevelopmentRegistry).
-      slug: 'example-shop',
-      name: 'Example Shop',
-      short_label: 'SHOP',
+      slug: 'shabo-dl',
+      name: 'Shabo Dental Lab',
+      short_label: 'SHABO',
       badge_color: 'bg-teal-500/20 text-teal-400',
-      vault_path: '/home/operator/second-brain/workspaces/example-shop',
+      vault_path: '/home/operator/second-brain/workspaces/shabo-dl',
       doc_read_roots: [
-        '/home/operator/second-brain/workspaces/example-shop',
+        '/home/operator/second-brain/workspaces/shabo-dl',
         '/home/operator/second-brain/shared',
         '/home/operator/ai-workspace/agents',
         '/home/operator/ai-workspace/skills',
       ],
-      doc_write_roots: ['/home/operator/second-brain/workspaces/example-shop'],
+      doc_write_roots: ['/home/operator/second-brain/workspaces/shabo-dl'],
       default_agent_pool: ['cto', 'cmo', 'coo', 'cfo', 'general'],
       sort_order: 5,
     },
@@ -189,11 +189,12 @@ export function initWorkspacesSchema(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       title TEXT,
       meeting_date TEXT,
-      -- NOTE: no CHECK constraint here. An allow-list of workspace slugs would
-      -- hard-code one deployment's workspaces into the schema, and SQLite cannot
-      -- ALTER a CHECK — so a fresh install could never use its own slugs.
-      -- Workspace validity is enforced by the workspaces table, not by DDL.
-      workspace TEXT,
+      -- NOTE: this CHECK list must be kept in sync with scripts/granola-ingest.ts
+      -- (validWorkspaces + its own copy of this DDL). SQLite cannot ALTER a
+      -- CHECK constraint, so widening it here only affects FRESH databases; an
+      -- existing prod DB keeps whatever list it was created with until the
+      -- table is rebuilt.
+      workspace TEXT CHECK(workspace IN ('example', 'example-project', 'personal', 'personal', 'example2', 'shabo-dl')),
       vault_path TEXT,
       processed_at TEXT NOT NULL DEFAULT (datetime('now'))
     );

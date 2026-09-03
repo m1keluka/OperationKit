@@ -78,7 +78,7 @@ interface EmailMessage {
 }
 
 async function fetchUnclassifiedEmails(maxResults = 100): Promise<EmailMessage[]> {
-  const q = encodeURIComponent('in:INBOX -label:"Triage/Live" -label:"Triage/Junk" -label:"Triage/Notifications" -label:"Triage/Custom Leads"')
+  const q = encodeURIComponent('in:INBOX -label:"Triage/Live" -label:"Triage/Junk" -label:"Triage/Notifications" -label:"Triage/Example Leads"')
   const data = await gmailGet(
     `/users/me/messages?q=${q}&maxResults=${maxResults}`
   ) as { messages?: Array<{ id: string; threadId: string }> }
@@ -123,7 +123,7 @@ async function fetchUnclassifiedEmails(maxResults = 100): Promise<EmailMessage[]
   return emails
 }
 
-type TriageLabel = 'live' | 'junk' | 'custom-leads' | 'notifications'
+type TriageLabel = 'live' | 'junk' | 'example-leads' | 'notifications'
 
 interface ClassificationResult {
   messageId: string
@@ -135,15 +135,15 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b'
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://host.docker.internal:11434'
 
 function buildClassifyPrompt(emailList: string): string {
-  return `Classify each email into exactly one of 4 categories for the operator:
+  return `Classify each email into exactly one of 4 categories for Mike Luka, CEO of Example Growth (M&A advisory):
 
-"live" — genuine personal message or reply from a KNOWN contact. Ongoing conversation, client/partner comm, legal/contracts, replies the operator initiated, personal finance questions, job applicants responding to the operator's posts. The sender knows the operator personally or has an established relationship.
+"live" — genuine personal message or reply from a KNOWN contact. Ongoing conversation, client/partner comm, legal/contracts, replies where Mike initiated the thread, personal finance questions, job applicants responding to Mike's posts. The sender knows Mike personally or has an established relationship.
 
 "junk" — ANY cold outreach or unsolicited sales email, even if written by a real human. Also: newsletters, marketing, promotions, LinkedIn/Reddit digests, unsubscribable bulk mail, generic SaaS drip emails, PR pitches, conference invitations, recruiting firms reaching out unsolicited.
 
-"custom-leads" — booking/appointment notifications from the scheduling system. Subject contains "New Lead from your app:" or similar.
+"example-leads" — booking/appointment notifications from Example's scheduling system. Subject contains "New Lead from Example:" or similar.
 
-"notifications" — system/tech alerts (GitHub CI failures, UptimeRobot UP/DOWN, deployment alerts), banking/finance transactions (Mercury charges, ACH payments, Ramp, Stripe receipts), automated invoices (Anthropic, AWS, etc.), service status emails. Informational, not actionable by the operator directly.
+"notifications" — system/tech alerts (GitHub CI failures, UptimeRobot UP/DOWN, deployment alerts), banking/finance transactions (Mercury charges, ACH payments, Ramp, Stripe receipts), automated invoices (Anthropic, AWS, etc.), service status emails. Informational, not actionable by Mike directly.
 
 HARD RULES (these override everything else):
 - Cold outreach / sales pitch / "I'd love to connect" / "partnership opportunity" / "quick question" (no prior relationship) → junk
@@ -153,13 +153,13 @@ HARD RULES (these override everything else):
 - "Run failed" GitHub notifications → notifications
 - UptimeRobot alerts → notifications
 - Mercury / Ramp / Stripe / Anthropic transaction emails → notifications
-- "New Lead from Example" → custom-leads
+- "New Lead from Example" → example-leads
 - When uncertain between live and junk: default to junk
 
 Reply ONLY with lines like:
 1: live
 2: junk
-3: custom-leads
+3: example-leads
 4: notifications
 (one line per email, no other text)
 
@@ -200,7 +200,7 @@ async function classifyBatch(emails: EmailMessage[]): Promise<ClassificationResu
 
   const results: ClassificationResult[] = []
   for (const line of text.split('\n')) {
-    const match = line.match(/^(\d+):\s*(live|junk|custom-leads|notifications)/i)
+    const match = line.match(/^(\d+):\s*(live|junk|example-leads|notifications)/i)
     if (match) {
       const idx = parseInt(match[1]) - 1
       if (idx >= 0 && idx < emails.length) {
@@ -215,14 +215,14 @@ export interface TriageRunResult {
   processed: number
   live: number
   junk: number
-  customLeads: number
+  exampleLeads: number
   notifications: number
   skipped: number
   errors: string[]
 }
 
 export async function runGmailTriage(): Promise<TriageRunResult> {
-  const result: TriageRunResult = { processed: 0, live: 0, junk: 0, customLeads: 0, notifications: 0, skipped: 0, errors: [] }
+  const result: TriageRunResult = { processed: 0, live: 0, junk: 0, exampleLeads: 0, notifications: 0, skipped: 0, errors: [] }
 
   if (!process.env.GMAIL_CLIENT_ID) {
     result.errors.push('Gmail OAuth credentials not configured — restart container after Doppler setup')
@@ -230,17 +230,17 @@ export async function runGmailTriage(): Promise<TriageRunResult> {
   }
 
   try {
-    const [liveLabelId, junkLabelId, customLeadsLabelId, notificationsLabelId] = await Promise.all([
+    const [liveLabelId, junkLabelId, exampleLeadsLabelId, notificationsLabelId] = await Promise.all([
       ensureLabel('Triage/Live', '#16a765'),
       ensureLabel('Triage/Junk', '#e66550'),
-      ensureLabel('Triage/Custom Leads', '#4a86e8'),
+      ensureLabel('Triage/Example Leads', '#4a86e8'),
       ensureLabel('Triage/Notifications', '#ffad47'),
     ])
 
     const labelMap: Record<TriageLabel, string> = {
       live: liveLabelId,
       junk: junkLabelId,
-      'custom-leads': customLeadsLabelId,
+      'example-leads': exampleLeadsLabelId,
       notifications: notificationsLabelId,
     }
 
@@ -285,14 +285,14 @@ export async function runGmailTriage(): Promise<TriageRunResult> {
         insert.run(cl.messageId, email.threadId, email.from, email.subject, email.snippet, cl.label)
         if (cl.label === 'live') result.live++
         else if (cl.label === 'junk') result.junk++
-        else if (cl.label === 'custom-leads') result.customLeads++
+        else if (cl.label === 'example-leads') result.exampleLeads++
         else if (cl.label === 'notifications') result.notifications++
         result.processed++
       }
     })
     insertAll()
 
-    console.log(`[gmail-triage] Processed ${result.processed}: ${result.live} live, ${result.junk} junk, ${result.customLeads} custom-leads, ${result.notifications} notifications, ${result.skipped} skipped`)
+    console.log(`[gmail-triage] Processed ${result.processed}: ${result.live} live, ${result.junk} junk, ${result.exampleLeads} example-leads, ${result.notifications} notifications, ${result.skipped} skipped`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     result.errors.push(msg)

@@ -1,120 +1,105 @@
-# OperationKit — OSS Release Manifest
+# OSS release manifest — what ships, what is stripped, and why
 
-**Status:** contract for the OSS V1 cut of `command-center-infra` → public
-`github.com/m1keluka/OperationKit`.
-**Owner:** W1 (security audit). The docs + installer workers rely on this file
-as the include/exclude/genericize contract.
+Companion to `scripts/oss-strip-paths.txt` (the machine-readable source of truth)
+and `scripts/oss-sync-gate.sh` (the fail-closed enforcement). This file is the
+*reasoning* behind those two; when they disagree, the scripts win and this file
+is the bug.
 
-Every top-level path and every Example-internal integration is classified as:
+The pipeline is: **assemble** (`git archive HEAD`) → **strip**
+(`oss-strip-paths.txt`) → **inject templates** (`oss/templates/`) → **snapshot
+the raw tree** → **genericize** (`oss-genericize.sh`) → **gate**
+(`oss-sync-gate.sh`, over both the raw snapshot and the genericized tree) →
+**mirror**. See `.github/workflows/oss-sync.yml`.
 
-- **SHIP** — core, publish as-is (generic, no private data).
-- **OPTIONAL** — publish but **disabled by default**; gated by an env flag /
-  opt-in installer. Each row names the gate.
-- **EXCLUDE** — must be **removed or genericized before the repo goes public**
-  (Example-customer-specific, embedded private ops, or real PII/infra). None of
-  these are *live secrets* (the working tree and full git history are secret-clean
-  — see the W1 report), but they are private/business-specific and must not ship
-  verbatim.
+## Classification vocabulary
 
-> **Security note:** no item below is a credential. The secret scan (working tree
-> + 684-commit history) is clean; `.env` is untracked. EXCLUDE here means
-> "private/business-specific," not "leaked secret." No git-history rewrite is
-> required.
+| Class | Meaning |
+|---|---|
+| **SHIPS** | Present in the public tree, unmodified or genericized. |
+| **STRIPPED** | Removed before publication. Never reaches the mirror. |
+| **OPTIONAL** | Ships, but inert unless the operator configures it. Costs a self-hoster nothing if ignored. |
 
----
+`OPTIONAL` is a claim about *runtime*, not about identity. A subsystem that is
+inert-by-default but whose **source names a specific person, client, or private
+persona** is not OPTIONAL — it is a leak that happens to be switched off, and it
+must be STRIPPED.
 
-## Top-level paths
+## Agent roster
 
-| Path | Class | Notes / gate |
-|------|-------|--------------|
-| `app/` | **SHIP** | Core platform (client + server + shared). Individual Example-wired *services inside* it are classified in the integrations table below; the app itself is generic. |
-| `app/telegram-rolodex/` | **OPTIONAL** | Standalone Telegram contact-bot process. Gate: `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ROLODEX_OWNER_ID` (self-skips if unset). Genericize the README (references Example). |
-| `config/litellm/` | **SHIP** | Model-group config; all keys are `os.environ/*` indirection. Generic. |
-| `config/caddy/` | **OPTIONAL** | Reverse-proxy config; genericize the hardcoded `cc.example.com` vhost to a `${DOMAIN}` placeholder before ship. |
-| `docker-compose.yml` | **SHIP** | All secrets are `${VAR}` interpolation. Doppler mount lines are commented/optional. Generic. |
-| `design/` | **SHIP** | Design assets. (Verify no client logos before ship.) |
-| `docs/` | **SHIP** (mostly) | Architecture/PRD/enablement docs. Genericize `example.com` references; see EXCLUDE rows for `showcase-small-things.md`. |
-| `scripts/` | **MIXED** | Deploy/ops scripts — many generic, several Example-wired. Itemized below. |
-| `spec/` | **SHIP** | Product/spec docs (review for client names). |
-| `tests/` | **SHIP** | Vitest suites + committed smoke evidence. |
-| `.env.example` | **SHIP** | Placeholders only (`change-me`, `sk-ant-...`). Generic. |
-| `.gitignore` | **SHIP** | Hardened (W1). |
-| `.githooks/` | **SHIP** | `pre-push` harness gate + `pre-commit` secret-block (W1). |
-| `.github/workflows/` | **MIXED** | `test.yml` + `secret-scan.yml` → SHIP. `weekly-security-review.yml` → EXCLUDE (below). |
-| `.gitleaks.toml` | **SHIP** | W1 secret-scan config. |
-| `SECURITY.md` | **SHIP** | W1 threat model. |
-| `CLAUDE.md` | **EXCLUDE / genericize** | Contains private infra: droplet IP `203.0.113.10`, `cc.example.com`, the full Doppler/Supabase project-ref table (real refs), client slugs. Rewrite to a generic self-host guide before public. |
+| Path | Class | Notes |
+|---|---|---|
+| `app/server/seed.agents.example.json` | **SHIPS** | The blank-slate default roster: `cto`, `cmo`, `coo`, `cfo`, `general`. Gate check 3 asserts it is *present*. |
+| `app/server/seed.agents.json` | **STRIPPED** | The operator's real roster. Gitignored, on the strip list, and gate check 3 asserts it is absent. |
+| `scripts/oss-agent-allowlist.txt` | **STRIPPED** | Upstream-only gate tooling, like the denylist and the gate itself. |
+| `app/server/src/db/schema/agents.ts` | **SHIPS** | Includes `DEFAULT_AGENT_SEED`, which gate check 4 scans alongside the example seed. |
 
----
+Any slug outside `scripts/oss-agent-allowlist.txt` in either seed source fails
+the publish (check 4). Adding one is a reviewable one-line diff.
 
-## `scripts/` itemization
+## `app/telegram-rolodex/` — DECISION: **STRIPPED** (obj 709956)
 
-### SHIP (generic ops)
-`backup-db.sh`, `deploy.sh`, `drift-check.sh`, `quick-deploy.sh`,
-`self-deploy.sh`, `preview-deploy.sh`, `preview-spool-runner.sh`,
-`preview-teardown.sh`, `install-preview-spool.sh`, `install-harness-hooks.sh`,
-`apply-branch-protection.sh`, `rollout-branch-protection.sh`,
-`branch-protection-ruleset*.json`, `setup-playwright-mcp.sh`,
-`supabase-deploy.sh` (generic multi-project wrapper; registry lives outside the
-repo), `notify-failure.sh`, `pick-claude-account.sh`, `setup-claude-account.sh`,
-`split-unknown-account.cjs`, `run-claude-host.sh`, `run-claude-scheduled.sh`,
-`test-fifo-spawn.sh`, `ui-conformance.sh`, `mint-service-token.sh`,
-`restore-objectives-snapshot.cjs`, `pyramid-create.sh`.
-*(Genericize stray `example.com`/second-brain path references where present, e.g. `quick-deploy.sh`, `preview-deploy.sh`, `rollout-branch-protection.sh`, `ui-conformance.sh`, `update-active-state.sh`.)*
+This reverses an earlier `OPTIONAL` reading of the subsystem, and the reversal is
+the point of the vocabulary note above.
 
-### OPTIONAL (gated, self-skip when unconfigured)
-| Script(s) | Gate / opt-in |
-|-----------|---------------|
-| `run-gmail-triage.sh`, `setup-gmail-oauth.sh` | `GMAIL_CLIENT_ID` (+ OAuth setup). Gmail triage. |
-| `run-granola-ingest.sh`, `setup-granola-mcp.sh` | `GRANOLA_API_KEY` / `GRANOLA_WORKSPACE`. |
-| `setup-hermes.sh` + `hermes-seeds/*` | Hermes orchestration agent (opt-in install). Seeds need genericizing — see EXCLUDE. |
-| `reconcile-clients.sh`, `install-reconcile-clients-cron.sh` | Supabase reconcile. Requires `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` + cron opt-in; hardcodes example `public.clients` + `second-brain/workspaces/example` — genericize table/paths. |
-| `campaign-audit.sh`, `install-campaign-audit-cron.sh` | Campaign audit. Same Supabase-clients coupling + `/campaign-audit` skill; genericize before enabling. |
-| `secrets-import-from-doppler.mjs` (+ `.d.mts`) | Doppler scoped-token import. Gate: `USE_SCOPED_DOPPLER_TOKENS` / `DOPPLER_TOKEN`. |
-| `dream-cycle.sh`, `install-dream-cycle-cron.sh` | Gate: `DREAM_CYCLE_ENABLED`. |
-| `loop-closer-nudge.mjs` | Gate: `JARVIS_NUDGE_ENABLED`. |
-| `cron-health-check.sh`, `install-cron-health-cron.sh`, `install-daily-log-cron.sh`, `generate-daily-digest.sh`, `vps-schedule.sh`, `fix-vps-cron.sh`, `update-active-state.sh` | Ops cron glue; opt-in installers. Genericize `brand-domain`/second-brain paths. |
-| `inbox-triage-himalaya.sh` | himalaya CLI mail triage; opt-in. |
-| `start-openhands.sh` | OpenHands co-service; opt-in. |
+**What it is.** A single-owner Telegram bot that manages a contacts vault over
+chat, running as a sibling process spawned by the main server.
 
-### EXCLUDE (Example-specific — remove or genericize before public)
-| Path | Why |
-|------|-----|
-| `scripts/hermes-seeds/USER.md` | Real personal bio/PII about the operator (name, businesses, working hours, comms prefs). Replace with a generic template. |
-| `scripts/hermes-seeds/MEMORY.md` | Hardcodes `cc.example.com` + Example ops rules. Genericize to a blank template. |
-| `scripts/security/weekly-security-review.sh` | Hardcodes the 5 canonical **Example** repos, `second-brain` digest paths, and the board API. Example-internal; genericize or drop. |
-| `scripts/sync-showcase.sh` | Example showcase sync (business-specific). |
+**Why it was called OPTIONAL.** It is genuinely inert without configuration:
+`services/rolodex-supervisor.ts` returns immediately unless both
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_ROLODEX_OWNER_ID` are set, and again if the
+entry file is missing. A self-hoster who ignores it pays nothing.
 
----
+**Why that is not sufficient.** Its source is operator identity, not
+configuration:
 
-## Example-internal integrations (feature-level)
+- `app/telegram-rolodex/index.ts:30` defaults its system prompt to
+  `<ai-workspace>/agents/rolodex.md` — a persona file the gate already
+  hard-blocks from ever shipping, so the published bot points at a file that
+  cannot exist.
+- `app/telegram-rolodex/README.md` documents the live host, the real webhook
+  URL, and a unix socket under the operator's home.
+- It is built around one of the operator's **private personas**, which is exactly
+  the class of leak the blank-slate work exists to remove. Shipping a whole
+  subsystem named after a private persona re-establishes by prose what deleting
+  the roster constants removed from the type system.
 
-| Integration | Class | Gate (env flag) | Notes |
-|-------------|-------|-----------------|-------|
-| Gmail triage (`services/gmail-triage.ts`) | **OPTIONAL** | `GMAIL_CLIENT_ID` (OAuth) | Self-skips without creds. |
-| Telegram rolodex (`app/telegram-rolodex/`, `services/rolodex-supervisor.ts`) | **OPTIONAL** | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ROLODEX_OWNER_ID` | Separate process; supervisor no-ops if unset. |
-| Granola ingest (`services/granola-*.ts`, `routes/granola-content.ts`, `GranolaPage.tsx`, `scripts/granola-ingest.ts`) | **OPTIONAL** | `GRANOLA_API_KEY` / `GRANOLA_WORKSPACE` | Meeting-notes ingest. |
-| Doppler scoped tokens (`services/doppler-scoped-tokens.ts`, `provision-scoped-doppler-tokens.ts`) | **OPTIONAL** | `USE_SCOPED_DOPPLER_TOKENS`, `DOPPLER_TOKEN`, `PROVISION_SCOPED_DOPPLER_COMMIT` | Off → uses `.env`/compose vars. |
-| Native scoped secrets store (`services/secrets-store.ts`, `secrets-crypto.ts`) | **SHIP** | `USE_SCOPED_SECRETS` (off → env vars) | Generic AES-256-GCM store (the Doppler replacement). Core. |
-| Supabase reconcile (`reconcile-clients.sh`, `routes/webhooks.ts` supabase path) | **OPTIONAL** | `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` + `SUPABASE_WEBHOOK_SECRET` | Example `clients` schema coupling — genericize. |
-| Campaign audit (`scripts/campaign-audit.sh`, `/campaign-audit` skill) | **OPTIONAL** | Supabase creds + cron opt-in | Example campaign schema — genericize. |
-| Weekly cross-repo security review (`weekly-security-review.yml` + `.sh`) | **EXCLUDE** | schedule commented; self-hosted runner | Hardcodes 5 Example repos + droplet-local paths. Genericize or drop. |
-| Test-credentials registry (`services/crypto.ts`, `docs/testing/*`) | **SHIP** | `TEST_CRED_ENCRYPTION_KEY` | Generic per-project non-prod test-cred store; docs reference env-var *names* only. |
-| Mentor / notifier Telegram (`services/mentor-session.ts`, `notifier.ts`) | **OPTIONAL** | `MENTOR_TELEGRAM_OWNER_USERNAME` / Telegram token | Genericize owner-username default. |
-| Arena / canary / UAT / kitchen-loop harnesses | **OPTIONAL** | `CC_ARENA_ENABLED`, `CC_CANARY_HARNESS_ENABLED`, `CC_UAT_GATE_ENABLED`, `CC_KITCHEN_LOOP_ENABLED` | Off by default; see [SETUP.md](../SETUP.md) for how optional harnesses are enabled. |
-| Alerts | **OPTIONAL** | `ALERTS_ENABLED` | |
+**Decision.** `prefix:app/telegram-rolodex/` is on `scripts/oss-strip-paths.txt`.
 
----
+**What still ships, and why that is safe:**
 
-## Genericization TODOs (owned by the genericize/docs workers, not W1)
+| Kept | Reason |
+|---|---|
+| `app/server/src/services/rolodex-supervisor.ts` | `app/server/src/index.ts` imports it, so stripping it would break the published tree's typecheck. It is generic infrastructure — spawn-a-child-with-backoff — and its one identity leak (a hardcoded `/home/<operator>/projects/command-center-infra/...` path, which also leaked the **private upstream repo name**) is fixed: the entry now resolves from `CC_REPO_DIR`, overridable via `ROLODEX_SIBLING_ENTRY`. With the sibling stripped the path does not exist, and the existing `fs.existsSync` guard skips with a log line. |
+| `rolodex_threads` table, `/api/internal/rolodex/history` | Generic per-chat history storage for any sibling that wants it. Dropping the table would be a destructive migration on live data for no safety gain. |
 
-1. **`CLAUDE.md`** — strip droplet IP `203.0.113.10`, `cc.example.com`, real
-   Supabase-ref table, client slugs → generic self-host guide.
-2. **`config/caddy/Caddyfile`** — `cc.example.com` → `${DOMAIN}`.
-3. **`hermes-seeds/USER.md` + `MEMORY.md`** — replace with blank templates.
-4. **`reconcile-clients.sh` / `campaign-audit.sh`** — abstract the Example
-   `clients`/`campaign_audits` schema + `second-brain/workspaces/example` paths.
-5. **`weekly-security-review.*`** — parameterize the repo list or drop.
-6. Sweep remaining `example.com` / `admin@example.com` / `<your-supabase-ref>`
-   references across `docs/`, `scripts/`, and server config (see W1 report for the
-   file list) → generic placeholders.
+**Why `rolodex` is not on the denylist.** After the strip, the surviving
+occurrences are a common noun used as a subsystem name (a supervisor, a table, a
+route). Denylisting it would fail the publish on those legitimate hits. The
+enforcement that actually matters is check 4: `rolodex` is deliberately **not**
+on `scripts/oss-agent-allowlist.txt`, so it can never re-enter the shipped agent
+roster — which is where it did damage.
+
+**Explicitly out of scope here** (noted, not done): removing the subsystem from
+the private repo, and dropping `rolodex_threads`. Both are separate decisions
+with their own blast radius.
+
+## Other stripped classes
+
+Summarised; `scripts/oss-strip-paths.txt` carries the per-path reasoning.
+
+| Class | Examples |
+|---|---|
+| Real config / seeds / registries | `.env`, `seed.workspaces.json`, `seed.agents.json`, `.supabase-registry.json` |
+| Upstream-only sync tooling | `scripts/oss-*.{sh,txt}`, `docs/OSS-SYNC*.md`, `.github/workflows/oss-sync.yml` |
+| Real personas / vault content | `ai-workspace/`, `second-brain/` (also a hard path-absence gate check) |
+| Operator-specific ops scripts and docs | host deploy/cron scripts, internal runbooks, PR-triage records |
+| Internal design + evidence | `design/`, `config/`, `.evidence/`, `CLAUDE.md` |
+
+## Known gap (pre-existing, not introduced here)
+
+`oss-genericize.sh` deliberately does **not** rewrite the bare workspace slug
+`example` ("too common a substring, false-positive risk" — its own header). It is on
+the denylist, so a full-tree gate run currently reports denylist hits in ~81
+files, mostly test fixtures using `example` as a workspace slug. Closing that needs
+a separate `example` → `example` pass over the private source; it is out of scope
+for the roster work and is unchanged by it.

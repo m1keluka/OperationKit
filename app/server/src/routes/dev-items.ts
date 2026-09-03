@@ -12,7 +12,7 @@
  *     `deleted_at IS NULL` filter (schema §5 mitigation 1). The only direct SQL
  *     here touches OTHER tables (objectives, changelog_entries, dev_item_prs).
  *
- *  2. **Auth.** Triage is Operator-only via CC's EXISTING session admin gate
+ *  2. **Auth.** Triage is Mike-only via CC's EXISTING session admin gate
  *     (§3.7) — `requireAuth` + `requireAdmin`, not the browser-published ingest
  *     token and not `OBJECTIVES_API_TOKEN`. There is deliberately no
  *     per-workspace ACL: an admin sees every platform's board, which is the

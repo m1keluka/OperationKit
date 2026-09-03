@@ -197,7 +197,7 @@ describe('shadow mode (dsr_enabled=1, dsr_live=0)', () => {
     const { result, lens, poster } = await run()
     expect(result.mode).toBe('shadow')
     expect(result.skipped).toBeNull()
-    // Shadow must exercise all three lenses — the shadow output Operator reviews is
+    // Shadow must exercise all three lenses — the shadow output Mike reviews is
     // the actual set of objectives that WOULD be created, not a raw dump.
     expect(lens.calls).toEqual(expect.arrayContaining(['L1', 'L2', 'L3']))
     const cands = getDb().prepare("SELECT * FROM dsr_candidates WHERE verdict = 'promoted'").all() as Array<{ created_objective_id: number | null }>

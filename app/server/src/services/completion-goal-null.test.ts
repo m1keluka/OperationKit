@@ -152,7 +152,7 @@ describe('planner prompt — completion_goal is null (obj 708817)', () => {
   })
 
   it('passes the real goal through when one is set', () => {
-    const prompt = buildPlannerPrompt(makeObjective({ completion_goal: 'Plan approved by Operator.' }))
-    expect(prompt).toContain('Completion goal: Plan approved by Operator.')
+    const prompt = buildPlannerPrompt(makeObjective({ completion_goal: 'Plan approved by Mike.' }))
+    expect(prompt).toContain('Completion goal: Plan approved by Mike.')
   })
 })

@@ -61,56 +61,55 @@ export type AIReviewVerdict = 'pass' | 'fail' | 'blocked'
 export type AIReviewMode = 'browser' | 'api' | 'doc' | 'noop'
 export type UserRole = 'admin' | 'member'
 /**
- * Every persona file in `~/ai-workspace/agents/*.md` is now an assignable
- * `agent_context` (obj-2387, Mike's decision D7: "every agent should be
- * assignable, and also routing-only/sub-agent designated"). The union below MUST
- * stay in 1:1 sync with the persona files on disk — `AGENT_MAP`/`WORKDIR_MAP`
- * (prompt-builder.ts) are typed `Record<AgentContext, …>`, so the compiler fails
- * the build if a persona is added here without a workdir/file mapping.
- *
- * `AGENT_META` classifies each persona's INTENT (executive vs a specialist
- * normally reached via the CLAUDE.md routing table or spawned as a sub-agent).
- * All are assignable; `kind` only drives UI labeling — nothing is silently
- * missing from the picker.
+ * Agent slugs are dynamic (sourced from the `agents` registry table); this is
+ * just a string, exactly like `Workspace`. Validated at the API boundary
+ * against the registry, not by the compiler — the closed union that used to
+ * live here was itself the reason the roster had to be hardcoded in six
+ * different files.
  */
-export type AgentContext =
-  | 'cto' | 'cmo' | 'coo' | 'cfo' | 'general' | 'designer' | 'hr' | 'general-counsel'
-  | 'chief-of-staff' | 'assistant' | 'campaign-auditor' | 'campaign-launcher'
-  | 'data-sourcing' | 'fundraising-advisor' | 'example2-campaign-ops' | 'ma-advisor' | 'rolodex'
+export type AgentContext = string
 
 /** Persona intent. `executive` = a top-level role you assign an objective to
  *  directly; `routing-only` = a specialist normally invoked via the routing
  *  table or spawned as a sub-agent — still assignable, but labeled so operators
  *  understand it isn't a primary executive. */
 export type AgentKind = 'executive' | 'routing-only'
+
+/** Where a persona's sessions run by default. Stored as a kind rather than a raw
+ *  path so registry rows stay portable across installs; the server maps it onto
+ *  its own PROJECTS_DIR / AI_WORKSPACE_DIR / HOME_DIR constants. */
+export type AgentWorkdirKind = 'projects' | 'workspace' | 'home' | 'custom'
+
 export interface AgentMeta {
-  /** Whether the persona can be selected as an objective's primary agent. All
-   *  17 are `true` today; the field exists so a persona could be hidden later
-   *  without being dropped from the union (and from `AGENT_MAP`). */
+  /** Whether the persona can be selected as an objective's primary agent. */
   assignable: boolean
   kind: AgentKind
   /** Short human label for the UI. */
   label: string
 }
-export const AGENT_META: Record<AgentContext, AgentMeta> = {
-  cto: { assignable: true, kind: 'executive', label: 'CTO' },
-  cmo: { assignable: true, kind: 'executive', label: 'CMO' },
-  coo: { assignable: true, kind: 'executive', label: 'COO' },
-  cfo: { assignable: true, kind: 'executive', label: 'CFO' },
-  hr: { assignable: true, kind: 'executive', label: 'HR' },
-  'general-counsel': { assignable: true, kind: 'executive', label: 'General Counsel' },
-  designer: { assignable: true, kind: 'executive', label: 'Designer' },
-  'chief-of-staff': { assignable: true, kind: 'executive', label: 'Chief of Staff' },
-  general: { assignable: true, kind: 'executive', label: 'General' },
-  assistant: { assignable: true, kind: 'routing-only', label: 'Assistant' },
-  'campaign-auditor': { assignable: true, kind: 'routing-only', label: 'Campaign Auditor' },
-  'campaign-launcher': { assignable: true, kind: 'routing-only', label: 'Campaign Launcher' },
-  'data-sourcing': { assignable: true, kind: 'routing-only', label: 'Data Sourcing' },
-  'fundraising-advisor': { assignable: true, kind: 'routing-only', label: 'Fundraising Advisor' },
-  'example2-campaign-ops': { assignable: true, kind: 'routing-only', label: 'EXAMPLE2 Campaign Ops' },
-  'ma-advisor': { assignable: true, kind: 'routing-only', label: 'M&A Advisor' },
-  rolodex: { assignable: true, kind: 'routing-only', label: 'Rolodex' },
+
+/**
+ * An agent as configured in the registry. Payload of GET /api/agents.
+ * Replaces the previous `AGENT_META` / `AGENT_CONTEXTS` constants — the UI
+ * fetches at runtime, the same way it does for models and workspaces.
+ */
+export interface AgentRow {
+  slug: string
+  label: string
+  kind: AgentKind
+  assignable: boolean
+  /** Persona filename under the agents dir, no `.md`. NULL ⇒ same as `slug`. */
+  prompt_file: string | null
+  workdir_kind: AgentWorkdirKind
+  workdir_path: string | null
+  /** 2-char monogram for the UI avatar. */
+  mono: string | null
+  badge_hex: string | null
+  badge_tw: string | null
+  archived: boolean
+  sort_order: number
 }
+
 /**
  * Workspace slugs are dynamic (sourced from the `workspaces` table); this is
  * just a string. The literal value `'all'` is used by the UI as the cross-
@@ -149,13 +148,6 @@ export const OBJECTIVE_STATUSES: ObjectiveStatus[] = [
   'planning', 'queue', 'working', 'ai_review', 'review', 'done', 'cancelled',
 ]
 export const OBJECTIVE_TYPES: ObjectiveType[] = ['project', 'bug', 'task']
-// Order: executives first (the common assignment targets), then routing-only
-// specialists. The picker can group on `AGENT_META[a].kind`.
-export const AGENT_CONTEXTS: AgentContext[] = [
-  'cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel', 'chief-of-staff',
-  'assistant', 'campaign-auditor', 'campaign-launcher', 'data-sourcing',
-  'fundraising-advisor', 'example2-campaign-ops', 'ma-advisor', 'rolodex',
-]
 export const OBJECTIVE_CATEGORIES: ObjectiveCategory[] = ['development', 'operations', 'marketing', 'finance', 'legal', 'general']
 export const WORKFLOW_HINTS: WorkflowHint[] = ['fan-out', 'adversarial', 'tournament', 'loop-until-done', 'classify-and-act']
 export const EFFORT_LEVELS: EffortLevel[] = ['normal', 'high', 'ultracode']

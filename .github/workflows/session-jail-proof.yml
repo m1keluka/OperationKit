@@ -1,0 +1,24 @@
+name: Session Jail Proof
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  jail-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create host decoy (must NOT leak into jail)
+        run: |
+          sudo mkdir -p /home/mike
+          echo DECOY-SHOULD-NOT-LEAK | sudo tee /home/operator/DECOY-ok-jail.txt
+          echo "Decoy written:"
+          cat /home/operator/DECOY-ok-jail.txt
+
+      - name: Run session jail proof
+        run: bash scripts/session-jail-proof.sh

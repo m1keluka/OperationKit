@@ -3,7 +3,7 @@
  */
 import type { Classification, PrHealth, SweepResult } from './pr-health-decisions.js'
 
-// ── Operator-facing rendering ───────────────────────────────────────────────────────
+// ── Mike-facing rendering ───────────────────────────────────────────────────────
 
 const LABEL: Record<Classification, string> = {
   'green': 'GREEN',
@@ -40,11 +40,11 @@ function gateLine(p: PrHealth): string {
 }
 
 /**
- * The single Operator-facing surface: one compact markdown digest answering, per red PR,
+ * The single Mike-facing surface: one compact markdown digest answering, per red PR,
  * WHICH checks are red, whether it is a real failure or noise, WHICH objective owns it,
  * and HOW MANY remediation attempts have been spent. Green and pending PRs collapse to
  * a one-line tally — the point of the digest is to remove hunting, not to re-list
- * everything Operator already knows is fine.
+ * everything Mike already knows is fine.
  */
 export function renderDigest(report: SweepResult): string {
   const red = report.prs

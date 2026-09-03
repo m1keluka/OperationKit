@@ -37,7 +37,7 @@
   .ok-col { overflow: hidden; }
 }
 
-/* Mobile is a vertical stack — put what needs Operator first. Desktop keeps
+/* Mobile is a vertical stack — put what needs Mike first. Desktop keeps
    pipeline order (DOM / OBJECTIVE_STATUSES: Queue → Working → Needs You). */
 @media (max-width: 767px) {
   .ok-col[data-status="review"]    { order: 1; }

@@ -120,7 +120,7 @@ describe('buildSpawnEnv — attribution rides on the spawn env, flags OFF (decou
     expect(linked.GH_CONFIG_DIR).toBe('/etc/gh')
 
     // obj-701130: an unlinked owner now ALSO carries a git-author identity — the
-    // operator noreply FALLBACK (not EVA's per-user id, and not a GH_TOKEN). So the
+    // m1keluka noreply FALLBACK (not EVA's per-user id, and not a GH_TOKEN). So the
     // two envs share the same base ONCE each side's git-author keys are stripped:
     // the linked side loses its 6 per-user keys, the unlinked side loses its 4
     // fallback keys, and what remains is byte-identical.
@@ -134,18 +134,18 @@ describe('buildSpawnEnv — attribution rides on the spawn env, flags OFF (decou
     expect(strippedLinked).toEqual(strippedUnlinked)
   })
 
-  it('UNLINKED owner: spawn env carries the operator noreply git-author FALLBACK, no token, never cc@ (obj-701130)', () => {
+  it('UNLINKED owner: spawn env carries the m1keluka noreply git-author FALLBACK, no token, never cc@ (obj-701130)', () => {
     seedUser(8, 'unlinked')
     const env = buildSpawnEnv({ objective: objectiveOwnedBy(8), homeDir: '/home/ccuser-a', sessionKind: 'worker' })
     // No PR-actor token for an unlinked owner (PR auth rides the shared /etc/gh).
     expect(env.GH_TOKEN).toBeUndefined()
     expect(env.GITHUB_TOKEN).toBeUndefined()
-    // Commit author/committer = the GitHub-linked operator noreply fallback — the
+    // Commit author/committer = the GitHub-linked m1keluka noreply fallback — the
     // durable guard against Vercel COMMIT_AUTHOR_REQUIRED. NEVER dev@example.com.
-    expect(env.GIT_AUTHOR_EMAIL).toBe('oss-user@users.noreply.github.com')
-    expect(env.GIT_AUTHOR_NAME).toBe('oss-user')
-    expect(env.GIT_COMMITTER_EMAIL).toBe('oss-user@users.noreply.github.com')
-    expect(env.GIT_COMMITTER_NAME).toBe('oss-user')
+    expect(env.GIT_AUTHOR_EMAIL).toBe('255270713+m1keluka@users.noreply.github.com')
+    expect(env.GIT_AUTHOR_NAME).toBe('m1keluka')
+    expect(env.GIT_COMMITTER_EMAIL).toBe('255270713+m1keluka@users.noreply.github.com')
+    expect(env.GIT_COMMITTER_NAME).toBe('m1keluka')
     expect(env.GIT_AUTHOR_EMAIL).not.toBe('dev@example.com')
     expect(Object.keys(env)).toEqual([
       'HOME', 'USER', 'TERM', 'PATH', 'GIT_SSH_COMMAND', 'GH_CONFIG_DIR',
@@ -169,13 +169,13 @@ describe('buildSpawnEnv — attribution rides on the spawn env, flags OFF (decou
     // The per-user identity from userGitIdentityEnv must NOT be overwritten by the
     // fallback — obj-701130 only fills GIT_AUTHOR_EMAIL when it is absent.
     expect(env.GIT_AUTHOR_EMAIL).toBe(EVA_EMAIL)
-    expect(env.GIT_AUTHOR_EMAIL).not.toBe('oss-user@users.noreply.github.com')
+    expect(env.GIT_AUTHOR_EMAIL).not.toBe('255270713+m1keluka@users.noreply.github.com')
     expect(env.GIT_COMMITTER_EMAIL).toBe(EVA_EMAIL)
     expect(env.GH_TOKEN).toBe(RAW_PAT)
   })
 
   it('assigned user wins over created_by for GitHub attribution', () => {
-    seedUser(1, 'operator')
+    seedUser(1, 'mike')
     seedUser(7, 'eva')
     linkEva(7)
     const env = buildSpawnEnv({
@@ -209,7 +209,7 @@ describe('E2E ATTRIBUTION PROOF (deterministic harness; live-push limitation sta
   // exact attribution env the spawned child receives. The live confirmation step —
   // open a PR as a linked user, then read back the GitHub "opened by" actor and the
   // HEAD commit author via the API — is the OPERATOR step documented in
-  // app/server/SPAWN-ENV-SCOPING-CUTOVER.md, which the operator runs once a user links their token.
+  // app/server/SPAWN-ENV-SCOPING-CUTOVER.md, which Mike runs once Eva links her token.
   const mask = (v: string | undefined) =>
     typeof v === 'string' && v.length > 8 ? `${v.slice(0, 11)}…${v.slice(-4)} (len ${v.length})` : String(v)
 

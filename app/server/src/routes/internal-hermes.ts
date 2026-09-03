@@ -416,7 +416,7 @@ router.patch('/objectives/:id/status', async (req, res) => {
           const landed = applyGateHandback(db, existing, gate, { sendFollowUp, broadcast })
           res.status(409).json({
             error: gate.decision.action === 'escalate'
-              ? 'PR required checks still failing after the hold cap — escalated to Operator'
+              ? 'PR required checks still failing after the hold cap — escalated to Mike'
               : 'PR required checks not green — completion blocked',
             ciGate: {
               action: gate.decision.action,
@@ -549,7 +549,7 @@ router.post('/objectives/:id/message', (req, res) => {
   //
   // BACK-COMPAT is deliberate and load-bearing: the param is OPTIONAL. Every
   // existing caller — the delegator's `[child-complete]` wake, the CI feedback
-  // bridge, strategy-governance, Operator's own curl — omits it and is unaffected.
+  // bridge, strategy-governance, Mike's own curl — omits it and is unaffected.
   // Omission is logged as `unattributed`, and the settings key
   // `message_require_from_objective='1'` flips omission to a 400 once callers
   // have been migrated. Enforcing on day one would have broken the delegator.
@@ -667,13 +667,13 @@ router.post('/objectives/:id/message', (req, res) => {
 })
 
 // POST /api/internal/objectives/:id/decision — a STRATEGY node submits a
-// Stage-0 Decision Request and parks for Operator's confirm/deny (obj 2385).
+// Stage-0 Decision Request and parks for Mike's confirm/deny (obj 2385).
 // localhost-only; called by the strategy session itself before it commits any
 // strategic step (spawn-next / pivot / stop / re-scope). The request is stored
 // as an objective_reviews row (mode='decision', verdict='pending') and the
 // objective is parked in `review` — reusing the existing human gate. The
 // existing fireWake guard then prevents any child-completion from stampeding
-// past the pending decision until Operator resumes it via .../:id/message (which the
+// past the pending decision until Mike resumes it via .../:id/message (which the
 // UI's approve/deny calls through). Malformed requests are rejected here (the
 // cheap deterministic pre-gate) so a strategy can never park on an empty ask.
 router.post('/objectives/:id/decision', (req, res) => {

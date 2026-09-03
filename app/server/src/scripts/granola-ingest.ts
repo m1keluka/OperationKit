@@ -28,15 +28,15 @@ interface ActionItem {
   source_excerpt: string
 }
 
-// Example workspace slugs used by the classifier prompt. Replace these with
-// your own deployment's workspace slugs (see the workspaces seed).
+// Keep in sync with the `granola_processed_meetings.workspace` CHECK constraint
+// (declared both below and in db/index.ts) and with the workspaces seed.
 const VALID_WORKSPACES = [
   'example',
   'example-project',
   'personal',
   'personal',
   'example2',
-  'example-shop',
+  'shabo-dl',
 ] as const
 type GranolaWorkspace = (typeof VALID_WORKSPACES)[number]
 
@@ -53,16 +53,16 @@ interface ClassificationResult {
 const SYSTEM_PROMPT = `You are a meeting intelligence assistant. Extract structured information from meeting notes and transcripts.
 
 Workspace classification rules:
-- "example": Example — primary workspace, client work, campaigns, growth consulting
+- "example": Example Growth — digital marketing agency, SEO, content strategy, client campaigns, growth consulting
 - "example-project": Example Project — physical products, manufacturing, B2B wholesale, supplier logistics, pricing
-- "personal": Personal — personal holding/brand work, cross-company strategy, internal tooling
+- "personal": Mike Luka — personal holding/brand work, cross-company strategy, internal tooling
 - "example2": Example3 — real-estate agent lead-gen / MLS outreach client
-- "example-shop": Example Shop — sample retail client workspace
+- "shabo-dl": Shabo Dental Lab — dental-lab client of Example
 - "personal": Personal matters, cross-company admin, personal investments, family, health
 
 Return ONLY valid JSON matching this exact schema (no markdown fences, no extra text):
 {
-  "workspace": "example" | "example-project" | "personal" | "example2" | "example-shop" | "personal",
+  "workspace": "example" | "example-project" | "personal" | "example2" | "shabo-dl" | "personal",
   "decisions": ["string — each key decision made"],
   "action_items": [
     {
@@ -260,9 +260,9 @@ async function main() {
         id TEXT PRIMARY KEY,
         title TEXT,
         meeting_date TEXT,
-        -- Mirrors db/index.ts. No CHECK allow-list: workspace slugs are chosen
-        -- per deployment and validated against the workspaces table, not DDL.
-        workspace TEXT,
+        -- Mirrors db/index.ts. NOTE: SQLite cannot ALTER a CHECK, so widening
+        -- this list only takes effect for a FRESH database.
+        workspace TEXT CHECK(workspace IN ('example', 'example-project', 'personal', 'personal', 'example2', 'shabo-dl')),
         vault_path TEXT,
         processed_at TEXT NOT NULL DEFAULT (datetime('now'))
       );

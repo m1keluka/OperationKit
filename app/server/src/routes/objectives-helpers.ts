@@ -190,8 +190,8 @@ export function checkAgentInWorkspacePool(
  * Server-side default for `agent_context` when the caller does not supply one
  * (obj 708817 — the human create form no longer asks for an agent).
  *
- * There is no classifier: `AGENT_MAP[objective.agent_context]` in
- * prompt-builder.ts is the ONLY thing that picks the persona and the working
+ * There is no classifier: the agent-registry lookup on `objective.agent_context`
+ * in prompt-builder.ts is the ONLY thing that picks the persona and the working
  * directory, so an absent agent MUST resolve to a concrete, deterministic value.
  * The workspace's own `default_agent_pool[0]` is that value — it gives
  * per-workspace routing (operationkit -> 'cto', a marketing workspace -> 'cmo')

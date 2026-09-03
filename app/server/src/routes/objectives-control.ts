@@ -196,7 +196,7 @@ router.get('/:id/governance', (req: AuthRequest, res) => {
   })
 })
 
-// POST /api/objectives/:id/decisions/:reviewId/resolve — Operator confirms/denies a
+// POST /api/objectives/:id/decisions/:reviewId/resolve — Mike confirms/denies a
 // pending Stage-0 Decision Request (obj 2385). Records the verdict on the
 // decision row, then resumes the strategy session with the structured
 // `[decision …]` follow-up via the existing sendFollowUp path (which flips the

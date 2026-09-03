@@ -126,7 +126,7 @@ router.post('/:id/approve', (req: AuthRequest, res) => {
 // POST /api/meeting-queue/approve-batch — promote multiple action items in one transaction.
 // Body: { ids: string[] }. Returns { approved: Objective[], skipped: { id, reason }[] }.
 // Reduces friction of clearing the granola review queue when several items are clearly
-// actionable from one meeting — Operator no longer has to click each row.
+// actionable from one meeting — Mike no longer has to click each row.
 router.post('/approve-batch', (req: AuthRequest, res) => {
   const { ids } = req.body as { ids?: string[] }
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -224,9 +224,9 @@ router.post('/seed', requireAdmin, (_req, res) => {
       description: 'Build a dashboard that aggregates weekly KPIs from all active projects and sends a Monday morning briefing.',
       workspace: 'example',
       priority: 2,
-      owner: 'Operator',
+      owner: 'Mike',
       deadline: null,
-      source_excerpt: 'Operator: we need to stop pulling numbers manually every week, this should be automated by end of Q2',
+      source_excerpt: 'Mike: we need to stop pulling numbers manually every week, this should be automated by end of Q2',
     },
     {
       id: randomUUID(),

@@ -16,10 +16,10 @@ Chromium from `PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright`).
   `2026-08-14-cc-pr-preview-provisioning-requires-pr-created-call.md`). The first spool job
   FAILED (`tsc -b` build error, see the decision doc for obj 706458); a second job after the fix
   commit drained `OK` at 16:49 UTC.
-- Preview DB freshly seeded by `preview-deploy.sh`: users `admin` (admin, orgs example +
+- Preview DB freshly seeded by `preview-deploy.sh`: users `mike` (admin, orgs example +
   example-project) and `ava` (member, org example only), password `changeme`. Organizations seeded:
-  Example / Example Project / Personal. Zero secrets at start.
-- Logged in as `admin` (admin) for the UI steps; `ava` (member) used for the constraint check.
+  Example / Example Project / Mike Luka. Zero secrets at start.
+- Logged in as `mike` (admin) for the UI steps; `ava` (member) used for the constraint check.
 - Secrets page is served at `/settings/secrets`.
 
 ## Steps and results
