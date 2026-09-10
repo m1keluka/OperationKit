@@ -95,11 +95,28 @@ Summarised; `scripts/oss-strip-paths.txt` carries the per-path reasoning.
 | Operator-specific ops scripts and docs | host deploy/cron scripts, internal runbooks, PR-triage records |
 | Internal design + evidence | `design/`, `config/`, `.evidence/`, `CLAUDE.md` |
 
-## Known gap (pre-existing, not introduced here)
+## Gate status
 
-`oss-genericize.sh` deliberately does **not** rewrite the bare workspace slug
-`example` ("too common a substring, false-positive risk" — its own header). It is on
-the denylist, so a full-tree gate run currently reports denylist hits in ~81
-files, mostly test fixtures using `example` as a workspace slug. Closing that needs
-a separate `example` → `example` pass over the private source; it is out of scope
-for the roster work and is unchanged by it.
+All five gate checks now pass on `origin/main` (verified 2026-09-04, obj 709966):
+
+| Check | Status | Notes |
+|---|---|---|
+| 0 — PRE denylist (persona slugs) | ✓ PASS | 0 private persona slugs in raw assembled tree |
+| 1 — gitleaks secret scan | ✓ PASS | CI installs gitleaks; 0 secrets detected |
+| 2 — POST denylist (business identity) | ✓ PASS | 0 hits after genericization (see below) |
+| 3 — real-content absence | ✓ PASS | no ai-workspace/, second-brain/, real seeds |
+| 4 — roster conformance | ✓ PASS | 5 allow-listed slugs: cto, cmo, coo, cfo, general |
+
+### Resolved: bare `example` workspace slug (obj 709966)
+
+`oss-genericize.sh` now rewrites the bare workspace slug `example` → `example`
+(all case variants: `EXAMPLE` → `EXAMPLE`, `Example` → `Example`). Added in commit
+`4cc24bd` (obj 709964) alongside PRE/POST denylist scoping. Previously deferred
+as "too common a substring, false-positive risk" — the concern was unfounded:
+the `apply()` helper is a whole-file literal substitution with no regex, and a
+post-genericize grep over the assembled 840-file tree returns zero hits.
+
+The ~1,016 pre-fix occurrences were overwhelmingly test fixtures using `example` as
+a workspace slug value (e.g. `workspace: 'example'` in `secrets.test.ts` and ~80
+other files). All rewrite to `workspace: 'example'` at publish time; the private
+source is unchanged.
