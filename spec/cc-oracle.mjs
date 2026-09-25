@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// cc-oracle.mjs — Regression oracle for command-center-infra (Kitchen Loop pilot, obj 700077/700079/700099)
+// cc-oracle.mjs — Regression oracle for operationkit (Kitchen Loop pilot, obj 700077/700079/700099)
 //
-// Answers ONE question in bounded time: "Is command-center-infra at least as good as
+// Answers ONE question in bounded time: "Is operationkit at least as good as
 // it was before this iteration?" — the Kitchen Loop regression-oracle contract (§7.2).
 //
 // It REUSES existing repo tooling (the Vitest suites + the live HTTP API + the live
@@ -43,7 +43,7 @@ function resolveAppRoot() {
   if (process.env.CC_APP_ROOT) return process.env.CC_APP_ROOT;
   const relApp = resolve(__dirname, '..', 'app');
   if (existsSync(relApp)) return relApp;
-  return '/home/operator/projects/command-center-infra/app';
+  return '/home/operator/projects/operationkit/app';
 }
 const APP_ROOT = resolveAppRoot();
 const APP_URL = process.env.APP_URL || 'http://localhost:3002';

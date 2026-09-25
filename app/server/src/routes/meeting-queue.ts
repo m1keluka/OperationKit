@@ -103,7 +103,7 @@ router.post('/:id/approve', (req: AuthRequest, res) => {
   // see this objective without admin elevation.
   const result = db.prepare(
     `INSERT INTO objectives (title, description, workspace, status, agent_context, project, category, model, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, 'queue', 'general', 'command-center-infra', 'general', ?, ?, datetime('now'), datetime('now'))`
+     VALUES (?, ?, ?, 'queue', 'general', 'operationkit', 'general', ?, ?, datetime('now'), datetime('now'))`
   ).run(
     item.title || 'Meeting action item',
     item.description || '',
@@ -151,7 +151,7 @@ router.post('/approve-batch', (req: AuthRequest, res) => {
 
       const result = db.prepare(
         `INSERT INTO objectives (title, description, workspace, status, agent_context, project, category, model, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, 'queue', 'general', 'command-center-infra', 'general', ?, ?, datetime('now'), datetime('now'))`
+         VALUES (?, ?, ?, 'queue', 'general', 'operationkit', 'general', ?, ?, datetime('now'), datetime('now'))`
       ).run(
         item.title || 'Meeting action item',
         item.description || '',

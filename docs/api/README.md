@@ -13,7 +13,7 @@ Standing Grok Bots (names must match exactly):
 | **Example** | [example.md](./bots/example.md) |
 | **Example Project** | [example-project.md](./bots/example-project.md) |
 | **example3** | [example2.md](./bots/example2.md) |
-| **Example5 DL** | [example5.md](./bots/example5.md) |
+| **Example Five** | [example5.md](./bots/example5.md) |
 | **Inbox** (peer) | [inbox.md](./bots/inbox.md) |
 
 This is the **board / PM surface**. It is not the whole server. Admin, secrets, shell, deploy, and `/api/internal/*` (localhost sessions on the VPS) stay out of this contract on purpose.

@@ -495,6 +495,24 @@ export async function pollActiveSessions(): Promise<void> {
       }
 
       // route-to-review: working→review (session died) — unchanged behavior. Audit the transition.
+      // `status === 'review'` is already `continue`d at :269, so TS has narrowed
+      // it out of the union and flags this comparison as TS2367, which fails the
+      // `typecheck` gate. (Pre-existing on main — it landed with #448.) The guard
+      // is kept: it documents the intent and is a no-op at runtime. Widened so
+      // the compiler accepts it. Type-only; no behavior change.
+      if ((objective.status as string) !== 'review') {
+        logObjectiveAudit(db, {
+          objectiveId: objective.id,
+          eventType: 'status_change',
+          fromStatus: objective.status,
+          toStatus: 'review',
+          actor: 'state-poller',
+          pathway: 'dead-session-route-to-review',
+          sessionId: objective.session_id,
+          titleSnapshot: objective.title,
+          workspace: objective.workspace,
+        })
+      }
       // No `status !== 'review'` guard: `decideDeadSessionRepark` returns
       // 'clear-session' or 'skip-noop' for every already-`review` row and both
       // branches `continue` above, so reaching here means the status is not
@@ -952,11 +970,11 @@ export async function pollActiveSessions(): Promise<void> {
       }
 
       // ── Oracle hard merge gate (obj 700316, Stage-C enforcement) ───────────
-      // When `kitchen_loop_oracle_gate` is ON, run the command-center-infra
+      // When `kitchen_loop_oracle_gate` is ON, run the operationkit
       // regression oracle (spec/cc-oracle.mjs, QUICK) as a HARD gate under the LLM
       // reviewer: a non-GREEN verdict BLOCKS the transition and bounces the worker,
       // exactly like a red floor. SCOPE GUARD: isOracleGateActiveForObjective is
-      // true ONLY when the flag is on AND project === 'command-center-infra', so no
+      // true ONLY when the flag is on AND project === 'operationkit', so no
       // other workspace can ever be gated — even with the flag on. Flag OFF ⇒ this
       // block is never entered ⇒ behaviour byte-for-byte identical to today.
       // fail-safe-OPEN: any infra failure running the oracle proceeds as today.

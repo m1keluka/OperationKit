@@ -11,7 +11,7 @@
  * entrypoint is a bare `while true; do tsx server/src/index.ts || true; sleep 2; done`.
  * /app/entrypoint.sh is root-owned and not writable by ccuser, but /app/server/src is a
  * bind mount of the live checkout at
- * /home/operator/projects/command-center-infra/app/server/src (same device:inode).
+ * /home/operator/projects/operationkit/app/server/src (same device:inode).
  *
  * => THIS SERVER'S BOOT PATH IS THE ONLY ccuser-CONTROLLABLE CODE GUARANTEED TO RUN AFTER
  *    A CONTAINER RESTART. Every other "daemon" on this host is a setsid-detached orphan

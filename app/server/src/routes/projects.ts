@@ -4,7 +4,7 @@
  * A "project" is a named subfolder inside a workspace (org). Objectives belong
  * to a project via `objectives.project_id`. This is ENTIRELY DISTINCT from the
  * existing `objectives.project` column (the repo-link field, e.g.
- * 'command-center-infra') — do not confuse the two.
+ * 'operationkit') — do not confuse the two.
  *
  * Auth mirrors the objectives routes:
  *  - Admins can read/write any workspace.

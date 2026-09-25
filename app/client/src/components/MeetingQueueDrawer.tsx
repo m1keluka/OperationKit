@@ -20,18 +20,14 @@ interface MeetingActionItem {
 const WORKSPACE_BADGE: Record<string, string> = {
   example: 'bg-status-working/20 text-status-working',
   'example-project': 'bg-green-500/20 text-green-400',
-  'operator': 'bg-status-planning/20 text-status-planning',
   example2: 'bg-amber-500/20 text-amber-400',
-  'example5': 'bg-teal-500/20 text-teal-400',
   personal: 'bg-surface-3/20 text-fg-2',
 }
 
 const WORKSPACE_LABEL: Record<string, string> = {
   example: 'Example',
   'example-project': 'Example Project',
-  'operator': 'Operator',
-  example2: 'Example3',
-  'example5': 'Example Dental Lab',
+  example2: 'Example Two',
   personal: 'Personal',
 }
 

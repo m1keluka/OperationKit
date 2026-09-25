@@ -16,7 +16,7 @@
  *                                           "Adversarial RLS suite (8th config)"
  *   your-org/example-platform @ main     -> "e2e-smoke"
  *   your-org/example-platform @ redesign -> []   <- literally an empty array
- *   your-org/command-center-infra @ main -> "harness/test-agent"
+ *   your-org/operationkit @ main -> "harness/test-agent"
  *
  * The `redesign` case is not hypothetical padding: most open example PRs target `redesign`,
  * and GitHub returns `[]` for it. That is a SUCCESSFUL read meaning "nothing gates this
@@ -608,11 +608,11 @@ describe('the gate is keyed on the base branch, per PR', () => {
 
 describe('regression guards preserved', () => {
   it('harness/* is still invisible, so a cc-infra harness gate never becomes a required red', async () => {
-    // command-center-infra's only required context is `harness/test-agent`, and
+    // operationkit's only required context is `harness/test-agent`, and
     // summariseRollup drops harness/* by construction (the harness gates its own PRs and a
     // second driver would fight it). The PR is therefore advisory-only here, NOT escalated
     // on a harness failure — the pre-existing carve-out wins over required-ness, by design.
-    RULESETS['your-org/command-center-infra@main'] = [{
+    RULESETS['your-org/operationkit@main'] = [{
       type: 'required_status_checks',
       parameters: { required_status_checks: [{ context: 'harness/test-agent' }] },
     }]
@@ -621,7 +621,7 @@ describe('regression guards preserved', () => {
         checkRun('harness/test-agent', 'FAILURE', '2026-08-01T00:00:00Z'),
         checkRun('Scan for secrets', 'FAILURE', '2026-08-01T00:00:00Z'),
       ],
-    })], 'your-org/command-center-infra')
+    })], 'your-org/operationkit')
     const h = report.prs[0]
     expect(h.redChecks.map(c => c.name)).toEqual(['Scan for secrets'])
     expect(h.requiredRedChecks).toEqual([])

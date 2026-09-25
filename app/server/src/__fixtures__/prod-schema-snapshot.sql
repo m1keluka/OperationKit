@@ -62,7 +62,7 @@ CREATE TABLE canary_runs (
     );
 CREATE TABLE changelog_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      repo TEXT NOT NULL,                       -- owner/name e.g. your-org/command-center-infra
+      repo TEXT NOT NULL,                       -- owner/name e.g. your-org/operationkit
       pr_number INTEGER NOT NULL,
       pr_url TEXT NOT NULL,
       merge_commit_sha TEXT,
@@ -353,7 +353,7 @@ CREATE TABLE resource_assignments (
       created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
       UNIQUE(resource_type, resource_id, scope_type, workspace, project, user_id)
     );
-CREATE TABLE rolodex_threads (
+CREATE TABLE contactbook_threads (
       chat_id     TEXT PRIMARY KEY,
       user_id     TEXT NOT NULL,
       history     TEXT NOT NULL DEFAULT '[]',

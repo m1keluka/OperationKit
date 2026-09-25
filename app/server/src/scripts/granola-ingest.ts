@@ -57,7 +57,7 @@ Workspace classification rules:
 - "example-project": Example Project — physical products, manufacturing, B2B wholesale, supplier logistics, pricing
 - "operator": Operator — personal holding/brand work, cross-company strategy, internal tooling
 - "example2": Example3 — real-estate agent lead-gen / MLS outreach client
-- "example5": Example Dental Lab — dental-lab client of Example
+- "example5": Example Five — dental-lab client of Example
 - "personal": Personal matters, cross-company admin, personal investments, family, health
 
 Return ONLY valid JSON matching this exact schema (no markdown fences, no extra text):

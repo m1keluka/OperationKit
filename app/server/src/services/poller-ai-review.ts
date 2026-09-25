@@ -37,6 +37,13 @@ import {
   EARNED_STATUS_BACKSTOP_INTERVAL_MS,
   type GhExec,
 } from './pr-linkage.js'
+import { discoverPosthogBotPrs } from './posthog-bot-prs.js'
+import {
+  runPosthogSignalsSweep,
+  loadSignalsConfig,
+  httpObjectiveCreator,
+} from './posthog-signals.js'
+import { getRawConfig } from './workspace-integrations.js'
 import {
   type CapOutReason,
   type WatchdogReason,
@@ -400,7 +407,7 @@ export function currentTreeShaForObjective(obj: Objective): string | null {
 // Best-effort: post a `harness/test-agent` commit status to the PR head SHA so the
 // PR is gated on the test-agent verdict. Only fires when obj.pr_number is set; any
 // `gh` failure is logged and swallowed so the poller never breaks on it.
-const HARNESS_REPO = process.env.HARNESS_REPO || 'your-org/command-center-infra'
+const HARNESS_REPO = process.env.HARNESS_REPO || 'your-org/operationkit'
 
 /**
  * Env for server-side `gh` invocations. The Node server runs as root with HOME=/root
@@ -518,6 +525,14 @@ export const realGhExec: GhExec = (args: string[]): Promise<string> =>
   })
 
 let lastEarnedStatusBackstopAt = 0
+let lastPosthogBotPrSweepAt = 0
+/** 10 minutes — same cadence as pr-health watchdog sweeps. */
+const POSTHOG_BOT_PR_SWEEP_INTERVAL_MS = 10 * 60 * 1000
+
+// PostHog Signals → objective bridge (obj 712024 W5). OFF by default: the sweep
+// itself hard no-ops unless POSTHOG_SIGNALS_BRIDGE_ENABLED === 'true'.
+let lastPosthogSignalsSweepAt = 0
+const POSTHOG_SIGNALS_SWEEP_INTERVAL_MS = 10 * 60 * 1000
 
 /**
  * Poller backstop for obj 2352. A bounded, idempotent, failure-swallowing sweep
@@ -597,6 +612,36 @@ export async function sweepPRLinkageAndHarness(): Promise<void> {
       )
     } catch (err) {
       console.warn(`[state-poller] pr-linkage self-heal threw for obj ${obj.id}:`, (err as Error).message)
+    }
+  }
+
+  // PostHog Self-Driving PR discovery — throttled to once per 10 min.
+  if (nowMs - lastPosthogBotPrSweepAt >= POSTHOG_BOT_PR_SWEEP_INTERVAL_MS) {
+    lastPosthogBotPrSweepAt = nowMs
+    try {
+      await discoverPosthogBotPrs(db, realGhExec)
+    } catch (err) {
+      console.warn('[state-poller] posthog-bot-prs sweep threw:', (err as Error).message)
+    }
+  }
+
+  // PostHog Signals → objective bridge — throttled to once per 10 min, and a
+  // no-op unless the operator has explicitly armed it.
+  if (nowMs - lastPosthogSignalsSweepAt >= POSTHOG_SIGNALS_SWEEP_INTERVAL_MS) {
+    lastPosthogSignalsSweepAt = nowMs
+    try {
+      // Cheap env-only gate first, so a disabled bridge costs no DB read.
+      if (loadSignalsConfig(process.env).enabled) {
+        const workspace = process.env.POSTHOG_SIGNALS_WORKSPACE || 'example2'
+        const cfg = loadSignalsConfig(process.env, getRawConfig(workspace, 'posthog'))
+        await runPosthogSignalsSweep(db, {
+          fetch,
+          createObjective: httpObjectiveCreator,
+          config: cfg,
+        })
+      }
+    } catch (err) {
+      console.warn('[state-poller] posthog-signals sweep threw:', (err as Error).message)
     }
   }
 }

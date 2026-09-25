@@ -12,6 +12,7 @@ import { getSessionOutput, getSessionJsonlPath, sendFollowUp, recordFollowUpInJs
 import { checkHumanTerminalReactivation } from '../services/objective-audit.js'
 import { broadcast } from '../ws/index.js'
 import { mapObjective, requireOwnership } from './objectives-helpers.js'
+import { listObjectiveThreadSessionIds, resolveFollowUpSessionId } from '../services/objective-sessions.js'
 import { isLockedStatus, runMachineStatusUpdate } from '../lib/status-lock.js'
 import { diskAction, diskBlockReason, readHostDisk } from '../lib/host-disk.js'
 
@@ -60,29 +61,13 @@ router.get('/:id/output', (req: AuthRequest, res) => {
   // OBJECTIVE's conversation, so it spans all its sessions.
   //
   // Reviewer (`cc-review-*`) and planner (`cc-plan-*`) transcripts are
-  // separate conversations with their own surfaces — they are excluded from
-  // the interleaved history. The objective's CURRENT session is always
-  // included (even if it is a review/plan session) so an actively-running
-  // session is never invisible.
-  const priorSessions = db.prepare(
-    'SELECT session_id FROM session_intel WHERE objective_id = ? ORDER BY started_at ASC'
-  ).all(objective.id) as { session_id: string }[]
-
-  const isAuxSession = (id: string) => id.startsWith('cc-review-') || id.startsWith('cc-plan-')
-  const orderedIds: string[] = []
-  for (const s of priorSessions) {
-    if (!isAuxSession(s.session_id) && !orderedIds.includes(s.session_id)) orderedIds.push(s.session_id)
-  }
-  if (objective.session_id && !orderedIds.includes(objective.session_id)) {
-    orderedIds.push(objective.session_id)
-  }
-  // Fallback: only aux sessions exist (e.g. a done objective whose last
-  // session_id pointed at its reviewer) — show them rather than a blank thread.
-  if (orderedIds.length === 0) {
-    for (const s of priorSessions) {
-      if (!orderedIds.includes(s.session_id)) orderedIds.push(s.session_id)
-    }
-  }
+  // separate conversations with their own surfaces, so they are excluded —
+  // UNLESS a human actually spoke in one (a `{type:'followup'}` message),
+  // which the old follow-up routing bug caused 255 times across 81 objectives
+  // (obj 712524). The rule and the ordering live in one place now:
+  // services/objective-sessions.ts, shared verbatim with /:id/stream so the
+  // two `total`s can never disagree.
+  const orderedIds = listObjectiveThreadSessionIds(db, objective)
 
   if (orderedIds.length === 0) {
     res.json({ messages: [], total: 0, status: objective.status })
@@ -206,7 +191,7 @@ router.get('/:id/output', (req: AuthRequest, res) => {
 //
 // A `changed` event carries the current concatenated message `total` and the
 // objective `status`, computed the SAME way /output does (concatenated
-// getSessionOutput over the ordered, non-aux session ids). It fires on connect,
+// getSessionOutput over the ordered thread session ids). It fires on connect,
 // then whenever the live session's JSONL grows, the live session id changes, or
 // the status changes.
 router.get('/:id/stream', (req: AuthRequest, res) => {
@@ -223,27 +208,17 @@ router.get('/:id/stream', (req: AuthRequest, res) => {
   }
 
   const objectiveId = objective.id
-  const isAuxSession = (id: string) => id.startsWith('cc-review-') || id.startsWith('cc-plan-')
 
   // Resolve the ordered session ids + newest live session id EXACTLY as /output
-  // does. Re-reads the DB each call so a new session (respawn/wake) is picked up.
+  // does — same shared helper, so the `total` this stream emits and the `total`
+  // /output reports are computed over the identical session set. (They MUST stay
+  // in lockstep: the client compares them and a mismatch thrashes the live tail.)
+  // Re-reads the DB each call so a new session (respawn/wake) is picked up.
   const resolve = (): { orderedIds: string[]; targetId: string | null; status: string } => {
     const obj = db.prepare('SELECT session_id, status FROM objectives WHERE id = ?')
       .get(objectiveId) as { session_id: string | null; status: string } | undefined
     if (!obj) return { orderedIds: [], targetId: null, status: objective.status }
-    const priorSessions = db.prepare(
-      'SELECT session_id FROM session_intel WHERE objective_id = ? ORDER BY started_at ASC'
-    ).all(objectiveId) as { session_id: string }[]
-    const orderedIds: string[] = []
-    for (const s of priorSessions) {
-      if (!isAuxSession(s.session_id) && !orderedIds.includes(s.session_id)) orderedIds.push(s.session_id)
-    }
-    if (obj.session_id && !orderedIds.includes(obj.session_id)) orderedIds.push(obj.session_id)
-    if (orderedIds.length === 0) {
-      for (const s of priorSessions) {
-        if (!orderedIds.includes(s.session_id)) orderedIds.push(s.session_id)
-      }
-    }
+    const orderedIds = listObjectiveThreadSessionIds(db, { id: objectiveId, session_id: obj.session_id })
     const targetId = orderedIds.length ? orderedIds[orderedIds.length - 1] : null
     return { orderedIds, targetId, status: obj.status }
   }
@@ -371,16 +346,13 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
     return
   }
 
-  // If no active session (task-driven objectives clear session_id), find the last
-  // session or generate a new one. Using the last session_id means the follow-up
-  // appends to the existing JSONL, preserving conversation history in the UI.
-  let existingSessionId = objective.session_id
-  if (!existingSessionId) {
-    const lastSession = db.prepare(
-      'SELECT session_id FROM session_intel WHERE objective_id = ? ORDER BY ended_at DESC LIMIT 1'
-    ).get(objective.id) as { session_id: string } | undefined
-    existingSessionId = lastSession?.session_id || `cc-${objective.id}-${Date.now()}`
-  }
+  // If no active session (task-driven objectives clear session_id), fall back to
+  // the last NON-aux session or mint a new one. Reusing the last session_id means
+  // the follow-up appends to the existing JSONL, preserving conversation history
+  // in the UI. It must never land on a `cc-review-*`/`cc-plan-*` transcript: that
+  // both hides the message and resumes the adversarial reviewer's Claude context
+  // instead of the worker's (obj 712524).
+  const existingSessionId = resolveFollowUpSessionId(db, objective)
 
   // Respond BEFORE the (re)spawn so the client isn't blocked for 3-5s (obj 700253).
   // For the current tmux architecture sessions hold no live stdin, so every

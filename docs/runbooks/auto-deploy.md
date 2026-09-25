@@ -1,6 +1,6 @@
 # Auto-deploy on merge (obj-1955)
 
-**Armed 2026-06-29.** When a PR merges to `your-org/command-center-infra`'s `main`,
+**Armed 2026-06-29.** When a PR merges to `your-org/operationkit`'s `main`,
 the org-level GitHub webhook (`pull_request` → `/api/webhooks/github`) triggers a
 health-gated `scripts/self-deploy.sh`, so every merge ships in a small, self-verifying
 batch that **auto-rolls-back** to the last-good commit if the server fails to serve.

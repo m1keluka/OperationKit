@@ -60,9 +60,9 @@ describe('oracle gate flag + scope guard', () => {
     expect(isOracleGateEnabled(db2, { CC_KITCHEN_LOOP_ORACLE_GATE: 'true' })).toBe(true)
   })
 
-  it('scope guard matches ONLY command-center-infra', () => {
+  it('scope guard matches ONLY operationkit', () => {
     expect(isCommandCenterTarget(COMMAND_CENTER_PROJECT)).toBe(true)
-    expect(isCommandCenterTarget('command-center-infra')).toBe(true)
+    expect(isCommandCenterTarget('operationkit')).toBe(true)
     expect(isCommandCenterTarget('example-platform')).toBe(false)
     expect(isCommandCenterTarget('example3-platform')).toBe(false)
     expect(isCommandCenterTarget(null)).toBe(false)

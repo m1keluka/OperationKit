@@ -9,6 +9,7 @@ import {
   clearLoginFailures,
 } from '../middleware/login-rate-limit.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
+import { isContentOwner } from '../services/content-owners.js'
 import type { LoginRequest, TokenResponse, User } from '@operationkit/shared'
 
 const TOKEN_EXPIRES_IN_SEC = 7 * 24 * 60 * 60
@@ -145,6 +146,8 @@ router.get('/me', requireAuth, (req: AuthRequest, res) => {
   }
 
   user.workspaces = getUserWorkspaces(user.id)
+  // Content surface access (obj 710856) — a `content_owners` row, not a role.
+  user.has_content = isContentOwner(user.id)
   res.json(user)
 })
 

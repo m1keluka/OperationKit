@@ -7,7 +7,7 @@ Do not put the password in this prompt if the host has a secrets box. Prefer a m
 Mike’s standing Grok Bots (names must match; same `cc_live_` key):
 
 - [General](./bots/general.md) — starred intake, routes, personal/`operator`
-- [Example](./bots/example.md) · [Example Project](./bots/example-project.md) · [example3](./bots/example2.md) · [Example5 DL](./bots/example5.md) — one company each
+- [Example](./bots/example.md) · [Example Project](./bots/example-project.md) · [example3](./bots/example2.md) · [Example Five](./bots/example5.md) — one company each
 - [Inbox](./bots/inbox.md) — two Gmails; Mike may DM it directly
 
 ---
@@ -111,7 +111,7 @@ Create body (minimum):
   "workspace": "example",
   "agent_context": "cto",
   "type": "task",
-  "project": "command-center-infra"
+  "project": "operationkit"
 }
 ```
 

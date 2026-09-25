@@ -53,7 +53,7 @@ export function initTokensSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS changelog_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      repo TEXT NOT NULL,                       -- owner/name e.g. your-org/command-center-infra
+      repo TEXT NOT NULL,                       -- owner/name e.g. your-org/example-app
       pr_number INTEGER NOT NULL,
       pr_url TEXT NOT NULL,
       merge_commit_sha TEXT,

@@ -1,4 +1,4 @@
-// Granola content engine — read/drive surface for the operator content streams.
+// Granola content engine — read/drive surface for a content owner's streams.
 //
 // This is the server-side companion to Worker A's `granola-intake` SESSION skill
 // (objective 762/771). The skill writes Mike-only markdown into the second-brain
@@ -10,26 +10,24 @@
 // skill, not here.
 //
 // Source of truth for paths/schemas: ai-workspace/objective-memory/762/CONTRACT.md
+//
+// obj 710856: every path and the routine name used to be module-level constants
+// derived from one env var, which made the engine structurally single-tenant.
+// They now come from a ContentOwner (services/content-owners.ts) threaded through
+// as the first argument of every entry point. The owner is resolved from the
+// authenticated user, so one owner can never address another owner's files.
 import fs from 'fs'
 import path from 'path'
 import { getDb } from '../db/index.js'
 import { fireRoutine, type RoutineRow, type FireResult } from './routine-scheduler.js'
 import { chownToVaultUser } from './vault-fs.js'
+import { ownerPaths, type ContentOwner } from './content-owners.js'
 
-// host path == container path (bind-mounted, verified writable per CONTRACT §1)
-const VAULT_BASE = process.env.VAULT_PATH || '/home/operator/second-brain'
+/** Legacy default, kept so a single-owner deployment behaves exactly as before. */
 export const GRANOLA_WORKSPACE = process.env.GRANOLA_WORKSPACE || 'operator'
-const WS_ROOT = path.join(VAULT_BASE, 'workspaces', GRANOLA_WORKSPACE)
-
-const DRAFTS_DIR = path.join(WS_ROOT, 'content', 'drafts')
-const HOOKS_DIR = path.join(WS_ROOT, 'content', 'hooks')
-const IDEAS_FILE = path.join(WS_ROOT, 'inbox', 'ideas.md')
 
 export const DRAFT_STATUSES = ['draft', 'ready', 'posted'] as const
 export type DraftStatus = (typeof DRAFT_STATUSES)[number]
-
-// The routine that IS the nightly schedule; "Run now" fires the same row.
-export const GRANOLA_ROUTINE_NAME = 'granola-intake-operator'
 
 // ── Minimal frontmatter parser ───────────────────────────────────────────────
 // The CONTRACT schemas are flat `key: value` YAML (plus one array field,
@@ -94,12 +92,13 @@ function safeReaddir(dir: string): string[] {
   }
 }
 
-export function listDrafts(statusFilter?: string): DraftSummary[] {
+export function listDrafts(owner: ContentOwner, statusFilter?: string): DraftSummary[] {
+  const draftsDir = ownerPaths(owner).draftsDir
   const out: DraftSummary[] = []
-  for (const file of safeReaddir(DRAFTS_DIR)) {
+  for (const file of safeReaddir(draftsDir)) {
     let raw: string
     try {
-      raw = fs.readFileSync(path.join(DRAFTS_DIR, file), 'utf8')
+      raw = fs.readFileSync(path.join(draftsDir, file), 'utf8')
     } catch {
       continue
     }
@@ -130,10 +129,11 @@ export function listDrafts(statusFilter?: string): DraftSummary[] {
 
 // Validate a draft filename: prevents path traversal. Only a bare `*.md` basename
 // that actually lives inside DRAFTS_DIR is accepted.
-function resolveDraftPath(file: string): string | null {
+function resolveDraftPath(owner: ContentOwner, file: string): string | null {
   if (!/^[A-Za-z0-9._-]+\.md$/.test(file)) return null
-  const abs = path.join(DRAFTS_DIR, file)
-  const rel = path.relative(DRAFTS_DIR, abs)
+  const draftsDir = ownerPaths(owner).draftsDir
+  const abs = path.join(draftsDir, file)
+  const rel = path.relative(draftsDir, abs)
   if (rel.startsWith('..') || path.isAbsolute(rel)) return null
   if (!fs.existsSync(abs)) return null
   return abs
@@ -168,11 +168,11 @@ export interface PatchResult {
 
 // Rewrite ONLY the `status:` value inside the frontmatter block, preserving the
 // rest of the file byte-for-byte (CONTRACT §2b). Returns the re-parsed draft.
-export function patchDraftStatus(file: string, newStatus: string): PatchResult {
+export function patchDraftStatus(owner: ContentOwner, file: string, newStatus: string): PatchResult {
   if (!(DRAFT_STATUSES as readonly string[]).includes(newStatus)) {
     return { ok: false, error: `invalid status '${newStatus}' (allowed: ${DRAFT_STATUSES.join(', ')})` }
   }
-  const abs = resolveDraftPath(file)
+  const abs = resolveDraftPath(owner, file)
   if (!abs) return { ok: false, error: 'draft not found' }
 
   const raw = fs.readFileSync(abs, 'utf8')
@@ -200,11 +200,11 @@ export function patchDraftStatus(file: string, newStatus: string): PatchResult {
 // tags, granola_id, pillar, etc. must be untouched). Mirrors patchDraftStatus's
 // targeted-rewrite approach but operates on the body instead of one fm line.
 // Returns the re-parsed draft.
-export function patchDraftBody(file: string, newBody: string): PatchResult {
+export function patchDraftBody(owner: ContentOwner, file: string, newBody: string): PatchResult {
   if (typeof newBody !== 'string') {
     return { ok: false, error: 'body must be a string' }
   }
-  const abs = resolveDraftPath(file)
+  const abs = resolveDraftPath(owner, file)
   if (!abs) return { ok: false, error: 'draft not found' }
 
   const raw = fs.readFileSync(abs, 'utf8')
@@ -288,12 +288,13 @@ function parseHookDoc(file: string, raw: string): HookDoc {
   }
 }
 
-export function listHooks(): HookDoc[] {
+export function listHooks(owner: ContentOwner): HookDoc[] {
+  const hooksDir = ownerPaths(owner).hooksDir
   const out: HookDoc[] = []
-  for (const file of safeReaddir(HOOKS_DIR)) {
+  for (const file of safeReaddir(hooksDir)) {
     let raw: string
     try {
-      raw = fs.readFileSync(path.join(HOOKS_DIR, file), 'utf8')
+      raw = fs.readFileSync(path.join(hooksDir, file), 'utf8')
     } catch {
       continue
     }
@@ -304,10 +305,11 @@ export function listHooks(): HookDoc[] {
 }
 
 // Validate a hook filename (prevent traversal): bare `*.md` basename that lives in HOOKS_DIR.
-function resolveHookPath(file: string): string | null {
+function resolveHookPath(owner: ContentOwner, file: string): string | null {
   if (!/^[A-Za-z0-9._-]+\.md$/.test(file)) return null
-  const abs = path.join(HOOKS_DIR, file)
-  const rel = path.relative(HOOKS_DIR, abs)
+  const hooksDir = ownerPaths(owner).hooksDir
+  const abs = path.join(hooksDir, file)
+  const rel = path.relative(hooksDir, abs)
   if (rel.startsWith('..') || path.isAbsolute(rel)) return null
   if (!fs.existsSync(abs)) return null
   return abs
@@ -344,17 +346,19 @@ function writeHookVideos(abs: string, file: string, videos: VideoMeta[]): HookPa
   return { ok: true, hook: parseHookDoc(file, newRaw) }
 }
 
-// Build the storage object path for a hook video: operator/<hookbase>/<ts>-<sanitized-filename>.
-export function hookVideoObjectPath(file: string, filename: string): string {
+// Build the storage object path for a hook video:
+// <vault-workspace>/<hookbase>/<ts>-<sanitized-filename>. The owner prefix is what
+// keeps two owners' uploads in separate object trees inside the shared bucket.
+export function hookVideoObjectPath(owner: ContentOwner, file: string, filename: string): string {
   const base = file.replace(/\.md$/, '')
   const safeName = filename.replace(/[^A-Za-z0-9._-]/g, '_').slice(-80) || 'video'
   const ts = Date.now()
-  return `${GRANOLA_WORKSPACE}/${base}/${ts}-${safeName}`
+  return `${owner.vault_workspace}/${base}/${ts}-${safeName}`
 }
 
 // Append a recorded video to a hook doc's frontmatter.
-export function addHookVideo(file: string, meta: VideoMeta): HookPatchResult {
-  const abs = resolveHookPath(file)
+export function addHookVideo(owner: ContentOwner, file: string, meta: VideoMeta): HookPatchResult {
+  const abs = resolveHookPath(owner, file)
   if (!abs) return { ok: false, error: 'hook doc not found' }
   const current = parseHookDoc(file, fs.readFileSync(abs, 'utf8')).videos
   // de-dupe by path (idempotent re-record)
@@ -363,8 +367,8 @@ export function addHookVideo(file: string, meta: VideoMeta): HookPatchResult {
 }
 
 // Remove a recorded video from a hook doc's frontmatter (storage object deleted by the caller).
-export function removeHookVideo(file: string, objectPath: string): HookPatchResult {
-  const abs = resolveHookPath(file)
+export function removeHookVideo(owner: ContentOwner, file: string, objectPath: string): HookPatchResult {
+  const abs = resolveHookPath(owner, file)
   if (!abs) return { ok: false, error: 'hook doc not found' }
   const current = parseHookDoc(file, fs.readFileSync(abs, 'utf8')).videos
   const next = current.filter(v => v.path !== objectPath)
@@ -415,15 +419,15 @@ function parseInbox(file: string, kind: 'task' | 'idea'): InboxItem[] {
   return out.reverse() // newest first
 }
 
-export function listIdeas(): InboxItem[] {
-  return parseInbox(IDEAS_FILE, 'idea')
+export function listIdeas(owner: ContentOwner): InboxItem[] {
+  return parseInbox(ownerPaths(owner).ideasFile, 'idea')
 }
 
 // ── Schedule / Run-now (session spawn via the native routine scheduler) ──────
-export function getGranolaRoutine(): RoutineRow | undefined {
+export function getGranolaRoutine(owner: ContentOwner): RoutineRow | undefined {
   return getDb()
     .prepare('SELECT * FROM routines WHERE name = ?')
-    .get(GRANOLA_ROUTINE_NAME) as RoutineRow | undefined
+    .get(owner.routine_name) as RoutineRow | undefined
 }
 
 export interface ScheduleInfo {
@@ -432,23 +436,28 @@ export interface ScheduleInfo {
   cron_expr: string | null
   last_run_at: string | null
   workspace: string
+  routine: string
 }
 
-export function scheduleInfo(): ScheduleInfo {
-  const r = getGranolaRoutine()
+export function scheduleInfo(owner: ContentOwner): ScheduleInfo {
+  const r = getGranolaRoutine(owner)
   return {
     exists: !!r,
     enabled: !!r && r.enabled === 1,
     cron_expr: r ? r.cron_expr : null,
     last_run_at: r ? r.last_run_at : null,
-    workspace: GRANOLA_WORKSPACE,
+    workspace: owner.vault_workspace,
+    routine: owner.routine_name,
   }
 }
 
 // "Run now" — fire the SAME routine the nightly schedule uses, so the manual run
 // and the automatic run take the identical session-spawn code path.
-export async function runNow(): Promise<FireResult & { error?: string }> {
-  const r = getGranolaRoutine()
-  if (!r) return { ok: false, reason: `routine '${GRANOLA_ROUTINE_NAME}' not found` }
+export async function runNow(owner: ContentOwner): Promise<FireResult & { error?: string }> {
+  const r = getGranolaRoutine(owner)
+  if (!r) return { ok: false, reason: `routine '${owner.routine_name}' not found` }
+  if (r.enabled !== 1) {
+    return { ok: false, reason: `routine '${owner.routine_name}' is disabled — connect Granola first` }
+  }
   return fireRoutine(r, 'run-now')
 }

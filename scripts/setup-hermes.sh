@@ -3,7 +3,7 @@
 # Run this as user 'mike' on the VPS host (not inside Docker).
 #
 # Usage:
-#   bash /home/operator/projects/command-center-infra/scripts/setup-hermes.sh [install|gateway|status|uninstall]
+#   bash /home/operator/projects/operationkit/scripts/setup-hermes.sh [install|gateway|status|uninstall]
 #
 # Phases:
 #   install  — Create virtualenv, pip install, write config (Phase 0)
@@ -116,7 +116,7 @@ memory:
 #   command-center:
 #     type: stdio
 #     command: node
-#     args: [/home/operator/projects/command-center-infra/scripts/hermes-mcp-server.js]
+#     args: [/home/operator/projects/operationkit/scripts/hermes-mcp-server.js]
 CFGEOF
   else
     warn "config.yaml already exists — skipping"
@@ -124,15 +124,15 @@ CFGEOF
 
   # Seed memory files
   mkdir -p "$HERMES_HOME/memories"
-  if [ -f /home/operator/projects/command-center-infra/scripts/hermes-seeds/MEMORY.md ]; then
+  if [ -f /home/operator/projects/operationkit/scripts/hermes-seeds/MEMORY.md ]; then
     if [ ! -f "$HERMES_HOME/memories/MEMORY.md" ]; then
-      cp /home/operator/projects/command-center-infra/scripts/hermes-seeds/MEMORY.md "$HERMES_HOME/memories/MEMORY.md"
+      cp /home/operator/projects/operationkit/scripts/hermes-seeds/MEMORY.md "$HERMES_HOME/memories/MEMORY.md"
       log "Seeded MEMORY.md"
     fi
   fi
-  if [ -f /home/operator/projects/command-center-infra/scripts/hermes-seeds/USER.md ]; then
+  if [ -f /home/operator/projects/operationkit/scripts/hermes-seeds/USER.md ]; then
     if [ ! -f "$HERMES_HOME/memories/USER.md" ]; then
-      cp /home/operator/projects/command-center-infra/scripts/hermes-seeds/USER.md "$HERMES_HOME/memories/USER.md"
+      cp /home/operator/projects/operationkit/scripts/hermes-seeds/USER.md "$HERMES_HOME/memories/USER.md"
       log "Seeded USER.md"
     fi
   fi

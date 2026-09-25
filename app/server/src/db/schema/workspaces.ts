@@ -80,10 +80,10 @@ export function initWorkspacesSchema(db: Database.Database): void {
       sort_order: 3,
     },
     {
-      // Example Dental Lab — a dental-lab client of Example. Modeled on the `example2`
+      // Example Five — a dental-lab client of Example. Modeled on the `example2`
       // client workspace (seeded separately in seedDevelopmentRegistry).
       slug: 'example5',
-      name: 'Example Dental Lab',
+      name: 'Example Five',
       short_label: 'EXAMPLE5',
       badge_color: 'bg-teal-500/20 text-teal-400',
       vault_path: '/home/operator/second-brain/workspaces/example5',

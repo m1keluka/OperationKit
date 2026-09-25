@@ -22,7 +22,7 @@ import type { Objective } from '@operationkit/shared'
 const GATE_FILE = path.join(os.tmpdir(), `ui-gate-pb-injection-test-${process.pid}.json`)
 // The line obj 1117 turns on at spawn (a stable, unique substring of the ds-criteria instruction).
 const DS_LINE = 'REQUIRED (UI): if a worker targets a registered frontend repo'
-const PLATFORMS = ['command-center-infra', 'example-project-platform', 'example-platform', 'example3-platform']
+const PLATFORMS = ['operationkit', 'example-project-platform', 'example-platform', 'example3-platform']
 
 function obj(partial: Partial<Objective>): Objective {
   return {

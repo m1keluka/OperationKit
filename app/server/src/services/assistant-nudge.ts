@@ -110,7 +110,7 @@ export async function runAssistantNudge(): Promise<boolean> {
     }
     return await sendTelegram(text)
   } catch (err) {
-    console.error('[assistant-nudge] run failed:', err)
+    console.error('[briefing-nudge] run failed:', err)
     return false
   }
 }
@@ -120,9 +120,9 @@ export async function runAssistantNudge(): Promise<boolean> {
  * Fires once daily at 07:00 America/New_York (DST-aware).
  * Controlled by ASSISTANT_NUDGE_ENABLED env var (default: true).
  */
-export function startAssistantNudgeScheduler(): void {
+export function startBriefingNudgeScheduler(): void {
   if (process.env.ASSISTANT_NUDGE_ENABLED === 'false') {
-    console.log('[assistant-nudge] Scheduler disabled via ASSISTANT_NUDGE_ENABLED=false')
+    console.log('[briefing-nudge] Scheduler disabled via ASSISTANT_NUDGE_ENABLED=false')
     return
   }
   if (schedulerTimer) return
@@ -132,10 +132,10 @@ export function startAssistantNudgeScheduler(): void {
     if (hour === FIRE_HOUR && minute === FIRE_MINUTE && lastFiredDate !== date) {
       lastFiredDate = date
       runAssistantNudge()
-        .then(ok => console.log(`[assistant-nudge] Morning nudge ${ok ? 'sent' : 'failed to send'} (${date} 07:00 ET)`))
-        .catch(err => console.error('[assistant-nudge] Scheduled nudge failed:', err))
+        .then(ok => console.log(`[briefing-nudge] Morning nudge ${ok ? 'sent' : 'failed to send'} (${date} 07:00 ET)`))
+        .catch(err => console.error('[briefing-nudge] Scheduled nudge failed:', err))
     }
   }, CHECK_INTERVAL_MS)
 
-  console.log('[assistant-nudge] Scheduler started — daily 07:00 America/New_York')
+  console.log('[briefing-nudge] Scheduler started — daily 07:00 America/New_York')
 }

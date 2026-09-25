@@ -10,7 +10,7 @@ import type { Objective } from '@operationkit/shared'
 const TMP_DB = path.join(os.tmpdir(), `cc-prlink-test-${process.pid}-${Date.now()}.db`)
 process.env.DB_PATH = TMP_DB
 // Pin the repo so the faked gh argv is deterministic regardless of env.
-process.env.HARNESS_REPO = 'your-org/command-center-infra'
+process.env.HARNESS_REPO = 'your-org/operationkit'
 
 const { initDb, getDb } = await import('../db/index.js')
 const {
@@ -43,7 +43,7 @@ function makeObjective(over: Partial<Objective> = {}): Objective {
   ).run(
     over.status ?? 'review',
     over.create_pr ? 1 : 0,
-    over.project ?? 'command-center-infra',
+    over.project ?? 'operationkit',
     over.type ?? 'project',
     over.branch_name ?? null,
     over.pr_url ?? null,

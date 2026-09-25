@@ -13,7 +13,7 @@
 
 /** True if a path looks like a harness-created session worktree:
  *  /tmp/cc-wt-<id>, /tmp/cc-worktree-<id>, /home/operator/projects/cc-wt-<slug>, etc.
- *  The canonical deployed checkout (/app, …/command-center-infra) does NOT match. */
+ *  The canonical deployed checkout (/app, …/operationkit) does NOT match. */
 export function looksLikeWorktreePath(p: string): boolean {
   return /(?:^|\/)(?:cc-wt-|cc-worktree-)/.test(p)
 }

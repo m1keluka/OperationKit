@@ -28,4 +28,4 @@ Projects complement linked repos — a project is “what we're building now” 
 
 If enabled, the daily **docs-breathe** Job looks at that checkout’s `docs/product/` (see [LIVING.md](./LIVING.md)). If the product changed yesterday, it updates those files via a PR. If the folder does not exist yet, the Job may create the skeleton (README + what-it-is) rather than invent a novel wiki.
 
-Command Center itself is a linked Example repo: `your-org/command-center-infra`, path `/home/operator/projects/command-center-infra`, docs at `docs/product/`.
+Command Center itself is a linked Example repo: `your-org/operationkit`, path `/home/operator/projects/operationkit`, docs at `docs/product/`.

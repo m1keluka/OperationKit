@@ -431,6 +431,40 @@ function safeJsonParse(value: string, fallback: unknown): unknown {
   }
 }
 
+export interface PosthogBotPrListItem {
+  id: number
+  workspace: string
+  title: string
+  description: string
+  area: string | null
+  status: string
+  created_at: string
+  updated_at: string
+  source_id: string
+}
+
+/**
+ * List dev_items persisted by the posthog-bot sweep (source_system='posthog-bot'),
+ * optionally scoped to a single workspace. Enforces deleted_at IS NULL.
+ * Funnels through this service (not the route) per the scoping rule (schema §5).
+ */
+export function listPosthogBotDevItems(workspace?: string | null): PosthogBotPrListItem[] {
+  const parts = ["source_system = 'posthog-bot'", 'deleted_at IS NULL']
+  const params: unknown[] = []
+  if (workspace) {
+    parts.push('workspace = ?')
+    params.push(workspace)
+  }
+  return db()
+    .prepare(
+      `SELECT id, workspace, title, description, area, status, created_at, updated_at, source_id
+         FROM dev_items
+        WHERE ${parts.join(' AND ')}
+        ORDER BY created_at DESC`,
+    )
+    .all(...params) as PosthogBotPrListItem[]
+}
+
 /** A2 detail: the full row, with the three JSON columns parsed. */
 export function serializeDetailItem(row: DevItemBoardRow) {
   return {
