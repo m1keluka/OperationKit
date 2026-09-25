@@ -45,7 +45,7 @@ Self-deploy bind-mounts `app/server/src`, `app/client/src`, `app/shared`, `app/c
 
 **In this Node process (must stay green):** session spawn, poller, intel, Assistant/mentor, costs, workspaces, board HTTP, flag-gated gates/watchdogs.
 
-**Siblings:** LiteLLM, Caddy, host cron (`scripts/install-*-cron.sh`), optional Hermes/n8n/OpenHands/telegram-rolodex.
+**Siblings:** LiteLLM, Caddy, host cron (`scripts/install-*-cron.sh`), optional Hermes/n8n/OpenHands/telegram-contactbook.
 
 ## How to change this file
 

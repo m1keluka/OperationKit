@@ -34,7 +34,7 @@ import {
 import { parsePrNumberFromUrl } from './pr-url.js'
 
 /** Default target repo for `gh` calls — overridable for tests/alternate deploys. */
-export const PR_LINKAGE_REPO = process.env.HARNESS_REPO || 'your-org/command-center-infra'
+export const PR_LINKAGE_REPO = process.env.HARNESS_REPO || 'your-org/operationkit'
 
 /** The gating commit-status context this whole subsystem exists to keep alive. */
 export const HARNESS_CONTEXT = 'harness/test-agent'

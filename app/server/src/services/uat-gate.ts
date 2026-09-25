@@ -551,7 +551,7 @@ export function isUatGateShadowMode(db: Database, env: NodeJS.ProcessEnv = proce
 //
 // A SECOND, scoped lever — independent of `uat_gate_blocking` — that flips the
 // cheat-check (UAT PRODUCT_FAIL / EVAL_CHEAT_FAIL) from log-only (shadow) to an
-// actual BLOCK, but ONLY for the command-center-infra pilot. Sibling worker CW1
+// actual BLOCK, but ONLY for the operationkit pilot. Sibling worker CW1
 // seeds the `kitchen_loop_review_enforce` flag row OFF in db/index.ts; this module
 // only READS it. With the flag OFF, shadow/enforce is governed SOLELY by
 // uat_gate_blocking exactly as before — byte-for-byte identical. The scope guard
@@ -565,7 +565,7 @@ export function isReviewEnforceEnabled(db: Database, env: NodeJS.ProcessEnv = pr
 
 /**
  * Review enforcement is active for a target iff the flag is ON **and** the target is
- * the command-center-infra pilot. The scope guard lives here so every caller that
+ * the operationkit pilot. The scope guard lives here so every caller that
  * consults this predicate is automatically blast-radius-safe: a non-pilot project
  * can never be flipped out of shadow by this flag, even when it is ON.
  */
@@ -638,7 +638,7 @@ export function logUatMilestone(db: Database, objective: UatObjectiveRef, result
     db.prepare(
       `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(objective.project || 'command-center-infra', objective.workspace, objective.id, objective.session_id ?? null, eventType, title, detail)
+    ).run(objective.project || 'operationkit', objective.workspace, objective.id, objective.session_id ?? null, eventType, title, detail)
   } catch (err) {
     console.error(`[uat-gate] failed to log milestone for obj ${objective.id}:`, err)
   }
@@ -668,7 +668,7 @@ export function evaluateUatGate(
   if (isUatGateKilled(db, env)) return { action: 'skip', reason: 'killed' }
   if (!isUatGateActiveForProject(db, objective.project, env)) return { action: 'skip', reason: 'not-active' }
 
-  // Stage-C (obj 700316): kitchen_loop_review_enforce flips the command-center-infra
+  // Stage-C (obj 700316): kitchen_loop_review_enforce flips the operationkit
   // pilot OUT of shadow into ENFORCE (cheat-check actually blocks). The scope guard
   // is inside isReviewEnforceActiveForTarget, so this can NEVER un-shadow any other
   // workspace. With the flag OFF the value is identical to isUatGateShadowMode alone.

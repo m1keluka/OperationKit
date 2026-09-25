@@ -6,7 +6,7 @@ import { parsePrNumberFromUrl } from './pr-url.js'
 // sat BLOCKED. parsePrNumberFromUrl is the fallback that closes that hole.
 describe('parsePrNumberFromUrl', () => {
   it('parses the number from a canonical GitHub PR URL (the obj-1138 / PR #78 case)', () => {
-    expect(parsePrNumberFromUrl('https://github.com/your-org/command-center-infra/pull/78')).toBe(78)
+    expect(parsePrNumberFromUrl('https://github.com/your-org/operationkit/pull/78')).toBe(78)
   })
 
   it('parses with a trailing segment (/files, /commits)', () => {

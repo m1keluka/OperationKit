@@ -20,6 +20,7 @@ import { initRuntimeSchema } from './schema/runtime.js'
 import { initLeasesSchema } from './schema/leases.js'
 import { initModelsSchema } from './schema/models.js'
 import { initTokensSchema } from './schema/tokens.js'
+import { initContentSchema } from './schema/content.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/command-center.db')
@@ -365,6 +366,27 @@ export function initDb(): Database.Database {
   }
   if (!colNames.has('backstop_noprogress')) {
     db.exec("ALTER TABLE objectives ADD COLUMN backstop_noprogress INTEGER NOT NULL DEFAULT 0")
+  }
+  // dev_feedback bridge (obj 711117 W4): idempotency key + push-tracking columns.
+  // dev_feedback_uuid: links a CC objective to a example2 platform dev_feedback row.
+  //   UNIQUE so a crash between create and sync cannot produce two objectives for
+  //   the same feedback item.
+  // last_known_kanban_status: tracks the kanban status last successfully pushed to
+  //   the platform so status-push pass only POSTs when something actually changed.
+  if (!colNames.has('dev_feedback_uuid')) {
+    db.exec("ALTER TABLE objectives ADD COLUMN dev_feedback_uuid TEXT")
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_objectives_dev_feedback_uuid ON objectives(dev_feedback_uuid) WHERE dev_feedback_uuid IS NOT NULL")
+  }
+  if (!colNames.has('last_known_kanban_status')) {
+    db.exec("ALTER TABLE objectives ADD COLUMN last_known_kanban_status TEXT")
+  }
+  // PostHog Signals bridge (obj 712024 W5): idempotency key.
+  // posthog_report_id links a CC objective to one PostHog Self-Driving signal
+  // report. UNIQUE (partial, so untagged objectives are unconstrained) so a
+  // re-run of the sweep can never file a second objective for the same report.
+  if (!colNames.has('posthog_report_id')) {
+    db.exec("ALTER TABLE objectives ADD COLUMN posthog_report_id TEXT")
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_objectives_posthog_report_id ON objectives(posthog_report_id) WHERE posthog_report_id IS NOT NULL")
   }
   // Objective-lifecycle hardening (obj 700415).
   // `terminal_by_human`: set to 1 when a HUMAN ends an objective via the public
@@ -757,7 +779,7 @@ export function initDb(): Database.Database {
         ].join('\n'),
         agent_context: 'cto',
         workspace: 'example',
-        project: 'command-center-infra',
+        project: 'operationkit',
         category: 'operations',
         completion_goal: 'Briefing file exists at /home/operator/ai-workspace/briefings/<today>.md covering board state, stale items, and account/budget status.',
         workflow_hint: null,
@@ -777,21 +799,21 @@ export function initDb(): Database.Database {
           'Convention: docs/product/README.md (sentence + paragraph + TOC), 01-what-it-is.md (one page + overview mermaid), 02-how-it-works.md (loop mermaid), 07-data.md (ER mermaid + table inventory). Spec: docs/product/LIVING.md.',
           '',
           '1. GET http://localhost:3002/api/internal/repos?living=1 — linked repos with living docs on and a disk path.',
-          '2. For THIS repo (command-center-infra): git log --since=yesterday.0:00 --oneline; also note Board cards with project=command-center-infra that moved to done since yesterday.',
+          '2. For THIS repo (operationkit): git log --since=yesterday.0:00 --oneline; also note Board cards with project=operationkit that moved to done since yesterday.',
           '3. Diff SQLite tables: rg -o "CREATE TABLE IF NOT EXISTS ([a-z_]+)" app/server/src/db/schema -r "$1" | sort -u  vs the inventory in docs/product/07-data.md.',
           '4. If nothing product-facing changed AND the table inventory matches: make no file edits, say so, finish.',
           '5. If nav/auth/engines/a user flow/tables changed: edit docs/product/ so a visual person and a language person both get the truth. Always keep the mermaid in 01 and 02 and the ER + inventory in 07-data.md current. Open/update the PR (create_pr is on).',
-          '6. For every OTHER living repo in the list whose docs/product exists: spawn a sibling Board card via POST http://localhost:3002/api/internal/objectives with workspace, project=repo name, create_pr=true, model claude-sonnet-4-6, title "Living docs — {name}", description pointing at that checkout and LIVING.md (flowchart + 07-data required). Do not edit those live checkouts from this session.',
+          '6. For every OTHER living repo in the list whose docs/product exists: spawn a sibling Board card via POST http://localhost:3002/api/internal/objectives with workspace, project=repo name, create_pr=true, model claude-sonnet-5, title "Living docs — {name}", description pointing at that checkout and LIVING.md (flowchart + 07-data required). Do not edit those live checkouts from this session.',
           '7. If a living repo has a path but no docs/product yet, spawn the same sibling to stub README.md + 01-what-it-is.md (with mermaid) + 07-data.md only — do not invent a novel wiki.',
         ].join('\n'),
         agent_context: 'cto',
         workspace: 'example',
-        project: 'command-center-infra',
+        project: 'operationkit',
         category: 'operations',
         completion_goal: 'Product docs in docs/product/ match yesterday’s user-visible product, or an explicit no-op if nothing changed. Other living repos either skipped or have a sibling PR card.',
         workflow_hint: null,
         effort: 'normal',
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         type: 'task',
         create_pr: true,
       },
@@ -811,7 +833,7 @@ export function initDb(): Database.Database {
         ].join('\n'),
         agent_context: 'general',
         workspace: 'example',
-        project: 'command-center-infra',
+        project: 'operationkit',
         category: 'operations',
         completion_goal: 'hygiene-latest.md is overwritten with a current digest of stale queue items, unattended reviews, and dead working sessions.',
         workflow_hint: null,
@@ -839,6 +861,11 @@ export function initDb(): Database.Database {
 
   initTokensSchema(db)
 
+  // Content-engine ownership (obj 710856). Must run AFTER initCoreSchema (FK to
+  // users) — its seed matches owners by username, so it is a no-op on a DB whose
+  // users have not been created yet.
+  initContentSchema(db)
+
   initSecretsSchema(db)
 
   // ── Universal Development — Phase 0 (obj-704214) ─────────────────────────
@@ -862,7 +889,7 @@ export function initDb(): Database.Database {
   // A "project" is a named subfolder INSIDE a workspace that objectives belong
   // to — it is the board's third-level organizer (org → project → objective).
   // IMPORTANT: this is ENTIRELY DISTINCT from `objectives.project` (the REPO
-  // LINK column, e.g. 'command-center-infra') — do not confuse the two.
+  // LINK column, e.g. 'operationkit') — do not confuse the two.
   // The new column is `objectives.project_id` referencing `projects.id`.
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
@@ -887,6 +914,15 @@ export function initDb(): Database.Database {
     db.exec('ALTER TABLE objectives ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL')
   }
   db.exec('CREATE INDEX IF NOT EXISTS idx_objectives_workspace_project ON objectives(workspace, project_id)')
+
+  // ── PostHog Self-Driving source uniqueness (obj 712024 W2) ──────────────
+  // Ensures INSERT OR IGNORE idempotency for posthog-bot-discovered dev_items.
+  // The DDL in development.ts includes this, but CREATE TABLE IF NOT EXISTS
+  // never alters an existing table, so prod DBs created before this schema
+  // version need the index applied as an explicit migration.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_dev_items_source ON dev_items(source_system, source_id) WHERE source_id IS NOT NULL",
+  )
 
   return db
 }

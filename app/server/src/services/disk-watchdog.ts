@@ -21,7 +21,7 @@ import {
 const POLL_INTERVAL_MS = 5 * 60 * 1000
 const CLEANUP_COOLDOWN_MS = 30 * 60 * 1000
 const CLEANUP_TIMEOUT_MS = 3 * 60 * 1000
-const CLEANUP_SCRIPT = '/home/operator/projects/command-center-infra/scripts/disk-cleanup.sh'
+const CLEANUP_SCRIPT = '/home/operator/projects/operationkit/scripts/disk-cleanup.sh'
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastCleanupMs = 0

@@ -144,8 +144,8 @@ describe('localhost guard', () => {
     expect(body.error).toMatch(/localhost/i)
   })
 
-  it('rejects GET /rolodex/history from a non-loopback IP', async () => {
-    const res = await fetch(`${baseUrl}/api/internal/rolodex/history/12345`, {
+  it('rejects GET /contactbook/history from a non-loopback IP', async () => {
+    const res = await fetch(`${baseUrl}/api/internal/contactbook/history/12345`, {
       headers: { 'x-forwarded-for': '198.51.100.42' },
     })
     expect(res.status).toBe(403)
@@ -227,8 +227,8 @@ describe('vault endpoints (happy paths)', () => {
     expect(content).toMatch(/## Touchpoints[\s\S]*Coffee at the office/)
   })
 
-  it('rolodex/history upserts and reads back', async () => {
-    const post = await fetch(`${baseUrl}/api/internal/rolodex/history`, {
+  it('contactbook/history upserts and reads back', async () => {
+    const post = await fetch(`${baseUrl}/api/internal/contactbook/history`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -238,7 +238,7 @@ describe('vault endpoints (happy paths)', () => {
       }),
     })
     expect(post.status).toBe(200)
-    const get = await fetch(`${baseUrl}/api/internal/rolodex/history/chat-1`)
+    const get = await fetch(`${baseUrl}/api/internal/contactbook/history/chat-1`)
     expect(get.status).toBe(200)
     const body = await get.json() as { user_id: string; history: { role: string }[] }
     expect(body.user_id).toBe('user-42')

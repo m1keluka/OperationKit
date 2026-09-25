@@ -10,7 +10,7 @@ import { DEFAULT_MIN_CONFIDENCE, type SignalType } from './daily-retro.detect.js
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-export const DSR_PROJECT = 'command-center-infra'
+export const DSR_PROJECT = 'operationkit'
 export const DSR_ORIGIN = 'retro'
 export const TRANSCRIPT_DIR = '/home/operator/transcripts'
 /** Statuses that count as an OPEN retro objective for the WIP brake. */

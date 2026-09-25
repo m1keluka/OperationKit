@@ -168,7 +168,7 @@ export function isCanaryHarnessEnabled(db: Database, env: NodeJS.ProcessEnv = pr
  * which this module never edits) is OFF. When OFF, a canary escape is log-only
  * (alarm) exactly as before; when ON, an escape becomes a blocking signal
  * (CanaryRunSummary.blocked). The canary harness exclusively exercises the
- * command-center-infra gate, so it is command-center-scoped by construction — no
+ * operationkit gate, so it is command-center-scoped by construction — no
  * other workspace's merges run through it.
  */
 export function isReviewEnforceEnabled(db: Database, env: NodeJS.ProcessEnv = process.env): boolean {
@@ -208,7 +208,7 @@ export function raiseCanaryAlarm(db: Database, canary: { id: string; tier: numbe
   try {
     db.prepare(
       `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
-       VALUES ('command-center-infra', 'operator', NULL, NULL, 'error', ?, ?)`,
+       VALUES ('operationkit', 'operator', NULL, NULL, 'error', ?, ?)`,
     ).run(`Canary escape: ${canary.id}`, msg)
   } catch (err) {
     console.error('[canary-harness] failed to write alarm to activity_log:', err)

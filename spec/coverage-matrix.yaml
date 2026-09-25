@@ -1,4 +1,4 @@
-# coverage-matrix.yaml — command-center-infra specification surface (Kitchen Loop pilot)
+# coverage-matrix.yaml — operationkit specification surface (Kitchen Loop pilot)
 #
 # The empirical, in-repo enumeration of what the product CLAIMS, as a coverage matrix
 # (feature × surface × action), every cell prioritized P0/P1/P2/P3. Source: W3 pilot
@@ -16,7 +16,7 @@
 #   P1 breadth · P2 depth/edge · P3 frontier
 
 meta:
-  repo: command-center-infra
+  repo: operationkit
   generated_by: "obj 700077/700079 (W3) → committed by obj 700099 (Phase-0 build)"
   test_tooling: "Vitest (server node env + client jsdom env); no executed Playwright/e2e by policy"
   oracle: spec/cc-oracle.mjs

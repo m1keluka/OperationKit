@@ -60,6 +60,7 @@ import {
 import { isLocalhost } from '../lib/is-localhost.js'
 import { isLockedStatus, runMachineStatusUpdate } from '../lib/status-lock.js'
 import { diskAction, diskBlockReason, readHostDisk } from '../lib/host-disk.js'
+import { resolveFollowUpSessionId } from '../services/objective-sessions.js'
 
 export function registerInternalHermesRoutes(router: Router): void {
 // ─── Hermes integration: localhost-only read + control endpoints ───────────
@@ -588,7 +589,7 @@ router.post('/objectives/:id/message', (req, res) => {
   // path is now visible, so "who messages whom" is auditable rather than dark.
   try {
     logActivity({
-      project: objective.project || 'command-center-infra',
+      project: objective.project || 'operationkit',
       workspace: objective.workspace,
       objective_id: objective.id,
       // `progress` is the generic bucket in activity_log's event_type CHECK
@@ -603,13 +604,8 @@ router.post('/objectives/:id/message', (req, res) => {
     console.error('[internal] message attribution log failed:', err)
   }
 
-  let existingSessionId = objective.session_id
-  if (!existingSessionId) {
-    const lastSession = db.prepare(
-      'SELECT session_id FROM session_intel WHERE objective_id = ? ORDER BY ended_at DESC LIMIT 1'
-    ).get(objective.id) as { session_id: string } | undefined
-    existingSessionId = lastSession?.session_id || `cc-${objective.id}-${Date.now()}`
-  }
+  // Never an aux (`cc-review-*`/`cc-plan-*`) session — see objective-sessions.ts.
+  const existingSessionId = resolveFollowUpSessionId(db, objective)
 
   // Wrapped so a throw in the spawn path returns a clean 500 to the caller
   // (delegator nudge / [child-complete] wake) instead of an opaque failure —

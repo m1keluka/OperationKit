@@ -84,8 +84,8 @@ This document was produced as part of CC objective #141 ("Build unified task man
 
 | Component | Lives at | Inbound surface | Outbound to | Status |
 |---|---|---|---|---|
-| Hermes Telegram gateway | `/home/operator/.hermes/`, systemd `hermes-gateway` | Telegram bot DM | `POST /api/internal/objectives` (CC), `/api/internal/vault/*` (rolodex) | **Planned** — venv setup script in `scripts/setup-hermes.sh`; not yet deployed (no `/home/operator/.hermes` on disk, no systemd unit) |
-| Telegram Rolodex | `app/telegram-rolodex/index.ts` | the operator DMs | CC vault tools (search/append/update on `~/second-brain/`) | **Planned** — same systemd unit as Hermes |
+| Hermes Telegram gateway | `/home/operator/.hermes/`, systemd `hermes-gateway` | Telegram bot DM | `POST /api/internal/objectives` (CC), `/api/internal/vault/*` (contactbook) | **Planned** — venv setup script in `scripts/setup-hermes.sh`; not yet deployed (no `/home/operator/.hermes` on disk, no systemd unit) |
+| Telegram Contactbook | `app/telegram-contactbook/index.ts` | the operator DMs | CC vault tools (search/append/update on `~/second-brain/`) | **Planned** — same systemd unit as Hermes |
 | Granola ingest | `app/server/src/scripts/granola-ingest.ts`, `scripts/run-granola-ingest.sh` | Granola API (every 15min) | Vault meeting notes (`workspaces/<ws>/meetings/YYYY-MM-DD-<slug>.md`) + `granola_action_items` SQLite queue | **Working** end-to-end. Action items reach the operator via the meeting-queue UI now that the router is mounted. Still missing host crontab entry — runs only when triggered manually. |
 | Meeting-queue review | `app/server/src/routes/meeting-queue.ts` | UI badge poll + approve/dismiss | `objectives` table (status=queue) | **Working as of 2026-06-04** — router mount added (`app.use('/api/meeting-queue', …)`). Batch-approve endpoint added the same session. |
 | Gmail inbox triage | `app/server/src/services/gmail-triage.ts`, `scripts/run-gmail-triage.sh` | Gmail INBOX (cron) | Gmail labels (Live/Junk/Example Leads/Notifications) + `gmail_triage` table | **Endpoint working as of 2026-06-04** — `POST /api/internal/gmail-triage/run` added. Still missing host crontab entry. Triaged-as-Live emails do not yet create CC objectives. |
@@ -178,11 +178,11 @@ These all ship in the next backend deploy (`mode=both`).
 
 These were intentionally left for separate CC objectives — each is meaningful enough to plan and own independently rather than smuggle into this session.
 
-1. **Deploy Hermes** — run `bash scripts/setup-hermes.sh install gateway`, provision `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ROLODEX_OWNER_ID` in `.hermes/.env`, register the bot with @BotFather, smoke-test a single brain dump. Without this, the Capture layer is missing its primary inbound surface.
+1. **Deploy Hermes** — run `bash scripts/setup-hermes.sh install gateway`, provision `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CONTACTBOOK_OWNER_ID` in `.hermes/.env`, register the bot with @BotFather, smoke-test a single brain dump. Without this, the Capture layer is missing its primary inbound surface.
 2. **Install missing host cron entries** — granola ingest (every 15 min) and gmail-triage (every 30 min). Both wrappers exist; only the crontab lines are missing. Format:
    ```
-   */15 * * * * . /home/operator/.config/command-center/cron.env && bash /home/operator/projects/command-center-infra/scripts/run-granola-ingest.sh >> /home/operator/transcripts/granola-ingest.cron.log 2>&1 # command-center: granola-ingest
-   */30 * * * * . /home/operator/.config/command-center/cron.env && bash /home/operator/projects/command-center-infra/scripts/run-gmail-triage.sh >> /home/operator/transcripts/gmail-triage.cron.log 2>&1 # command-center: gmail-triage
+   */15 * * * * . /home/operator/.config/command-center/cron.env && bash /home/operator/projects/operationkit/scripts/run-granola-ingest.sh >> /home/operator/transcripts/granola-ingest.cron.log 2>&1 # command-center: granola-ingest
+   */30 * * * * . /home/operator/.config/command-center/cron.env && bash /home/operator/projects/operationkit/scripts/run-gmail-triage.sh >> /home/operator/transcripts/gmail-triage.cron.log 2>&1 # command-center: gmail-triage
    ```
 3. **Live-email → objective bridge** — when Gmail triage classifies an envelope as `Live` and the sender is unknown, create a `general`-agent CC objective so it can't fall through the cracks. Probably belongs in `gmail-triage.ts:runGmailTriage` after the label apply.
 4. **Account-exhaustion retry scheduler** — `account-router.enqueueSession()` parks but never re-attempts. Add a 60s drain loop that flips parked objectives back to `working` once an account frees up.
@@ -200,7 +200,7 @@ These are the contracts that hold the loop together. Break them and the architec
 - **Sessions never co-own files with each other** — file ownership is at the task level (one task = one file set). Parallel sessions touching the same file is a decomposition bug.
 - **Vault writes always include `workspace:` frontmatter** — `update-active-state.sh` and `dream-cycle.sh` filter by it; missing frontmatter means the artifact vanishes from rollups.
 - **Decisions live in `~/second-brain/workspaces/<ws>/decisions/YYYY-MM-DD-<slug>.md`** — capture-gap detector checks for exactly this path pattern. Writing elsewhere flags the session as a capture gap.
-- **Worktree sessions never touch the main checkout** — see `command-center-infra/CLAUDE.md` "Worktree Isolation" for the production-crash post-mortem.
+- **Worktree sessions never touch the main checkout** — see `operationkit/CLAUDE.md` "Worktree Isolation" for the production-crash post-mortem.
 
 ---
 

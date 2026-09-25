@@ -36,7 +36,7 @@ must be STRIPPED.
 Any slug outside `scripts/oss-agent-allowlist.txt` in either seed source fails
 the publish (check 4). Adding one is a reviewable one-line diff.
 
-## `app/telegram-rolodex/` — DECISION: **STRIPPED** (obj 709956)
+## `app/telegram-contactbook/` — DECISION: **STRIPPED** (obj 709956)
 
 This reverses an earlier `OPTIONAL` reading of the subsystem, and the reversal is
 the point of the vocabulary note above.
@@ -45,42 +45,42 @@ the point of the vocabulary note above.
 chat, running as a sibling process spawned by the main server.
 
 **Why it was called OPTIONAL.** It is genuinely inert without configuration:
-`services/rolodex-supervisor.ts` returns immediately unless both
-`TELEGRAM_BOT_TOKEN` and `TELEGRAM_ROLODEX_OWNER_ID` are set, and again if the
+`services/contactbook-supervisor.ts` returns immediately unless both
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CONTACTBOOK_OWNER_ID` are set, and again if the
 entry file is missing. A self-hoster who ignores it pays nothing.
 
 **Why that is not sufficient.** Its source is operator identity, not
 configuration:
 
-- `app/telegram-rolodex/index.ts:30` defaults its system prompt to
-  `<ai-workspace>/agents/rolodex.md` — a persona file the gate already
+- `app/telegram-contactbook/index.ts:30` defaults its system prompt to
+  `<ai-workspace>/agents/contactbook.md` — a persona file the gate already
   hard-blocks from ever shipping, so the published bot points at a file that
   cannot exist.
-- `app/telegram-rolodex/README.md` documents the live host, the real webhook
+- `app/telegram-contactbook/README.md` documents the live host, the real webhook
   URL, and a unix socket under the operator's home.
 - It is built around one of the operator's **private personas**, which is exactly
   the class of leak the blank-slate work exists to remove. Shipping a whole
   subsystem named after a private persona re-establishes by prose what deleting
   the roster constants removed from the type system.
 
-**Decision.** `prefix:app/telegram-rolodex/` is on `scripts/oss-strip-paths.txt`.
+**Decision.** `prefix:app/telegram-contactbook/` is on `scripts/oss-strip-paths.txt`.
 
 **What still ships, and why that is safe:**
 
 | Kept | Reason |
 |---|---|
-| `app/server/src/services/rolodex-supervisor.ts` | `app/server/src/index.ts` imports it, so stripping it would break the published tree's typecheck. It is generic infrastructure — spawn-a-child-with-backoff — and its one identity leak (a hardcoded `/home/<operator>/projects/command-center-infra/...` path, which also leaked the **private upstream repo name**) is fixed: the entry now resolves from `CC_REPO_DIR`, overridable via `ROLODEX_SIBLING_ENTRY`. With the sibling stripped the path does not exist, and the existing `fs.existsSync` guard skips with a log line. |
-| `rolodex_threads` table, `/api/internal/rolodex/history` | Generic per-chat history storage for any sibling that wants it. Dropping the table would be a destructive migration on live data for no safety gain. |
+| `app/server/src/services/contactbook-supervisor.ts` | `app/server/src/index.ts` imports it, so stripping it would break the published tree's typecheck. It is generic infrastructure — spawn-a-child-with-backoff — and its one identity leak (a hardcoded `/home/<operator>/projects/operationkit/...` path, which also leaked the **private upstream repo name**) is fixed: the entry now resolves from `CC_REPO_DIR`, overridable via `CONTACTBOOK_SIBLING_ENTRY`. With the sibling stripped the path does not exist, and the existing `fs.existsSync` guard skips with a log line. |
+| `contactbook_threads` table, `/api/internal/contactbook/history` | Generic per-chat history storage for any sibling that wants it. Dropping the table would be a destructive migration on live data for no safety gain. |
 
-**Why `rolodex` is not on the denylist.** After the strip, the surviving
+**Why `contactbook` is not on the denylist.** After the strip, the surviving
 occurrences are a common noun used as a subsystem name (a supervisor, a table, a
 route). Denylisting it would fail the publish on those legitimate hits. The
-enforcement that actually matters is check 4: `rolodex` is deliberately **not**
+enforcement that actually matters is check 4: `contactbook` is deliberately **not**
 on `scripts/oss-agent-allowlist.txt`, so it can never re-enter the shipped agent
 roster — which is where it did damage.
 
 **Explicitly out of scope here** (noted, not done): removing the subsystem from
-the private repo, and dropping `rolodex_threads`. Both are separate decisions
+the private repo, and dropping `contactbook_threads`. Both are separate decisions
 with their own blast radius.
 
 ## Other stripped classes

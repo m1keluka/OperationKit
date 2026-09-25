@@ -9,7 +9,7 @@ describe('looksLikeWorktreePath', () => {
   })
   it('does NOT match the canonical deployed checkout', () => {
     expect(looksLikeWorktreePath('file:///app/server/src/index.ts')).toBe(false)
-    expect(looksLikeWorktreePath('/home/operator/projects/command-center-infra/app/server/src/index.ts')).toBe(false)
+    expect(looksLikeWorktreePath('/home/operator/projects/operationkit/app/server/src/index.ts')).toBe(false)
   })
 })
 

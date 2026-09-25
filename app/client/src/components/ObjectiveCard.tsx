@@ -1,5 +1,5 @@
 import { useState, memo } from 'react'
-import { Pencil, ExternalLink, ShieldCheck, Clock, User as UserIcon } from 'lucide-react'
+import { Pencil, ExternalLink, ShieldCheck, Clock, User as UserIcon, Folder, Building2 } from 'lucide-react'
 import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import { STRATEGY_BADGE, ORIGIN_BADGES, isInFlightStatus } from '@operationkit/shared'
 import { relativeTime } from '../lib/time'
@@ -62,9 +62,12 @@ interface ObjectiveCardProps {
   pending?: boolean
   /** Worker objectives nested under this card (delegator mode only). */
   children?: Objective[]
+  /** When true (All-Organizations / multi-workspace view) the workspace chip is
+   *  rendered prominently so the card's org is always visible. */
+  showOrgChip?: boolean
 }
 
-function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, pending = false, children }: ObjectiveCardProps) {
+function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, pending = false, children, showOrgChip = false }: ObjectiveCardProps) {
   // Strategy governance overlay (Stage-0 human-confirm gate) — only strategies
   // surface the entry point. is_strategy is now an EXPLICIT stored marker (obj
   // 2835); derive purely from it, never from delegate_mode/parent_id inference.
@@ -236,7 +239,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
         </div>
 
         {/* Meta row 2 — tags */}
-        {(objective.is_strategy || (objective.origin && ORIGIN_BADGES[objective.origin]) || objective.pr_number || objective.model || objective.workspace) && (
+        {(objective.is_strategy || (objective.origin && ORIGIN_BADGES[objective.origin]) || objective.pr_number || objective.model || objective.workspace || objective.project_name || showOrgChip) && (
           <div className="mt-[7px] flex flex-wrap items-center gap-2 font-mono text-[10.5px]">
             {objective.is_strategy && (
               <span
@@ -256,6 +259,27 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
                 title={ORIGIN_BADGES[objective.origin].description}
               >
                 {ORIGIN_BADGES[objective.origin].label}
+              </span>
+            )}
+            {/* Board Project chip (obj 710597): folder icon + project name.
+                Color dot uses project_color when set; falls back to the default
+                chip border/text when no color is assigned. */}
+            {objective.project_name && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-line px-1.5 py-px text-fg-2"
+                title={`Project: ${objective.project_name}`}
+                data-testid="project-chip"
+              >
+                {objective.project_color ? (
+                  <span
+                    className="h-1.5 w-1.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: objective.project_color }}
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Folder className="h-2.5 w-2.5 opacity-60" aria-hidden="true" />
+                )}
+                {objective.project_name}
               </span>
             )}
             {objective.pr_url && objective.pr_number != null && (
@@ -297,8 +321,23 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
                 </span>
               )
             )}
+            {/* Workspace/org chip. In All-Organizations view (showOrgChip=true) it
+                is rendered with a Building2 icon and slightly bolder styling so the
+                card's org is always legible when multiple orgs are on screen. In a
+                single-org view the chip renders quietly without the icon. */}
             {objective.workspace && (
-              <span className="rounded-full border border-line px-1.5 py-px text-fg-2">{objective.workspace}</span>
+              showOrgChip ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-line/80 bg-surface-2 px-1.5 py-px font-medium text-fg-2"
+                  title={`Organization: ${objective.workspace}`}
+                  data-testid="org-chip"
+                >
+                  <Building2 className="h-2.5 w-2.5 opacity-60" aria-hidden="true" />
+                  {objective.workspace}
+                </span>
+              ) : (
+                <span className="rounded-full border border-line px-1.5 py-px text-fg-2" data-testid="org-chip">{objective.workspace}</span>
+              )
             )}
           </div>
         )}

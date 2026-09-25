@@ -42,7 +42,7 @@ interface GraphSkill {
   needs_improvement?: boolean
 }
 
-interface SkillGraphPayload {
+export interface SkillGraphPayload {
   source: string
   generated_at: string
   counts: {
@@ -216,7 +216,21 @@ const clampZoom = (z: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z))
 
 // ── Canvas ──
 
-function GraphCanvas({ data }: { data: SkillGraphPayload }) {
+/**
+ * The three-layer ring canvas. Exported (obj 712126) so the board-scoped Agents
+ * tab can render THIS graph over a project-scoped payload instead of growing a
+ * second visualisation.
+ *
+ * `onOpenNode` adds an "Open file" action to the selected-node card; without it
+ * the card behaves exactly as before. `alarmLabel` renames the alarm-ring
+ * legend entry for callers where the red ring means something other than the
+ * registry's "needs work" (the Agents tab uses it for "file missing").
+ */
+export function GraphCanvas({ data, onOpenNode, alarmLabel = 'needs work' }: {
+  data: SkillGraphPayload
+  onOpenNode?: (layer: Layer, slug: string) => void
+  alarmLabel?: string
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState<GraphNode | null>(null)
@@ -414,6 +428,7 @@ function GraphCanvas({ data }: { data: SkillGraphPayload }) {
         <NodeCard
           node={selected}
           onClose={() => setSelected(null)}
+          onOpen={onOpenNode ? () => onOpenNode(selected.layer, selected.slug) : undefined}
           className="right-3 top-3 w-[17rem] max-h-[calc(100%-1.5rem)] overflow-y-auto"
         />
       )}
@@ -425,7 +440,7 @@ function GraphCanvas({ data }: { data: SkillGraphPayload }) {
         <LegendDot layer="tool" label="tool" />
         <span className="flex items-center gap-1.5 border-l border-line pl-3 text-fg-2">
           <span className="inline-block h-2.5 w-2.5 rounded-full border-[1.5px] border-signal-alarm" />
-          needs work
+          {alarmLabel}
         </span>
         <span className="text-fg-2">dashed = load-on-demand</span>
       </div>
@@ -467,7 +482,7 @@ function LegendDot({ layer, label }: { layer: Layer; label: string }) {
 }
 
 /** Hover tooltip and click-through detail share one card so the two readings agree. */
-function NodeCard({ node, onClose, className }: { node: GraphNode; onClose?: () => void; className?: string }) {
+function NodeCard({ node, onClose, onOpen, className }: { node: GraphNode; onClose?: () => void; onOpen?: () => void; className?: string }) {
   return (
     <div className={cn('absolute rounded-lg border border-line bg-surface-2 p-3 shadow-float cc-land', className)}>
       <div className="flex items-start justify-between gap-2">
@@ -485,6 +500,11 @@ function NodeCard({ node, onClose, className }: { node: GraphNode; onClose?: () 
       <p className="mt-1 text-[11px] text-fg-2">{node.detail}</p>
       {node.description && (
         <p className="mt-2 line-clamp-4 text-[11px] leading-relaxed text-fg-2">{node.description}</p>
+      )}
+      {onOpen && (
+        <Button variant="secondary" size="sm" className="mt-2.5 w-full" onClick={onOpen}>
+          Open file
+        </Button>
       )}
     </div>
   )

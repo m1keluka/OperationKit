@@ -51,7 +51,7 @@ describe('collectFromMergedPR — audited feature brief (dogfood path)', () => {
     const db = getDb()
     // Simulate a PR audited by this command-center: an objective with the PR
     // linked and a passing review carrying the reviewer-emitted feature brief.
-    const prUrl = 'https://github.com/your-org/command-center-infra/pull/9001'
+    const prUrl = 'https://github.com/your-org/operationkit/pull/9001'
     const obj = db
       .prepare(
         `INSERT INTO objectives (title, description, status, pr_url, pr_number)
@@ -72,7 +72,7 @@ describe('collectFromMergedPR — audited feature brief (dogfood path)', () => {
     ).run(objectiveId, brief, JSON.stringify(['https://cdn.example.com/a.png']))
 
     const { entryId, status } = collectFromMergedPR({
-      repo: 'your-org/command-center-infra',
+      repo: 'your-org/operationkit',
       prNumber: 9001,
       prUrl,
       mergeCommitSha: 'deadbeef',
@@ -97,9 +97,9 @@ describe('collectFromMergedPR — audited feature brief (dogfood path)', () => {
 
   it('marks a non-worthy PR as skipped (not published)', () => {
     const { status } = collectFromMergedPR({
-      repo: 'your-org/command-center-infra',
+      repo: 'your-org/operationkit',
       prNumber: 9002,
-      prUrl: 'https://github.com/your-org/command-center-infra/pull/9002',
+      prUrl: 'https://github.com/your-org/operationkit/pull/9002',
       mergedAt: '2026-06-20T13:00:00Z',
       title: 'chore: bump eslint',
       labels: [],
@@ -111,9 +111,9 @@ describe('collectFromMergedPR — audited feature brief (dogfood path)', () => {
 
   it('is idempotent on re-delivery of the same PR (UNIQUE repo,pr_number)', () => {
     const payload = {
-      repo: 'your-org/command-center-infra',
+      repo: 'your-org/operationkit',
       prNumber: 9001,
-      prUrl: 'https://github.com/your-org/command-center-infra/pull/9001',
+      prUrl: 'https://github.com/your-org/operationkit/pull/9001',
       mergedAt: '2026-06-20T12:00:00Z',
       title: 'feat: stakeholder changelog',
       labels: [],
@@ -132,7 +132,7 @@ describe('collectFromMergedPR — audited feature brief (dogfood path)', () => {
 describe('collectFromMergedPR — the objective lookup is repo-scoped (obj 704718)', () => {
   it('does not attribute a example3 PR to a cc-infra objective with the same number', () => {
     const db = getDb()
-    const ccUrl = 'https://github.com/your-org/command-center-infra/pull/9202'
+    const ccUrl = 'https://github.com/your-org/operationkit/pull/9202'
     const ccObj = db
       .prepare(
         `INSERT INTO objectives (title, description, status, pr_url, pr_number)
@@ -183,7 +183,7 @@ describe('collectFromMergedPR — the objective lookup is repo-scoped (obj 70471
     const obj = db
       .prepare(
         `INSERT INTO objectives (title, description, status, pr_url, pr_number, project)
-         VALUES ('[Review] number-only linkage', 'x', 'review', NULL, 9303, 'command-center-infra')`,
+         VALUES ('[Review] number-only linkage', 'x', 'review', NULL, 9303, 'operationkit')`,
       )
       .run()
     const objectiveId = obj.lastInsertRowid as number
@@ -197,7 +197,7 @@ describe('collectFromMergedPR — the objective lookup is repo-scoped (obj 70471
     )
 
     const { entryId } = collectFromMergedPR({
-      repo: 'your-org/command-center-infra',
+      repo: 'your-org/operationkit',
       prNumber: 9303,
       prUrl: '',
       mergeCommitSha: 'beef5678',

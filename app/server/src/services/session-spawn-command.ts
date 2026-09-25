@@ -18,6 +18,15 @@ export const CODEX_MODEL = 'codex'
 export const CODEX_ACCOUNT_ID = 'codex'
 export const CODEX_HOME_DIR = '/home/ccuser-codex'
 
+/**
+ * Returns the directory Codex reads profiles from: `$CODEX_HOME` defaults to
+ * `<unixHome>/.codex`. Pass CODEX_HOME_DIR here; the result is the dir to
+ * hand to writeCodexMcpProfile so the file lands at the path --profile loads.
+ */
+export function codexConfigHome(unixHome: string): string {
+  return path.join(unixHome, '.codex')
+}
+
 export function codexAuthAvailable(): boolean {
   return fs.existsSync(path.join(CODEX_HOME_DIR, '.codex', 'auth.json'))
 }
@@ -95,8 +104,13 @@ export function buildClaudeCommand(opts: {
   settingsPath?: string
   maxTurns?: number
   maxOutputTokens?: number
+  /** Codex --profile name: layers $CODEX_HOME/<name>.config.toml onto base config */
+  codexProfileName?: string
+  /** Grok --rules path: small vocab-shim file appended to the Grok system prompt */
+  grokRulesPath?: string
 }): string {
-  const { engine, budget, effortLevel, model, resumeSessionId, mcpConfigPath, settingsPath } = opts
+  const { engine, budget, effortLevel, model, resumeSessionId, mcpConfigPath, settingsPath,
+    codexProfileName, grokRulesPath } = opts
   const maxTurns = opts.maxTurns ?? SPAWN_MAX_TURNS
   const maxOutputTokens = opts.maxOutputTokens ?? SPAWN_MAX_OUTPUT_TOKENS
 
@@ -111,23 +125,29 @@ export function buildClaudeCommand(opts: {
     // Select the OpenAI model on a fresh exec; resume keeps the thread's original
     // model. Legacy generic id 'codex' → no flag → Codex's own default (gpt-5.5).
     const codexModelFlag = (!resumeSessionId && model && model !== CODEX_MODEL) ? ` --model ${JSON.stringify(model)}` : ''
-    return `codex ${codexSub}${codexModelFlag} --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -c model_reasoning_effort=${JSON.stringify(codexEffort)} -`
+    // --profile layers the session's MCP overlay on top of the base user config
+    // (preserving existing servers: playwright, n8n-mcp, apify, getleads).
+    const codexProfileFlag = codexProfileName ? ` --profile ${JSON.stringify(codexProfileName)}` : ''
+    return `codex ${codexSub}${codexModelFlag}${codexProfileFlag} --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -c model_reasoning_effort=${JSON.stringify(codexEffort)} -`
   }
 
   if (engine === 'grok') {
     const grokModel = (!resumeSessionId && model) ? ` --model ${JSON.stringify(model)}` : ''
     const grokResume = resumeSessionId ? ` --resume ${JSON.stringify(resumeSessionId)}` : ''
     const grokTurns = maxTurns > 0 ? ` --max-turns ${maxTurns}` : ''
+    // --rules appends the vocab-shim so skills referencing mcp__*__ or Claude tool
+    // names still work on Grok without a full SKILL.md rewrite.
+    const grokRulesFlag = grokRulesPath ? ` --rules ${JSON.stringify(grokRulesPath)}` : ''
     // Prompt is passed as `-p "$(cat promptfile)"` in the tmux wrapper — the
     // official grok CLI does not read the prompt from stdin.
-    return `grok --no-auto-update --always-approve --no-alt-screen --output-format streaming-json${grokTurns}${grokModel}${grokResume}`
+    return `grok --no-auto-update --always-approve --no-alt-screen --output-format streaming-json${grokTurns}${grokModel}${grokRulesFlag}${grokResume}`
   }
 
   const modelFlag = model ? ` --model ${JSON.stringify(model)}` : ''
   const resumeFlag = resumeSessionId ? ` --resume ${JSON.stringify(resumeSessionId)}` : ''
   const turnsFlag = maxTurns > 0 ? ` --max-turns ${maxTurns}` : ''
   const tokenPrefix = maxOutputTokens > 0 ? `CLAUDE_CODE_MAX_OUTPUT_TOKENS=${maxOutputTokens} ` : ''
-  // Extra --mcp-config file (e.g. Playwright for the reviewer/UI gate, #684).
+  // Extra --mcp-config file (e.g. Playwright for the reviewer/UI gate, #684). // ui-conformance-ignore: PR reference, not a color
   const mcpFlag = mcpConfigPath ? ` --mcp-config ${JSON.stringify(mcpConfigPath)}` : ''
   // Extra --settings file: the obj-1059 PreToolUse worktree guard (#69). Fires even
   // under --dangerously-skip-permissions, blocking any isolated session from

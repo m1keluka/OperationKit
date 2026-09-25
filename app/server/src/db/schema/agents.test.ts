@@ -177,20 +177,20 @@ describe('initAgentsSchema — table + seeding', () => {
 })
 
 describe('initAgentsSchema — dropping the objectives.agent_context CHECK', () => {
-  it('a pre-migration DB rejects `rolodex`; after the migration it is insertable', () => {
+  it('a pre-migration DB rejects `contactbook`; after the migration it is insertable', () => {
     const db = legacyDb()
     expect(objectivesHasAgentContextCheck(db)).toBe(true)
     expect(() =>
-      db.prepare('INSERT INTO objectives (title, agent_context) VALUES (?, ?)').run('pre', 'rolodex'),
+      db.prepare('INSERT INTO objectives (title, agent_context) VALUES (?, ?)').run('pre', 'contactbook'),
     ).toThrow(/CHECK constraint failed/)
 
     initAgentsSchema(db)
 
     expect(objectivesHasAgentContextCheck(db)).toBe(false)
-    db.prepare('INSERT INTO objectives (title, agent_context) VALUES (?, ?)').run('post', 'rolodex')
+    db.prepare('INSERT INTO objectives (title, agent_context) VALUES (?, ?)').run('post', 'contactbook')
     expect(
       (db.prepare("SELECT agent_context AS c FROM objectives WHERE title = 'post'").get() as { c: string }).c,
-    ).toBe('rolodex')
+    ).toBe('contactbook')
   })
 
   it('every pre-existing row survives with an identical agent_context', () => {
@@ -272,7 +272,7 @@ describe('initAgentsSchema — the out-of-band legacy `agents` table (found on t
   it('the legacy trigger really does block an unregistered slug before migration', () => {
     const db = legacyOkitDb()
     expect(() =>
-      db.prepare('INSERT INTO objectives (title, agent_context) VALUES (?, ?)').run('pre', 'rolodex'),
+      db.prepare('INSERT INTO objectives (title, agent_context) VALUES (?, ?)').run('pre', 'contactbook'),
     ).toThrow()
   })
 
@@ -304,7 +304,7 @@ describe('initAgentsSchema — the out-of-band legacy `agents` table (found on t
     const db = legacyOkitDb()
     const before = db.prepare('SELECT id, title, agent_context FROM objectives ORDER BY id').all()
     initAgentsSchema(db)
-    db.prepare('INSERT INTO objectives (title, agent_context) VALUES (?, ?)').run('post', 'rolodex')
+    db.prepare('INSERT INTO objectives (title, agent_context) VALUES (?, ?)').run('post', 'contactbook')
     expect(db.prepare('SELECT id, title, agent_context FROM objectives ORDER BY id LIMIT 4').all()).toEqual(before)
   })
 

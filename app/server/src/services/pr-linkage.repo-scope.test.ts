@@ -20,7 +20,7 @@ const { repoForObjective, objectiveIsForRepo, classifyObjectiveRepo } = await im
 const { selectAgedEarnedStatusTargets, selfHealHarnessStatus, discoverAndBackfillPR, PR_LINKAGE_REPO } =
   await import('./pr-linkage.js')
 
-const HARNESS = 'your-org/command-center-infra'
+const HARNESS = 'your-org/operationkit'
 const EXAMPLE3 = 'EXAMPLE2/example3-platform'
 const WEIGHT_SUPPLY = 'Example-Project/example-project-platform'
 
@@ -152,7 +152,7 @@ describe('defect 2 — pr_number is repo-scoped at every reader', () => {
     expect(repoForObjective(db, getObjective(800002))).toBe(WEIGHT_SUPPLY)
 
     // A bare `project` name is NOT strong enough to name a repo.
-    insertObjective({ id: 800003, pr_number: 245, pr_url: null, project: 'command-center-infra' })
+    insertObjective({ id: 800003, pr_number: 245, pr_url: null, project: 'operationkit' })
     expect(repoForObjective(db, getObjective(800003))).toBeNull()
 
     // Nothing at all.
@@ -169,7 +169,7 @@ describe('defect 2 — pr_number is repo-scoped at every reader', () => {
     expect(classifyObjectiveRepo(db, getObjective(800006), HARNESS)).toBe('same')
 
     // project alone: weak, but enough to CONFIRM or to REVEAL a mismatch.
-    insertObjective({ id: 800007, pr_number: 245, pr_url: null, project: 'command-center-infra' })
+    insertObjective({ id: 800007, pr_number: 245, pr_url: null, project: 'operationkit' })
     expect(classifyObjectiveRepo(db, getObjective(800007), HARNESS)).toBe('same')
     insertObjective({ id: 800008, pr_number: 245, pr_url: null, project: 'example-project-platform' })
     expect(classifyObjectiveRepo(db, getObjective(800008), HARNESS)).toBe('other')

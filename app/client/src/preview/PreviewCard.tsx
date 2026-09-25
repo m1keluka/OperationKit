@@ -1,4 +1,4 @@
-import { GitPullRequest, Pencil } from 'lucide-react'
+import { Building2, Folder, GitPullRequest, Pencil } from 'lucide-react'
 import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import { AgentMonogram, LiveBadge, STATUS_META } from '../components/design/primitives'
 import { PreviewWorkers } from './PreviewWorkers'
@@ -23,12 +23,15 @@ export function PreviewCard({
   onOpen,
   onEdit,
   onChangeStatus,
+  showOrgChip = false,
 }: {
   objective: Objective
   children?: Objective[]
   onOpen: (o: Objective) => void
   onEdit?: (o: Objective) => void
   onChangeStatus: (id: number, status: ObjectiveStatus) => void
+  /** When true (All-Organizations view), render the workspace as a prominent chip */
+  showOrgChip?: boolean
 }) {
   const isLive = objective.status === 'working' && objective.session_id != null
   const hasThread =
@@ -91,6 +94,39 @@ export function PreviewCard({
           )}
           <span className="ml-auto font-mono text-fg-3">{relativeTime(objective.updated_at)}</span>
         </div>
+        {/* Board-Project chip + org chip — only rendered when data is present (obj 710597) */}
+        {(objective.project_name || (objective.workspace && showOrgChip)) && (
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-7 text-[11px] text-fg-2">
+            {objective.project_name && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-line px-1.5 py-px"
+                title={`Project: ${objective.project_name}`}
+                data-testid="project-chip"
+              >
+                {objective.project_color ? (
+                  <span
+                    className="h-1.5 w-1.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: objective.project_color }}
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Folder className="h-2.5 w-2.5 opacity-60" aria-hidden="true" />
+                )}
+                {objective.project_name}
+              </span>
+            )}
+            {objective.workspace && showOrgChip && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-line/80 bg-surface-2 px-1.5 py-px font-medium"
+                title={`Organization: ${objective.workspace}`}
+                data-testid="org-chip"
+              >
+                <Building2 className="h-2.5 w-2.5 opacity-60" aria-hidden="true" />
+                {objective.workspace}
+              </span>
+            )}
+          </div>
+        )}
         {children && children.length > 0 && (
           <PreviewWorkers workers={children} onOpen={onOpen} onEdit={onEdit} />
         )}

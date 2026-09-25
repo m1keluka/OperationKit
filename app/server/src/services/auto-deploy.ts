@@ -25,8 +25,8 @@ import fs from 'fs'
 import type { Database } from 'better-sqlite3'
 
 /** The only repo we can self-deploy (the command-center itself). Env-overridable. */
-export const SELF_REPO = process.env.HARNESS_REPO || 'your-org/command-center-infra'
-const REPO_DIR = process.env.CC_REPO_DIR || '/home/operator/projects/command-center-infra'
+export const SELF_REPO = process.env.HARNESS_REPO || 'your-org/operationkit'
+const REPO_DIR = process.env.CC_REPO_DIR || '/home/operator/projects/operationkit'
 const SELF_DEPLOY_SH = `${REPO_DIR}/scripts/self-deploy.sh`
 const LOCK = '/tmp/cc-auto-deploy.lock'
 const DEBOUNCE_MS = 180_000 // a burst of merges within ~3min coalesces to one deploy
