@@ -3,7 +3,7 @@ import { deriveBranchName, deriveWorktreeBranchName, slugifyTitle, detectBranchB
 import type { Objective } from '@operationkit/shared'
 
 function obj(p: Partial<Objective>): Pick<Objective, 'id' | 'title' | 'project' | 'create_pr' | 'branch_name'> {
-  return { id: 994, title: 'Guardrail thing', project: 'command-center-infra', create_pr: 1 as never, branch_name: null, ...p } as never
+  return { id: 994, title: 'Guardrail thing', project: 'operationkit', create_pr: 1 as never, branch_name: null, ...p } as never
 }
 
 describe('deriveBranchName', () => {
@@ -100,13 +100,13 @@ describe('detectBranchBleed', () => {
 
 describe('detectProjectBleed', () => {
   const root = '/home/operator/projects'
-  const owned = '/home/operator/projects/command-center-infra'
+  const owned = '/home/operator/projects/operationkit'
   const wt = '/tmp/cc-worktree-994'
   it('flags editing a different project', () => {
     expect(detectProjectBleed('/home/operator/projects/example-project-platform/src/a.ts', owned, wt, root)).toBe(true)
   })
   it('does not flag edits inside the owned project', () => {
-    expect(detectProjectBleed('/home/operator/projects/command-center-infra/app/x.ts', owned, wt, root)).toBe(false)
+    expect(detectProjectBleed('/home/operator/projects/operationkit/app/x.ts', owned, wt, root)).toBe(false)
   })
   it('does not flag edits inside the worktree', () => {
     expect(detectProjectBleed('/tmp/cc-worktree-994/app/x.ts', owned, wt, root)).toBe(false)

@@ -93,7 +93,7 @@ const ROOT_LABELS: Record<string, string> = {
   '/home/operator/ai-workspace': 'AI Workspace',
   '/home/operator/ai-workspace/agents': 'Agents',
   '/home/operator/ai-workspace/skills': 'Skills',
-  '/home/operator/projects/command-center-infra': 'OperationKit',
+  '/home/operator/projects/operationkit': 'OperationKit',
 }
 
 function labelForRoot(path: string): string {

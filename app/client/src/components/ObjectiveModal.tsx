@@ -60,11 +60,13 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
   // Delegator mode (admin-only)
   const [delegateMode, setDelegateMode] = useState(objective?.delegate_mode ?? false)
 
-  // Assign to user (admin-only)
+  // Assign to users (admin-only, ordered — first id is primary)
   const [users, setUsers] = useState<Array<{ id: number; username: string }>>([])
-  const [assignedUserId, setAssignedUserId] = useState<number | null>(
-    objective?.assigned_user_id ?? null
-  )
+  const [assignedUserIds, setAssignedUserIds] = useState<number[]>(() => {
+    if (objective?.assigned_user_ids?.length) return objective.assigned_user_ids
+    if (objective?.assigned_user_id) return [objective.assigned_user_id]
+    return []
+  })
 
   // File attachments
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
@@ -184,7 +186,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
           project_id: objProjectId,
           model: model || undefined,
           delegate_mode: isAdmin ? delegateMode : undefined,
-          assigned_user_id: isAdmin ? assignedUserId : undefined,
+          assigned_user_ids: isAdmin ? assignedUserIds : undefined,
         })
         if (pendingFiles.length > 0) {
           setUploading(true)
@@ -199,7 +201,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
           project_id: objProjectId,
           model: model || undefined,
           delegate_mode: isAdmin ? delegateMode : undefined,
-          assigned_user_id: isAdmin ? assignedUserId : undefined,
+          assigned_user_ids: isAdmin ? assignedUserIds : undefined,
         })
         if (pendingFiles.length > 0 && created?.id) {
           setUploading(true)
@@ -391,19 +393,55 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
             </div>
           )}
 
-          {/* Assignee picker — admin-only, shown when user list is available */}
+          {/* Assignee picker — admin-only, multi-owner ordered chip list */}
           {isAdmin && users.length > 0 && (
             <div>
               <label className={labelCls}>Assign To</label>
+              {assignedUserIds.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {assignedUserIds.map((uid, idx) => {
+                    const u = users.find(x => x.id === uid)
+                    return (
+                      <span
+                        key={uid}
+                        className="inline-flex items-center gap-1 rounded-full border border-line bg-surface-3 px-2.5 py-0.5 text-[12px] text-fg-1"
+                      >
+                        {u?.username ?? uid}
+                        {idx === 0 && (
+                          <span className="ml-0.5 rounded-sm bg-accent/15 px-1 py-px text-[10px] font-semibold uppercase tracking-wide text-accent">
+                            primary
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          aria-label={`Remove ${u?.username ?? uid}`}
+                          onClick={() => setAssignedUserIds(ids => ids.filter(id => id !== uid))}
+                          className="ml-0.5 text-fg-3 hover:text-fg-0 transition-colors duration-fast ease-out"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
               <select
-                value={assignedUserId ?? ''}
-                onChange={e => setAssignedUserId(e.target.value ? Number(e.target.value) : null)}
+                value=""
+                onChange={e => {
+                  const id = Number(e.target.value)
+                  if (!id) return
+                  setAssignedUserIds(ids => ids.includes(id) ? ids : [...ids, id])
+                  e.target.value = ''
+                }}
                 className={fieldCls}
+                aria-label="Add owner"
               >
-                <option value="">Unassigned</option>
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.username}</option>
-                ))}
+                <option value="">{assignedUserIds.length === 0 ? 'Unassigned — add owner…' : 'Add another owner…'}</option>
+                {users
+                  .filter(u => !assignedUserIds.includes(u.id))
+                  .map(u => (
+                    <option key={u.id} value={u.id}>{u.username}</option>
+                  ))}
               </select>
             </div>
           )}

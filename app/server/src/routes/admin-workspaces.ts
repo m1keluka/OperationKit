@@ -28,6 +28,7 @@ import {
   listGithubOrgRepos,
   listIntegrations,
 } from '../services/workspace-integrations.js'
+import { listPosthogBotDevItems } from '../services/dev-items.js'
 import type { IntegrationKind } from '@operationkit/shared'
 
 const router = Router()
@@ -454,6 +455,18 @@ router.delete('/:workspace/users/:user_id', (req: AuthRequest, res) => {
     return
   }
   res.json({ ok: true })
+})
+
+// GET /api/admin/workspaces/posthog-bot-prs — list dev_items discovered by
+// the posthog-bot sweep, optionally filtered by workspace.
+router.get('/posthog-bot-prs', (req: AuthRequest, res) => {
+  const ws = typeof req.query.workspace === 'string' ? req.query.workspace.trim() : null
+  try {
+    const items = listPosthogBotDevItems(ws)
+    res.json({ items })
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' })
+  }
 })
 
 export default router

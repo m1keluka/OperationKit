@@ -15,6 +15,7 @@ import { NewItemModal } from './development/NewItemModal'
 import { BoardToolbar } from './development/BoardToolbar'
 import { KeyboardHelpModal } from './development/KeyboardHelpModal'
 import { buildDevColumns } from './development/boardColumns'
+import { PosthogSelfDrivingPanel } from './development/PosthogSelfDrivingPanel'
 import {
   TABS, TAB_LABEL, TAB_STATUS, TAB_SORT, DATE_PRESETS, EMPTY_FILTERS,
   filtersFromUrl, urlFor, activeFilterCount, idFromPath,
@@ -334,6 +335,8 @@ export function DevelopmentPage({ workspace }: { workspace: Workspace }) {
           shape below is the real A1–A16 contract; delete that one file to go live.
         </Alert>
       )}
+
+      <PosthogSelfDrivingPanel workspace={filters.workspace.length === 1 ? filters.workspace[0] : undefined} />
 
       <div className="mb-3">
         <Tabs items={tabItems} value={tab} onChange={k => { setTab(k as Tab); setSelected(new Set()); setFocusIdx(0) }} />

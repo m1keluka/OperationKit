@@ -102,12 +102,12 @@ services:
       # Doppler service-token config (provisioned on host; see scripts/bootstrap.sh)
       - /home/operator/.doppler:/root/.doppler:ro
       # Mount source code so Claude Code sessions can edit and self-deploy
-      - /home/operator/projects/command-center-infra/app/server/src:/app/server/src
-      - /home/operator/projects/command-center-infra/app/server/shell.html:/app/server/shell.html
-      - /home/operator/projects/command-center-infra/app/client/src:/app/client/src
-      - /home/operator/projects/command-center-infra/app/client/tailwind.config.ts:/app/client/tailwind.config.ts
-      - /home/operator/projects/command-center-infra/app/client/dist:/app/client/dist
-      - /home/operator/projects/command-center-infra/app/shared:/app/shared
+      - /home/operator/projects/operationkit/app/server/src:/app/server/src
+      - /home/operator/projects/operationkit/app/server/shell.html:/app/server/shell.html
+      - /home/operator/projects/operationkit/app/client/src:/app/client/src
+      - /home/operator/projects/operationkit/app/client/tailwind.config.ts:/app/client/tailwind.config.ts
+      - /home/operator/projects/operationkit/app/client/dist:/app/client/dist
+      - /home/operator/projects/operationkit/app/shared:/app/shared
     environment:
       NODE_ENV: production
       PORT: "3002"

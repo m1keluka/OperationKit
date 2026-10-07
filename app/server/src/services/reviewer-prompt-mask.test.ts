@@ -54,7 +54,7 @@ function makeObjective(overrides: Partial<Objective> = {}): Objective {
   return {
     id: 707060,
     workspace: 'operator',
-    project: 'command-center-infra',
+    project: 'operationkit',
     agent_context: 'cto',
     type: 'feature',
     status: 'ai_review',

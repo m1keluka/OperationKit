@@ -13,7 +13,7 @@ const { initDb, getDb } = await import('../db/index.js')
 const { upsertObjectivePR, listObjectivePRs, markPRStateByRepoAndNumber, parseRepoFromPrUrl } =
   await import('./objective-prs.js')
 
-const REPO = 'your-org/command-center-infra'
+const REPO = 'your-org/operationkit'
 function prUrl(n: number): string {
   return `https://github.com/${REPO}/pull/${n}`
 }

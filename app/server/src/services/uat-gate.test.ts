@@ -191,7 +191,7 @@ describe('persistence — verdict taxonomy + criteria_results slot', () => {
   it('recordUatRun writes the verdict and a criteria_results-shaped column', () => {
     const db = getDb()
     const result = runUatGate({ card: okCard, worktreeDir: '/tmp/wt', runner: echoExitRunner, gitStatus: () => '', noSpawn: true })
-    const id = recordUatRun(db, { id: 4242, project: 'command-center-infra', workspace: 'operator', session_id: 'sess-1' }, result, true)
+    const id = recordUatRun(db, { id: 4242, project: 'operationkit', workspace: 'operator', session_id: 'sess-1' }, result, true)
     expect(id).toBeGreaterThan(0)
     const row = db.prepare('SELECT * FROM objective_uat_runs WHERE id = ?').get(id) as any
     expect(row.verdict).toBe('PASS')
@@ -207,24 +207,24 @@ describe('flags: OFF + shadow by default; kill switch; enforce', () => {
   it('is OFF by default (not active for a project with no opt-in)', () => {
     const db = getDb()
     expect(isUatGateEnabled(db)).toBe(false)
-    expect(isUatGateActiveForProject(db, 'command-center-infra')).toBe(false)
+    expect(isUatGateActiveForProject(db, 'operationkit')).toBe(false)
   })
   it('is in SHADOW mode by default', () => {
     expect(isUatGateShadowMode(getDb())).toBe(true)
   })
   it('per-project opt-in arms the gate without flipping the global default', () => {
     const db = getDb()
-    db.prepare("INSERT INTO settings (key, value) VALUES ('uat_gate_config:command-center-infra', '{\"enabled\":true}')").run()
+    db.prepare("INSERT INTO settings (key, value) VALUES ('uat_gate_config:operationkit', '{\"enabled\":true}')").run()
     expect(isUatGateEnabled(db)).toBe(false) // global default unchanged
-    expect(isUatGateActiveForProject(db, 'command-center-infra')).toBe(true)
-    db.exec("DELETE FROM settings WHERE key = 'uat_gate_config:command-center-infra'")
+    expect(isUatGateActiveForProject(db, 'operationkit')).toBe(true)
+    db.exec("DELETE FROM settings WHERE key = 'uat_gate_config:operationkit'")
   })
   it('kill switch disarms even an opted-in project', () => {
     const db = getDb()
-    db.prepare("INSERT INTO settings (key, value) VALUES ('uat_gate_config:command-center-infra', '{\"enabled\":true}')").run()
+    db.prepare("INSERT INTO settings (key, value) VALUES ('uat_gate_config:operationkit', '{\"enabled\":true}')").run()
     db.prepare("INSERT INTO settings (key, value) VALUES ('uat_gate_killed', '1')").run()
     expect(isUatGateKilled(db)).toBe(true)
-    expect(isUatGateActiveForProject(db, 'command-center-infra')).toBe(false)
+    expect(isUatGateActiveForProject(db, 'operationkit')).toBe(false)
   })
 
   it('SHADOW: evaluateUatGate records but does NOT block on PRODUCT_FAIL', () => {
@@ -233,7 +233,7 @@ describe('flags: OFF + shadow by default; kill switch; enforce', () => {
     process.env.CC_UAT_GATE_ENABLED = '1' // active, but shadow (no blocking flag)
     const decision = evaluateUatGate(
       db,
-      { id: 99, project: 'command-center-infra', workspace: 'operator', session_id: null },
+      { id: 99, project: 'operationkit', workspace: 'operator', session_id: null },
       { card: okCard, worktreeDir: '/tmp/wt', runner: exitRunner(0), gitStatus: () => '', noSpawn: true },
     )
     expect(decision.action).toBe('record') // recorded, not blocked
@@ -252,7 +252,7 @@ describe('flags: OFF + shadow by default; kill switch; enforce', () => {
     process.env.CC_UAT_GATE_BLOCKING = '1'
     const decision = evaluateUatGate(
       db,
-      { id: 100, project: 'command-center-infra', workspace: 'operator', session_id: null },
+      { id: 100, project: 'operationkit', workspace: 'operator', session_id: null },
       { card: okCard, worktreeDir: '/tmp/wt', runner: exitRunner(0), gitStatus: () => '', noSpawn: true },
     )
     expect(decision.action).toBe('block')
@@ -289,7 +289,7 @@ describe('kitchen_loop_review_enforce — cheat-check log-only → blocking, com
   it('active ONLY for command-center, even when the flag is ON (blast-radius isolation)', () => {
     const db = getDb()
     db.prepare("INSERT INTO settings (key, value) VALUES ('kitchen_loop_review_enforce', '1')").run()
-    expect(isReviewEnforceActiveForTarget(db, 'command-center-infra', {})).toBe(true)
+    expect(isReviewEnforceActiveForTarget(db, 'operationkit', {})).toBe(true)
     for (const other of ['example-platform', 'example3-platform', 'example-project-platform', null]) {
       expect(isReviewEnforceActiveForTarget(db, other, {})).toBe(false)
     }
@@ -301,7 +301,7 @@ describe('kitchen_loop_review_enforce — cheat-check log-only → blocking, com
     process.env.CC_UAT_GATE_ENABLED = '1' // active but shadow; review_enforce OFF
     const decision = evaluateUatGate(
       db,
-      { id: 700316, project: 'command-center-infra', workspace: 'operator', session_id: null },
+      { id: 700316, project: 'operationkit', workspace: 'operator', session_id: null },
       { card: okCard, worktreeDir: '/tmp/wt', runner: exitRunner(0), gitStatus: () => '', noSpawn: true },
     )
     expect(decision.action).toBe('record')
@@ -316,7 +316,7 @@ describe('kitchen_loop_review_enforce — cheat-check log-only → blocking, com
     db.prepare("INSERT INTO settings (key, value) VALUES ('kitchen_loop_review_enforce', '1')").run() // …flipped by review_enforce
     const decision = evaluateUatGate(
       db,
-      { id: 700317, project: 'command-center-infra', workspace: 'operator', session_id: null },
+      { id: 700317, project: 'operationkit', workspace: 'operator', session_id: null },
       { card: okCard, worktreeDir: '/tmp/wt', runner: exitRunner(0), gitStatus: () => '', noSpawn: true },
     )
     expect(decision.action).toBe('block')

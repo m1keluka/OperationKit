@@ -91,7 +91,7 @@ function seedSession(opts: {
   const db = getDb()
   db.prepare(
     `INSERT OR REPLACE INTO objectives (id, title, description, status, agent_context, project, origin, created_at, updated_at)
-     VALUES (?, ?, '', 'done', 'cto', 'command-center-infra', ?, ?, ?)`,
+     VALUES (?, ?, '', 'done', 'cto', 'operationkit', ?, ?, ?)`,
   ).run(opts.objectiveId, `obj ${opts.objectiveId}`, opts.origin ?? 'manual', `${DAY} 10:00:00`, `${DAY} 12:00:00`)
   db.prepare(
     `INSERT OR REPLACE INTO session_intel (objective_id, session_id, started_at, ended_at, outcome, extraction_status)
@@ -234,7 +234,7 @@ describe('live mode', () => {
     setFlag('dsr_parent_objective_id', '700000')
     getDb().prepare(
       `INSERT OR REPLACE INTO objectives (id, title, description, status, agent_context, project, origin)
-       VALUES (700000, 'DSR parent', '', 'working', 'cto', 'command-center-infra', 'manual')`,
+       VALUES (700000, 'DSR parent', '', 'working', 'cto', 'operationkit', 'manual')`,
     ).run()
   })
 
@@ -245,7 +245,7 @@ describe('live mode', () => {
     expect(poster.posts).toHaveLength(1)
     const p = poster.posts[0]
     expect(p.title as string).toMatch(/^\[retro\] /)
-    expect(p.project).toBe('command-center-infra')
+    expect(p.project).toBe('operationkit')
     expect(p.origin).toBe('retro')
     expect(p.type).toBe('bug')
     expect(p.parent_id).toBe(700000)
@@ -364,7 +364,7 @@ describe('safety brakes', () => {
     for (let i = 0; i < 8; i++) {
       db.prepare(
         `INSERT INTO objectives (title, description, status, agent_context, project, origin)
-         VALUES (?, '', 'queue', 'cto', 'command-center-infra', 'retro')`,
+         VALUES (?, '', 'queue', 'cto', 'operationkit', 'retro')`,
       ).run(`[retro] open ${i}`)
     }
     seedSession({ objectiveId: 705001, sessionId: 'cc-705001-1', corrections: [CORRECTION] })
@@ -649,7 +649,7 @@ describe('detection', () => {
     const db = getDb()
     db.prepare(
       `INSERT INTO objectives (id, title, description, status, agent_context, project, origin)
-       VALUES (705500, 'broken thing', '', 'review', 'cto', 'command-center-infra', 'manual')`,
+       VALUES (705500, 'broken thing', '', 'review', 'cto', 'operationkit', 'manual')`,
     ).run()
     db.prepare(
       `INSERT INTO objective_reviews (objective_id, reviewer_session_id, mode, verdict, markdown_body, iteration, created_at)
@@ -685,7 +685,7 @@ describe('16. precision tuner (deterministic, bounded)', () => {
       const oid = 706000 + n + (signal === 'tool_error' ? 0 : 500)
       db.prepare(
         `INSERT INTO objectives (id, title, description, status, agent_context, project, origin, ai_review_verdict, created_at)
-         VALUES (?, '[retro] x', '', ?, 'cto', 'command-center-infra', 'retro', 'pass', datetime('now','-5 days'))`,
+         VALUES (?, '[retro] x', '', ?, 'cto', 'operationkit', 'retro', 'pass', datetime('now','-5 days'))`,
       ).run(oid, status)
       db.prepare(
         `INSERT INTO dsr_candidates (run_id, fingerprint, signal_type, confidence, created_objective_id, verdict)

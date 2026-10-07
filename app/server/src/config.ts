@@ -11,7 +11,7 @@ export const AI_WORKSPACE_DIR = process.env.AI_WORKSPACE_DIR || '/home/operator/
 // The running server reads its source from this bind-mounted checkout. Uncommitted
 // edits here are "live but unbacked" — one `git reset` from silent deletion and
 // invisible on origin/main. The drift guard (services/drift-guard.ts) watches it.
-export const CC_REPO_DIR = process.env.CC_REPO_DIR || `${PROJECTS_DIR}/command-center-infra`
+export const CC_REPO_DIR = process.env.CC_REPO_DIR || `${PROJECTS_DIR}/operationkit`
 // Paths (repo-relative) that are bind-mounted and actually served by the running
 // process. Dirtiness here = live-but-unbacked production. Untracked/dirty files
 // OUTSIDE these prefixes (e.g. scripts/*.mjs scratch files) are harmless and MUST

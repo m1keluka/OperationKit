@@ -103,7 +103,7 @@ Losing this key loses **every** secret in the store (AES-256-GCM, no recovery).
    ```bash
    node scripts/secrets-import-from-doppler.mjs
    ```
-   Review the key list per project (`example/prd`, `command-center-infra/prd`). Confirm
+   Review the key list per project (`example/prd`, `operationkit/prd`). Confirm
    it matches what you expect to migrate. The script NEVER prints values, NEVER
    touches Doppler, NEVER rotates or flips anything.
 2. **Apply** (writes `global`-scope rows; requires `SECRETS_MASTER_KEY` and tsx):
@@ -196,7 +196,7 @@ untouched and Mike-gated.
 | Secrets in native store | **63** — **100% `global` scope** | `SELECT COUNT(*)`, `GROUP BY scope_type` |
 | `secret_versions` / `secret_access_log` | 121 / 121 (63 `create`, 58 `update`, **0 `inject`**) | `SELECT action, COUNT(*) GROUP BY 1` |
 | Store last written | 2026-06-29 14:56:19 — **every row, same second** (~6.5 weeks stale) | `MIN/MAX(created_at, updated_at)` |
-| Secrets in Doppler (`example/prd` ∪ `command-center-infra/prd`) | **68** | `doppler secrets --only-names` |
+| Secrets in Doppler (`example/prd` ∪ `operationkit/prd`) | **68** | `doppler secrets --only-names` |
 | Drift | **5 in Doppler not in store; 0 orphans in store** | name-set diff |
 | Orgs / users | 6 workspaces (0 archived), 3 users (1 admin, 2 members) | `SELECT slug FROM workspaces`, `SELECT id, username, role FROM users` |
 
@@ -228,7 +228,7 @@ export const USE_SCOPED_SECRETS = spawnEnvFlag('USE_SCOPED_SECRETS')   // unset 
 ```
 $ node -e "<set diff, DOPPLER_* pseudo-vars filtered>"
 example/prd names                     = 62
-command-center-infra/prd names     = 68     (example/prd is a strict subset)
+operationkit/prd names     = 68     (example/prd is a strict subset)
 UNION                              = 68
 native store distinct keys         = 63
 --- IN DOPPLER, NOT IN STORE (5) ---

@@ -35,6 +35,7 @@ const JobsBoard = lazy(() => import('./components/JobsBoard').then(m => ({ defau
 const StrategiesPage = lazy(() => import('./components/StrategiesPage').then(m => ({ default: m.StrategiesPage })))
 const StrategyDetailPage = lazy(() => import('./components/StrategyDetailPage').then(m => ({ default: m.StrategyDetailPage })))
 const DevelopmentPage = lazy(() => import('./components/DevelopmentPage').then(m => ({ default: m.DevelopmentPage })))
+const AgentsPage = lazy(() => import('./components/AgentsPage').then(m => ({ default: m.AgentsPage })))
 /**
  * Extract /w/<workspace> from a pathname. Returns null when not a workspace path.
  * Slugs are validated lexically only — the server (via /api/workspaces and
@@ -214,6 +215,7 @@ function AppContent() {
           <Route path="/loops" element={<LoopsPage />} />
           <Route path="/granola" element={<GranolaPage />} />
           <Route path="/jobs" element={<JobsBoard workspace={workspace} />} />
+          <Route path="/agents" element={<AgentsPage workspace={workspace} />} />
           <Route path="/strategies" element={<StrategiesPage workspace={workspace} />} />
           <Route path="/strategy/:id" element={<StrategyDetailPage workspace={workspace} />} />
           <Route path="/settings" element={<SettingsPage />}>

@@ -197,6 +197,12 @@ export interface User {
   username: string
   role: UserRole
   workspaces?: UserWorkspace[]
+  /**
+   * True when this user has a `content_owners` row — i.e. the Content surface is
+   * theirs to use. Set by GET /api/auth/me. Distinct from `role`: content access
+   * is per-person provisioning, not a privilege level.
+   */
+  has_content?: boolean
   created_at: string
 }
 
@@ -275,12 +281,18 @@ export interface Objective {
   status: ObjectiveStatus
   agent_context: AgentContext
   workspace: string
-  /** Repo-link: the git repo folder name under /home/operator/projects (e.g. 'command-center-infra').
+  /** Repo-link: the git repo folder name under /home/operator/projects (e.g. 'operationkit').
    *  DISTINCT from project_id (the board Project grouping). */
   project: string | null
   /** Board-Project association: FK to projects.id. NULL = unassigned.
    *  DISTINCT from `project` (the repo-link column). */
   project_id: number | null
+  /** Board-Project name, resolved via LEFT JOIN on projects.id = project_id.
+   *  Null when unassigned. Server-supplied; not a raw column. */
+  project_name?: string | null
+  /** Board-Project color (hex), resolved via LEFT JOIN on projects.id = project_id.
+   *  Null when unassigned or no color set. Server-supplied; not a raw column. */
+  project_color?: string | null
   category: ObjectiveCategory
   parent_id: number | null
   depth: number

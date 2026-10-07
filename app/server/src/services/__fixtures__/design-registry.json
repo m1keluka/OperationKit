@@ -1,6 +1,6 @@
 {
   "$comment": "Design-system registry for CC dialed-UI enforcement (Wave A foundation). One entry per frontend repo, keyed on objective.project. Consumed by design-context.ts (loadDesignRegistry/isUiObjective) and scripts/ui-conformance.sh. Token paths are repo-relative: resolve as /home/operator/projects/<project>/<tokensFile>. Schema per research 03-agent-mechanism.md §1.1.",
-  "command-center-infra": {
+  "operationkit": {
     "tokensFile": "app/client/tailwind.config.ts",
     "primitives": "app/client/src/components/design/primitives.tsx",
     "tokenPrefix": "surface-/fg-/line-/accent-/status-/agent-",

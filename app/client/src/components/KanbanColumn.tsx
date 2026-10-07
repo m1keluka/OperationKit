@@ -28,9 +28,12 @@ interface KanbanColumnProps {
   lazyLoading?: boolean
   lazyHasMore?: boolean
   onLoadMore?: () => void
+  /** When true (All-Organizations / multi-workspace view) cards show the
+   *  workspace/org chip prominently (forwarded to ObjectiveCard). */
+  showOrgChip?: boolean
 }
 
-export function KanbanColumn({ status, objectives, onOpenTerminal, onCardEdit, onChangeStatus, pendingId, childrenByParent, lazyLoaded, lazyLoading, lazyHasMore, onLoadMore }: KanbanColumnProps) {
+export function KanbanColumn({ status, objectives, onOpenTerminal, onCardEdit, onChangeStatus, pendingId, childrenByParent, lazyLoaded, lazyLoading, lazyHasMore, onLoadMore, showOrgChip }: KanbanColumnProps) {
   const meta = STATUS_META[status]
   const isLazy = onLoadMore != null
 
@@ -58,6 +61,7 @@ export function KanbanColumn({ status, objectives, onOpenTerminal, onCardEdit, o
             onChangeStatus={onChangeStatus}
             pending={objective.id === pendingId}
             children={childrenByParent?.get(objective.id)}
+            showOrgChip={showOrgChip}
           />
         ))}
 

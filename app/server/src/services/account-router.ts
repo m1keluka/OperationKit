@@ -373,13 +373,15 @@ function isAccountAvailable(account: AccountSlot): boolean {
  * Pick the best available account for a new session.
  * Strategy: among available accounts, pick the one with the fewest active sessions,
  * breaking ties by fewest sessions today.
- * Returns null if all accounts are exhausted.
+ * Returns null if all accounts are exhausted (or none pass `filter`).
  */
-export function pickAccount(): AccountSlot | null {
+export function pickAccount(filter?: (account: AccountSlot) => boolean): AccountSlot | null {
   // Ensure state is fresh
   loadState()
 
-  const available = state.accounts.filter(a => isClaudeRotationSlot(a) && isAccountAvailable(a))
+  // `filter` narrows the pool for callers with their own slot policy (the LLM
+  // gateway's allowlist excludes the personal slot 'a').
+  const available = state.accounts.filter(a => isClaudeRotationSlot(a) && isAccountAvailable(a) && (!filter || filter(a)))
 
   if (available.length === 0) {
     return null

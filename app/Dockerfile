@@ -35,8 +35,14 @@ RUN git config --system user.name "Command Center" \
 # Create non-root user for Claude Code sessions
 RUN useradd -m -s /bin/bash ccuser
 
-# Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude Code CLI globally.
+# VERSION FLOOR (2026-09-23, obj 712520): >=2.1.280. Older CLIs reject the current
+# model lineup with `400 ... does not support this model; version 2.1.280 or newer
+# is required` — and because every spawn carries --fallback-model, that 400 is NOT
+# visible as a failure: the session silently runs the whole objective on Sonnet.
+# The registry default is claude-opus-5-5, so this floor is load-bearing, not
+# cosmetic. Raise it whenever a newer model is promoted in db/schema/models.ts.
+RUN npm install -g @anthropic-ai/claude-code@^2.1.280
 
 # OpenAI Codex CLI — alternate engine for objectives with model='codex'.
 # Auth is NOT baked in: ~/.codex/auth.json lives in the mounted

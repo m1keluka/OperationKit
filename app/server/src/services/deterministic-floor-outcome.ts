@@ -316,13 +316,13 @@ export function recordOutcomeRunRow(
 //
 // WHAT. When the `kitchen_loop_oracle_gate` flag is ON, the regression oracle
 // (spec/cc-oracle.mjs, QUICK mode) runs as a HARD gate UNDER the LLM reviewer for
-// command-center-infra PRs: a non-GREEN oracle verdict BLOCKS the merge/floor and
+// operationkit PRs: a non-GREEN oracle verdict BLOCKS the merge/floor and
 // bounces the worker, exactly like a red deterministic floor. The oracle answers
-// "is command-center-infra at least as good as before this iteration?" — a
+// "is operationkit at least as good as before this iteration?" — a
 // regression the per-author compile+test floor cannot see.
 //
 // HARD BLAST-RADIUS RULE (non-negotiable). This gate applies ONLY to the
-// command-center-infra pilot. EVERY other repo/workspace (example / example2 /
+// operationkit pilot. EVERY other repo/workspace (example / example2 /
 // example-project / anything) is UNAFFECTED whether the flag is on or off — the
 // scope guard (`isCommandCenterTarget`) is checked in `isOracleGateActiveForObjective`,
 // which the callers gate on BEFORE entering the oracle branch. A regression here
@@ -334,18 +334,18 @@ export function recordOutcomeRunRow(
 //      A missing row is treated as OFF. OFF ⇒ the gate is never entered ⇒ behaviour
 //      byte-for-byte identical to today.
 //   2. Scope guard — even when the flag is on, the gate only arms for
-//      project === 'command-center-infra'.
+//      project === 'operationkit'.
 //   3. Fail-safe-OPEN — the oracle is executed through the SAME runFloor/execRunner
 //      classifier as the floor: a clean non-zero exit (RED verdict) BLOCKS, any
 //      infra failure (node missing, oracle crash, timeout) fails-safe-OPEN (logs +
 //      proceeds), exit 0 (GREEN) passes. An oracle bug can never wedge the board.
 
 /** The pilot project the Stage-C enforcement gates are scoped to. */
-export const COMMAND_CENTER_PROJECT = 'command-center-infra'
+export const COMMAND_CENTER_PROJECT = 'operationkit'
 
 /**
  * Scope guard for ALL Stage-C enforcement (oracle gate + review-enforce). True ONLY
- * for the command-center-infra pilot — every other repo/workspace returns false, so
+ * for the operationkit pilot — every other repo/workspace returns false, so
  * no enforcement path can ever gate a non-pilot objective. This is the single
  * chokepoint the blast-radius rule depends on.
  */
@@ -382,7 +382,7 @@ export interface OracleObjectiveRef {
 
 /**
  * The oracle gate is active for an objective iff the flag is ON **and** the target
- * is the command-center-infra pilot. The scope guard is INSIDE this predicate so a
+ * is the operationkit pilot. The scope guard is INSIDE this predicate so a
  * caller that gates on it (poller + self-claim route) can never enter the oracle
  * branch for a non-pilot objective — the blast-radius guarantee.
  */
@@ -464,7 +464,7 @@ export function buildOracleFailFollowUp(run: FloorRunResult): string {
   return [
     '## Regression Oracle — FAILED (verdict: RED / regressed)',
     '',
-    'The command-center-infra regression oracle (`spec/cc-oracle.mjs`, QUICK mode) returned',
+    'The operationkit regression oracle (`spec/cc-oracle.mjs`, QUICK mode) returned',
     'a **non-GREEN** verdict: this iteration is **not** at-least-as-good as before — a live',
     'API/DB/lifecycle ground-truth check that previously passed now FAILS. This is an',
     '**automatic fail** — the oracle sits under the AI review as a hard merge gate, so the',

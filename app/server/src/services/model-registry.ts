@@ -52,7 +52,7 @@ export function getDefaultModelId(): string {
 }
 
 /** Cheaper model for grunt workers (tasks/bugs without a PR, not delegators). */
-export const GRUNT_WORKER_MODEL_ID = 'claude-sonnet-4-6'
+export const GRUNT_WORKER_MODEL_ID = 'claude-sonnet-5'
 
 export function getGruntModelId(): string {
   const row = getDb()

@@ -207,7 +207,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
 
       // ── Oracle hard merge gate on the SELF-CLAIM path (obj 700316) ─────────
       // Symmetric to the poller: when `kitchen_loop_oracle_gate` is ON AND the
-      // target is the command-center-infra pilot, a direct working→done PATCH must
+      // target is the operationkit pilot, a direct working→done PATCH must
       // not skip the regression oracle. A non-GREEN verdict BLOCKS (409) and bounces
       // the worker. SCOPE GUARD inside isOracleGateActiveForObjective ⇒ no other
       // workspace is ever gated; flag OFF ⇒ this block is never entered.
