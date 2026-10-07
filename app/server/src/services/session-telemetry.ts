@@ -58,7 +58,7 @@ function persistFallbackMarker(objectiveId: number, sessionId: string, requested
       `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
        VALUES (?, ?, ?, ?, 'milestone', ?, ?)`
     ).run(
-      row.project ?? 'command-center-infra',
+      row.project ?? 'operationkit',
       row.workspace ?? 'example',
       objectiveId,
       sessionId,

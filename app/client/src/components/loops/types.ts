@@ -42,7 +42,7 @@ export const PROJECT_LABEL: Record<Project, string> = {
   '': '—',
   example: 'Example',
   example2: 'EXAMPLE2',
-  'example5': 'Example Dental Lab',
+  'example5': 'Example Five',
   'example-project': 'Example Project',
   personal: 'Personal',
 }

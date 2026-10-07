@@ -25,6 +25,8 @@ import { broadcast } from '../ws/index.js'
 import { computeStrategyRollup } from '../services/strategy-governance.js'
 import {
   LIST_COLUMNS,
+  LIST_SELECT,
+  LIST_FROM,
   canReadObjective,
   buildUsernameMap,
   mapObjective,
@@ -65,7 +67,8 @@ router.get('/', (req: AuthRequest, res) => {
   // EXCLUDES both done and cancelled (active pipeline only). The NOT IN predicate
   // is byte-matched to the partial index idx_obj_active_updated (db/index.ts) so
   // the default board query uses the index instead of a full SCAN + TEMP B-TREE.
-  const statusClause = statusFilter ? 'status = ?' : "status NOT IN ('done', 'cancelled')"
+  // Column references use the `o.` alias because list queries JOIN projects.
+  const statusClause = statusFilter ? 'o.status = ?' : "o.status NOT IN ('done', 'cancelled')"
   const statusParams: unknown[] = statusFilter ? [statusFilter] : []
 
   // Soft-delete (obj 700415): hide tombstoned rows by default; an admin may pass
@@ -76,7 +79,7 @@ router.get('/', (req: AuthRequest, res) => {
   // deleted rows are excluded BEFORE LIMIT/OFFSET, not after. No placeholders, so
   // it's appended to each WHERE without disturbing param order.
   const includeDeleted = req.query.include_deleted === '1' && user.role === 'admin'
-  const tombstoneClause = includeDeleted ? '' : ' AND deleted_at IS NULL'
+  const tombstoneClause = includeDeleted ? '' : ' AND o.deleted_at IS NULL'
 
   // project_id filter — ?project_id=<N> narrows to a single project;
   // ?project_id=unassigned narrows to rows where project_id IS NULL.
@@ -85,11 +88,11 @@ router.get('/', (req: AuthRequest, res) => {
   const projectIdParams: unknown[] = []
   if (projectIdParam !== undefined) {
     if (projectIdParam === 'unassigned') {
-      projectIdClause = ' AND project_id IS NULL'
+      projectIdClause = ' AND o.project_id IS NULL'
     } else {
       const pid = parseInt(projectIdParam, 10)
       if (!isNaN(pid)) {
-        projectIdClause = ' AND project_id = ?'
+        projectIdClause = ' AND o.project_id = ?'
         projectIdParams.push(pid)
       }
     }
@@ -109,11 +112,11 @@ router.get('/', (req: AuthRequest, res) => {
     // Admins see everything in the requested workspaces (or all when unfiltered).
     if (requested.length > 0) {
       objectives = db
-        .prepare(`SELECT ${LIST_COLUMNS} FROM objectives WHERE workspace IN (${requested.map(() => '?').join(',')}) AND ${statusClause}${tombstoneClause}${projectIdClause} ORDER BY updated_at DESC${pageClause}`)
+        .prepare(`SELECT ${LIST_SELECT} FROM ${LIST_FROM} WHERE o.workspace IN (${requested.map(() => '?').join(',')}) AND ${statusClause}${tombstoneClause}${projectIdClause} ORDER BY o.updated_at DESC${pageClause}`)
         .all(...requested, ...statusParams, ...projectIdParams) as Objective[]
     } else {
       objectives = db
-        .prepare(`SELECT ${LIST_COLUMNS} FROM objectives WHERE ${statusClause}${tombstoneClause}${projectIdClause} ORDER BY updated_at DESC${pageClause}`)
+        .prepare(`SELECT ${LIST_SELECT} FROM ${LIST_FROM} WHERE ${statusClause}${tombstoneClause}${projectIdClause} ORDER BY o.updated_at DESC${pageClause}`)
         .all(...statusParams, ...projectIdParams) as Objective[]
     }
   } else {
@@ -137,9 +140,9 @@ router.get('/', (req: AuthRequest, res) => {
       if (membership.objective_visibility === 'all') {
         objectives = db
           .prepare(
-            `SELECT ${LIST_COLUMNS} FROM objectives
-             WHERE workspace = ? AND ${statusClause}${tombstoneClause}${projectIdClause}
-             ORDER BY updated_at DESC${pageClause}`
+            `SELECT ${LIST_SELECT} FROM ${LIST_FROM}
+             WHERE o.workspace = ? AND ${statusClause}${tombstoneClause}${projectIdClause}
+             ORDER BY o.updated_at DESC${pageClause}`
           )
           .all(workspace, ...statusParams, ...projectIdParams) as Objective[]
       } else {
@@ -147,14 +150,14 @@ router.get('/', (req: AuthRequest, res) => {
         // listed in the objective_assignees join table.
         objectives = db
           .prepare(
-            `SELECT ${LIST_COLUMNS} FROM objectives
-             WHERE workspace = ? AND ${statusClause}${tombstoneClause}${projectIdClause}
+            `SELECT ${LIST_SELECT} FROM ${LIST_FROM}
+             WHERE o.workspace = ? AND ${statusClause}${tombstoneClause}${projectIdClause}
                AND (
-                 assigned_user_id = ?
-                 OR created_by = ?
-                 OR id IN (SELECT objective_id FROM objective_assignees WHERE user_id = ?)
+                 o.assigned_user_id = ?
+                 OR o.created_by = ?
+                 OR o.id IN (SELECT objective_id FROM objective_assignees WHERE user_id = ?)
                )
-             ORDER BY updated_at DESC${pageClause}`
+             ORDER BY o.updated_at DESC${pageClause}`
           )
           .all(workspace, ...statusParams, ...projectIdParams, user.id, user.id, user.id) as Objective[]
       }
@@ -164,15 +167,15 @@ router.get('/', (req: AuthRequest, res) => {
       const clauses: string[] = []
       const params: unknown[] = []
       if (allWs.length > 0) {
-        clauses.push(`workspace IN (${allWs.map(() => '?').join(',')})`)
+        clauses.push(`o.workspace IN (${allWs.map(() => '?').join(',')})`)
         params.push(...allWs)
       }
       if (ownWs.length > 0) {
         clauses.push(
-          `(workspace IN (${ownWs.map(() => '?').join(',')}) AND (
-             assigned_user_id = ?
-             OR created_by = ?
-             OR id IN (SELECT objective_id FROM objective_assignees WHERE user_id = ?)
+          `(o.workspace IN (${ownWs.map(() => '?').join(',')}) AND (
+             o.assigned_user_id = ?
+             OR o.created_by = ?
+             OR o.id IN (SELECT objective_id FROM objective_assignees WHERE user_id = ?)
            ))`
         )
         params.push(...ownWs, user.id, user.id, user.id)
@@ -183,9 +186,9 @@ router.get('/', (req: AuthRequest, res) => {
       }
       objectives = db
         .prepare(
-          `SELECT ${LIST_COLUMNS} FROM objectives
+          `SELECT ${LIST_SELECT} FROM ${LIST_FROM}
            WHERE (${clauses.join(' OR ')}) AND ${statusClause}${tombstoneClause}${projectIdClause}
-           ORDER BY updated_at DESC${pageClause}`
+           ORDER BY o.updated_at DESC${pageClause}`
         )
         .all(...params, ...statusParams, ...projectIdParams) as Objective[]
     }
@@ -236,8 +239,9 @@ router.get('/strategies', (req: AuthRequest, res) => {
 // the list via canReadObjective so a detail fetch never leaks across workspaces.
 router.get('/:id', (req: AuthRequest, res) => {
   const db = getDb()
+  // SELECT * plus project join so the detail view also carries project_name/color.
   const objective = db
-    .prepare('SELECT * FROM objectives WHERE id = ?')
+    .prepare(`SELECT o.*, p.name AS project_name, p.color AS project_color FROM ${LIST_FROM} WHERE o.id = ?`)
     .get(req.params.id) as Objective | undefined
   if (!objective) {
     res.status(404).json({ error: 'Objective not found' })

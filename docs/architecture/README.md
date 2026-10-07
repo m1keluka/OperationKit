@@ -1,6 +1,6 @@
 # Architecture catalog
 
-Living map of Command Center as of `origin/main`. Refactor PRs update these files when they split a module. Changing anything in `CONTRACTS.md` is a **product PR**, not a refactor PR.
+Living map of OperationKit as of `origin/main`. Refactor PRs update these files when they split a module. Changing anything in `CONTRACTS.md` is a **product PR**, not a refactor PR.
 
 **Product manual** (what the app is for a human): [`../product/README.md`](../product/README.md). That folder is the breathing user-facing docs; this folder is the engineering map.
 
@@ -14,7 +14,7 @@ Living map of Command Center as of `origin/main`. Refactor PRs update these file
 Phase 1 deferred items (resolved):
 
 - `routes/alerts.ts` — mounted at `/api/alerts`; `AlertBell` in Layout
-- `routes/internal-vault.ts` — mounted at `/api/internal` (vault + rolodex history)
-- `startRolodexSibling()` — called after `server.listen` (no-ops without Telegram env)
+- `routes/internal-vault.ts` — mounted at `/api/internal` (vault + contactbook history)
+- `startContactbookSibling()` — called after `server.listen` (no-ops without Telegram env)
 - `services/terminal.ts` — deleted; shell PTY lives in `ws/index.ts`
 - interrupted-session snapshot — deleted; tmux survives Node restart

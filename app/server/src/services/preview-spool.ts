@@ -48,7 +48,7 @@ export function previewSpoolDir(): string {
 function runnerPath(): string {
   return (
     process.env.PREVIEW_SPOOL_RUNNER ||
-    '/home/operator/projects/command-center-infra/scripts/preview-spool-runner.sh'
+    '/home/operator/projects/operationkit/scripts/preview-spool-runner.sh'
   )
 }
 

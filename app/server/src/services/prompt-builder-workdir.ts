@@ -103,10 +103,10 @@ export function loadWorkspacesConfig(): Record<string, { projects: Array<{ name:
  * cut from it. Two safety invariants (obj 1451):
  *
  *  1. Search EVERY workspace, not just `objective.workspace`. A project is
- *     registered under one workspace (e.g. command-center-infra under
+ *     registered under one workspace (e.g. operationkit under
  *     'operator'), but objectives can be tagged with a different workspace
  *     (e.g. 'example'). The old code only looked in `workspaces[objective.workspace]`,
- *     so an example-tagged command-center-infra objective missed the lookup and fell
+ *     so an example-tagged operationkit objective missed the lookup and fell
  *     through to the bare projects root.
  *
  *  2. FAIL CLOSED for a project-linked objective that resolves to nothing.

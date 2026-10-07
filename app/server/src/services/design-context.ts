@@ -515,7 +515,7 @@ export function buildDsConformanceCriteria(project: string): AcceptanceCriterion
 // substitution live in `~/ai-workspace/skills/devops/qa-conformance-criteria.md`.
 
 /** Repos that ship a Playwright / E2E suite the QA gate applies to. Keyed on the
- *  project string (same identifier the board/API uses). command-center-infra is
+ *  project string (same identifier the board/API uses). operationkit is
  *  intentionally excluded: it has Vitest only, no Playwright e2e (see its CLAUDE.md). */
 const E2E_SUITE_REPOS: ReadonlySet<string> = new Set(['example-platform', 'example3-platform'])
 
@@ -570,7 +570,7 @@ export function buildQaConformanceCriteria(): AcceptanceCriterion[] {
 // ── Per-changed-files UI detection (obj 1453) ────────────────────────────────
 //
 // The auto-append above (and `isUiObjective`) keys the ds-* visual rubric on the
-// objective's PROJECT — `command-center-infra` is a registered frontend repo, so
+// objective's PROJECT — `operationkit` is a registered frontend repo, so
 // EVERY objective on it (a scheduler change, a state-poller fix) inherits the
 // 5-criterion ds-conformance block. The render/browser criteria
 // (ds-renders-conformant, ds-interaction-states, ds-a11y-contrast) need a screen,

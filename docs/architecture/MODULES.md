@@ -10,11 +10,11 @@ Snapshot of `origin/main`. `boot` = `startX()` from `app/server/src/index.ts`. `
 4. Express + `trust proxy` + CORS + GitHub raw webhook + JSON
 5. Route mounts (below)
 6. `initWebSocket`
-7. Schedulers: `startPoller`, `startDreamCycleScheduler`, `startRoutineScheduler`, `startCanaryHarnessScheduler`, `startKitchenLoop`, `startAssistantNudgeScheduler`, `startCiFeedbackBridge`, `startDriftGuard`, `startObjectivesSafety`, `startPrHealthWatchdog`, `startHostBootDaemons`
+7. Schedulers: `startPoller`, `startDreamCycleScheduler`, `startRoutineScheduler`, `startCanaryHarnessScheduler`, `startKitchenLoop`, `startBriefingNudgeScheduler`, `startCiFeedbackBridge`, `startDriftGuard`, `startObjectivesSafety`, `startPrHealthWatchdog`, `startHostBootDaemons`
 8. `setQueueDrainCallback` → HTTP PATCH localhost internal status
 9. listen `:3002` then `requeueParsedSessions`, `backfillDailyUsage`
 
-Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env is set).
+Boot also calls `startContactbookSibling` after listen (no-ops unless Telegram env is set).
 
 ## Routes
 
@@ -64,7 +64,7 @@ Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env i
 | `/api/dev-changelog` | `routes/dev-changelog.ts` | yes | internal changelog admin |
 | `/shell` | `routes/shell.ts` | yes | admin shell.html |
 | `/api/alerts` | `routes/alerts.ts` | yes | ingest (bearer) + list/ack (JWT) — AlertBell + notify-failure.sh |
-| `/api/internal/vault/*`, `/api/internal/rolodex/history` | `routes/internal-vault.ts` | yes | telegram-rolodex tools (localhost) |
+| `/api/internal/vault/*`, `/api/internal/contactbook/history` | `routes/internal-vault.ts` | yes | telegram-contactbook tools (localhost) |
 
 ## Services (kernel)
 
@@ -78,7 +78,7 @@ Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env i
 | `session-telemetry.ts` | no | refusal/fallback JSONL scan |
 | `session-control.ts` | no | interrupt/stop/state/list/queueFollowUp |
 | `session-account-status.ts` | no | dashboard overlay + queue-drain callback |
-| `rolodex-supervisor.ts` | yes | `startRolodexSibling` after listen |
+| `contactbook-supervisor.ts` | yes | `startContactbookSibling` after listen |
 | `state-poller.ts` | `startPoller` | poll timer + re-exports |
 | `poller-loop.ts` | no | worker poll tick (`pollActiveSessions`) |
 | `poller-decisions.ts` | no | pure poller decisions (repark, no-op, worker-end, bounce, watchdog) |
@@ -124,7 +124,7 @@ Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env i
 | `routine-scheduler.ts` | `startRoutineScheduler` | cron → board objectives |
 | `canary-harness.ts` | `startCanaryHarnessScheduler` | anti-signal canary (flag) |
 | `kitchen-loop.ts` | `startKitchenLoop` | six-phase shadow loop (flag) |
-| `assistant-nudge.ts` | `startAssistantNudgeScheduler` | 07:00 ET Telegram digest |
+| `briefing-nudge.ts` | `startBriefingNudgeScheduler` | 07:00 ET Telegram digest |
 | `drift-guard.ts` | `startDriftGuard` | live checkout vs origin/main |
 | `objectives-safety.ts` | `startObjectivesSafety` | snapshot + drop-guard |
 | `host-boot-daemons.ts` | `startHostBootDaemons` | `host-boot.d/run-all.sh` watchdog |
@@ -152,7 +152,7 @@ Boot also calls `startRolodexSibling` after listen (no-ops unless Telegram env i
 
 ## SQLite tables (from `db/index.ts` CREATE TABLE)
 
-users, user_workspaces, objectives, schema_meta, objective_audit, external_check_remediations, planning_conversations, objective_assignees, objective_learnings, session_corrections, activity_log, scratchpads, session_intel, session_file_ops, session_events, uptime_events, alerts, thread_folders, mentor_threads, mentor_summaries, assistant_configs, workspaces, workspace_repos, workspace_integrations, gmail_triage, granola_processed_meetings, granola_action_items, contacts_index, objective_reviews, objective_floor_runs, gate_false_pass, canary_runs, objective_uat_runs, test_credentials, settings, kitchen_loop_runs, loop_drift_metrics, blocked_objectives, routines, session_runtime, branch_leases, session_leases, rolodex_threads, models, session_usage_daily, session_account_override, changelog_entries, user_github_tokens, doppler_scoped_tokens, user_google_connections, objective_prs, secrets, secret_versions, secret_access_log, resource_assignments, dsr_runs, dsr_candidates, dsr_fingerprints, dsr_signal_stats, dsr_lens_misses, dev_items, dev_item_notes, dev_item_attachments, dev_item_prs, dev_ingest_idempotency.
+users, user_workspaces, objectives, schema_meta, objective_audit, external_check_remediations, planning_conversations, objective_assignees, objective_learnings, session_corrections, activity_log, scratchpads, session_intel, session_file_ops, session_events, uptime_events, alerts, thread_folders, mentor_threads, mentor_summaries, assistant_configs, workspaces, workspace_repos, workspace_integrations, gmail_triage, granola_processed_meetings, granola_action_items, contacts_index, objective_reviews, objective_floor_runs, gate_false_pass, canary_runs, objective_uat_runs, test_credentials, settings, kitchen_loop_runs, loop_drift_metrics, blocked_objectives, routines, session_runtime, branch_leases, session_leases, contactbook_threads, models, session_usage_daily, session_account_override, changelog_entries, user_github_tokens, doppler_scoped_tokens, user_google_connections, objective_prs, secrets, secret_versions, secret_access_log, resource_assignments, dsr_runs, dsr_candidates, dsr_fingerprints, dsr_signal_stats, dsr_lens_misses, dev_items, dev_item_notes, dev_item_attachments, dev_item_prs, dev_ingest_idempotency.
 
 ## Client routes (`App.tsx` react-router-dom `Routes`; unknown paths 404)
 

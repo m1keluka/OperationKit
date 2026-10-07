@@ -10,16 +10,16 @@ import { isPrivateWorktreeGitDir } from './session-manager.js'
 describe('isPrivateWorktreeGitDir (chown safety guard, obj 1234)', () => {
   it('TRUE for a per-worktree private admin gitdir (safe to chown)', () => {
     expect(
-      isPrivateWorktreeGitDir('/home/operator/projects/command-center-infra/.git/worktrees/cc-worktree-1234'),
+      isPrivateWorktreeGitDir('/home/operator/projects/operationkit/.git/worktrees/cc-worktree-1234'),
     ).toBe(true)
   })
 
   it('FALSE for the shared common .git dir (must never be chowned)', () => {
-    expect(isPrivateWorktreeGitDir('/home/operator/projects/command-center-infra/.git')).toBe(false)
+    expect(isPrivateWorktreeGitDir('/home/operator/projects/operationkit/.git')).toBe(false)
   })
 
   it('FALSE for a bare-repo style git dir without a worktrees segment', () => {
-    expect(isPrivateWorktreeGitDir('/home/operator/projects/command-center-infra/.git/')).toBe(false)
+    expect(isPrivateWorktreeGitDir('/home/operator/projects/operationkit/.git/')).toBe(false)
   })
 
   it('FALSE for empty / null / undefined (rev-parse failure → skip the chown)', () => {

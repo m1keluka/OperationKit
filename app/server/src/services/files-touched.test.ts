@@ -154,7 +154,7 @@ describe('resolveFilesTouched', () => {
 
     const path = gh.calls[0].find((a) => a.startsWith('repos/'))
     expect(path).toBe('repos/EXAMPLE2/example3-platform/pulls/751/files')
-    expect(path).not.toContain('command-center-infra')
+    expect(path).not.toContain('operationkit')
   })
 
   it('falls back to the objective_prs repo when pr_url is absent', async () => {

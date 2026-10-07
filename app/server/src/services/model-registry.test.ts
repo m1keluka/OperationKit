@@ -16,9 +16,12 @@ const {
 } = await import('./model-registry.js')
 
 const BASELINE = [
-  ['claude-opus-5', 'Opus 5', 'claude', 1, 1, 1, 5],
-  ['claude-opus-4-8', 'Opus 4.8', 'claude', 1, 0, 0, 10],
-  ['claude-sonnet-4-6', 'Sonnet 4.6', 'claude', 1, 0, 0, 20],
+  ['claude-fable-5-1', 'Fable 5.1', 'claude', 1, 0, 0, 3],
+  ['claude-opus-5-5', 'Opus 5.5', 'claude', 1, 1, 1, 4],
+  ['claude-opus-5', 'Opus 5 (legacy)', 'claude', 1, 0, 0, 5],
+  ['claude-opus-4-8', 'Opus 4.8 (legacy)', 'claude', 1, 0, 0, 10],
+  ['claude-sonnet-5', 'Sonnet 5', 'claude', 1, 0, 0, 18],
+  ['claude-sonnet-4-6', 'Sonnet 4.6 (legacy)', 'claude', 1, 0, 0, 20],
   ['gpt-5.5', 'GPT-5.5 (Codex)', 'codex', 1, 0, 0, 30],
   ['gpt-5.4', 'GPT-5.4 (Codex)', 'codex', 1, 0, 0, 31],
   ['gpt-5.4-mini', 'GPT-5.4-mini (Codex)', 'codex', 1, 0, 0, 32],
@@ -51,9 +54,9 @@ afterAll(() => {
 beforeEach(() => reseedBaseline())
 
 describe('model-registry: seeded baseline', () => {
-  it('makes Opus 5 the default and the planner', () => {
-    expect(getDefaultModelId()).toBe('claude-opus-5')
-    expect(getPlannerModelId()).toBe('claude-opus-5')
+  it('makes Opus 5.5 the default and the planner', () => {
+    expect(getDefaultModelId()).toBe('claude-opus-5-5')
+    expect(getPlannerModelId()).toBe('claude-opus-5-5')
   })
 
   it('keeps Opus 4.8 selectable as a legacy option', () => {
@@ -110,15 +113,15 @@ describe('model-registry: getModelEngine', () => {
 
 describe('model-registry: setting default / planner', () => {
   it('moves the default to exactly one model', () => {
-    setDefaultModel('claude-sonnet-4-6')
-    expect(getDefaultModelId()).toBe('claude-sonnet-4-6')
+    setDefaultModel('claude-sonnet-5')
+    expect(getDefaultModelId()).toBe('claude-sonnet-5')
     expect(listModels().filter(m => m.is_default)).toHaveLength(1)
   })
 
   it('can set a Codex model as the planner', () => {
     setPlannerModel('gpt-5.5')
     expect(getPlannerModelId()).toBe('gpt-5.5')
-    expect(getDefaultModelId()).toBe('claude-opus-5')
+    expect(getDefaultModelId()).toBe('claude-opus-5-5')
     expect(listModels().filter(m => m.is_planner)).toHaveLength(1)
   })
 
@@ -141,12 +144,12 @@ describe('model-registry: enable / disable', () => {
   })
 
   it('refuses to disable the current default model', () => {
-    expect(() => setModelEnabled('claude-opus-5', false)).toThrow(/current default/)
+    expect(() => setModelEnabled('claude-opus-5-5', false)).toThrow(/current default/)
   })
 
   it('refuses to disable the current planner model', () => {
-    setDefaultModel('claude-sonnet-4-6') // move default off opus-5 so failure is attributable to the planner role
-    expect(() => setModelEnabled('claude-opus-5', false)).toThrow(/planner/)
+    setDefaultModel('claude-sonnet-5') // move default off opus-5.5 so failure is attributable to the planner role
+    expect(() => setModelEnabled('claude-opus-5-5', false)).toThrow(/planner/)
   })
 
   it('allows disabling a Codex model that holds no role', () => {
@@ -218,40 +221,68 @@ describe('model-registry: Codex multi-model migration', () => {
   })
 })
 
-describe('model-registry: Opus 5 promotion migration', () => {
-  it('adds Opus 5 and promotes it to default + planner on a re-seeded registry', () => {
-    // Simulate a live DB that predates Opus 5: Opus 4.8 holds both roles.
+describe('model-registry: Opus 5.5 promotion migration', () => {
+  // Boot from a registry that predates BOTH promotions (Opus 4.8 holds the roles).
+  // initDb replays the 2026-07-24 Opus 5 block and then the 2026-09-23 Opus 5.5
+  // block, so the LATEST model must end up holding default + planner.
+  function bootFromOpus48Only() {
     getDb().exec('DELETE FROM models')
     getDb().prepare(
       "INSERT INTO models (id,label,engine,enabled,is_default,is_planner,sort_order) VALUES ('claude-opus-4-8','Opus 4.8','claude',1,1,1,10)"
     ).run()
     initDb()
-    const opus5 = listModels().find(m => m.id === 'claude-opus-5')!
-    expect(opus5.enabled).toBe(true)
-    expect(opus5.is_default).toBe(true)
-    expect(opus5.is_planner).toBe(true)
-    expect(getDefaultModelId()).toBe('claude-opus-5')
-    expect(getPlannerModelId()).toBe('claude-opus-5')
+  }
+
+  it('adds Opus 5.5 and promotes it to default + planner on a re-seeded registry', () => {
+    bootFromOpus48Only()
+    const opus55 = listModels().find(m => m.id === 'claude-opus-5-5')!
+    expect(opus55.enabled).toBe(true)
+    expect(opus55.is_default).toBe(true)
+    expect(opus55.is_planner).toBe(true)
+    expect(getDefaultModelId()).toBe('claude-opus-5-5')
+    expect(getPlannerModelId()).toBe('claude-opus-5-5')
     // Exactly one default / planner (partial unique indexes upheld).
     expect(listModels().filter(m => m.is_default)).toHaveLength(1)
     expect(listModels().filter(m => m.is_planner)).toHaveLength(1)
-    // Opus 4.8 stays on record and selectable, just without a role.
-    const opus48 = listModels().find(m => m.id === 'claude-opus-4-8')!
-    expect(opus48.enabled).toBe(true)
-    expect(opus48.is_default).toBe(false)
+  })
+
+  it('also seeds Fable 5.1 and Sonnet 5 as selectable non-default options', () => {
+    bootFromOpus48Only()
+    for (const id of ['claude-fable-5-1', 'claude-sonnet-5']) {
+      const m = listModels().find(x => x.id === id)!
+      expect(m).toBeDefined()
+      expect(m.enabled).toBe(true)
+      expect(m.is_default).toBe(false)
+      expect(m.is_planner).toBe(false)
+    }
+  })
+
+  it('leaves superseded models enabled (only relabelled) so in-flight objectives still spawn', () => {
+    bootFromOpus48Only()
+    // Disabling them would trip the disabled-model rescue and alert on every
+    // non-terminal objective still pinned to the old id.
+    for (const id of ['claude-opus-5', 'claude-opus-4-8']) {
+      const m = listModels().find(x => x.id === id)!
+      expect(m.enabled).toBe(true)
+      expect(m.is_default).toBe(false)
+      expect(m.is_planner).toBe(false)
+    }
+    expect(listModels().find(m => m.id === 'claude-opus-5')!.label).toBe('Opus 5 (legacy)')
   })
 
   it('does not re-clobber a later manual default reassignment on the next boot', () => {
-    // First boot promotes Opus 5; operator then moves the default back to 4.8.
-    getDb().exec('DELETE FROM models')
-    getDb().prepare(
-      "INSERT INTO models (id,label,engine,enabled,is_default,is_planner,sort_order) VALUES ('claude-opus-4-8','Opus 4.8','claude',1,1,1,10)"
-    ).run()
-    initDb()
-    setDefaultModel('claude-opus-4-8')
-    expect(getDefaultModelId()).toBe('claude-opus-4-8')
+    bootFromOpus48Only()
+    setDefaultModel('claude-opus-5')
+    expect(getDefaultModelId()).toBe('claude-opus-5')
     // A subsequent boot must respect the operator's choice (guard on row presence).
     initDb()
-    expect(getDefaultModelId()).toBe('claude-opus-4-8')
+    expect(getDefaultModelId()).toBe('claude-opus-5')
+  })
+
+  it('routes grunt workers and the AI reviewer to Sonnet 5', () => {
+    bootFromOpus48Only()
+    expect(GRUNT_WORKER_MODEL_ID).toBe('claude-sonnet-5')
+    expect(getGruntModelId()).toBe('claude-sonnet-5')
+    expect(getReviewerModelId()).toBe('claude-sonnet-5')
   })
 })

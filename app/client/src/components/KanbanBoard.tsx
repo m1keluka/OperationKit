@@ -564,6 +564,7 @@ export function KanbanBoard({ workspaces }: KanbanBoardProps) {
             onChangeStatus={handleChangeStatus}
             pendingId={pendingStatusId}
             childrenByParent={childrenByParent}
+            showOrgChip={workspaces.length !== 1}
             {...(status === 'done' ? {
               lazyLoaded: doneLoaded,
               lazyLoading: doneLoading,

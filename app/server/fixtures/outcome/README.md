@@ -27,7 +27,7 @@ nothing else runs:
 -- per-objective (most specific)
 INSERT INTO settings (key, value) VALUES (
   'outcome_assertion:1234',
-  '{"enabled":true,"command":"OUTCOME_MIN_ROWS=50 node /home/operator/projects/command-center-infra/app/server/fixtures/outcome/data-state-delta/assert-rowcount.mjs","cwd":"/tmp/cc-worktree-1234"}'
+  '{"enabled":true,"command":"OUTCOME_MIN_ROWS=50 node /home/operator/projects/operationkit/app/server/fixtures/outcome/data-state-delta/assert-rowcount.mjs","cwd":"/tmp/cc-worktree-1234"}'
 );
 
 -- per-category (every content objective in a workspace)

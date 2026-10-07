@@ -510,11 +510,11 @@ ${conversationText}`
   }
 }
 
-function buildInitialPrompt(firstMessage: string, identityBlock: string, sessionContext: string, priorHistory: string, assistantDirective = ''): string {
+function buildInitialPrompt(firstMessage: string, identityBlock: string, sessionContext: string, priorHistory: string, briefingDirective = ''): string {
   let result = ''
   // Persona directive goes FIRST so it frames everything that follows. For
   // Mike-owned (Assistant) threads this supersedes the mentor-workspace CLAUDE.md.
-  if (assistantDirective.trim()) result += `<persona>\n${assistantDirective}\n</persona>\n\n`
+  if (briefingDirective.trim()) result += `<persona>\n${briefingDirective}\n</persona>\n\n`
   if (identityBlock.trim()) result += `<identity>\n${identityBlock}\n</identity>\n\n`
   if (sessionContext.trim()) result += `<session_context>\n${sessionContext}\n</session_context>\n\n`
   if (priorHistory.trim()) result += `<prior_conversation>\n${priorHistory}\n</prior_conversation>\n\n`
@@ -735,10 +735,10 @@ export function startMentorSession(threadId: number, firstMessage: string): stri
   // Send the initial message via stdin. Threads whose creator has an enabled
   // assistant config get their persona/gating/pending directive prepended
   // (web-tab AND bridge-created), built from that config.
-  const assistantDirective = hasAssistant && assistantCfg ? buildAssistantDirective(assistantCfg, threadId) : ''
+  const briefingDirective = hasAssistant && assistantCfg ? buildAssistantDirective(assistantCfg, threadId) : ''
   const stdinMessage = JSON.stringify({
     type: 'user',
-    message: { role: 'user', content: [{ type: 'text', text: buildInitialPrompt(firstMessage, identityBlock, sessionContext, priorHistory, assistantDirective) }] },
+    message: { role: 'user', content: [{ type: 'text', text: buildInitialPrompt(firstMessage, identityBlock, sessionContext, priorHistory, briefingDirective) }] },
   }) + '\n'
   proc.stdin?.write(stdinMessage)
 

@@ -19,7 +19,8 @@ import type { Objective } from '@operationkit/shared'
  * we only drop text the card doesn't render. mapObjective still runs over these
  * rows; acceptance_criteria simply resolves to null (the column is absent).
  */
-export const LIST_COLUMNS = [
+/** Raw column names in the lightweight LIST projection (no table alias). */
+const LIST_COLUMNS_ARRAY = [
   'id', 'title', 'status', 'agent_context', 'assigned_user_id', 'session_id',
   'created_at', 'updated_at', 'workspace', 'category', 'parent_id', 'depth', 'project',
   // project_id = board Project FK (DISTINCT from project = repo-link above)
@@ -32,7 +33,36 @@ export const LIST_COLUMNS = [
   'job_review_note', 'source_job_id', 'scope_flags', 'reconcile_sig', 'is_strategy',
   'rejected_tree_sha', 'not_mergeable', 'trust_stage', 'origin', 'strategy_id',
   'last_activity_at', 'ran_on_fallback', 'fallback_detected_at', 'ran_model',
-].join(', ')
+]
+
+/**
+ * Lightweight card projection for the board LIST (obj 700512). This is EVERY
+ * objectives column EXCEPT the six heavy TEXT fields the board/cards never read:
+ * description, last_session_summary, approved_plan, ai_review_findings,
+ * acceptance_criteria, transcript_path. Those (avg ~3.3KB description alone)
+ * ballooned the list to 15MB / 2125 rows; the detail views fetch them on demand
+ * via GET /:id. Keeping every OTHER scalar/flag means no board logic regresses —
+ * we only drop text the card doesn't render. mapObjective still runs over these
+ * rows; acceptance_criteria simply resolves to null (the column is absent).
+ *
+ * Backward-compatible form — no table alias. Use LIST_SELECT + LIST_FROM when
+ * you need the LEFT JOIN on projects (project_name / project_color).
+ */
+export const LIST_COLUMNS = LIST_COLUMNS_ARRAY.join(', ')
+
+/**
+ * SELECT list for the board LIST query with a LEFT JOIN on projects.
+ * Each objectives column is prefixed `o.` to avoid ambiguity, plus
+ * `p.name AS project_name` and `p.color AS project_color` from the join.
+ * Use with LIST_FROM below.
+ */
+export const LIST_SELECT = `${LIST_COLUMNS_ARRAY.map(c => `o.${c}`).join(', ')}, p.name AS project_name, p.color AS project_color`
+
+/**
+ * FROM clause for the board LIST query that resolves project_name / project_color.
+ * Combine with LIST_SELECT and WHERE predicates prefixed with `o.`.
+ */
+export const LIST_FROM = 'objectives o LEFT JOIN projects p ON p.id = o.project_id'
 
 /**
  * Read-access gate for a single objective, mirroring the LIST visibility rules
@@ -115,6 +145,12 @@ export function mapObjective(row: Objective, userMap?: Map<number, string>): Obj
     acceptance_criteria: acceptance as Objective['acceptance_criteria'],
     assigned_user_ids: assignedIds,
     assigned_usernames: resolveUsernames(assignedIds, userMap),
+    // project_name / project_color come from the LEFT JOIN on projects when the
+    // query uses LIST_SELECT + LIST_FROM. For queries that SELECT * (GET /:id),
+    // these columns are absent from the raw row — keep null rather than undefined
+    // so callers see a consistent shape.
+    project_name: (r.project_name as string | null | undefined) ?? null,
+    project_color: (r.project_color as string | null | undefined) ?? null,
   }
 }
 

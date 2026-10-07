@@ -22,8 +22,8 @@ interface LayoutProps {
    ONE source of truth: NAV_GROUPS. Sections are grouped by *kind* so the
    structure stays coherent as sections are added:
 
-     • primary — Board, Assistant, Jobs
-     • more    — Content, Docs, Dashboard. Settings lives in the user menu.
+     • primary — Board, Assistant, Jobs, Content
+     • more    — Archive, Docs, Agents, Dashboard. Settings lives in the user menu.
        Unfinished surfaces (Contacts, Strategies, Development, Notes, Status,
        Feed) stay routed + ⌘K-able but are not in the chrome.
 
@@ -31,7 +31,7 @@ interface LayoutProps {
    nav) and a `mobile` placement. Both viewports render from this same model:
 
      • Mobile bottom bar — at most 5 hits: the four `mobile:'tab'` items
-       (Board, Assistant, Contacts, Docs) + a grouped "More" overflow holding
+       (Board, Assistant, Jobs, Content) + a grouped "More" overflow holding
        every `mobile:'more'` item. ≤5 tabs is a hard constraint (390px).
      • Desktop top bar — has more room, so the Work / Automation / Directory
        groups render inline (hairline-separated) and the System group collapses
@@ -40,7 +40,7 @@ interface LayoutProps {
    Same grouping, different overflow threshold per viewport = responsive IA.
    ───────────────────────────────────────────────────────────────────────── */
 
-type NavGate = 'assistant' | 'admin'
+type NavGate = 'assistant' | 'admin' | 'content'
 
 interface NavItem {
   href: string
@@ -65,6 +65,9 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/',       label: 'Board',  icon: 'board',  aliases: [],                    mobile: 'tab' },
       { href: '/assistant', label: 'Assistant', icon: 'assistant', aliases: ['/mentor', '/assistant'], gate: 'assistant', mobile: 'tab' },
       { href: '/jobs',   label: 'Jobs',   icon: 'jobs',   aliases: [],                    gate: 'admin', mobile: 'tab' },
+      // Top-level on BOTH viewports: owners (e.g. Ava, a member) read an overflow as "the tab is gone".
+      // Worst case (admin + content owner) is Board, Assistant, Jobs, Content + More = 5 — fits the ≤5 cap.
+      { href: '/granola', label: 'Content', icon: 'content', aliases: [],                    gate: 'content', mobile: 'tab' },
     ],
   },
   {
@@ -72,8 +75,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'More',
     items: [
       { href: '/archive',   label: 'Archive',   icon: 'archive',   aliases: [],                        mobile: 'more' },
-      { href: '/granola',   label: 'Content',   icon: 'content',   aliases: [],         gate: 'admin', mobile: 'more' },
       { href: '/docs',      label: 'Docs',      icon: 'docs',      aliases: [],                        mobile: 'more' },
+      { href: '/agents',    label: 'Agents',    icon: 'system',    aliases: [],       gate: 'admin',   mobile: 'more' },
       { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', aliases: ['/costs'], gate: 'admin', mobile: 'more' },
     ],
   },
@@ -117,6 +120,8 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     setUserMenuOpen(false)
   }
   const isAdmin = user?.role === 'admin'
+  // Content surface access — set by GET /api/auth/me from the `content_owners` table.
+  const hasContent = user?.has_content === true
   const { theme, toggleTheme } = useBoardTheme()
   const showWorkspace =
     currentPath === '/' || currentPath === '/feed' || currentPath === '/archive'
@@ -145,6 +150,9 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   const gatePass = (item: NavItem) => {
     if (item.gate === 'admin') return isAdmin
     if (item.gate === 'assistant') return canUseAssistant
+    // Content is per-person provisioning (a `content_owners` row), not a role —
+    // Mike being admin is incidental; Ava is a member and still gets it.
+    if (item.gate === 'content') return hasContent
     return true
   }
 
@@ -154,7 +162,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       NAV_GROUPS
         .map(g => ({ ...g, items: g.items.filter(gatePass) }))
         .filter(g => g.items.length > 0),
-    [isAdmin, canUseAssistant]
+    [isAdmin, canUseAssistant, hasContent]
   )
 
   const allItems = useMemo(() => groups.flatMap(g => g.items), [groups])
@@ -267,16 +275,17 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     if (isAdmin) {
       items.push(
         { label: 'Org settings', hint: '/settings/org', onSelect: () => { navigate('/settings/org') } },
-        { label: 'Agents', hint: '/settings/agents', onSelect: () => { navigate('/settings/agents') } },
+        { label: 'Agent registry', hint: '/settings/agents', onSelect: () => { navigate('/settings/agents') } },
       )
     }
     for (const extra of PALETTE_ONLY) {
       if (extra.gate === 'admin' && !isAdmin) continue
       if (extra.gate === 'assistant' && !canUseAssistant) continue
+      if (extra.gate === 'content' && !hasContent) continue
       items.push({ label: extra.label, hint: extra.href, onSelect: () => { navigate(extra.href) } })
     }
     return items
-  }, [allItems, canSeeSettings, isAdmin, canUseAssistant, navigate])
+  }, [allItems, canSeeSettings, isAdmin, canUseAssistant, hasContent, navigate])
 
   const systemActive = systemGroup?.items.some(isActive) ?? false
 

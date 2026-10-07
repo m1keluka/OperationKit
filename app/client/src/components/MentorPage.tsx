@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useComposerDraft } from '../hooks/useComposerDraft'
+import { draftKey, draftStorage, dropDraft } from '../lib/composerDrafts'
 import { useMentorThreads, useMentorOutput } from '../hooks/useMentorThreads'
 import { useAssistantConfig } from '../hooks/useAssistantConfig'
 import { ThreadList } from './mentor/ThreadList'
@@ -28,7 +30,12 @@ export function MentorPage() {
 
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [composerValue, setComposerValue] = useState('')
+  // Per-thread draft, persisted (obj 711501): switching threads — or leaving the
+  // Mentor page entirely — no longer discards what you were typing. `null` key
+  // (no thread selected) behaves like plain useState.
+  const [composerValue, setComposerValue] = useComposerDraft(
+    activeThreadId === null ? null : draftKey('mentor', activeThreadId),
+  )
   const [pendingUser, setPendingUser] = useState<string | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -62,7 +69,8 @@ export function MentorPage() {
     setDrawerOpen(false)
     setSendError(null)
     setPendingUser(null)
-    setComposerValue('')
+    // composerValue is NOT wiped here — useComposerDraft swaps in the selected
+    // thread's own saved draft (obj 711501).
     setAttachments([])
     setAttachmentError(null)
   }, [])
@@ -74,7 +82,6 @@ export function MentorPage() {
       setDrawerOpen(false)
       setSendError(null)
       setPendingUser(null)
-      setComposerValue('')
       setAttachments([])
       setAttachmentError(null)
     } catch (err) {
@@ -97,6 +104,8 @@ export function MentorPage() {
 
   const handleDelete = useCallback(async (id: number) => {
     await deleteThread(id)
+    // The conversation is gone — don't leave its draft behind to be swept later.
+    dropDraft(draftStorage(), draftKey('mentor', id))
   }, [deleteThread])
 
   const handleMarkDone = useCallback(async (id: number, done: boolean) => {

@@ -1,6 +1,6 @@
 # Planning Step + Objective Type Classification — Design
 
-Companion to `UNIFIED-TASK-ARCHITECTURE.md`. Specifies how the Command Center board grows from a single "queue → working → review → done" lane into a type-aware workflow with an optional planning stage in front of execution.
+Companion to `UNIFIED-TASK-ARCHITECTURE.md`. Specifies how the OperationKit board grows from a single "queue → working → review → done" lane into a type-aware workflow with an optional planning stage in front of execution.
 
 Status: **DESIGN — awaiting Mike's approval before implementation.**
 
@@ -250,7 +250,7 @@ Concretely, the planning frame is a new file at `~/ai-workspace/skills/cc-planne
 ```markdown
 # Skill: CC Planning Mode
 
-You are running inside Command Center as a planner for an objective. Your job is to:
+You are running inside OperationKit as a planner for an objective. Your job is to:
 1. Read the objective + workspace + project context
 2. Use Read / Glob / Grep / Explore agent to map the relevant code surface
 3. Ask Mike clarifying questions in the planning chat
@@ -342,7 +342,7 @@ export async function spawnReviewerSession(objective: Objective): Promise<string
   const filesTouched = sessionIntel.files_created.concat(sessionIntel.files_modified)
 
   const prompt = `
-You are running as the AI reviewer for Command Center objective #${objective.id}.
+You are running as the AI reviewer for OperationKit objective #${objective.id}.
 
 ## Objective
 ${objective.title}

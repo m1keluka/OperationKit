@@ -8,6 +8,19 @@ export interface GranolaAttendee {
   email: string
 }
 
+/**
+ * One speaker-attributed line of the transcript. Kept alongside the flattened
+ * `transcript_text` because voice-profile extraction needs to know WHICH lines
+ * the owner said — flattening first and diarizing later is unrecoverable.
+ */
+export interface GranolaSegment {
+  /** 'me' when Granola attributes the line to the note owner, else the label. */
+  speaker: string
+  /** True when this line is the note owner speaking (the voice-profile source). */
+  is_owner: boolean
+  text: string
+}
+
 export interface GranolaTranscript {
   id: string
   title: string
@@ -15,6 +28,8 @@ export interface GranolaTranscript {
   updated_at: string
   attendees: GranolaAttendee[]
   transcript_text: string
+  /** Speaker-attributed lines, in order. Empty when Granola returned no transcript. */
+  segments: GranolaSegment[]
   notes_text: string
 }
 
@@ -41,18 +56,23 @@ interface NotesListResponse {
   cursor?: string
 }
 
-function getApiKey(): string {
-  const key = process.env.GRANOLA_API_KEY
+/**
+ * Resolve the key for a call. Callers that serve a specific content owner MUST
+ * pass that owner's key explicitly — the process env is a single global and
+ * falling back to it across owners would pull another person's meetings.
+ */
+function getApiKey(explicit?: string): string {
+  const key = explicit || process.env.GRANOLA_API_KEY
   if (!key) {
-    throw new Error('GRANOLA_API_KEY is not set — add it to Doppler under the command-center project')
+    throw new Error('GRANOLA_API_KEY is not set — connect Granola on the Content page, or add it to Doppler')
   }
   return key
 }
 
-async function granolaGet<T>(path: string): Promise<T> {
+async function granolaGet<T>(path: string, apiKey?: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: {
-      Authorization: `Bearer ${getApiKey()}`,
+      Authorization: `Bearer ${getApiKey(apiKey)}`,
       'Content-Type': 'application/json',
     },
   })
@@ -65,8 +85,23 @@ async function granolaGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
-function joinTranscript(segments: RawTranscriptSegment[] | undefined): string {
-  if (!segments || segments.length === 0) return ''
+// Granola labels the note owner's own audio track 'me' (`speaker.source`); other
+// participants carry a diarization label ('Speaker 1', a name, ...). Anything we
+// cannot attribute is treated as NOT the owner, so a voice profile is never
+// polluted with someone else's phrasing.
+function toSegments(raw: RawTranscriptSegment[] | undefined): GranolaSegment[] {
+  if (!raw || raw.length === 0) return []
+  return raw
+    .filter(s => typeof s.text === 'string' && s.text.trim())
+    .map(s => {
+      const source = (s.speaker?.source || '').toLowerCase()
+      const label = s.speaker?.diarization_label || s.speaker?.source || ''
+      return { speaker: label || 'unknown', is_owner: source === 'me', text: s.text.trim() }
+    })
+}
+
+function joinTranscript(segments: GranolaSegment[]): string {
+  if (segments.length === 0) return ''
   return segments.map(s => s.text).join(' ').trim()
 }
 
@@ -88,13 +123,15 @@ function normalizeNote(raw: RawNote): GranolaTranscript {
   }
 
   const now = new Date().toISOString()
+  const segments = toSegments(raw.transcript)
   return {
     id: raw.id,
     title: raw.title ?? '',
     created_at: raw.created_at ?? now,
     updated_at: raw.updated_at ?? raw.created_at ?? now,
     attendees,
-    transcript_text: joinTranscript(raw.transcript),
+    transcript_text: joinTranscript(segments),
+    segments,
     notes_text: raw.summary ?? '',
   }
 }
@@ -103,7 +140,7 @@ function normalizeNote(raw: RawNote): GranolaTranscript {
  * Returns all meetings created or updated after the given date.
  * Handles cursor-based pagination automatically.
  */
-export async function listRecentMeetings(since: Date): Promise<GranolaTranscript[]> {
+export async function listRecentMeetings(since: Date, apiKey?: string): Promise<GranolaTranscript[]> {
   const results: GranolaTranscript[] = []
   const createdAfter = since.toISOString()
   let cursor: string | undefined
@@ -112,7 +149,7 @@ export async function listRecentMeetings(since: Date): Promise<GranolaTranscript
     const qs = new URLSearchParams({ created_after: createdAfter })
     if (cursor) qs.set('cursor', cursor)
 
-    const page = await granolaGet<NotesListResponse>(`/notes?${qs}`)
+    const page = await granolaGet<NotesListResponse>(`/notes?${qs}`, apiKey)
 
     for (const note of page.notes ?? []) {
       results.push(normalizeNote(note))
@@ -127,7 +164,25 @@ export async function listRecentMeetings(since: Date): Promise<GranolaTranscript
 /**
  * Fetches a single meeting with its full transcript.
  */
-export async function getMeeting(id: string): Promise<GranolaTranscript> {
-  const raw = await granolaGet<RawNote>(`/notes/${id}?include=transcript`)
+export async function getMeeting(id: string, apiKey?: string): Promise<GranolaTranscript> {
+  const raw = await granolaGet<RawNote>(`/notes/${id}?include=transcript`, apiKey)
   return normalizeNote(raw)
+}
+
+/**
+ * Cheapest authenticated call that proves a key works. Returns the owning
+ * account's identity so the UI can confirm WHICH Granola account got connected
+ * (a pasted key is easy to get wrong, and a silently-wrong account would quietly
+ * ingest someone else's meetings).
+ */
+export async function verifyApiKey(
+  apiKey: string
+): Promise<{ ok: true; account: string } | { ok: false; error: string }> {
+  try {
+    const page = await granolaGet<NotesListResponse>('/notes?limit=1', apiKey)
+    const owner = page.notes?.[0]?.owner
+    return { ok: true, account: owner?.email || owner?.name || '' }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'verification failed' }
+  }
 }

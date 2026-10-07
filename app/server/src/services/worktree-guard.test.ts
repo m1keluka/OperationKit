@@ -47,7 +47,7 @@ describe('worktree-guard.sh (PreToolUse block)', () => {
   })
 
   it('BLOCKS an edit to the live checkout (the obj-841 hazard)', () => {
-    expect(runGuard({ file_path: `${PROT}/command-center-infra/app/server/src/index.ts` })).toBe(2)
+    expect(runGuard({ file_path: `${PROT}/operationkit/app/server/src/index.ts` })).toBe(2)
   })
 
   it('BLOCKS an edit to a DIFFERENT live project checkout (cross-project)', () => {
@@ -60,7 +60,7 @@ describe('worktree-guard.sh (PreToolUse block)', () => {
   })
 
   it('handles NotebookEdit (notebook_path) the same way', () => {
-    expect(runGuard({ notebook_path: `${PROT}/command-center-infra/x.ipynb` })).toBe(2)
+    expect(runGuard({ notebook_path: `${PROT}/operationkit/x.ipynb` })).toBe(2)
     expect(runGuard({ notebook_path: `${WT}/x.ipynb` })).toBe(0)
   })
 
@@ -69,17 +69,17 @@ describe('worktree-guard.sh (PreToolUse block)', () => {
   })
 
   it('BLOCKS a relative path that resolves into the live checkout', () => {
-    expect(runGuard({ file_path: 'app/server/src/index.ts' }, { cwd: `${PROT}/command-center-infra` })).toBe(2)
+    expect(runGuard({ file_path: 'app/server/src/index.ts' }, { cwd: `${PROT}/operationkit` })).toBe(2)
   })
 
   it('BLOCKS a ".." escape out of the worktree into the live checkout', () => {
     expect(runGuard(
-      { file_path: `${WT}/../../home/operator/projects/command-center-infra/app/x.ts` },
+      { file_path: `${WT}/../../home/operator/projects/operationkit/app/x.ts` },
     )).toBe(2)
   })
 
   it('is a no-op (allows everything) when CC_WORKTREE_ROOT is unset (non-isolated session)', () => {
-    expect(runGuard({ file_path: `${PROT}/command-center-infra/app/x.ts` }, { worktreeRoot: null })).toBe(0)
+    expect(runGuard({ file_path: `${PROT}/operationkit/app/x.ts` }, { worktreeRoot: null })).toBe(0)
   })
 
   it('does not block when there is no file path in the payload', () => {

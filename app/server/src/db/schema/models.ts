@@ -1,16 +1,16 @@
 /**
- * Rolodex threads + model registry — extracted from db/index.ts (behavior frozen).
+ * Contactbook threads + model registry — extracted from db/index.ts (behavior frozen).
  */
 import type Database from 'better-sqlite3'
 import { notify } from '../../services/notifier.js'
 
 export function initModelsSchema(db: Database.Database): void {
-  // rolodex_threads — per-chat history for the telegram-rolodex sibling +
-  // /api/internal/rolodex/history. Existed in prod (created out-of-band) but
+  // contactbook_threads — per-chat history for the telegram-contactbook sibling +
+  // /api/internal/contactbook/history. Existed in prod (created out-of-band) but
   // was never in initDb, so fresh installs + the test DB 500'd on first use.
   // Schema mirrors the live prod table exactly; IF NOT EXISTS is a no-op there.
   db.exec(`
-    CREATE TABLE IF NOT EXISTS rolodex_threads (
+    CREATE TABLE IF NOT EXISTS contactbook_threads (
       chat_id     TEXT PRIMARY KEY,
       user_id     TEXT NOT NULL,
       history     TEXT NOT NULL DEFAULT '[]',
@@ -142,6 +142,51 @@ export function initModelsSchema(db: Database.Database): void {
       db.prepare('UPDATE models SET is_default = 0 WHERE is_default = 1').run()
       db.prepare('UPDATE models SET is_planner = 0 WHERE is_planner = 1').run()
       db.prepare("UPDATE models SET is_default = 1, is_planner = 1, enabled = 1, updated_at = datetime('now') WHERE id = 'claude-opus-5'").run()
+    })()
+  }
+
+  // Opus 5.5 / Fable 5.1 / Sonnet 5 promotion (2026-09-23, obj 712520).
+  // Anthropic's models-overview page now lists Claude Opus 5.5 (`claude-opus-5-5`),
+  // Claude Fable 5.1 (`claude-fable-5-1`) and Claude Sonnet 5 (`claude-sonnet-5`) as
+  // the CURRENT lineup and demotes `claude-opus-5` — the incumbent default+planner —
+  // to "legacy (still available)". Opus 5.5 is both newer AND cheaper than Opus 5
+  // ($4/$20 vs $5/$25 per MTok), same 1M context / 128k output, adaptive thinking
+  // always on, so it inherits default + planner exactly as Opus 5 inherited them
+  // from Opus 4.8.
+  //
+  // HARD PRECONDITION — CLI version. `claude --model claude-opus-5-5` returns
+  // `400 ... Claude Code 2.1.235 does not support this model; version 2.1.280 or
+  // newer is required`. On the old CLI the spawn does NOT fail loudly: the
+  // --fallback-model flag silently serves the whole session on Sonnet, which reads
+  // as success. The paired changes that make this safe are (a) the Dockerfile floor
+  // `@anthropic-ai/claude-code@^2.1.280` and (b) the CC_CLI_BIN_DIR PATH prepend in
+  // session-tmux.ts, which puts a newer CLI ahead of the image's copy without a
+  // container rebuild. Do not land this block without both.
+  //
+  // Fable 5.1 is seeded ENABLED: the 2026-06-12 US export-control ban that disabled
+  // `claude-fable-5` no longer applies — a live probe on this account's OAuth ran
+  // `claude-fable-5-1` end-to-end. It is NOT made default (2x Opus pricing, tighter
+  // rate caps); it is simply selectable again.
+  //
+  // Superseded models stay ENABLED, only relabelled: disabling them would trip the
+  // disabled-model rescue below and alert on every in-flight objective still
+  // pinned to Opus 5 / Sonnet 4.6. Guarded on the row's absence so it runs exactly
+  // once and never re-clobbers a later manual reassignment (same shape as above).
+  const hasOpus55 = db.prepare("SELECT 1 FROM models WHERE id = 'claude-opus-5-5'").get()
+  if (!hasOpus55) {
+    db.transaction(() => {
+      const ins = db.prepare(
+        "INSERT OR IGNORE INTO models (id, label, engine, enabled, is_default, is_planner, sort_order) VALUES (?, ?, 'claude', 1, 0, 0, ?)"
+      )
+      ins.run('claude-fable-5-1', 'Fable 5.1', 3)
+      ins.run('claude-opus-5-5', 'Opus 5.5', 4)
+      ins.run('claude-sonnet-5', 'Sonnet 5', 18)
+      db.prepare("UPDATE models SET label = 'Opus 5 (legacy)' WHERE id = 'claude-opus-5' AND label = 'Opus 5'").run()
+      db.prepare("UPDATE models SET label = 'Opus 4.8 (legacy)' WHERE id = 'claude-opus-4-8' AND label = 'Opus 4.8'").run()
+      db.prepare("UPDATE models SET label = 'Sonnet 4.6 (legacy)' WHERE id = 'claude-sonnet-4-6' AND label = 'Sonnet 4.6'").run()
+      db.prepare('UPDATE models SET is_default = 0 WHERE is_default = 1').run()
+      db.prepare('UPDATE models SET is_planner = 0 WHERE is_planner = 1').run()
+      db.prepare("UPDATE models SET is_default = 1, is_planner = 1, enabled = 1, updated_at = datetime('now') WHERE id = 'claude-opus-5-5'").run()
     })()
   }
 

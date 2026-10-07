@@ -71,9 +71,9 @@ export function classifyPR(
 // ── Platform / brand mapping ──
 
 const PLATFORM_MAP: Record<string, string> = {
-  'example-growth/command-center-infra': 'Command Center',
-  'example-growth/example-platform': 'Example Platform',
-  'example-growth/example-project-platform': 'Example Project',
+  'your-org/operationkit': 'Command Center',
+  'your-org/example-platform': 'Example Platform',
+  'your-org/example-project-platform': 'Example Project',
 }
 
 function titleCase(s: string): string {
@@ -404,7 +404,7 @@ async function runLlmTranslation(
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 1024,
         temperature: 0.3,
         system,
