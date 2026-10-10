@@ -4,6 +4,7 @@
  * here (mentor-session has its own copy). Kept as copy-unchanged.
  */
 import { execSync } from 'child_process'
+import fs from 'fs'
 import path from 'path'
 import { getDb } from '../db/index.js'
 import {
@@ -12,13 +13,14 @@ import {
   isRateLimitMessage,
   parseResetTime,
 } from './account-router.js'
-import { TRANSCRIPT_DIR } from '../config.js'
+import { TRANSCRIPT_DIR, PENDING_WORK_HORIZON_MS } from '../config.js'
 import { getPersistedSpawnStart, resolveSpawnStartMs } from './session-spawn-clock.js'
 import { extractFinalUsage } from './session-usage.js'
 import { tmuxSessionAlive } from './session-tmux.js'
 import { readJsonlTail, jsonlHasResult } from './session-jsonl.js'
 import { destroyJailSync } from './session-jail.js'
 import { activeSessions, forgetSpawnClock } from './session-registry.js'
+import { detectPendingWork, type PendingWorkVerdict } from './session-pending-work.js'
 
 // Queued follow-up messages per objective (sent when current turn finishes)
 const followUpQueue = new Map<number, string[]>()
@@ -131,6 +133,54 @@ export function getSessionStartedAt(sessionId: string): number | null {
   return resolveSpawnStartMs({ inMemoryMs, persistedMs })
 }
 
+// One log line per held interim result, not one per 3s poll tick.
+const loggedInterimResults = new Set<string>()
+// A held session sits on a trailing `result` for up to the horizon; re-parse its
+// 2MB tail only when the file changes or every 15s (so a wakeup/monitor expiry
+// is still noticed), not on every 3s tick.
+const PENDING_WORK_CACHE_TTL_MS = 15_000
+const pendingWorkCache = new Map<string, { size: number; mtimeMs: number; atMs: number; verdict: PendingWorkVerdict }>()
+
+/**
+ * Pending-work verdict for a session's transcript tail (obj 712954). Reads a
+ * wider tail than the last-event check because the ScheduleWakeup / Agent tool
+ * result can sit a few hundred lines above the trailing `result` once
+ * partial-message stream events are counted. Fail-safe: a read error returns
+ * "not pending" (today's behaviour).
+ */
+export function transcriptHasPendingWork(
+  sessionId: string,
+  jsonlPath: string = activeSessions.get(sessionId)?.jsonlPath || path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`),
+  nowMs: number = Date.now(),
+): PendingWorkVerdict {
+  let verdict: PendingWorkVerdict
+  try {
+    const st = fs.statSync(jsonlPath)
+    const cached = pendingWorkCache.get(jsonlPath)
+    if (cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs && nowMs - cached.atMs < PENDING_WORK_CACHE_TTL_MS) {
+      verdict = cached.verdict
+    } else {
+      verdict = detectPendingWork(readJsonlTail(jsonlPath, 2_000_000).split('\n'), {
+        nowMs,
+        horizonMs: PENDING_WORK_HORIZON_MS,
+      })
+      if (pendingWorkCache.size > 200) pendingWorkCache.clear()
+      pendingWorkCache.set(jsonlPath, { size: st.size, mtimeMs: st.mtimeMs, atMs: nowMs, verdict })
+    }
+  } catch {
+    return { pending: false, reasons: [], wakeupAtMs: null, detail: 'no-result' }
+  }
+  if (verdict.pending) {
+    const key = `${sessionId}:${verdict.reasons.join(',')}:${verdict.wakeupAtMs ?? ''}`
+    if (!loggedInterimResults.has(key)) {
+      loggedInterimResults.add(key)
+      if (loggedInterimResults.size > 500) loggedInterimResults.clear()
+      console.log(`[session-manager] ${sessionId}: interim turn-end result held in working (pending: ${verdict.reasons.join(', ')})`)
+    }
+  }
+  return verdict
+}
+
 export function getSessionState(sessionId: string): 'working' | 'review' | 'dead' {
   const session = activeSessions.get(sessionId)
 
@@ -154,7 +204,13 @@ export function getSessionState(sessionId: string): 'working' | 'review' | 'dead
         if (!trimmed) continue
         try {
           const event = JSON.parse(trimmed)
-          if (event.type) return event.type === 'result' ? 'review' : 'working'
+          if (!event.type) continue
+          if (event.type !== 'result') return 'working'
+          // obj 712954 — the CLI writes `result` at the end of EVERY turn. A turn
+          // that ended with a pending ScheduleWakeup / async Agent / Monitor is an
+          // interim turn-end: the process is alive and will start another turn.
+          if (transcriptHasPendingWork(sessionId, jsonlPath).pending) return 'working'
+          return 'review'
         } catch {}
       }
     } catch {}
