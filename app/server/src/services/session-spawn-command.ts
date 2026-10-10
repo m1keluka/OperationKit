@@ -4,7 +4,7 @@
  */
 import fs from 'fs'
 import path from 'path'
-import { SPAWN_MAX_TURNS, SPAWN_MAX_OUTPUT_TOKENS } from '../config.js'
+import { SPAWN_MAX_TURNS, SPAWN_MAX_OUTPUT_TOKENS, PENDING_WORK_HORIZON_MS } from '../config.js'
 import { FALLBACK_MODEL_ID } from './model-attribution.js'
 
 // ── Codex engine ──
@@ -104,6 +104,13 @@ export function buildClaudeCommand(opts: {
   settingsPath?: string
   maxTurns?: number
   maxOutputTokens?: number
+  /**
+   * `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`: how long `--print` waits for background
+   * tasks after the final turn before killing them. The CLI default (600s) killed
+   * obj 712937's verification agent mid-run ("Background tasks still running after
+   * 600s; terminating"). Defaults to PENDING_WORK_HORIZON_MS; <= 0 omits it.
+   */
+  printBgWaitCeilingMs?: number
   /** Codex --profile name: layers $CODEX_HOME/<name>.config.toml onto base config */
   codexProfileName?: string
   /** Grok --rules path: small vocab-shim file appended to the Grok system prompt */
@@ -146,8 +153,10 @@ export function buildClaudeCommand(opts: {
   const modelFlag = model ? ` --model ${JSON.stringify(model)}` : ''
   const resumeFlag = resumeSessionId ? ` --resume ${JSON.stringify(resumeSessionId)}` : ''
   const turnsFlag = maxTurns > 0 ? ` --max-turns ${maxTurns}` : ''
-  const tokenPrefix = maxOutputTokens > 0 ? `CLAUDE_CODE_MAX_OUTPUT_TOKENS=${maxOutputTokens} ` : ''
-  // Extra --mcp-config file (e.g. Playwright for the reviewer/UI gate, #684). // ui-conformance-ignore: PR reference, not a color
+  const bgWaitMs = opts.printBgWaitCeilingMs ?? PENDING_WORK_HORIZON_MS
+  const bgWaitPrefix = bgWaitMs > 0 ? `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=${Math.floor(bgWaitMs)} ` : ''
+  const tokenPrefix = `${bgWaitPrefix}${maxOutputTokens > 0 ? `CLAUDE_CODE_MAX_OUTPUT_TOKENS=${maxOutputTokens} ` : ''}`
+  // Extra --mcp-config file (e.g. Playwright for the reviewer/UI gate, PR 684). // ui-conformance-ignore: PR reference, not a color
   const mcpFlag = mcpConfigPath ? ` --mcp-config ${JSON.stringify(mcpConfigPath)}` : ''
   // Extra --settings file: the obj-1059 PreToolUse worktree guard (#69). Fires even
   // under --dangerously-skip-permissions, blocking any isolated session from

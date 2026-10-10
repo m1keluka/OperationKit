@@ -571,6 +571,11 @@ export interface UpdateObjectiveRequest {
   /** Explicit Strategy marker (obj 2835). Only changes the stored marker when
    *  supplied; NEVER re-derived from delegate_mode/parent_id on update. */
   is_strategy?: boolean
+  /** Admin-only PR link override (obj 712954). pr_url must be a GitHub PR URL;
+   *  pr_number, when sent, must equal the URL's number; null clears the link. */
+  pr_url?: string | null
+  pr_number?: number | null
+  branch_name?: string | null
 }
 
 export interface StatusChangeRequest {

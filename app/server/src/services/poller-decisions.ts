@@ -423,3 +423,25 @@ export function watchdogDecision(input: {
   if (idleForceMs > 0 && idleMs >= idleForceMs) return { forceRoute: true, reason: 'idle' }
   return { forceRoute: false, reason: null }
 }
+
+/**
+ * Pure selector for the per-tick review `session_id` clear (obj 712954). A
+ * `review` card normally drops its session_id so it leaves the live poll set
+ * (and its tmux becomes reapable). A card whose live session is parked between
+ * turns with pending background work (ScheduleWakeup / async Agent / Monitor
+ * inside the horizon) keeps it — clearing it is what hands the still-running
+ * worker to the orphan sweep. Fail-safe: a predicate error clears as before.
+ */
+export function selectReviewSessionIdsToClear(
+  rows: Array<{ id: number; session_id: string | null }>,
+  hasPendingWork: (sessionId: string) => boolean,
+): number[] {
+  const ids: number[] = []
+  for (const r of rows) {
+    if (!r.session_id) continue
+    let keep = false
+    try { keep = hasPendingWork(r.session_id) } catch { keep = false }
+    if (!keep) ids.push(r.id)
+  }
+  return ids
+}
