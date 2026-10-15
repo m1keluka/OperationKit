@@ -119,6 +119,11 @@ export const WATCHDOG_IDLE_FORCE_MS = parseInt(process.env.WATCHDOG_IDLE_FORCE_M
 // Absolute wall-clock budget for a single worker spawn. Beyond this the worker
 // is force-routed to `review` regardless of activity. Generous (8h) by default.
 export const WATCHDOG_WALLCLOCK_MS = parseInt(process.env.WATCHDOG_WALLCLOCK_MS || `${8 * 60 * 60 * 1000}`, 10)
+// Max pending-work horizon (obj 712954). A `result` followed by a ScheduleWakeup /
+// async Agent / Monitor keeps the card `working` only while that work lands within
+// this window, and the CLI's own print-mode background-task wait (default 600s,
+// which killed obj 712937's verification agent) is raised to the same bound.
+export const PENDING_WORK_HORIZON_MS = parseInt(process.env.PENDING_WORK_HORIZON_MS || `${60 * 60 * 1000}`, 10)
 // ── Delegator liveness backstop ──
 // A delegate_mode objective is EXEMPT from the watchdog (`&& !delegate_mode`)
 // and the orphan sweep (`delegate_mode = 0`), so a delegator wedged in `working`
