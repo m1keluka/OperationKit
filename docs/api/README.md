@@ -92,6 +92,9 @@ Do **not** create a card to answer “what's the status?”. Read the board.
 | GET | `/api/docs/search?q=` | Second-brain search |
 | GET | `/api/docs/file?path=` | Read a vault markdown file |
 | PUT | `/api/docs/file` | Write a `.md` file |
+| GET | `/api/files/search?q=&ext=&type=&path_prefix=&modified_after=` | Find non-markdown files (pptx, pdf, key, images…) — read-only, workspace-scoped |
+| GET | `/api/files/stat?path=&sha256=1` | One file's size, mime, mtime, created, optional sha256 |
+| GET | `/api/files/download?path=` | Stream one file (`Range` supported; 413 over the cap, default 200 MB) |
 
 The vault is `/home/operator/second-brain`. Same API key as the board. Start at `workspaces/<slug>/active.md` (or `personal/active.md`), then `index.md`, then search. CoS writes **personal** memory; each company Bot writes that company’s `active.md` / `decisions/`. Nobody rewrites the vault on “what needs me?”. Do not clone the GitHub repo into Grok Bot — that copy goes stale.
 

@@ -88,3 +88,31 @@ describe('selectOrphanWorkerSessions (periodic orphan sweep)', () => {
     expect(selectOrphanWorkerSessions(names, [])).toEqual(['cc-7-999'])
   })
 })
+
+describe('selectOrphanWorkerSessions — pending-work exemption (obj 712954)', () => {
+  it('spares a parked worker with a pending wakeup when no newer session owns the objective', () => {
+    // obj 712937: card routed to review → session_id no longer live → the sweep
+    // killed the tmux and the 19:45 wakeup never fired.
+    const names = ['cc-712937-1790536709527', 'cc-8-100']
+    const pending = (n: string) => n === 'cc-712937-1790536709527'
+    expect(selectOrphanWorkerSessions(names, [], pending)).toEqual(['cc-8-100'])
+  })
+
+  it('still reaps a superseded predecessor even if it has pending work (single-worker invariant)', () => {
+    const names = ['cc-7-100', 'cc-7-200']
+    expect(selectOrphanWorkerSessions(names, ['cc-7-200'], () => true)).toEqual(['cc-7-100'])
+  })
+
+  it('reaps as before when nothing is pending, and when the predicate throws', () => {
+    const names = ['cc-7-100']
+    expect(selectOrphanWorkerSessions(names, [], () => false)).toEqual(['cc-7-100'])
+    expect(selectOrphanWorkerSessions(names, [], () => { throw new Error('read failed') })).toEqual(['cc-7-100'])
+  })
+
+  it('does not consult the predicate for live or non-worker names', () => {
+    const seen: string[] = []
+    const pred = (n: string) => { seen.push(n); return false }
+    selectOrphanWorkerSessions(['cc-1-10', 'cc-review-1-1', 'litellm', 'cc-2-20'], ['cc-1-10'], pred)
+    expect(seen).toEqual(['cc-2-20'])
+  })
+})

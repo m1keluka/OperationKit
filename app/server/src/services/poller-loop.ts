@@ -16,7 +16,9 @@ import {
   resolveWorkdir,
   startSession,
   sweepOrphanWorkerTmux,
+  transcriptHasPendingWork,
 } from './session-manager.js'
+import { tmuxSessionAlive } from './session-tmux.js'
 import {
   isFloorActiveForProject,
   getFloorConfig,
@@ -44,6 +46,7 @@ import {
   discoverAndBackfillPR,
   isPrAutolinkKilled,
 } from './pr-linkage.js'
+import { relinkPrFromTranscript } from './pr-transcript-link.js'
 import { insertAlert } from './notifier.js'
 import { runCompletionGate, applyGateHandback } from './ci-green-gate.js'
 import { extractDeterministic } from './session-intel-parse.js'
@@ -68,6 +71,7 @@ import {
   classifyNoOpSpawn,
   resolveWorkerEndStatus,
   watchdogDecision,
+  selectReviewSessionIdsToClear,
 } from './poller-decisions.js'
 import {
   forceRouteStuckWorker,
@@ -247,13 +251,20 @@ export async function pollActiveSessions(): Promise<void> {
   // objective hung for several seconds. Drop them out of the live set first.
   if (isClearDeadSessionEnabled()) {
     try {
-      db.prepare(
-        `UPDATE objectives
-            SET session_id = NULL
+      const reviewRows = db.prepare(
+        `SELECT id, session_id FROM objectives
           WHERE status = 'review'
             AND session_id IS NOT NULL
             AND deleted_at IS NULL`,
-      ).run()
+      ).all() as Array<{ id: number; session_id: string | null }>
+      // obj 712954 — keep the session_id of a live worker parked between turns
+      // with pending work, so the orphan sweep can't reap it (see selector).
+      const toClear = selectReviewSessionIdsToClear(
+        reviewRows,
+        (sid) => tmuxSessionAlive(sid) && transcriptHasPendingWork(sid).pending,
+      )
+      const clear = db.prepare('UPDATE objectives SET session_id = NULL WHERE id = ?')
+      db.transaction(() => { for (const id of toClear) clear.run(id) })()
     } catch (err) {
       console.error('[state-poller] review session_id sweep failed:', err)
     }
@@ -497,7 +508,7 @@ export async function pollActiveSessions(): Promise<void> {
       // route-to-review: working→review (session died) — unchanged behavior. Audit the transition.
       // `status === 'review'` is already `continue`d at :269, so TS has narrowed
       // it out of the union and flags this comparison as TS2367, which fails the
-      // `typecheck` gate. (Pre-existing on main — it landed with #448.) The guard
+      // `typecheck` gate. (Pre-existing on main — it landed with PR 448.) The guard
       // is kept: it documents the intent and is a no-op at runtime. Widened so
       // the compiler accepts it. Type-only; no behavior change.
       if ((objective.status as string) !== 'review') {
@@ -517,7 +528,7 @@ export async function pollActiveSessions(): Promise<void> {
       // 'clear-session' or 'skip-noop' for every already-`review` row and both
       // branches `continue` above, so reaching here means the status is not
       // 'review'. TypeScript proves it (the narrowed union excludes 'review'),
-      // and the guard was a compile error — TS2367 on main after #448.
+      // and the guard was a compile error — TS2367 on main after PR 448.
       logObjectiveAudit(db, {
         objectiveId: objective.id,
         eventType: 'status_change',
@@ -585,6 +596,29 @@ export async function pollActiveSessions(): Promise<void> {
           }
         } catch (err) {
           console.warn(`[state-poller] session-end PR discovery failed for obj ${objective.id}:`, (err as Error).message)
+        }
+      }
+      // obj 712954 — the branch discovery above only covers create_pr cards with
+      // no link yet, in this repo. Also link from the worker's own transcript
+      // (`gh pr create` output / code_change_published): catches create_pr = 0
+      // cards (obj 712937 → PR 717) and relinks a card still pointing at a merged
+      // PR when the worker opened a newer one (obj 712923: PR 715 → PR 716).
+      if (
+        newStatus === 'review' &&
+        objective.status === 'working' &&
+        objective.session_id &&
+        !isPrAutolinkKilled(db)
+      ) {
+        try {
+          const transcript = fs.readFileSync(path.join(TRANSCRIPT_DIR, `${objective.session_id}.jsonl`), 'utf-8')
+          const linked = await relinkPrFromTranscript(db, objective, transcript.split('\n'), realGhExec)
+          if (linked.linked) {
+            if (linked.pr_number != null) objective.pr_number = linked.pr_number
+            if (linked.pr_url) objective.pr_url = linked.pr_url
+            if (linked.branch) objective.branch_name = linked.branch
+          }
+        } catch (err) {
+          console.warn(`[state-poller] session-end transcript PR link failed for obj ${objective.id}:`, (err as Error).message)
         }
       }
 

@@ -43,6 +43,9 @@ const AGENT_PATHS = [
   '/api/briefing/briefing',
   '/api/docs/search',
   '/api/docs/file',
+  '/api/files/search',
+  '/api/files/stat',
+  '/api/files/download',
 ]
 
 describe('GET /api/agent', () => {

@@ -30,6 +30,7 @@ export const AGENT_OPENAPI = {
     { name: 'thread', description: 'Session conversation on a card' },
     { name: 'briefing', description: 'What needs you now' },
     { name: 'vault', description: 'Second-brain knowledge base' },
+    { name: 'files', description: 'Read-only, workspace-scoped search/stat/download of non-markdown files (pptx, pdf, key, images…)' },
   ],
   security: [{ bearerAuth: [] }],
   components: {
@@ -37,6 +38,35 @@ export const AGENT_OPENAPI = {
       bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'API key (cc_live_) or JWT' },
     },
     schemas: {
+      FileHit: {
+        type: 'object',
+        required: ['path', 'name', 'size', 'mime', 'mtime', 'workspace', 'root'],
+        properties: {
+          path: { type: 'string', description: 'Absolute real path (pass back to /stat and /download)' },
+          name: { type: 'string' },
+          size: { type: 'integer', description: 'Bytes' },
+          mime: { type: 'string' },
+          mtime: { type: 'string', format: 'date-time' },
+          workspace: { type: ['string', 'null'], description: "Owning workspace slug, 'shared', or null" },
+          root: { type: 'string', description: 'Configured root id (vault, uploads, …)' },
+        },
+      },
+      FileStat: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          name: { type: 'string' },
+          size: { type: 'integer' },
+          mime: { type: 'string' },
+          mtime: { type: 'string', format: 'date-time' },
+          ctime: { type: 'string', format: 'date-time' },
+          created: { type: ['string', 'null'], format: 'date-time', description: 'Birth time when the filesystem reports it' },
+          workspace: { type: ['string', 'null'] },
+          root: { type: 'string' },
+          downloadable: { type: 'boolean', description: 'false when size exceeds the download cap' },
+          sha256: { type: ['string', 'null'], description: 'Present only with ?sha256=1; null if over the cap' },
+        },
+      },
       Error: {
         type: 'object',
         required: ['error'],
@@ -362,6 +392,95 @@ export const AGENT_OPENAPI = {
         tags: ['briefing'],
         summary: 'Working / blocked / needs-you snapshot',
         responses: { '200': { description: '{ asOf, board: { inProgress, blocked, needsReview }, openLoops }' } },
+      },
+    },
+    '/api/files/search': {
+      get: {
+        tags: ['files'],
+        summary: 'Find files by name, glob, extension/type, path prefix, and mtime (read-only, workspace-scoped)',
+        description:
+          'Searches only the configured root allowlist (second-brain vault + objective uploads by default). ' +
+          'Admin keys see every root; member keys see their workspaces\' subtrees plus shared ones. ' +
+          'Secrets/system paths (.env*, *.pem, private keys, id_rsa*, .ssh/, .git/, node_modules, *credential*/*secret*/*token*, DB files) are never listed. ' +
+          'Sorted newest-first. Rate limited (429 + Retry-After).',
+        parameters: [
+          { name: 'q', in: 'query', schema: { type: 'string' }, description: 'Case-insensitive filename substring' },
+          { name: 'glob', in: 'query', schema: { type: 'string' }, description: 'Filename glob, e.g. `*deck*.pptx` (* and ?)' },
+          { name: 'ext', in: 'query', schema: { type: 'string' }, description: 'Comma list of extensions, e.g. `pptx,pdf,key`' },
+          { name: 'type', in: 'query', schema: { type: 'string' }, description: 'Comma list of groups: presentation, document, spreadsheet, image, video, audio, archive (or a bare extension)' },
+          { name: 'path_prefix', in: 'query', schema: { type: 'string' }, description: 'Absolute directory to search under (must be inside your scope)' },
+          { name: 'modified_after', in: 'query', schema: { type: 'string', format: 'date-time' } },
+          { name: 'modified_before', in: 'query', schema: { type: 'string', format: 'date-time' } },
+          { name: 'workspace', in: 'query', schema: { type: 'string' }, description: 'Narrow to one workspace (403 if not a member)' },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 50, maximum: 200 } },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 } },
+        ],
+        responses: {
+          '200': {
+            description: 'Page of matches',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    results: { type: 'array', items: { $ref: '#/components/schemas/FileHit' } },
+                    total: { type: 'integer' },
+                    limit: { type: 'integer' },
+                    offset: { type: 'integer' },
+                    next_offset: { type: ['integer', 'null'] },
+                    truncated: { type: 'boolean', description: 'true if the walk hit its scan cap; narrow with path_prefix' },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'Bad date or path_prefix' },
+          '401': { description: 'No / invalid key' },
+          '403': { description: 'Workspace or path_prefix outside your scope' },
+          '429': { description: 'Rate limited' },
+        },
+      },
+    },
+    '/api/files/stat': {
+      get: {
+        tags: ['files'],
+        summary: 'Metadata for one file (size, mime, mtime, created, optional sha256)',
+        parameters: [
+          { name: 'path', in: 'query', required: true, schema: { type: 'string' }, description: 'Absolute path (as returned by /search)' },
+          { name: 'sha256', in: 'query', schema: { type: 'string', enum: ['1', 'true'] }, description: 'Compute the SHA-256 of the content' },
+          { name: 'workspace', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: {
+          '200': { description: 'File metadata', content: { 'application/json': { schema: { $ref: '#/components/schemas/FileStat' } } } },
+          '400': { description: 'Not an absolute path / not a regular file' },
+          '401': { description: 'No / invalid key' },
+          '403': { description: 'Outside your scope, escapes a root (traversal/symlink), or denylisted' },
+          '404': { description: 'Not found' },
+          '429': { description: 'Rate limited' },
+        },
+      },
+    },
+    '/api/files/download': {
+      get: {
+        tags: ['files'],
+        summary: 'Stream one file (Content-Type + Content-Disposition: attachment; single Range supported)',
+        description: 'Files larger than the server cap (default 200 MB, CC_FILES_MAX_DOWNLOAD_BYTES) return 413. Every download is written to the activity log (path, user, key last4, workspace, bytes).',
+        parameters: [
+          { name: 'path', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'workspace', in: 'query', schema: { type: 'string' } },
+          { name: 'Range', in: 'header', schema: { type: 'string', example: 'bytes=0-1048575' } },
+        ],
+        responses: {
+          '200': { description: 'Full file bytes', content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } } },
+          '206': { description: 'Partial content for a Range request' },
+          '400': { description: 'Not an absolute path / not a regular file' },
+          '401': { description: 'No / invalid key' },
+          '403': { description: 'Outside your scope, escapes a root (traversal/symlink), or denylisted' },
+          '404': { description: 'Not found' },
+          '413': { description: 'File exceeds the download cap' },
+          '416': { description: 'Range not satisfiable' },
+          '429': { description: 'Rate limited' },
+        },
       },
     },
     '/api/docs/search': {

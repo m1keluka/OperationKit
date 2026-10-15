@@ -15,6 +15,7 @@ import objectivesSearchRouter from './routes/objectives-search.js'
 import feedRouter from './routes/feed.js'
 import shellRouter from './routes/shell.js'
 import docsRouter from './routes/docs.js'
+import filesRouter from './routes/files.js'
 import mentorRouter from './routes/mentor.js'
 import briefingRouter from './routes/briefing.js'
 import assistantRouter from './routes/assistant.js'
@@ -172,6 +173,7 @@ app.use('/api/objectives', objectivesRouter)
 app.use('/api/costs', costsRouter)  // /api/costs/summary, /daily, /by-objective, /by-account
 app.use('/api', feedRouter)  // /api/projects/:project/feed, /api/feed/all
 app.use('/api/docs', docsRouter)  // /api/docs/tree, /api/docs/file
+app.use('/api/files', filesRouter)  // read-only workspace-scoped search/stat/download of non-markdown files (obj 715485)
 app.use('/api/mentor', mentorRouter)  // /api/mentor/threads, /api/mentor/threads/:id/messages
 app.use('/api/briefing', briefingRouter)  // /api/briefing/briefing
 app.use('/api/assistant', assistantRouter)  // /api/assistant/config — per-user Personal Assistant config (obj 701700)

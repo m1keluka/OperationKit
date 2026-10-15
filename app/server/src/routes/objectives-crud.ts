@@ -8,6 +8,8 @@ import { type AuthRequest } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { resolveObjectiveModel } from '../services/model-registry.js'
 import { depthForParent, recomputeSubtreeDepth } from '../lib/objective-depth.js'
+import { parsePrLinkPatch } from '../lib/pr-link-patch.js'
+import { upsertObjectivePR } from '../services/objective-prs.js'
 import {
   getInitialStatus,
   DEFAULT_EFFORT_BY_TYPE,
@@ -392,6 +394,21 @@ router.put('/:id', (req: AuthRequest, res) => {
     return
   }
 
+  // obj 712954 — pr_url / pr_number / branch_name used to be dropped silently
+  // (200, nothing written). They are now an admin-only, validated override; a
+  // non-admin or an invalid value rejects the WHOLE request before any write.
+  const prLink = parsePrLinkPatch(req.body as Record<string, unknown>)
+  if (prLink.touched) {
+    if (req.user!.role !== 'admin') {
+      res.status(403).json({ error: 'Only admins can set pr_url / pr_number / branch_name' })
+      return
+    }
+    if (!prLink.ok) {
+      res.status(400).json({ error: prLink.error })
+      return
+    }
+  }
+
   // QW5 / audit B#9: only admins may ENABLE the AI-review bypass. A non-admin
   // can leave it unchanged or turn it off (which re-arms QA), but cannot turn
   // it on. `existing.skip_ai_review` is the raw 0/1 column value here.
@@ -517,6 +534,45 @@ router.put('/:id', (req: AuthRequest, res) => {
     effectiveStrategyId,
     req.params.id
   )
+
+  if (prLink.touched && prLink.ok) {
+    const p = prLink.patch
+    const linkChanged = p.pr_url !== undefined
+    db.prepare(
+      `UPDATE objectives SET
+         pr_url = CASE WHEN ? THEN ? ELSE pr_url END,
+         pr_number = CASE WHEN ? THEN ? ELSE pr_number END,
+         branch_name = CASE WHEN ? THEN ? ELSE branch_name END,
+         updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(
+      linkChanged ? 1 : 0, p.pr_url ?? null,
+      linkChanged ? 1 : 0, p.pr_number ?? null,
+      p.branch_name !== undefined ? 1 : 0, p.branch_name ?? null,
+      req.params.id,
+    )
+    if (p.pr_url && p.pr_number) {
+      upsertObjectivePR({
+        objective_id: existing.id,
+        pr_number: p.pr_number,
+        pr_url: p.pr_url,
+        branch_name: p.branch_name ?? existing.branch_name ?? null,
+      })
+    }
+    const describe = (url: unknown, branch: unknown) => `${url ?? 'none'} [${branch ?? 'none'}]`
+    logObjectiveAudit(db, {
+      objectiveId: existing.id,
+      eventType: 'pr_link',
+      actor: `user:${req.user!.username ?? req.user!.id}`,
+      pathway: `admin-put: ${describe(existing.pr_url, existing.branch_name)} -> ${describe(
+        linkChanged ? p.pr_url : existing.pr_url,
+        p.branch_name !== undefined ? p.branch_name : existing.branch_name,
+      )}`,
+      sessionId: existing.session_id ?? null,
+      titleSnapshot: existing.title,
+      workspace: existing.workspace,
+    })
+  }
 
   // REPARENT (obj 707003) — the one operation that invalidates depths it does
   // not itself write. Moving a node shifts its ENTIRE subtree, so recompute from
