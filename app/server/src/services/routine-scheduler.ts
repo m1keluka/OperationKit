@@ -296,6 +296,24 @@ export interface FireResult {
  * global MAX_CONCURRENT_SESSIONS. The global kill switch is checked by the
  * tick, not here, so run-now can bypass it.
  */
+/** Minutes a routine card may sit in `queue` with no session before the next fire retries its spawn. */
+const STRANDED_AFTER_MINUTES = 10
+
+/** PATCH the objective to `working`, which spawns its session. Never throws. */
+async function spawnRoutineObjective(objectiveId: number): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const resp = await fetch(`http://127.0.0.1:${PORT}/api/internal/objectives/${objectiveId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'working' }),
+    })
+    if (!resp.ok) return { ok: false, reason: `${resp.status} ${(await resp.text()).slice(0, 300)}` }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, reason: `spawn request errored: ${err instanceof Error ? err.message : String(err)}` }
+  }
+}
+
 export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now'): Promise<FireResult> {
   const db = getDb()
 
@@ -307,6 +325,27 @@ export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now
   // With routine tasks now auto-completing to `done` (resolveWorkerEndStatus),
   // this is belt-and-suspenders: even a future routing regression that parks a
   // routine card in `review` can no longer stop the job from firing on cadence.
+  // Stranded-card retry (obj 713168). If an earlier fire created the card but its
+  // spawn PATCH failed (server busy/restarting, transient 409), the card sits in
+  // `queue` with no session forever and the depth guard below then skips every
+  // future fire — silently (vansh-offboard and 7 hourly jobs wedged this way on
+  // 2026-10-03). Re-attempt the spawn of the oldest such card instead of skipping,
+  // and surface the failure reason so it shows in /routines/health.
+  const stranded = db.prepare(
+    `SELECT id FROM objectives WHERE routine_id = ? AND status = 'queue' AND session_id IS NULL
+       AND COALESCE(session_count, 0) = 0 AND created_at <= datetime('now', '-${STRANDED_AFTER_MINUTES} minutes')
+     ORDER BY id LIMIT 1`
+  ).get(routine.id) as { id: number } | undefined
+  if (stranded) {
+    db.prepare("UPDATE routines SET last_run_at = ? WHERE id = ?").run(new Date().toISOString(), routine.id)
+    const spawn = await spawnRoutineObjective(stranded.id)
+    if (!spawn.ok) {
+      return { ok: false, reason: `stranded objective ${stranded.id} still not spawning: ${spawn.reason}` }
+    }
+    console.log(`[routines] '${routine.name}': re-spawned stranded objective ${stranded.id} (${source})`)
+    return { ok: true, objective_id: stranded.id, reason: `re-spawned stranded objective ${stranded.id}` }
+  }
+
   const pending = (db.prepare(
     "SELECT COUNT(*) AS n FROM objectives WHERE routine_id = ? AND status IN ('planning','queue','working','ai_review')"
   ).get(routine.id) as { n: number }).n
@@ -314,8 +353,12 @@ export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now
     return { ok: false, reason: `queue depth guard: ${pending} in-flight objective(s) >= max_queue_depth ${routine.max_queue_depth}` }
   }
 
+  // Count only cards that actually hold a running session. `review` is parked
+  // awaiting a human (no session) — counting it let 162 Needs-You cards hold the
+  // cap at 100 and silently skip every routine for a month (obj 713168). Matches
+  // the spawn cap in poller-hygiene.ts.
   const active = (db.prepare(
-    "SELECT COUNT(*) AS n FROM objectives WHERE status IN ('working', 'review', 'ai_review')"
+    "SELECT COUNT(*) AS n FROM objectives WHERE status IN ('working', 'ai_review')"
   ).get() as { n: number }).n
   if (active >= MAX_CONCURRENT_SESSIONS) {
     return { ok: false, reason: `concurrency guard: ${active} active sessions >= MAX_CONCURRENT_SESSIONS ${MAX_CONCURRENT_SESSIONS}` }
@@ -396,21 +439,10 @@ export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now
   if (obj) broadcast({ type: 'objective_updated', payload: obj })
   console.log(`[routines] '${routine.name}' fired (${source}) → objective ${objectiveId} queued`)
 
-  try {
-    const resp = await fetch(`http://127.0.0.1:${PORT}/api/internal/objectives/${objectiveId}/status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'working' }),
-    })
-    if (!resp.ok) {
-      const body = await resp.text()
-      console.warn(`[routines] '${routine.name}': objective ${objectiveId} created but spawn failed: ${resp.status} ${body}`)
-      return { ok: true, objective_id: objectiveId, reason: `created but transition to working failed: ${resp.status} ${body}` }
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.warn(`[routines] '${routine.name}': objective ${objectiveId} created but spawn request errored: ${msg}`)
-    return { ok: true, objective_id: objectiveId, reason: `created but spawn request errored: ${msg}` }
+  const spawn = await spawnRoutineObjective(objectiveId)
+  if (!spawn.ok) {
+    console.warn(`[routines] '${routine.name}': objective ${objectiveId} created but spawn failed: ${spawn.reason}`)
+    return { ok: true, objective_id: objectiveId, reason: `created but spawn failed: ${spawn.reason}` }
   }
 
   console.log(`[routines] '${routine.name}': objective ${objectiveId} transitioned to working (session spawned)`)
@@ -484,7 +516,9 @@ async function tick(): Promise<void> {
       const result = await fireRoutine(routine, 'cron')
       if (result.ok) {
         fired++
-        lastSkipReason.delete(routine.id)
+        // A created-but-not-spawned card is ok:true with a reason — keep it visible.
+        if (result.reason) lastSkipReason.set(routine.id, result.reason)
+        else lastSkipReason.delete(routine.id)
       } else {
         lastSkipReason.set(routine.id, result.reason ?? 'unknown')
         console.log(`[routines] '${routine.name}' skipped: ${result.reason}`)

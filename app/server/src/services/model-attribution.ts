@@ -15,7 +15,11 @@
 //   3. only when there are no main-loop assistant events at all: the final
 //      `result` event's top-level `model` (NOT its modelUsage keys).
 
-export const FALLBACK_MODEL_ID = 'claude-sonnet-4-6'
+// Bumped 2026-09-23 (obj 712520) from claude-sonnet-4-6. Sonnet 5 supersedes it in
+// Anthropic's current lineup and is cheaper ($2/$10 vs $3/$15 per MTok). Verified by
+// live probe to run on BOTH the image's Claude Code 2.1.235 and 2.1.280, so the
+// safety net still works even where the newer-CLI PATH override has not applied.
+export const FALLBACK_MODEL_ID = 'claude-sonnet-5'
 
 export interface StreamAttribution {
   /** Assistant-turn count per model, MAIN LOOP only (sub-agent/sidechain events excluded). */

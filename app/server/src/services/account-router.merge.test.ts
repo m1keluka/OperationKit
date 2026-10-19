@@ -24,20 +24,20 @@ const defaults = [
 describe('mergeAccountRecords — operator names stick', () => {
   it('keeps customLabel across a reload that would otherwise reset label to Primary/Secondary', () => {
     const saved = [
-      slot({ id: 'a', label: 'Primary (personal)', customLabel: 'Operator Max' }),
+      slot({ id: 'a', label: 'Primary (personal)', customLabel: 'Mike Max' }),
       slot({ id: 'b', label: 'Secondary', customLabel: 'Ava Team' }),
     ]
     const merged = mergeAccountRecords(defaults, saved)
-    expect(merged.find(a => a.id === 'a')?.customLabel).toBe('Operator Max')
+    expect(merged.find(a => a.id === 'a')?.customLabel).toBe('Mike Max')
     expect(merged.find(a => a.id === 'b')?.customLabel).toBe('Ava Team')
     // Built-in label is restored as the fallback, not the display name.
     expect(merged.find(a => a.id === 'a')?.label).toBe('Primary (personal)')
   })
 
   it('promotes a saved.label that drifted off the default into customLabel (pre-customLabel renames)', () => {
-    const saved = [slot({ id: 'a', label: 'Operator personal' })]
+    const saved = [slot({ id: 'a', label: 'Mike personal' })]
     const merged = mergeAccountRecords(defaults, saved)
-    expect(merged.find(a => a.id === 'a')?.customLabel).toBe('Operator personal')
+    expect(merged.find(a => a.id === 'a')?.customLabel).toBe('Mike personal')
   })
 
   it('keeps extra slots created via Add Account', () => {

@@ -14,11 +14,11 @@ Paste a fine-grained PAT. PRs and commits on cards assigned to you use that logi
 
 Connect. Sessions acting as you send Gmail and touch Drive/Docs/Sheets/Slides/Calendar as that Google account. Disconnect revokes the grant.
 
-If a card assigned to Ava used to send as the admin, the card had the wrong assignee or Ava was not connected. Assigned user wins; creator is the fallback.
+If a card assigned to Ava used to send as Mike, the card had the wrong assignee or Ava was not connected. Assigned user wins; creator is the fallback.
 
 ## Assistant
 
-Name, system prompt, autonomy (read-only → autonomous). Jarvis reads this.
+Name, system prompt, autonomy (read-only → autonomous). Assistant reads this.
 
 ## Personal secrets
 

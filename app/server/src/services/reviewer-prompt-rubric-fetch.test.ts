@@ -14,7 +14,7 @@ import type { Objective } from '@operationkit/shared'
 function makeObjective(overrides: Partial<Objective> = {}): Objective {
   return {
     id: 42,
-    workspace: 'personal',
+    workspace: 'operator',
     type: 'feature',
     title: 'Test objective',
     description: 'do the thing',

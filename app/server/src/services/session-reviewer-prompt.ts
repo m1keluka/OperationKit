@@ -155,6 +155,7 @@ export function buildReviewerPrompt(
     '  - an actual API response body you observed.',
     '  A prose claim with no artifact behind it = FAIL for that criterion. Restating the worker\'s summary is not evidence.',
     '- **Mechanism-fallback for `method:browser` VISUAL/LAYOUT criteria (applies to UI PRs too):** when a `browser` criterion\'s screenshot/preview artifact is genuinely UNOBTAINABLE in your environment — the worker had no Playwright AND you cannot stand up a seeded/authed preview that actually exhibits the required state — do NOT auto-fail solely for the missing screenshot. Instead verify by MECHANISM: read the governing CSS/DOM at `file:line` and decide whether it structurally satisfies the criterion (e.g. `height:100dvh` + portal-to-body makes a drawer\'s height independent of list length). Grade PASS or FAIL on that mechanism evidence and label the line `verified by mechanism (browser not driven: <one-line why>)`. This fallback is ONLY for visual/layout criteria whose satisfaction is fully determined by readable code — a FUNCTIONAL claim you cannot exercise end-to-end (a flow genuinely works) still DEFAULTS to fail.',
+    '- **When your own re-run CONTRADICTS a runtime result the worker pasted (a live DB count, a test summary, an API body), classify the contradiction before you name it — do NOT reflexively write "fabricated".** First test the MECHANISM on the GRADED ref: is there a code/data path that could have produced the worker\'s pasted value? (a) If NO — the branch cannot produce it (e.g. the migration on the branch has no `INSERT`, so a claimed 824,018-row backfill is impossible) — it IS fabrication: fail and say so. (b) If YES — the worker\'s run was genuine and only the environment/data has since diverged — do NOT accuse fabrication. This still does not PASS (you cannot verify it here), but record the criterion `[FAIL]` (or `[BLOCKED]` if truly unverifiable) labelled `not reproducible in graded env (drift | parity): <one line>` and frame remediation as re-capture-in-the-graded-environment, not dishonesty. Drift = volatile rows changed between the worker\'s test-time and review-time (a since-deleted membership, a wiped table the worker legitimately queried earlier); parity = the graded env differs from the worktree (node/module resolution, seeded data, missing preview). A worker\'s timestamp that matches a real `tool_result` in its transcript is evidence the run happened; a mechanism that makes the value impossible is evidence it did not. Only the latter is fabrication.',
     '- Do not invent reasons to pass. If you find yourself reaching for an excuse to mark something passed, mark it failed.',
   ].join('\n')
 
@@ -242,7 +243,7 @@ export function buildReviewerPrompt(
         `    ${previewBaseUrl}`,
         '',
         'Seeded login (present in every preview DB):',
-        '- username: `admin`',
+        '- username: `mike`',
         '- password: `changeme`',
         '',
         'Your verdict MUST be grounded in what you OBSERVE in the running browser, not in reading the source diff.',
@@ -267,7 +268,7 @@ export function buildReviewerPrompt(
         '',
         '<criteria_results>',
         '[',
-        '  {"id":"login","criterion":"User can log in with seeded creds","status":"pass","severity":"critical","repro":"navigate to preview, enter admin/changeme, submit","expected":"board loads","actual":"board loaded"},',
+        '  {"id":"login","criterion":"User can log in with seeded creds","status":"pass","severity":"critical","repro":"navigate to preview, enter mike/changeme, submit","expected":"board loads","actual":"board loaded"},',
         '  {"id":"create-objective","criterion":"User can create an objective via the UI","status":"fail","severity":"major","repro":"click New Objective, fill title, submit","expected":"card appears on board","actual":"500 error toast"}',
         ']',
         '</criteria_results>',

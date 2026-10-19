@@ -193,6 +193,7 @@ router.post('/accounts/:id/connect/start', async (req: AuthRequest, res) => {
   let themeDone = false      // "Choose the text style" theme picker (fresh dirs)
   let apiKeyDone = false     // "Detected a custom API key … use this API key?" (default No)
   let bypassDone = false     // "Bypass Permissions" responsibility prompt
+  let autoModeDone = false   // v2.1.235+ "Make auto mode your default permission mode?" prompt
   let loginTyped = false     // typed /login on an already-onboarded main prompt
   let methodPicked = false   // "Select login method" → subscription (default)
 
@@ -216,6 +217,13 @@ router.post('/accounts/:id/connect/start', async (req: AuthRequest, res) => {
     if (!bypassDone && /Yes, I accept|accept all responsibility/i.test(p)) {
       tmuxKeys(tmuxName, 'Down'); await sleep(300); tmuxKeys(tmuxName, 'Enter')
       bypassDone = true; await sleep(1500); continue
+    }
+    // First-run (Claude Code v2.1.235+): "Make auto mode your default permission
+    // mode?" onboarding prompt. Absent when this driver was written; an unhandled
+    // screen here stalls the whole drive so no OAuth URL is ever produced. Accept
+    // the highlighted default (Enter) to dismiss it and continue toward /login.
+    if (!autoModeDone && /auto mode your default permission mode|set auto mode as my default/i.test(p)) {
+      tmuxKeys(tmuxName, 'Enter'); autoModeDone = true; await sleep(1200); continue
     }
     // "Select login method" menu — subscription is the default (Enter).
     if (!methodPicked && /Select login method/i.test(p)) {

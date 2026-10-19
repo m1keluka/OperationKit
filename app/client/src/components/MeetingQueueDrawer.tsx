@@ -21,15 +21,13 @@ const WORKSPACE_BADGE: Record<string, string> = {
   example: 'bg-status-working/20 text-status-working',
   'example-project': 'bg-green-500/20 text-green-400',
   example2: 'bg-amber-500/20 text-amber-400',
-  'example-shop': 'bg-teal-500/20 text-teal-400',
   personal: 'bg-surface-3/20 text-fg-2',
 }
 
 const WORKSPACE_LABEL: Record<string, string> = {
   example: 'Example',
   'example-project': 'Example Project',
-  example2: 'Example3',
-  'example-shop': 'Example Shop',
+  example2: 'Example Two',
   personal: 'Personal',
 }
 

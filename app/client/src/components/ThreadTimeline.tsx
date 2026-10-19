@@ -103,7 +103,7 @@ function Divider({ seg }: { seg: Extract<ThreadSegment, { type: 'divider' }> }) 
       </div>
     )
   }
-  // A user message Operator typed into the thread — render it visibly (right-aligned,
+  // A user message Mike typed into the thread — render it visibly (right-aligned,
   // matching the followup bubble in GroupedMessages).
   return (
     <div className="my-1 flex justify-end">
