@@ -610,7 +610,7 @@ describe('runDevFeedbackBridge — cross-instance isolation', () => {
       const res = await runDevFeedbackBridge({ ...EXAMPLE2_ENV, ...WS_ENV })
       expect(res.ok).toBe(true)
       const rows = getDb().prepare(`SELECT id, dev_feedback_source, workspace FROM objectives WHERE dev_feedback_uuid = ? ORDER BY dev_feedback_source`).all(shared) as any[]
-      expect(rows.map((r) => [r.dev_feedback_source, r.workspace])).toEqual([['example2', 'example2'], ['example-project', 'example-project']])
+      expect(rows.map((r) => [r.dev_feedback_source, r.workspace])).toEqual([['example-project', 'example-project'], ['example2', 'example2']])
       // Platforms now have cc_objective_id → nothing pending. Move both to review;
       // a second run must push each only to its own platform.
       for (const k of Object.keys(pending)) pending[k] = []
