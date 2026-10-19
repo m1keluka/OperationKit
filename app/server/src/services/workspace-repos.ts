@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js'
-import type { WorkspaceRepo } from '@command-center/shared'
+import type { WorkspaceRepo } from '@operationkit/shared'
 
 interface WorkspaceRepoRow {
   id: number

@@ -1,7 +1,7 @@
 /**
  * Secrets table row — extracted from SecretsPage.tsx (behavior frozen).
  */
-import type { SecretSummary } from '@command-center/shared'
+import type { SecretSummary } from '@operationkit/shared'
 import {
   BADGE_BASE, MASK, SCOPE_HINTS, SCOPE_TONES, scopeBadgeLabel,
 } from './scope'

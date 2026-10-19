@@ -1,4 +1,4 @@
-import type { SessionMessage, ThreadSegment } from '@command-center/shared'
+import type { SessionMessage, ThreadSegment } from '@operationkit/shared'
 
 // The trailing gap of an active session is auto-expanded by the UI and
 // re-fetched every poll (see ThreadTimeline's trailingLiveKey). Cap how many of

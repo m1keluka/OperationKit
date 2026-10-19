@@ -23,7 +23,8 @@ import {
   routinesHealth,
   type RoutineRow,
 } from '../services/routine-scheduler.js'
-import { ASSISTANT_DIR } from '../config.js'
+import { ASSISTANT_DIR, AI_WORKSPACE_DIR, SECOND_BRAIN_DIR, SKILLS_DIR } from '../config.js'
+import { resolveAssistantPersona } from '../services/assistant-persona.js'
 import { getSkillGraph } from '../services/skill-graph.js'
 
 const router = Router()
@@ -65,15 +66,23 @@ router.post('/assistant/ingest', async (req: AuthRequest, res) => {
     return
   }
 
+  // Persona comes from the agent registry (ASSISTANT_AGENT_SLUG), not a hardcoded
+  // `assistant` slug or a hardcoded persona-file path (obj 709956, Phase 4). A
+  // blank-slate install has no such row, so ingest falls back to generic wording
+  // rather than pointing at a persona file that does not exist.
+  const persona = resolveAssistantPersona()
+  const loopsPath = `${ASSISTANT_DIR}/loops.md`
   const ingestPrompt = [
-    "You are Operator's personal assistant. Read ~/ai-workspace/agents/assistant.md for your full instructions.",
-    "Read ~/ai-workspace/skills/loop-tracker/SKILL.md for loop management rules.",
-    "Read /home/operator/assistant/loops.md for current open loops.",
+    persona?.manualPath
+      ? `You are the ${persona.label} persona. Read ${persona.manualPath} for your full instructions.`
+      : "You are the operator's personal assistant, handling capture-and-file for them.",
+    `Read ${SKILLS_DIR}/loop-tracker/SKILL.md for loop management rules.`,
+    `Read ${loopsPath} for current open loops.`,
     "",
-    "Operator is pasting content for ingestion from the Command Center UI.",
+    "The operator is pasting content for ingestion from the Command Center UI.",
     "Process this content:",
-    "1. Extract any knowledge, insights, or reference material and add it to the vault at ~/second-brain/ following the vault schema",
-    "2. Identify any action items, ideas, decisions, or follow-ups and create loops in /home/operator/assistant/loops.md",
+    `1. Extract any knowledge, insights, or reference material and add it to the vault at ${SECOND_BRAIN_DIR}/ following the vault schema`,
+    `2. Identify any action items, ideas, decisions, or follow-ups and create loops in ${loopsPath}`,
     "3. Do NOT create loops for items that already exist as open loops",
     "4. Do NOT create loops for Command Center board objectives",
     "",
@@ -91,7 +100,7 @@ router.post('/assistant/ingest', async (req: AuthRequest, res) => {
 
   try {
     const proc = spawn('su', ['-s', '/bin/bash', 'ccuser', '-c',
-      `export HOME=${account.homeDir} && cd /home/operator/ai-workspace && claude -p "$(cat ${tmpFile})" --dangerously-skip-permissions --output-format stream-json --verbose`
+      `export HOME=${account.homeDir} && cd ${AI_WORKSPACE_DIR} && claude -p "$(cat ${tmpFile})" --dangerously-skip-permissions --output-format stream-json --verbose`
     ], {
       env: { ...process.env, HOME: account.homeDir, USER: 'ccuser', TERM: 'dumb' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -265,7 +274,7 @@ router.post('/routines/:id/run-now', async (req: AuthRequest, res) => {
 
 // ── Strategy nodes + Strategy-owned Jobs authoring (obj 2384) ────────────────
 // A Strategy is a delegate_mode objective (the top orchestrator tier). These two
-// routes let Operator (a) pick an existing strategy and (b) author a recurring
+// routes let Mike (a) pick an existing strategy and (b) author a recurring
 // research Job under a strategy from the UI — translating a friendly cadence into
 // a cron and a prompt into the routine's objective_template, so nobody hand-writes
 // cron/JSON. The routine is linked via routines.strategy_objective_id, so its runs
@@ -372,11 +381,11 @@ router.post('/strategy-jobs', (req: AuthRequest, res) => {
         strategyId = existing.id
       } else if (b.strategy_title?.trim()) {
         // Created in 'review' (human-owned), NOT 'queue': a brand-new strategy is
-        // a holder/steerer that Operator activates when ready. fireWake skips delegators
+        // a holder/steerer that Mike activates when ready. fireWake skips delegators
         // parked in 'review', so the existing (non-flag-gated) reconcile wake fabric
         // will NOT auto-spawn a session for it just because a routine run completed
         // under it while CC_STRATEGY_TIER is off. The run-summary still feeds back
-        // into its NOTES.md (append path bypasses fireWake). Operator starts it to engage
+        // into its NOTES.md (append path bypasses fireWake). Mike starts it to engage
         // autonomy.
         const r = db.prepare(
           `INSERT INTO objectives

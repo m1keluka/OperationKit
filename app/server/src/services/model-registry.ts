@@ -7,7 +7,7 @@
 // registry exists: a model can now be toggled off without a code change.
 // Table + first-seed/cutover migration live in db/index.ts.
 import { getDb } from '../db/index.js'
-import type { ModelRow, ModelEngine } from '@command-center/shared'
+import type { ModelRow, ModelEngine } from '@operationkit/shared'
 
 // Safety floor used only if the registry has no default row (should never
 // happen — the seed guarantees one). Opus 4.8 is the strongest live model.
@@ -52,7 +52,7 @@ export function getDefaultModelId(): string {
 }
 
 /** Cheaper model for grunt workers (tasks/bugs without a PR, not delegators). */
-export const GRUNT_WORKER_MODEL_ID = 'claude-sonnet-4-6'
+export const GRUNT_WORKER_MODEL_ID = 'claude-sonnet-5'
 
 export function getGruntModelId(): string {
   const row = getDb()

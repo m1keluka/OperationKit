@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { groupObjectives } from './groupObjectives'
 
 // Minimal Objective factory — only the fields groupObjectives reads matter.

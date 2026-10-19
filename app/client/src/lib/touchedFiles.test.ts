@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { filesFromIntel, mergeAttachments, type TouchedFile } from './touchedFiles'
-import type { SessionIntel } from '@command-center/shared'
+import type { SessionIntel } from '@operationkit/shared'
 
 function intel(over: Partial<SessionIntel> & Pick<SessionIntel, 'session_id'>): SessionIntel {
   return {

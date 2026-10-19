@@ -22,7 +22,7 @@
 import fs from 'fs'
 import path from 'path'
 import { execFileSync } from 'child_process'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import {
   buildDesignContextBlock,
   isUiObjective,
@@ -372,10 +372,10 @@ export interface R9Result {
 
 function conformanceScriptPath(): string {
   // Resolve via PROJECTS_DIR (the codebase's path convention — no __dirname under ESM).
-  // The shipped R9 linter lives in the command-center-infra checkout's scripts/ dir.
+  // The shipped R9 linter lives in the operationkit checkout's scripts/ dir.
   // Overridable by UI_CONFORMANCE_SCRIPT (used by tests / alternate deployments).
   if (process.env.UI_CONFORMANCE_SCRIPT) return process.env.UI_CONFORMANCE_SCRIPT
-  return path.join(PROJECTS_DIR, 'command-center-infra', 'scripts', 'ui-conformance.sh')
+  return path.join(PROJECTS_DIR, 'operationkit', 'scripts', 'ui-conformance.sh')
 }
 
 /**

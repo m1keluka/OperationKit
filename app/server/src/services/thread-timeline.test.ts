@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { SessionMessage } from '@command-center/shared'
+import type { SessionMessage } from '@operationkit/shared'
 import { buildThreadTimeline, buildThreadTimelineCached, evictTimelineCache } from './thread-timeline.js'
 
 // Builds a SessionMessage of a given kind with minimal fields. Timestamps are
@@ -86,7 +86,7 @@ describe('buildThreadTimeline', () => {
     const messages: SessionMessage[] = [
       tool(),
       { type: 'result', text: 'first', cost: 1, duration: 1, timestamp: 'tr1' },
-      { type: 'followup', text: 'Operator: keep going on the spreadsheet', timestamp: 'tf-human' },
+      { type: 'followup', text: 'Mike: keep going on the spreadsheet', timestamp: 'tf-human' },
       tool(),
       { type: 'result', text: 'second', cost: 1, duration: 1, timestamp: 'tr2' },
       { type: 'followup', text: '[child-complete] One or more of your worker objectives has finished.', timestamp: 'tf-child' },

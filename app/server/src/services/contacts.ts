@@ -193,7 +193,7 @@ const CONTACT_DIRS = [
   'personal/contacts',
   'workspaces/example/contacts',
   'workspaces/example-project/contacts',
-  'workspaces/personal/contacts',
+  'workspaces/operator/contacts',
   'workspaces/personal/contacts',
 ]
 
@@ -520,7 +520,7 @@ export function splitContactFile(content: string): { frontmatter: Frontmatter; b
 
 export interface CreateContactInput {
   name: string
-  workspace?: string                  // 'example' | 'example-project' | 'personal' | 'personal'
+  workspace?: string                  // 'example' | 'example-project' | 'operator' | 'personal'
   email?: string | null
   phone?: string | null
   company?: string | null
@@ -699,7 +699,7 @@ const EXTRACT_SYSTEM = [
   '',
   'Output JSON ONLY with this shape:',
   '{',
-  '  "creates": [{"name": "...", "workspace": "example|example-project|personal|personal",',
+  '  "creates": [{"name": "...", "workspace": "example|example-project|operator|personal",',
   '               "vault_path": "workspaces/<ws>/contacts/<slug>.md OR personal/contacts/<slug>.md",',
   '               "frontmatter": {"email": "...", "phone": "...", "company": "...", "role": "...",',
   '                              "tags": ["..."], "follow_up_days": 30, "last_interaction": "YYYY-MM-DD",',
@@ -714,7 +714,7 @@ const EXTRACT_SYSTEM = [
   'Rules:',
   '- If the extracted person matches a known contact by name or email, emit an UPDATE — never a duplicate create.',
   '- Vault paths for new contacts must be slug-cased and end in .md.',
-  '- Workspace heuristic: business contacts mentioned alongside Example/clients → example; example-project → example-project; cross-personal → personal; default personal.',
+  '- Workspace heuristic: business contacts mentioned alongside Example/clients → example; example-project → example-project; cross-personal → personal; default operator.',
   '- Set confidence=low when only a name is mentioned, high when email/phone/role are confirmed.',
   '- Never invent emails or phone numbers.',
   '- Return {} for creates/updates if no people are found.',

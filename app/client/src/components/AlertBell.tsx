@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { Alert } from '@command-center/shared'
+import type { Alert } from '@operationkit/shared'
 import { api } from '../lib/api'
 
 const POLL_INTERVAL_MS = 30_000

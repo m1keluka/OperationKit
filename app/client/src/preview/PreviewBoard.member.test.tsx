@@ -14,7 +14,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
-import type { User, Workspace } from '@command-center/shared'
+import type { User, Workspace } from '@operationkit/shared'
 
 async function flush() {
   for (let i = 0; i < 6; i++) {
@@ -151,7 +151,7 @@ describe('PreviewBoard — PROJECT row visibility (obj 708893)', () => {
 
   it('PROJECT row is hidden for admin in All-orgs view (workspaces=[])', async () => {
     mockUser = {
-      id: 1, username: 'admin', role: 'admin',
+      id: 1, username: 'mike', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }
@@ -162,7 +162,7 @@ describe('PreviewBoard — PROJECT row visibility (obj 708893)', () => {
 
   it('PROJECT row is hidden in genuine multi-org view (workspaces has 2)', async () => {
     mockUser = {
-      id: 1, username: 'admin', role: 'admin',
+      id: 1, username: 'mike', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }

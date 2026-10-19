@@ -6,7 +6,7 @@ import { Router } from 'express'
 import { getDb, resolveStrategyId } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
 import { getDefaultModelId } from '../services/model-registry.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { parsePrNumberFromUrl } from '../services/pr-url.js'
 import { upsertObjectivePR } from '../services/objective-prs.js'
 import { enqueuePreviewDeploy, kickHostDrain } from '../services/preview-spool.js'
@@ -17,7 +17,7 @@ export function registerInternalPreviewRoutes(router: Router): void {
 // Caddy on-demand TLS check — validates preview subdomains
 router.get('/check-preview', (req, res) => {
   const domain = req.query.domain as string
-  if (domain?.match(/^pr-\d+\.cc.example.com$/)) {
+  if (domain?.match(/^pr-\d+\.ai\.example\.com$/)) {
     res.status(200).end()
   } else {
     res.status(404).end()

@@ -1,5 +1,5 @@
 {
-  "name": "@command-center/shared",
+  "name": "@operationkit/shared",
   "version": "0.0.1",
   "private": true,
   "type": "module",

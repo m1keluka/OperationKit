@@ -6,7 +6,7 @@ import {
   type ObjectiveVisibility,
   type UserRole,
   type WorkspaceMembership,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import {
   archiveWorkspace,
   createWorkspace,
@@ -28,7 +28,8 @@ import {
   listGithubOrgRepos,
   listIntegrations,
 } from '../services/workspace-integrations.js'
-import type { IntegrationKind } from '@command-center/shared'
+import { listPosthogBotDevItems } from '../services/dev-items.js'
+import type { IntegrationKind } from '@operationkit/shared'
 
 const router = Router()
 router.use(requireAuth, requireAdmin)
@@ -327,7 +328,7 @@ interface MembershipRow {
   username: string
   workspace: string
   role: UserRole
-  can_use_jarvis: number
+  can_use_assistant: number
   objective_visibility: string
 }
 
@@ -337,7 +338,7 @@ function rowToMembership(row: MembershipRow): WorkspaceMembership {
     username: row.username,
     workspace: row.workspace,
     role: row.role,
-    can_use_jarvis: !!row.can_use_jarvis,
+    can_use_assistant: !!row.can_use_assistant,
     objective_visibility: row.objective_visibility === 'all' ? 'all' : 'own',
   }
 }
@@ -353,7 +354,7 @@ router.get('/:workspace/users', (req: AuthRequest, res) => {
   const rows = db
     .prepare(
       `SELECT uw.user_id, u.username, uw.workspace, uw.role,
-              uw.can_use_jarvis, uw.objective_visibility
+              uw.can_use_assistant, uw.objective_visibility
        FROM user_workspaces uw
        JOIN users u ON u.id = uw.user_id
        WHERE uw.workspace = ?
@@ -364,7 +365,7 @@ router.get('/:workspace/users', (req: AuthRequest, res) => {
 })
 
 // POST /api/admin/workspaces/:workspace/users
-// body: { user_id, role?, can_use_jarvis?, objective_visibility? }
+// body: { user_id, role?, can_use_assistant?, objective_visibility? }
 router.post('/:workspace/users', (req: AuthRequest, res) => {
   const workspace = req.params.workspace
   if (!isValidWorkspace(workspace)) {
@@ -372,7 +373,7 @@ router.post('/:workspace/users', (req: AuthRequest, res) => {
     return
   }
   const body = req.body as GrantWorkspaceRequest
-  const { user_id, role = 'member', can_use_jarvis, objective_visibility } = body
+  const { user_id, role = 'member', can_use_assistant, objective_visibility } = body
   if (!user_id || typeof user_id !== 'number') {
     res.status(400).json({ error: 'user_id (number) required' })
     return
@@ -399,26 +400,26 @@ router.post('/:workspace/users', (req: AuthRequest, res) => {
   // Pull existing row (if any) so we can preserve fields the caller omits.
   const existing = db
     .prepare(
-      `SELECT role, can_use_jarvis, objective_visibility
+      `SELECT role, can_use_assistant, objective_visibility
        FROM user_workspaces WHERE user_id = ? AND workspace = ?`
     )
     .get(user_id, workspace) as
-      | { role: UserRole; can_use_jarvis: number; objective_visibility: string }
+      | { role: UserRole; can_use_assistant: number; objective_visibility: string }
       | undefined
 
   const finalRole = role
-  const finalJarvis =
-    can_use_jarvis !== undefined ? (can_use_jarvis ? 1 : 0) : existing ? existing.can_use_jarvis : 1
+  const finalAssistant =
+    can_use_assistant !== undefined ? (can_use_assistant ? 1 : 0) : existing ? existing.can_use_assistant : 1
   const finalVisibility = visibility ?? (existing?.objective_visibility === 'all' ? 'all' : 'own')
 
   db.prepare(
-    `INSERT INTO user_workspaces (user_id, workspace, role, can_use_jarvis, objective_visibility)
+    `INSERT INTO user_workspaces (user_id, workspace, role, can_use_assistant, objective_visibility)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(user_id, workspace) DO UPDATE SET
        role = excluded.role,
-       can_use_jarvis = excluded.can_use_jarvis,
+       can_use_assistant = excluded.can_use_assistant,
        objective_visibility = excluded.objective_visibility`
-  ).run(user_id, workspace, finalRole, finalJarvis, finalVisibility)
+  ).run(user_id, workspace, finalRole, finalAssistant, finalVisibility)
 
   const username = (db.prepare('SELECT username FROM users WHERE id = ?').get(user_id) as { username: string }).username
   const membership: WorkspaceMembership = {
@@ -426,7 +427,7 @@ router.post('/:workspace/users', (req: AuthRequest, res) => {
     username,
     workspace,
     role: finalRole,
-    can_use_jarvis: !!finalJarvis,
+    can_use_assistant: !!finalAssistant,
     objective_visibility: finalVisibility,
   }
   res.status(201).json(membership)
@@ -454,6 +455,18 @@ router.delete('/:workspace/users/:user_id', (req: AuthRequest, res) => {
     return
   }
   res.json({ ok: true })
+})
+
+// GET /api/admin/workspaces/posthog-bot-prs — list dev_items discovered by
+// the posthog-bot sweep, optionally filtered by workspace.
+router.get('/posthog-bot-prs', (req: AuthRequest, res) => {
+  const ws = typeof req.query.workspace === 'string' ? req.query.workspace.trim() : null
+  try {
+    const items = listPosthogBotDevItems(ws)
+    res.json({ items })
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' })
+  }
 })
 
 export default router

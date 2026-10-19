@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { laneOf } from './JobsBoard'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Lane derivation is the heart of the Jobs board: a "job" (routine-spawned
 // objective) lands in Running while in flight, then in Needs Review or Complete

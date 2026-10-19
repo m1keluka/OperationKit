@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
-import type { ServerMessage, ClientMessage } from '@command-center/shared'
+import type { ServerMessage, ClientMessage } from '@operationkit/shared'
 
 type MessageHandler = (msg: ServerMessage) => void
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'

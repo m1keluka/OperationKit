@@ -5,7 +5,7 @@ import {
   type Objective,
   type ObjectiveStatus,
   type Workspace,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { useObjectives } from '../hooks/useObjectives'
 import { useIsBoardMobile } from '../hooks/useMediaQuery'
 import { boardColumnOf, orderBoardColumns } from '../lib/boardColumns'
@@ -564,6 +564,7 @@ export function KanbanBoard({ workspaces }: KanbanBoardProps) {
             onChangeStatus={handleChangeStatus}
             pendingId={pendingStatusId}
             childrenByParent={childrenByParent}
+            showOrgChip={workspaces.length !== 1}
             {...(status === 'done' ? {
               lazyLoaded: doneLoaded,
               lazyLoading: doneLoading,

@@ -17,7 +17,7 @@
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useConfirm } from './ui'
-import type { UserGithubTokenSummary } from '@command-center/shared'
+import type { UserGithubTokenSummary } from '@operationkit/shared'
 import { ApiKeySection } from './account-settings/ApiKeySection'
 import { GithubSection } from './account-settings/GithubSection'
 import { GoogleWorkspaceSection } from './account-settings/GoogleWorkspaceSection'

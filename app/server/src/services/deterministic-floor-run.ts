@@ -31,7 +31,7 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
 import type { Database } from 'better-sqlite3'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 export interface FloorConfig {
   /** Must be true for the floor to run; mirrors the per-project opt-in. */

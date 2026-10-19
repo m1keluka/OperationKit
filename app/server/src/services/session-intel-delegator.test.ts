@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildSummaryPrompt, coerceSummary } from './session-intel-summary.js'
 import type { DeterministicIntel } from './session-intel-parse.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Regression coverage for the 2026-08-09 distill finding (obj 705171): session_intel
 // mislabelled healthy delegate_mode wakes. Two effects, both fixed here:
@@ -64,7 +64,7 @@ describe('coerceSummary — delegator wakes are not defaulted to partial', () =>
 
   it('an explicit outcome from the model always wins over the delegator default', () => {
     const blocked = coerceSummary(
-      { summary: 'Waiting on Operator for the commission tranche rule.', outcome: 'blocked' },
+      { summary: 'Waiting on Mike for the commission tranche rule.', outcome: 'blocked' },
       false,
       true
     )

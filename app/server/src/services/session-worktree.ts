@@ -5,7 +5,7 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { resolveWorkdir } from './prompt-builder.js'
 import { deriveBranchName } from './branch-scope.js'
@@ -122,7 +122,7 @@ export function isGitRepo(dir: string): boolean {
 }
 
 export function ensureWorktree(objective: Objective, branchName: string): string | null {
-  // Guarantees git safe.directory is configured (root operating on admin-owned
+  // Guarantees git safe.directory is configured (root operating on mike-owned
   // repos) before any `git -C` below — independent of spawn-path call ordering.
   // ensureUser is guarded (userSetup), so this is a no-op after first run.
   try { execSync(`git config --global --add safe.directory '*'`, { timeout: 5000 }) } catch {}

@@ -1,4 +1,4 @@
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 export interface GroupedObjectives {
   /** parent objective id → its child objectives (sorted by id ascending). */
@@ -13,7 +13,7 @@ export interface GroupedObjectives {
  * floating as a duplicate top-level card.
  *
  * This covers both delegator workers (parent runs delegate_mode) AND auto-created
- * PR `[Review]`/adversarial children (parent is a normal objective). Operator's board
+ * PR `[Review]`/adversarial children (parent is a normal objective). Mike's board
  * should show one card per piece of work, not a separate review card per objective.
  *
  * Guard: a child is only nested when its parent is in view. Orphaned children

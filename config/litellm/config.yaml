@@ -1,0 +1,138 @@
+# LiteLLM Proxy Configuration — OSS TEMPLATE
+#
+# This file is the PUBLIC default for `config/litellm/config.yaml`. The OSS sync
+# pipeline strips the whole private `config/` tree (host-specific coordinates live in
+# config/caddy and config/systemd) and then copies THIS file into the assembled
+# tree at config/litellm/config.yaml, so the published `docker compose` bind-mount
+# resolves instead of failing on a missing path.
+#
+# Every credential is read from the environment — nothing here is a secret:
+#   ANTHROPIC_API_KEY, GEMINI_API_KEY, LITELLM_MASTER_KEY, DATABASE_URL
+#   GPU_OLLAMA_URL (optional; defaults to http://ollama:11434)
+#
+# Model groups with priority-based fallback chains. order: 1 = tried first.
+
+model_list:
+  # ──────────────────────────────────────────────
+  # ORCHESTRATOR: strategic reasoning, task delegation
+  # Claude Opus → Claude Sonnet
+  # ──────────────────────────────────────────────
+  - model_name: orchestrator
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 1
+  - model_name: orchestrator
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
+
+  # ──────────────────────────────────────────────
+  # RESEARCH: enrichment, large-context analysis
+  # Gemini Flash → Claude Sonnet
+  # ──────────────────────────────────────────────
+  - model_name: research
+    litellm_params:
+      model: gemini/gemini-2.0-flash
+      api_key: os.environ/GEMINI_API_KEY
+      order: 1
+  - model_name: research
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
+
+  # ──────────────────────────────────────────────
+  # CODE: code generation, data processing
+  # Local Ollama model (optional) → Claude Sonnet → Claude Opus
+  # ──────────────────────────────────────────────
+  - model_name: code
+    litellm_params:
+      model: ollama_chat/qwen3:32b
+      api_base: ${GPU_OLLAMA_URL:-http://ollama:11434}
+      order: 1
+  - model_name: code
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
+  - model_name: code
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 3
+
+  # ──────────────────────────────────────────────
+  # WRITING: copy, outreach, tone-sensitive content
+  # Claude Sonnet → Claude Opus
+  # ──────────────────────────────────────────────
+  - model_name: writing
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 1
+  - model_name: writing
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
+
+  # ──────────────────────────────────────────────
+  # REASONING: deep analysis, QA, complex decisions
+  # Claude Opus
+  # ──────────────────────────────────────────────
+  - model_name: reasoning
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 1
+
+  # ──────────────────────────────────────────────
+  # ASSISTANT: always-on orchestration agent
+  # Opus primary, Sonnet fallback
+  # ──────────────────────────────────────────────
+  - model_name: assistant
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 1
+  - model_name: assistant
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  timeout: 120
+  allowed_fails: 3
+  cooldown_time: 60
+  max_fallbacks: 5
+  retry_policy:
+    AuthenticationErrorRetries: 0
+    BadRequestErrorRetries: 0
+    ContentPolicyViolationErrorRetries: 0
+    InternalServerErrorRetries: 2
+    RateLimitErrorRetries: 3
+    TimeoutErrorRetries: 2
+  fallbacks:
+    - orchestrator: ["orchestrator"]
+    - research: ["research"]
+    - code: ["code"]
+    - writing: ["writing"]
+    - reasoning: ["reasoning"]
+    - assistant: ["assistant"]
+
+litellm_settings:
+  drop_params: true
+  num_retries: 3
+  request_timeout: 120
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  max_budget: 500
+  budget_duration: 30d
+  store_prompts_in_spend_logs: false

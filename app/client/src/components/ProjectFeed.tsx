@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { ActivityEvent, ServerMessage, Workspace } from '@command-center/shared'
+import type { ActivityEvent, ServerMessage, Workspace } from '@operationkit/shared'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { api } from '../lib/api'
 

@@ -13,7 +13,7 @@ async function flush() {
   flushSync(() => {})
   await Promise.resolve()
 }
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // obj 700128 — prove ObjectiveModal is memoized so board-level WebSocket
 // broadcasts (which re-render KanbanBoard every few seconds while live sessions
@@ -31,15 +31,15 @@ import type { Objective } from '@command-center/shared'
 const { PROJECTS } = vi.hoisted(() => ({ PROJECTS: [] as Array<Record<string, unknown>> }))
 
 const { useAuthSpy } = vi.hoisted(() => ({
-  useAuthSpy: vi.fn(() => ({ user: { id: 1, role: 'admin', username: 'admin' } })),
+  useAuthSpy: vi.fn(() => ({ user: { id: 1, role: 'admin', username: 'mike' } })),
 }))
 
 vi.mock('../context/AuthContext', () => ({ useAuth: () => useAuthSpy() }))
 
 vi.mock('../hooks/useWorkspaces', () => ({
   useWorkspaces: () => ({
-    slugs: ['example'],
-    labelOf: (s: string) => s,
+    slugs: ['example', 'example-project'],
+    labelOf: (s: string) => s === 'example-project' ? 'Example Project' : s,
     agentPoolOf: () => [],
   }),
 }))
@@ -90,13 +90,13 @@ const onDelete = vi.fn(() => Promise.resolve())
 
 let forceParentRender: () => void = () => {}
 
-function Harness({ objective }: { objective: Objective | null }) {
+function Harness({ objective, workspace = 'example' }: { objective: Objective | null; workspace?: string }) {
   const [, setTick] = useState(0)
   forceParentRender = () => setTick(t => t + 1)
   return (
     <ObjectiveModal
       objective={objective}
-      workspace="example"
+      workspace={workspace}
       onClose={onClose}
       onCreate={onCreate}
       onUpdate={onUpdate}
@@ -167,8 +167,8 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
     root = createRoot(container)
   })
 
-  async function mount(objective: Objective | null) {
-    flushSync(() => root.render(<Harness objective={objective} />))
+  async function mount(objective: Objective | null, workspace?: string) {
+    flushSync(() => root.render(<Harness objective={objective} workspace={workspace} />))
     await flush()
     return container.querySelector('[role="dialog"]') as HTMLElement
   }
@@ -207,7 +207,7 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
       const dialog = await mount(null)
       expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(0)
     } finally {
-      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'admin' } }))
+      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'mike' } }))
     }
   })
 
@@ -231,7 +231,7 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
 
   it('submits project_id (not the repo-link project) when a project is selected', async () => {
     PROJECTS.splice(0, PROJECTS.length,
-      { id: 7, workspace: 'example', name: 'Data Sourcing', description: null, color: null, sort_order: 0, archived: false, created_at: '', updated_at: '' },
+      { id: 7, workspace: 'example', name: 'Designer', description: null, color: null, sort_order: 0, archived: false, created_at: '', updated_at: '' },
     )
     try {
       const dialog = await mount(null)
@@ -264,5 +264,188 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
     const dialog = await mount(SAMPLE_OBJECTIVE)
     expect(dialog.textContent).toContain('Edit Objective')
     expect(dialog.querySelectorAll('textarea')).toHaveLength(2)
+  })
+
+  it('does not default Organization to Example on the All-orgs board', async () => {
+    const dialog = await mount(null, 'all')
+    const orgSelect = [...dialog.querySelectorAll('select')].find(s =>
+      [...s.options].some(o => o.value === 'example-project'),
+    ) as HTMLSelectElement
+    expect(orgSelect).toBeTruthy()
+    expect(orgSelect.value).toBe('')
+    expect([...orgSelect.options].map(o => o.textContent)).toContain('Select organization…')
+    expect([...orgSelect.options].map(o => o.textContent)).toContain('Example Project')
+  })
+
+  it('refuses to create from All orgs until an organization is picked', async () => {
+    const dialog = await mount(null, 'all')
+    const title = dialog.querySelector('textarea') as HTMLTextAreaElement
+    setNativeValue(title, 'MFG delete messages')
+    flushSync(() => title.dispatchEvent(new Event('input', { bubbles: true })))
+
+    const form = dialog.querySelector('form') as HTMLFormElement
+    flushSync(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await flush()
+
+    expect(onCreate).not.toHaveBeenCalled()
+    expect(dialog.textContent).toContain('Pick an organization')
+  })
+
+  it('creates into Example Project when that org is picked from All', async () => {
+    const dialog = await mount(null, 'all')
+    const title = dialog.querySelector('textarea') as HTMLTextAreaElement
+    setNativeValue(title, 'MFG delete messages')
+    flushSync(() => title.dispatchEvent(new Event('input', { bubbles: true })))
+
+    const orgSelect = [...dialog.querySelectorAll('select')].find(s =>
+      [...s.options].some(o => o.value === 'example-project'),
+    ) as HTMLSelectElement
+    setNativeSelectValue(orgSelect, 'example-project')
+    flushSync(() => orgSelect.dispatchEvent(new Event('change', { bubbles: true })))
+
+    const form = dialog.querySelector('form') as HTMLFormElement
+    flushSync(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await flush()
+
+    expect(onCreate).toHaveBeenCalledTimes(1)
+    const payload = onCreate.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.workspace).toBe('example-project')
+    expect(payload.title).toBe('MFG delete messages')
+  })
+})
+
+// ── multi-owner picker (obj 711023) ──────────────────────────────────────────
+describe('ObjectiveModal — multi-owner picker (obj 711023)', () => {
+  let container: HTMLElement
+  let root: Root
+
+  const USERS = [
+    { id: 10, username: 'alice' },
+    { id: 20, username: 'bob' },
+    { id: 30, username: 'carol' },
+  ]
+
+  beforeEach(() => {
+    onCreate.mockClear()
+    onUpdate.mockClear()
+    ;(api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === '/models') return Promise.resolve({ models: [], default: '' })
+      if (url === '/admin/users') return Promise.resolve(USERS)
+      if (url.startsWith('/projects')) return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  async function mount(objective: Objective | null, workspace = 'example') {
+    flushSync(() => root.render(<Harness objective={objective} workspace={workspace} />))
+    await flush()
+    return container.querySelector('[role="dialog"]') as HTMLElement
+  }
+
+  it('create: selecting 2 owners sends assigned_user_ids as ordered array', async () => {
+    const dialog = await mount(null)
+
+    // Pick alice then bob from the add-owner select
+    const ownerSelect = [...dialog.querySelectorAll('select')].find(s =>
+      [...s.options].some(o => o.value === '10'),
+    ) as HTMLSelectElement
+    expect(ownerSelect).toBeTruthy()
+
+    setNativeSelectValue(ownerSelect, '10')
+    flushSync(() => ownerSelect.dispatchEvent(new Event('change', { bubbles: true })))
+    await flush()
+
+    // After selecting alice, the dropdown now lists bob (alice is in chips, hidden from options)
+    const ownerSelect2 = [...dialog.querySelectorAll('select')].find(s =>
+      [...s.options].some(o => o.value === '20'),
+    ) as HTMLSelectElement
+    expect(ownerSelect2).toBeTruthy()
+    setNativeSelectValue(ownerSelect2, '20')
+    flushSync(() => ownerSelect2.dispatchEvent(new Event('change', { bubbles: true })))
+    await flush()
+
+    // Fill in title so submit passes validation
+    const title = dialog.querySelector('textarea') as HTMLTextAreaElement
+    setNativeValue(title, 'Multi-owner objective')
+    flushSync(() => title.dispatchEvent(new Event('input', { bubbles: true })))
+
+    const form = dialog.querySelector('form') as HTMLFormElement
+    flushSync(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await flush()
+
+    expect(onCreate).toHaveBeenCalledTimes(1)
+    const payload = onCreate.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.assigned_user_ids).toEqual([10, 20])
+    expect(payload).not.toHaveProperty('assigned_user_id')
+  })
+
+  it('edit: seeds from assigned_user_ids on the objective', async () => {
+    const obj = {
+      id: 99,
+      title: 'Pre-assigned obj',
+      workspace: 'example',
+      assigned_user_ids: [10, 20],
+      assigned_user_id: 10,
+    } as unknown as Objective
+
+    const dialog = await mount(obj)
+
+    // Both alice and bob should appear as chips
+    const chipText = dialog.textContent ?? ''
+    expect(chipText).toContain('alice')
+    expect(chipText).toContain('bob')
+    // First chip should show "primary" badge
+    const chips = [...dialog.querySelectorAll('[class*="rounded-full"]')]
+    expect(chips[0].textContent).toContain('primary')
+  })
+
+  it('edit: clearing all owners sends an empty array', async () => {
+    const obj = {
+      id: 99,
+      title: 'Pre-assigned obj',
+      workspace: 'example',
+      assigned_user_ids: [10],
+      assigned_user_id: 10,
+    } as unknown as Objective
+
+    const dialog = await mount(obj)
+
+    // Remove alice's chip
+    const removeBtn = dialog.querySelector('button[aria-label="Remove alice"]') as HTMLButtonElement
+    expect(removeBtn).toBeTruthy()
+    flushSync(() => removeBtn.click())
+    await flush()
+
+    const form = dialog.querySelector('form') as HTMLFormElement
+    flushSync(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await flush()
+
+    expect(onUpdate).toHaveBeenCalledTimes(1)
+    const payload = (onUpdate.mock.calls[0] as unknown[])[1] as Record<string, unknown>
+    expect(payload.assigned_user_ids).toEqual([])
+  })
+
+  it('non-admin: sends undefined for assignment (no regression)', async () => {
+    useAuthSpy.mockImplementation(() => ({ user: { id: 2, role: 'member', username: 'ava' } }))
+    try {
+      const dialog = await mount(null)
+
+      const title = dialog.querySelector('textarea') as HTMLTextAreaElement
+      setNativeValue(title, 'Member obj')
+      flushSync(() => title.dispatchEvent(new Event('input', { bubbles: true })))
+
+      const form = dialog.querySelector('form') as HTMLFormElement
+      flushSync(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+      await flush()
+
+      expect(onCreate).toHaveBeenCalledTimes(1)
+      const payload = onCreate.mock.calls[0][0] as Record<string, unknown>
+      expect(payload.assigned_user_ids).toBeUndefined()
+    } finally {
+      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'mike' } }))
+    }
   })
 })

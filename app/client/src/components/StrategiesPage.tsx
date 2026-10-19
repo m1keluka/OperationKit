@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ShieldCheck, ChevronRight } from 'lucide-react'
-import type { Objective, Workspace } from '@command-center/shared'
+import type { Objective, Workspace } from '@operationkit/shared'
 import { api } from '../lib/api'
 import { scopeObjectives } from '../lib/scopeObjectives'
 import { useNavigate } from '../context/nav'

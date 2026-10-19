@@ -8,7 +8,7 @@
  */
 import fs from 'fs'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import {
   pickAccount,
@@ -306,6 +306,7 @@ export function sendFollowUp(
   // Spawn in tmux — session survives server restarts
   const tmuxName = spawnInTmux({
     sessionId,
+    objectiveId: objective.id,
     homeDir,
     workdir,
     prompt,

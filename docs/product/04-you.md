@@ -18,7 +18,7 @@ If a card assigned to Ava used to send as Mike, the card had the wrong assignee 
 
 ## Assistant
 
-Name, system prompt, autonomy (read-only → autonomous). Jarvis reads this.
+Name, system prompt, autonomy (read-only → autonomous). Assistant reads this.
 
 ## Personal secrets
 

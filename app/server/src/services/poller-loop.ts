@@ -33,7 +33,7 @@ import {
 } from './deterministic-floor.js'
 import { heartbeatBranchLease, releaseBranchLease } from './branch-lease.js'
 import { heartbeatSessionLeasesForObjective, releaseSessionLeasesForObjective } from './session-lease.js'
-import { logObjectiveAudit } from './objective-audit.js'
+import { logObjectiveAudit, isClearDeadSessionEnabled } from './objective-audit.js'
 import { deriveBranchName } from './branch-scope.js'
 import {
   isGateRejectionMemoryEnabled,
@@ -58,8 +58,8 @@ import { skipMachineStatusWrite, runMachineStatusUpdate } from '../lib/status-lo
 import type {
   Objective,
   ObjectiveStatus,
-} from '@command-center/shared'
-import { MAX_CONCURRENT_SESSIONS } from '@command-center/shared'
+} from '@operationkit/shared'
+import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { TRANSCRIPT_DIR, WATCHDOG_IDLE_FORCE_MS, WATCHDOG_WALLCLOCK_MS } from '../config.js'
 import {
   MAX_NOOP_RESPAWNS,
@@ -238,12 +238,35 @@ export async function pollActiveSessions(): Promise<void> {
   }
 
   const db = getDb()
+
+  // Cards already at the human gate (status=review) used to stay in this
+  // select forever: getSessionState returns 'review' (not 'dead') when the
+  // jsonl has a result event, so FIX A's clear-session branch never ran.
+  // Each 3s tick then paid `tmux has-session` + a 1MB jsonl tail per row
+  // (~100 Needs-You cards on a busy board) and starved HTTP — creating an
+  // objective hung for several seconds. Drop them out of the live set first.
+  if (isClearDeadSessionEnabled()) {
+    try {
+      db.prepare(
+        `UPDATE objectives
+            SET session_id = NULL
+          WHERE status = 'review'
+            AND session_id IS NOT NULL
+            AND deleted_at IS NULL`,
+      ).run()
+    } catch (err) {
+      console.error('[state-poller] review session_id sweep failed:', err)
+    }
+  }
+
   const actives = db
-    .prepare("SELECT * FROM objectives WHERE status IN ('working', 'review') AND session_id IS NOT NULL")
+    .prepare("SELECT * FROM objectives WHERE status IN ('working', 'review') AND session_id IS NOT NULL AND deleted_at IS NULL")
     .all() as Objective[]
 
   for (const objective of actives) {
     if (!objective.session_id) continue
+    // Defense in depth: never pay tmux/jsonl for a card already at Needs You.
+    if (objective.status === 'review') continue
     // Human already clicked Done/Cancelled this tick (or earlier). Do not
     // route a dying tmux session back to Needs You / Working over that.
     if (skipMachineStatusWrite(db, objective.id)) continue
@@ -472,7 +495,12 @@ export async function pollActiveSessions(): Promise<void> {
       }
 
       // route-to-review: working→review (session died) — unchanged behavior. Audit the transition.
-      if (objective.status !== 'review') {
+      // `status === 'review'` is already `continue`d at :269, so TS has narrowed
+      // it out of the union and flags this comparison as TS2367, which fails the
+      // `typecheck` gate. (Pre-existing on main — it landed with #448.) The guard
+      // is kept: it documents the intent and is a no-op at runtime. Widened so
+      // the compiler accepts it. Type-only; no behavior change.
+      if ((objective.status as string) !== 'review') {
         logObjectiveAudit(db, {
           objectiveId: objective.id,
           eventType: 'status_change',
@@ -485,6 +513,22 @@ export async function pollActiveSessions(): Promise<void> {
           workspace: objective.workspace,
         })
       }
+      // No `status !== 'review'` guard: `decideDeadSessionRepark` returns
+      // 'clear-session' or 'skip-noop' for every already-`review` row and both
+      // branches `continue` above, so reaching here means the status is not
+      // 'review'. TypeScript proves it (the narrowed union excludes 'review'),
+      // and the guard was a compile error — TS2367 on main after #448.
+      logObjectiveAudit(db, {
+        objectiveId: objective.id,
+        eventType: 'status_change',
+        fromStatus: objective.status,
+        toStatus: 'review',
+        actor: 'state-poller',
+        pathway: 'dead-session-route-to-review',
+        sessionId: objective.session_id,
+        titleSnapshot: objective.title,
+        workspace: objective.workspace,
+      })
       runMachineStatusUpdate(
         db,
         "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
@@ -926,11 +970,11 @@ export async function pollActiveSessions(): Promise<void> {
       }
 
       // ── Oracle hard merge gate (obj 700316, Stage-C enforcement) ───────────
-      // When `kitchen_loop_oracle_gate` is ON, run the command-center-infra
+      // When `kitchen_loop_oracle_gate` is ON, run the operationkit
       // regression oracle (spec/cc-oracle.mjs, QUICK) as a HARD gate under the LLM
       // reviewer: a non-GREEN verdict BLOCKS the transition and bounces the worker,
       // exactly like a red floor. SCOPE GUARD: isOracleGateActiveForObjective is
-      // true ONLY when the flag is on AND project === 'command-center-infra', so no
+      // true ONLY when the flag is on AND project === 'operationkit', so no
       // other workspace can ever be gated — even with the flag on. Flag OFF ⇒ this
       // block is never entered ⇒ behaviour byte-for-byte identical to today.
       // fail-safe-OPEN: any infra failure running the oracle proceeds as today.

@@ -33,7 +33,7 @@ import type {
   AIReviewMode,
   AIReviewVerdict,
   ObjectiveReview,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { isLocalhost } from '../lib/is-localhost.js'
 
 interface ObjectiveReviewRow {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isTransitionAllowed, allowedTransitions } from '@command-center/shared'
+import { isTransitionAllowed, allowedTransitions } from '@operationkit/shared'
 
 // Objective 359 — "Re-Open" replaced "Re-queue". A done objective now reopens
 // straight into `working` (resuming its prior thread) rather than restarting

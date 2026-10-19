@@ -5,7 +5,7 @@ import { getDefaultModelId } from '../services/model-registry.js'
 import { requireAuth, requireAdmin, type AuthRequest } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { broadcast } from '../ws/index.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 const router = Router()
 router.use(requireAuth)
@@ -103,7 +103,7 @@ router.post('/:id/approve', (req: AuthRequest, res) => {
   // see this objective without admin elevation.
   const result = db.prepare(
     `INSERT INTO objectives (title, description, workspace, status, agent_context, project, category, model, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, 'queue', 'general', 'command-center-infra', 'general', ?, ?, datetime('now'), datetime('now'))`
+     VALUES (?, ?, ?, 'queue', 'general', 'operationkit', 'general', ?, ?, datetime('now'), datetime('now'))`
   ).run(
     item.title || 'Meeting action item',
     item.description || '',
@@ -126,7 +126,7 @@ router.post('/:id/approve', (req: AuthRequest, res) => {
 // POST /api/meeting-queue/approve-batch — promote multiple action items in one transaction.
 // Body: { ids: string[] }. Returns { approved: Objective[], skipped: { id, reason }[] }.
 // Reduces friction of clearing the granola review queue when several items are clearly
-// actionable from one meeting — Operator no longer has to click each row.
+// actionable from one meeting — Mike no longer has to click each row.
 router.post('/approve-batch', (req: AuthRequest, res) => {
   const { ids } = req.body as { ids?: string[] }
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -151,7 +151,7 @@ router.post('/approve-batch', (req: AuthRequest, res) => {
 
       const result = db.prepare(
         `INSERT INTO objectives (title, description, workspace, status, agent_context, project, category, model, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, 'queue', 'general', 'command-center-infra', 'general', ?, ?, datetime('now'), datetime('now'))`
+         VALUES (?, ?, ?, 'queue', 'general', 'operationkit', 'general', ?, ?, datetime('now'), datetime('now'))`
       ).run(
         item.title || 'Meeting action item',
         item.description || '',
@@ -224,9 +224,9 @@ router.post('/seed', requireAdmin, (_req, res) => {
       description: 'Build a dashboard that aggregates weekly KPIs from all active projects and sends a Monday morning briefing.',
       workspace: 'example',
       priority: 2,
-      owner: 'Operator',
+      owner: 'Mike',
       deadline: null,
-      source_excerpt: 'Operator: we need to stop pulling numbers manually every week, this should be automated by end of Q2',
+      source_excerpt: 'Mike: we need to stop pulling numbers manually every week, this should be automated by end of Q2',
     },
     {
       id: randomUUID(),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { mergeObjectiveUpdate } from './mergeObjective'
 
 const card = (over: Partial<Objective> = {}): Objective =>
@@ -26,9 +26,9 @@ describe('mergeObjectiveUpdate', () => {
 
   it('replaces assignees when the payload includes new names', () => {
     const prev = card({ assigned_usernames: ['ava'], assigned_user_ids: [2] })
-    const incoming = card({ assigned_usernames: ['admin'], assigned_user_ids: [1] })
+    const incoming = card({ assigned_usernames: ['mike'], assigned_user_ids: [1] })
     const merged = mergeObjectiveUpdate(prev, incoming)
-    expect(merged.assigned_usernames).toEqual(['admin'])
+    expect(merged.assigned_usernames).toEqual(['mike'])
     expect(merged.assigned_user_ids).toEqual([1])
   })
 

@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { useState, useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
-import type { User, Workspace } from '@command-center/shared'
+import type { User, Workspace } from '@operationkit/shared'
 
 async function flush() {
   for (let i = 0; i < 4; i++) {
@@ -164,7 +164,7 @@ describe('App.tsx — member-workspace clamp effect (obj 708893)', () => {
   it('admin is unaffected — selectedWorkspaces stays as initialised', async () => {
     const admin: User = {
       id: 1,
-      username: 'admin',
+      username: 'mike',
       role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',

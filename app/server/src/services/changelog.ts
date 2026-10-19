@@ -13,7 +13,7 @@ import type {
   ChangelogStatus,
   ChangelogEntry,
   FeatureBrief,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 
 // ── Conventional-commit / label classification ──
 
@@ -71,7 +71,7 @@ export function classifyPR(
 // ── Platform / brand mapping ──
 
 const PLATFORM_MAP: Record<string, string> = {
-  'your-org/command-center-infra': 'Command Center',
+  'your-org/operationkit': 'Command Center',
   'your-org/example-platform': 'Example Platform',
   'your-org/example-project-platform': 'Example Project',
 }
@@ -404,7 +404,7 @@ async function runLlmTranslation(
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 1024,
         temperature: 0.3,
         system,

@@ -9,7 +9,7 @@ import {
   buildVisionRubricBlock,
   isUiObjective,
 } from './design-context.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 // A unique scratch path for the runtime gate file, pointed at via UI_GATE_FILE so
@@ -23,7 +23,7 @@ function obj(partial: Partial<Objective>): Objective {
     id: 1,
     title: 't',
     type: 'task',
-    workspace: 'personal',
+    workspace: 'operator',
     project: null,
     acceptance_criteria: null,
     ...partial,

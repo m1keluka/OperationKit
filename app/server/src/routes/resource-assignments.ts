@@ -26,7 +26,7 @@ import {
   resolveAvailable,
   type ResourceScope,
 } from '../services/resource-assignments.js'
-import type { User, ResourceType, ResourceScopeType } from '@command-center/shared'
+import type { User, ResourceType, ResourceScopeType } from '@operationkit/shared'
 
 const RESOURCE_TYPES: ResourceType[] = ['agent', 'skill']
 const SCOPE_TYPES: ResourceScopeType[] = ['global', 'workspace', 'user', 'project']

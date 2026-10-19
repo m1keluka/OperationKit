@@ -7,7 +7,7 @@
  */
 import { execFile } from 'child_process'
 import type { Database } from 'better-sqlite3'
-import type { Objective, ServerMessage } from '@command-center/shared'
+import type { Objective, ServerMessage } from '@operationkit/shared'
 import { parsePrNumberFromUrl } from './pr-url.js'
 import { isHumanTerminalGuardEnabled } from './objective-audit.js'
 import {
@@ -28,8 +28,9 @@ import {
   resolveObjective,
   resolveOwnerObjective,
 } from './external-remediation-resolve.js'
+import { resolveFollowUpSessionId } from './objective-sessions.js'
 
-const DEFAULT_HARNESS_REPO = process.env.HARNESS_REPO || 'your-org/command-center-infra'
+const DEFAULT_HARNESS_REPO = process.env.HARNESS_REPO || 'your-org/operationkit'
 
 /**
  * A workflow_run whose JOBS were all cancelled still rolls up to `conclusion: failure`
@@ -183,7 +184,7 @@ export function buildRemediationPrompt(args: {
     `**(d) Apply it IN THE WORKTREE** (\`/tmp/cc-worktree-${args.objective.id}/\`, absolute paths only),`,
     `   commit, and \`git push\` to your PR branch. Do NOT edit the live checkout.`,
     `**(e) Confirm the check re-runs green.** If it fails again you'll get another automated`,
-    `   nudge (bounded at ${maxAttempts} attempts). Do NOT merge — Operator merges.`,
+    `   nudge (bounded at ${maxAttempts} attempts). Do NOT merge — Mike merges.`,
     ``,
     `Token discipline: only the failing lines were pulled, never full logs. If you need`,
     `more, fetch narrowly (\`gh run view <id> --log-failed\`, annotations) — never dump whole logs.`,
@@ -203,18 +204,18 @@ export function buildRemediationPrompt(args: {
 //      re-deliveries and flapping checks must never spam the board.
 
 /** repo short-name → workspace slug. Slugs verified against the live `workspaces`
- *  table (example / example2 / personal / example-project all exist). Keyed on the short
+ *  table (example / example2 / operator / example-project all exist). Keyed on the short
  *  name so a fork/owner rename doesn't break the map. */
 const REPO_WORKSPACES: Record<string, string> = {
-  'command-center-infra': 'personal',
+  'operationkit': 'operator',
   'example-platform': 'example',
   'example-project-platform': 'example-project',
   'example3-platform': 'example2',
 }
 
 /** Fallback workspace when the repo is unmapped — the harness's own board, where
- *  Operator triages everything anyway. */
-const DEFAULT_TRUNK_WORKSPACE = 'personal'
+ *  Mike triages everything anyway. */
+const DEFAULT_TRUNK_WORKSPACE = 'operator'
 
 export function workspaceForRepo(db: Database, repoFullName: string): string {
   const short = (repoFullName || '').split('/').pop() || ''
@@ -263,7 +264,7 @@ export function buildTrunkFailureObjective(args: {
     `1. Diagnose: open the details URL / fetch ONLY the failing lines (\`gh run view <id> --log-failed\`,`,
     `   never full logs). Identify the commit(s) that broke ${branch}.`,
     `2. Fix it in your worktree — never edit the live checkout.`,
-    `3. Open a PR against ${branch}. Do NOT merge — Operator merges. Do NOT redeploy by hand.`,
+    `3. Open a PR against ${branch}. Do NOT merge — Mike merges. Do NOT redeploy by hand.`,
   ].filter((l): l is string => l !== null).join('\n')
   return { title, description }
 }
@@ -533,7 +534,8 @@ export async function handleExternalCheckEvent(
     )
     const prompt = buildRemediationPrompt({ objective: obj, classified, failureContext, attempt, maxAttempts: cap })
 
-    const sessionId = obj.session_id || lastSessionId(deps.db, obj.id) || `cc-${obj.id}-${Date.now()}`
+    // Never an aux (`cc-review-*`/`cc-plan-*`) session — see objective-sessions.ts.
+    const sessionId = resolveFollowUpSessionId(deps.db, { id: obj.id, session_id: obj.session_id ?? null })
     const newSessionId = deps.sendFollowUp(sessionId, prompt, obj)
     deps.db
       .prepare("UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?")
@@ -929,7 +931,7 @@ function createMaintenanceObjective(deps: RemediationDeps, repo: string, kind: U
     ``,
     `Failing PRs are appended below as their checks fail. For each one: diagnose the failing check,`,
     `fix it on the PR branch (or close the PR if the bump is not worth taking), and push. Do NOT merge —`,
-    `Operator merges. Fetch only failing lines (\`gh run view <id> --log-failed\`), never full logs.`,
+    `Mike merges. Fetch only failing lines (\`gh run view <id> --log-failed\`), never full logs.`,
     ``,
     `### Failing PRs`,
   ].join('\n')
@@ -1015,7 +1017,7 @@ function handleOrphanedObjective(
     classified.targetUrl ? `- Details: ${classified.targetUrl}` : null,
     ``,
     `**What to do:** diagnose the failing check (fetch ONLY failing lines — \`gh run view <id> --log-failed\`),`,
-    `fix it in your worktree, push to the PR branch, confirm the check goes green. Do NOT merge — Operator merges.`,
+    `fix it in your worktree, push to the PR branch, confirm the check goes green. Do NOT merge — Mike merges.`,
   ].filter((l): l is string => l !== null).join('\n')
 
   try {
@@ -1047,16 +1049,6 @@ function countEscalated(db: Database, repo: string, prNumber: number): number {
   return row?.n || 0
 }
 
-function lastSessionId(db: Database, objectiveId: number): string | null {
-  try {
-    const row = db
-      .prepare('SELECT session_id FROM session_intel WHERE objective_id = ? ORDER BY ended_at DESC LIMIT 1')
-      .get(objectiveId) as { session_id?: string } | undefined
-    return row?.session_id || null
-  } catch {
-    return null
-  }
-}
 
 /** Best-effort branch extraction for status events (which carry no PR list). The
  *  status event includes `branches: [{name}]`; check_suite/workflow_run carry

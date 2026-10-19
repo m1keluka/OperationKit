@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { resolveWorkerEndStatus } from './state-poller.js'
-import type { ObjectiveType } from '@command-center/shared'
+import type { ObjectiveType } from '@operationkit/shared'
 
 // Objective 1234: the working→review type-aware routing keyed ONLY on `type`
 // and ignored `create_pr`. A top-level create_pr *task* therefore routed to the

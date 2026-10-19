@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { getDb } from '../db/index.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import type { User } from '@command-center/shared'
+import type { User } from '@operationkit/shared'
 import { escapeLike } from '../lib/dev-api-envelope.js'
 
 // ─────────────────────────────────────────────────────────────────────────────

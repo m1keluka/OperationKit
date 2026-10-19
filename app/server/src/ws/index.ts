@@ -7,7 +7,7 @@ import { spawn, type IPty } from 'node-pty'
 import { verifyToken } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { getDb } from '../db/index.js'
-import type { ServerMessage, ClientMessage, User, UserRole } from '@command-center/shared'
+import type { ServerMessage, ClientMessage, User, UserRole } from '@operationkit/shared'
 
 // Per-connection state. We snapshot workspace memberships at connect time —
 // see Phase 5 audit note. If admin grants a new workspace mid-session the
@@ -138,7 +138,7 @@ export function initWebSocket(server: Server): void {
         name: 'xterm-256color',
         cols: 80,
         rows: 24,
-        env: { ...process.env as Record<string, string>, HOME: '/home/operator', USER: 'operator', TERM: 'xterm-256color' },
+        env: { ...process.env as Record<string, string>, HOME: '/home/operator', USER: 'mike', TERM: 'xterm-256color' },
         cwd: '/home/operator',
       })
     } catch (err) {

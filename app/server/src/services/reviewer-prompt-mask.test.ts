@@ -31,7 +31,7 @@ import {
   WORKER_SCRATCH_REDACTION,
   DEFAULT_OBJECTIVE_MEMORY_ROOT,
 } from './prompt-builder.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 /**
  * P1-1 (obj 707060) — the REVIEWER CAUSAL MASK.
@@ -53,8 +53,8 @@ const SCRATCH_BASENAME = ['NOTES', 'md'].join('.')
 function makeObjective(overrides: Partial<Objective> = {}): Objective {
   return {
     id: 707060,
-    workspace: 'personal',
-    project: 'command-center-infra',
+    workspace: 'operator',
+    project: 'operationkit',
     agent_context: 'cto',
     type: 'feature',
     status: 'ai_review',

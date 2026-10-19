@@ -39,7 +39,7 @@ import type {
   CreateTestCredentialRequest,
   TestCredential,
   UpdateTestCredentialRequest,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { isLocalhost } from '../lib/is-localhost.js'
 
 interface TestCredentialRow {

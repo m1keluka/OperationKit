@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildReviewerPrompt } from './session-manager.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // A UI objective (registered frontend repo) — the case most at risk of leaking
 // rubric text into the prompt when the gate is supposed to be dormant.
@@ -9,7 +9,7 @@ function uiObjective(): Objective {
     id: 42,
     title: 'Build the dashboard',
     type: 'task',
-    workspace: 'personal',
+    workspace: 'operator',
     project: 'example-project-platform',
     description: 'desc',
     completion_goal: 'goal',

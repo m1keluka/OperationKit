@@ -1,14 +1,14 @@
 /**
  * Secrets scope helpers — extracted from SecretsPage.tsx (behavior frozen).
  *
- * TERMINOLOGY: Operator thinks of workspaces as ORGANIZATIONS, so this UI *labels*
+ * TERMINOLOGY: Mike thinks of workspaces as ORGANIZATIONS, so this UI *labels*
  * the scopes "Command Center" (global — applies everywhere), "Organization"
  * (workspace), "User" (follows the user into any organization) and
  * "Organization + User" (workspace_user). This is a DISPLAY-LABEL decision only:
  * the wire, the query params, the shared types and the DB columns still say
  * `workspace` / `workspace_user`, and nothing here renames them.
  */
-import type { SecretScopeType, SecretSummary } from '@command-center/shared'
+import type { SecretScopeType, SecretSummary } from '@operationkit/shared'
 
 /** Display labels. The wire values stay `global`/`workspace`/`user`/`workspace_user`. */
 export const SCOPE_LABELS: Record<SecretScopeType, string> = {

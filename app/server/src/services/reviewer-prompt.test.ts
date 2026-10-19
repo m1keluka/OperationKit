@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { buildReviewerPrompt } from './session-manager.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Minimal objective fixture — buildReviewerPrompt only reads a handful of
 // fields, so we cast a partial through unknown rather than build the full row.
 function makeObjective(overrides: Partial<Objective> = {}): Objective {
   return {
     id: 42,
-    workspace: 'personal',
+    workspace: 'operator',
     type: 'feature',
     title: 'Test objective',
     description: 'do the thing',
@@ -63,7 +63,7 @@ describe('buildReviewerPrompt — adversarial framing (QW3)', () => {
     const p = buildReviewerPrompt(
       makeObjective({
         pr_number: 404,
-        pr_url: 'https://github.com/your-org/command-center-infra/pull/404',
+        pr_url: 'https://github.com/your-org/operationkit/pull/404',
       } as Partial<Objective>),
       ['app/server/src/lib/host-disk.ts'],
       null,
@@ -76,7 +76,7 @@ describe('buildReviewerPrompt — adversarial framing (QW3)', () => {
     const p = buildReviewerPrompt(
       makeObjective({
         pr_number: 404,
-        pr_url: 'https://github.com/your-org/command-center-infra/pull/404',
+        pr_url: 'https://github.com/your-org/operationkit/pull/404',
       } as Partial<Objective>),
       ['app/client/src/components/KanbanBoard.tsx'],
       null,

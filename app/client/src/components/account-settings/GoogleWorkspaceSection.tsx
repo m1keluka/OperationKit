@@ -20,7 +20,7 @@ import { useConfirm } from '../ui'
 import type {
   UserGoogleConnectionSummary,
   GoogleConnectStartResponse,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { fmtDate } from './helpers'
 
 interface GoogleStatusResponse {

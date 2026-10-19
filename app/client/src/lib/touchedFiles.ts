@@ -1,4 +1,4 @@
-import type { SessionIntel } from '@command-center/shared'
+import type { SessionIntel } from '@operationkit/shared'
 
 export type TouchedFileKind = 'created' | 'modified' | 'attachment'
 

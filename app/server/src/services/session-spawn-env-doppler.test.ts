@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // obj-2411 / Phase 0 — scoped-Doppler cutover: spawn-tier resolution + the
 // flag-ON member-scoped env. Complements session-spawn-env.test.ts (which locks
@@ -35,7 +35,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   getDb().exec('DELETE FROM doppler_scoped_tokens; DELETE FROM users;')
-  seedUser(1, 'admin', 'admin')
+  seedUser(1, 'mike', 'admin')
   seedUser(7, 'eva', 'member')
 })
 

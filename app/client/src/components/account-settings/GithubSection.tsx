@@ -1,7 +1,7 @@
 /**
  * GitHub Account card — extracted from AccountSettings.tsx (behavior frozen).
  */
-import type { UserGithubTokenSummary } from '@command-center/shared'
+import type { UserGithubTokenSummary } from '@operationkit/shared'
 import { maskedToken, fmtDate } from './helpers'
 
 export function GithubSection({

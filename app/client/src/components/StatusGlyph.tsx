@@ -1,4 +1,4 @@
-import type { ObjectiveStatus } from '@command-center/shared'
+import type { ObjectiveStatus } from '@operationkit/shared'
 
 /* ─────────────────────────────────────────────────────────
    StatusGlyph — Mission Control circular status glyph (§ board)

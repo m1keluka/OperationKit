@@ -1,5 +1,5 @@
 {
-  "name": "@command-center/server",
+  "name": "@operationkit/server",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@command-center/shared": "*",
+    "@operationkit/shared": "*",
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^11.7.0",
     "cookie-parser": "^1.4.7",

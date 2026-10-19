@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
-import type { User } from '@command-center/shared'
+import type { User } from '@operationkit/shared'
 import { isApiKey, userFromApiKey } from '../lib/api-keys.js'
 
 const TOKEN_EXPIRY = '7d'

@@ -1,6 +1,6 @@
 # Unified Task Management Architecture
 
-Single-source-of-truth map of the **capture → dispatch → execute → archive** loop that keeps work flowing through the Command Center (CC) board without manual task management.
+Single-source-of-truth map of the **capture → dispatch → execute → archive** loop that keeps work flowing through the OperationKit board without manual task management.
 
 This document was produced as part of CC objective #141 ("Build unified task management architecture", 2026-06-04). It catalogs every component, identifies which wires are connected vs missing, and records what was fixed in that session vs what remains as follow-up.
 
@@ -12,7 +12,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
  ┌──────────────────────────────────────────────────────────────────────────┐
  │                              CAPTURE                                     │
  │                                                                          │
- │  Mike brain dump (Telegram)──┐                                           │
+ │  operator brain dump (Telegram)──┐                                           │
  │  Granola meeting transcripts─┤                                           │
  │  Gmail inbox triage──────────┼──► raw signal                             │
  │  Himalaya IMAP envelope class┤                                           │
@@ -35,7 +35,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
  ┌──────────────────────────────────────────────────────────────────────────┐
  │                              EXECUTE                                     │
  │                                                                          │
- │  Command Center (this app, port 3002)                                    │
+ │  OperationKit (this app, port 3002)                                    │
  │    • objectives table is the spine                                       │
  │    • status: queue → working → review → done                             │
  │    • working transitions spawn a Claude Code session in tmux             │
@@ -84,9 +84,9 @@ This document was produced as part of CC objective #141 ("Build unified task man
 
 | Component | Lives at | Inbound surface | Outbound to | Status |
 |---|---|---|---|---|
-| Hermes Telegram gateway | `/home/operator/.hermes/`, systemd `hermes-gateway` | Telegram bot DM | `POST /api/internal/objectives` (CC), `/api/internal/vault/*` (rolodex) | **Planned** — venv setup script in `scripts/setup-hermes.sh`; not yet deployed (no `/home/operator/.hermes` on disk, no systemd unit) |
-| Telegram Rolodex | `app/telegram-rolodex/index.ts` | Mike DMs | CC vault tools (search/append/update on `~/second-brain/`) | **Planned** — same systemd unit as Hermes |
-| Granola ingest | `app/server/src/scripts/granola-ingest.ts`, `scripts/run-granola-ingest.sh` | Granola API (every 15min) | Vault meeting notes (`workspaces/<ws>/meetings/YYYY-MM-DD-<slug>.md`) + `granola_action_items` SQLite queue | **Working** end-to-end. Action items reach Mike via the meeting-queue UI now that the router is mounted. Still missing host crontab entry — runs only when triggered manually. |
+| Hermes Telegram gateway | `/home/operator/.hermes/`, systemd `hermes-gateway` | Telegram bot DM | `POST /api/internal/objectives` (CC), `/api/internal/vault/*` (contactbook) | **Planned** — venv setup script in `scripts/setup-hermes.sh`; not yet deployed (no `/home/operator/.hermes` on disk, no systemd unit) |
+| Telegram Contactbook | `app/telegram-contactbook/index.ts` | the operator DMs | CC vault tools (search/append/update on `~/second-brain/`) | **Planned** — same systemd unit as Hermes |
+| Granola ingest | `app/server/src/scripts/granola-ingest.ts`, `scripts/run-granola-ingest.sh` | Granola API (every 15min) | Vault meeting notes (`workspaces/<ws>/meetings/YYYY-MM-DD-<slug>.md`) + `granola_action_items` SQLite queue | **Working** end-to-end. Action items reach the operator via the meeting-queue UI now that the router is mounted. Still missing host crontab entry — runs only when triggered manually. |
 | Meeting-queue review | `app/server/src/routes/meeting-queue.ts` | UI badge poll + approve/dismiss | `objectives` table (status=queue) | **Working as of 2026-06-04** — router mount added (`app.use('/api/meeting-queue', …)`). Batch-approve endpoint added the same session. |
 | Gmail inbox triage | `app/server/src/services/gmail-triage.ts`, `scripts/run-gmail-triage.sh` | Gmail INBOX (cron) | Gmail labels (Live/Junk/Example Leads/Notifications) + `gmail_triage` table | **Endpoint working as of 2026-06-04** — `POST /api/internal/gmail-triage/run` added. Still missing host crontab entry. Triaged-as-Live emails do not yet create CC objectives. |
 | Himalaya envelope classifier | `scripts/inbox-triage-himalaya.sh` (host) | IMAP INBOX | Gmail labels + state TSV | **Working** but isolated — never reaches CC objectives. |
@@ -99,7 +99,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
 | Hermes orchestrator (LLM) | Reads Telegram text → emits one or more objective JSONs → batch-creates them | **Planned** — not deployed |
 | Hermes seed memory | `scripts/hermes-seeds/MEMORY.md` (CC API contract + decomposition heuristics) + `USER.md` (Mike's profile) | **Authored** and ready to load into Hermes' system prompt the moment the service comes up |
 | Internal API (`routes/internal.ts`) | Localhost-only no-JWT endpoints Hermes calls (objectives, status, message, progress, briefing) | **Working** |
-| Briefing query (`/api/internal/briefing`, `/api/jarvis/briefing`) | Aggregates working + review + blocked into one daily snapshot | **Fixed 2026-06-04** — was filtering `status IN ('working','blocked','needs_review')` which never matched (`blocked` and `needs_review` are not valid statuses). Now `('working','review')` with the blocked facet derived from `has_blockers`. |
+| Briefing query (`/api/internal/briefing`, `/api/briefing/briefing`) | Aggregates working + review + blocked into one daily snapshot | **Fixed 2026-06-04** — was filtering `status IN ('working','blocked','needs_review')` which never matched (`blocked` and `needs_review` are not valid statuses). Now `('working','review')` with the blocked facet derived from `has_blockers`. |
 
 ### 2.3 Execute Layer
 
@@ -131,7 +131,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
 
 ### Path A: Mike sends a Telegram brain dump
 
-1. Mike DMs the Hermes bot: *"three things — get the GHL sync running for Murphy, audit Cavaro's last EB sends, and someone needs to look at why the calendar webhook is dropping events"*.
+1. the operator DMs the Hermes bot: *"three things — get the GHL sync running for Murphy, audit Cavaro's last EB sends, and someone needs to look at why the calendar webhook is dropping events"*.
 2. Hermes parses, picks `agent_context`/`workspace`/`effort` per `MEMORY.md` heuristics, calls `POST /api/internal/objectives` with an array of three.
 3. CC returns three `id`s; Hermes replies *"Created 3 objectives: #N1 (cto/example), #N2 (general/example), #N3 (cto/example)"*.
 4. Mike (or Hermes via `PATCH /:id/status`) flips them to `working`; sessions spawn.
@@ -165,7 +165,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
 | Gap | Fix | File:Line |
 |---|---|---|
 | Granola action items unreachable — router not mounted | Added `app.use('/api/meeting-queue', meetingQueueRouter)` | `app/server/src/index.ts:28,127` |
-| Daily/internal briefing queried invalid statuses (`needs_review`, `blocked`) and always returned empty `needsReview` array | Rewrote queries to use `('working','review')`; derived `blocked` from `has_blockers` column | `app/server/src/routes/jarvis.ts:28-54`, `app/server/src/routes/internal.ts:391-401` |
+| Daily/internal briefing queried invalid statuses (`needs_review`, `blocked`) and always returned empty `needsReview` array | Rewrote queries to use `('working','review')`; derived `blocked` from `has_blockers` column | `app/server/src/routes/briefing.ts:28-54`, `app/server/src/routes/internal.ts:391-401` |
 | Session-intel extraction only ran on server boot — every completed session in steady-state stayed un-summarised | Added `queueExtraction(...)` call inside `handleSessionDeath()` | `app/server/src/services/session-manager.ts:23,237-243` |
 | `run-gmail-triage.sh` posted to a non-existent endpoint | Added `POST /api/internal/gmail-triage/run` that invokes `runGmailTriage()` | `app/server/src/routes/internal.ts:12,291-309` |
 | Granola review queue required one click per item | Added `POST /api/meeting-queue/approve-batch` (transactional, idempotent on already-reviewed items) | `app/server/src/routes/meeting-queue.ts:124-176` |
@@ -178,11 +178,11 @@ These all ship in the next backend deploy (`mode=both`).
 
 These were intentionally left for separate CC objectives — each is meaningful enough to plan and own independently rather than smuggle into this session.
 
-1. **Deploy Hermes** — run `bash scripts/setup-hermes.sh install gateway`, provision `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ROLODEX_OWNER_ID` in `.hermes/.env`, register the bot with @BotFather, smoke-test a single brain dump. Without this, the Capture layer is missing its primary inbound surface.
+1. **Deploy Hermes** — run `bash scripts/setup-hermes.sh install gateway`, provision `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CONTACTBOOK_OWNER_ID` in `.hermes/.env`, register the bot with @BotFather, smoke-test a single brain dump. Without this, the Capture layer is missing its primary inbound surface.
 2. **Install missing host cron entries** — granola ingest (every 15 min) and gmail-triage (every 30 min). Both wrappers exist; only the crontab lines are missing. Format:
    ```
-   */15 * * * * . /home/operator/.config/command-center/cron.env && bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/run-granola-ingest.sh >> /home/operator/transcripts/granola-ingest.cron.log 2>&1 # command-center: granola-ingest
-   */30 * * * * . /home/operator/.config/command-center/cron.env && bash ${CC_REPO_DIR:-/home/operator/projects/operationkit}/scripts/run-gmail-triage.sh >> /home/operator/transcripts/gmail-triage.cron.log 2>&1 # command-center: gmail-triage
+   */15 * * * * . /home/operator/.config/command-center/cron.env && bash /home/operator/projects/operationkit/scripts/run-granola-ingest.sh >> /home/operator/transcripts/granola-ingest.cron.log 2>&1 # command-center: granola-ingest
+   */30 * * * * . /home/operator/.config/command-center/cron.env && bash /home/operator/projects/operationkit/scripts/run-gmail-triage.sh >> /home/operator/transcripts/gmail-triage.cron.log 2>&1 # command-center: gmail-triage
    ```
 3. **Live-email → objective bridge** — when Gmail triage classifies an envelope as `Live` and the sender is unknown, create a `general`-agent CC objective so it can't fall through the cracks. Probably belongs in `gmail-triage.ts:runGmailTriage` after the label apply.
 4. **Account-exhaustion retry scheduler** — `account-router.enqueueSession()` parks but never re-attempts. Add a 60s drain loop that flips parked objectives back to `working` once an account frees up.
@@ -200,7 +200,7 @@ These are the contracts that hold the loop together. Break them and the architec
 - **Sessions never co-own files with each other** — file ownership is at the task level (one task = one file set). Parallel sessions touching the same file is a decomposition bug.
 - **Vault writes always include `workspace:` frontmatter** — `update-active-state.sh` and `dream-cycle.sh` filter by it; missing frontmatter means the artifact vanishes from rollups.
 - **Decisions live in `~/second-brain/workspaces/<ws>/decisions/YYYY-MM-DD-<slug>.md`** — capture-gap detector checks for exactly this path pattern. Writing elsewhere flags the session as a capture gap.
-- **Worktree sessions never touch the main checkout** — see `command-center-infra/CLAUDE.md` "Worktree Isolation" for the production-crash post-mortem.
+- **Worktree sessions never touch the main checkout** — see `operationkit/CLAUDE.md` "Worktree Isolation" for the production-crash post-mortem.
 
 ---
 

@@ -17,7 +17,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vites
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 const TMP_DB = path.join(os.tmpdir(), `cc-wake-readback-${process.pid}-${Date.now()}.db`)
 const TMP_MEM = path.join(os.tmpdir(), `cc-wake-readback-mem-${process.pid}-${Date.now()}`)
@@ -58,7 +58,7 @@ function seed(opts: {
   const r = getDb()
     .prepare(
       `INSERT INTO objectives (title, agent_context, workspace, status, parent_id, depth, delegate_mode)
-       VALUES (?, 'cto', 'personal', ?, ?, 0, ?)`,
+       VALUES (?, 'cto', 'operator', ?, ?, 0, ?)`,
     )
     .run(opts.title, opts.status ?? 'working', opts.parent_id ?? null, opts.delegate_mode ?? 0)
   return r.lastInsertRowid as number

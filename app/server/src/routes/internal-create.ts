@@ -9,7 +9,7 @@ import { logActivity } from './feed.js'
 import { getWorkspace } from '../services/workspaces.js'
 import { defaultAgentForWorkspace } from './objectives-helpers.js'
 import { resolveObjectiveModel } from '../services/model-registry.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { hasValidObjectivesToken } from '../middleware/objectives-token.js'
 import { depthForParent } from '../lib/objective-depth.js'
 import { getEffectiveGateMode, isRegisteredFrontendRepo, criteriaHaveUiBar, buildDsConformanceCriteria, repoHasE2eSuite, criteriaHaveQaBar, buildQaConformanceCriteria } from '../services/design-context.js'
@@ -24,7 +24,7 @@ import {
 } from '../services/strategy-governance.js'
 import { isLocalhost } from '../lib/is-localhost.js'
 import { startSession } from '../services/session-manager.js'
-import { MAX_CONCURRENT_SESSIONS } from '@command-center/shared'
+import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { childCapPerParent } from '../lib/hygiene-config.js'
 
 // Strategy Layer (P0) — bounded delegation-nesting controls.
@@ -337,12 +337,14 @@ router.post('/objectives', async (req, res) => {
     }
 
     if (!parentChildCounts.has(item.parent_id)) {
-      const existing = db.prepare("SELECT COUNT(*) as n FROM objectives WHERE parent_id = ? AND status != 'done'").get(item.parent_id) as { n: number }
+      // Exclude ALL terminal statuses — 'done' and 'cancelled' — so stale cancelled
+      // children never permanently wedge the cap (obj 710386 defect 3).
+      const existing = db.prepare("SELECT COUNT(*) as n FROM objectives WHERE parent_id = ? AND status NOT IN ('done', 'cancelled')").get(item.parent_id) as { n: number }
       parentChildCounts.set(item.parent_id, existing.n)
     }
     const next = (parentChildCounts.get(item.parent_id) || 0) + 1
     if (next > CHILD_CAP_PER_PARENT) {
-      res.status(400).json({ error: `Item ${i}: parent ${item.parent_id} would exceed the ${CHILD_CAP_PER_PARENT}-child cap (has ${next - 1} non-done children)` })
+      res.status(400).json({ error: `Item ${i}: parent ${item.parent_id} would exceed the ${CHILD_CAP_PER_PARENT}-child cap (has ${next - 1} non-terminal children)` })
       return
     }
     parentChildCounts.set(item.parent_id, next)

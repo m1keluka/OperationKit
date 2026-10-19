@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react'
 import { Paperclip } from 'lucide-react'
-import type { Objective, SessionMessage } from '@command-center/shared'
+import type { Objective, SessionMessage } from '@operationkit/shared'
 import { api } from '../lib/api'
 import { filesFromClipboard, useFileDrop } from '../hooks/useFileDrop'
 import { GroupedMessages } from './SessionMessages'

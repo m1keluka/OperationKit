@@ -4,7 +4,7 @@
  */
 import fs from 'fs'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { pickAccount, recordSessionStart, enqueueSession, getAccountById } from './account-router.js'
 import { TRANSCRIPT_DIR } from '../config.js'
@@ -241,6 +241,9 @@ export async function startSession(objective: Objective): Promise<string> {
   // Spawn in tmux — session survives server restarts
   const tmuxName = spawnInTmux({
     sessionId,
+    // SESSION_ISOLATION=docker names this session's jail `ok-jail-<objectiveId>`.
+    // Unset/tmux (live droplet default) ignores it entirely.
+    objectiveId: objective.id,
     homeDir,
     workdir,
     prompt,
@@ -333,6 +336,9 @@ async function startArenaSession(objective: Objective): Promise<string> {
 
     const tmuxName = spawnInTmux({
       sessionId,
+      // One jail per arena variant — the cohort runs concurrently, so the
+      // per-objective name has to be suffixed to stay unique.
+      objectiveId: `${objective.id}-arena-${spec.archetypeKey}`,
       homeDir: account.homeDir,
       workdir,
       prompt,

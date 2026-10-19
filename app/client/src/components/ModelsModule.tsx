@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
-import type { ModelRow } from '@command-center/shared'
+import type { ModelRow } from '@operationkit/shared'
 import { Card, CardHeader, CardBody, Alert } from './ui'
 
 const PROVIDERS: Array<{ engine: string; label: string }> = [

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { SessionMessage, MentorSessionState } from '@command-center/shared'
+import type { SessionMessage, MentorSessionState } from '@operationkit/shared'
 import { GroupedMessages } from '../SessionMessages'
 import { WelcomeState } from './WelcomeState'
 

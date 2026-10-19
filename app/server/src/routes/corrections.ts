@@ -15,7 +15,7 @@ import { getDb } from '../db/index.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { userHasWorkspace } from '../middleware/workspace.js'
 import { recordCorrection, listCorrections } from '../services/corrections.js'
-import type { CreateCorrectionRequest } from '@command-center/shared'
+import type { CreateCorrectionRequest } from '@operationkit/shared'
 
 export const correctionsRouter = Router()
 correctionsRouter.use(requireAuth)

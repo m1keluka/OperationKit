@@ -2,7 +2,7 @@
  * Delete / reopen / cancel / submit — extracted from ObjectiveModal.tsx
  * (behavior frozen).
  */
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 export function FooterActions({
   isEdit,

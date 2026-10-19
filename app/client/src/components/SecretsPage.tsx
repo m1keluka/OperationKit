@@ -32,7 +32,7 @@ import type {
   SecretScopeType,
   SecretSummary,
   SecretPrincipals,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import {
   ALL_SCOPES, SCOPE_HINTS, SCOPE_LABELS, SCOPE_ORDER,
   scopeDescription, scopeOf, scopeQuery,

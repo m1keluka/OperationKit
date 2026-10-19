@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { SessionMessage, ThreadSegment, ThreadTimeline as ThreadTimelineData, ThreadTimelineUnchanged } from '@command-center/shared'
+import type { SessionMessage, ThreadSegment, ThreadTimeline as ThreadTimelineData, ThreadTimelineUnchanged } from '@operationkit/shared'
 import { renderMarkdown } from '../lib/markdown'
 import { api } from '../lib/api'
 import { echoLandedInSegments } from '../lib/followup-echo'
@@ -103,7 +103,7 @@ function Divider({ seg }: { seg: Extract<ThreadSegment, { type: 'divider' }> }) 
       </div>
     )
   }
-  // A user message Operator typed into the thread — render it visibly (right-aligned,
+  // A user message Mike typed into the thread — render it visibly (right-aligned,
   // matching the followup bubble in GroupedMessages).
   return (
     <div className="my-1 flex justify-end">

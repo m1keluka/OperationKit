@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 const TMP_DB = path.join(os.tmpdir(), `cc-extrem-res-test-${process.pid}-${Date.now()}.db`)
 process.env.DB_PATH = TMP_DB
@@ -215,10 +215,10 @@ describe('trunk-branch failures → objective card', () => {
   it('maps repos to workspaces (verified against the workspaces table, with fallback)', () => {
     expect(workspaceForRepo(getDb(), 'your-org/example-platform')).toBe('example')
     expect(workspaceForRepo(getDb(), 'your-org/example-project-platform')).toBe('example-project')
-    expect(workspaceForRepo(getDb(), 'your-org/command-center-infra')).toBe('personal')
+    expect(workspaceForRepo(getDb(), 'your-org/operationkit')).toBe('operator')
     // example2 exists in the LIVE workspaces table but is not among the seeded test
     // rows → the existence check falls back rather than FK-failing the insert.
-    expect(workspaceForRepo(getDb(), 'your-org/unknown-repo')).toBe('personal')
+    expect(workspaceForRepo(getDb(), 'your-org/unknown-repo')).toBe('operator')
   })
 
   it('creates ONE card for a Railway failure on main, deduped on re-delivery', async () => {

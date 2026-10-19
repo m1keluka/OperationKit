@@ -91,7 +91,7 @@ describe('user-github-tokens storage', () => {
 
   it('deleting the user cascades to their token row (ON DELETE CASCADE)', () => {
     seedUser(1, 'alice')
-    svc.upsert(1, { rawToken: 'ghp_cascadetest99x', login: 'a', githubUserId: 1, email: 'a@x.com', scopes: null, tokenType: 'pat_classic' })
+    svc.upsert(1, { rawToken: 'ghp_cascadetest99x', login: 'a', githubUserId: 1, email: 'a@x.com', scopes: null, tokenType: 'pat_classic' }) // gitleaks:allow — literal test fixture, not a credential
     getDb().prepare('DELETE FROM users WHERE id = ?').run(1)
     const rows = getDb().prepare('SELECT COUNT(*) AS n FROM user_github_tokens WHERE user_id = 1').get() as { n: number }
     expect(rows.n).toBe(0)

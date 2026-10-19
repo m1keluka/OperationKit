@@ -5,8 +5,8 @@
  */
 import fs from 'fs'
 import type { Database } from 'better-sqlite3'
-import type { Objective } from '@command-center/shared'
-import { MAX_CONCURRENT_SESSIONS } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
+import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { startSession } from './session-manager.js'
 import { logObjectiveAudit } from './objective-audit.js'
@@ -316,7 +316,7 @@ export async function sweepAutoAcceptOnPass(): Promise<void> {
       // of a red PR. It has already been idle for the TTL, so a `hold` here would
       // just re-park it in the same place — the gate's own escalate/complete-with-red
       // outcomes are what apply. On a genuine required failure we leave it in review
-      // and let the escalation reach Operator.
+      // and let the escalation reach Mike.
       const gate = await runCompletionGate(db, obj, { pathway: 'auto-accept-on-pass-ttl', alert: insertAlert })
       if (gate.blocked) {
         applyGateHandback(db, obj, gate, { broadcast })

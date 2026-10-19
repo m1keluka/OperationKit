@@ -2,7 +2,7 @@
  * Shared platform types: corrections, changelog, secrets, mentor, alerts,
  * workspaces, API request/response — extracted from types.ts (behavior frozen).
  *
- * `@command-center/shared` still resolves to types.ts, which re-exports this.
+ * `@operationkit/shared` still resolves to types.ts, which re-exports this.
  */
 import type {
   AgentContext,

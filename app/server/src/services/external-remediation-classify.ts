@@ -5,7 +5,7 @@
  * No GitHub act-path, no session spawn. handleExternalCheckEvent stays on the facade.
  */
 import type { Database } from 'better-sqlite3'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 
 /** Conclusions (GitHub Actions / check_run / check_suite / workflow_run) that mean

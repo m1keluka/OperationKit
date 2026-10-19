@@ -8,7 +8,7 @@ import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
 
 // Real SQLite + a real Express server (mirrors routes/mentor.test.ts). Exercises
-// the /api/assistant/config auth gate (requireAuth + requireJarvisAccess),
+// the /api/assistant/config auth gate (requireAuth + requireAssistantAccess),
 // req.user scoping, and the PUT→GET round-trip.
 const TMP_DB = path.join(os.tmpdir(), `cc-assistant-route-test-${process.pid}-${Date.now()}.db`)
 process.env.DB_PATH = TMP_DB
@@ -53,7 +53,7 @@ beforeAll(async () => {
   const db = getDb()
   db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, 'admin', '', 'admin')").run(ADMIN_ID)
   db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, 'nobody', '', 'member')").run(MEMBER_ID)
-  // MEMBER_ID has NO can_use_jarvis membership → requireJarvisAccess must 403.
+  // MEMBER_ID has NO can_use_assistant membership → requireAssistantAccess must 403.
 
   const app = makeApp()
   await new Promise<void>(resolve => { server = app.listen(0, () => resolve()) })
@@ -77,12 +77,12 @@ describe('GET/PUT /api/assistant/config — authz', () => {
     expect(status).toBe(401)
   })
 
-  it('403 for a member with no jarvis access', async () => {
+  it('403 for a member with no assistant access', async () => {
     const { status } = await call('GET', '/api/assistant/config', { cookie: `token=${tokenFor(MEMBER_ID, 'member')}` })
     expect(status).toBe(403)
   })
 
-  it('403 also blocks PUT for a no-jarvis member', async () => {
+  it('403 also blocks PUT for a no-assistant member', async () => {
     const { status } = await call('PUT', '/api/assistant/config', {
       cookie: `token=${tokenFor(MEMBER_ID, 'member')}`,
       body: { persona: { displayName: 'Sneaky', systemPrompt: 'x' } },

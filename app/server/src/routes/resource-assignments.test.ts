@@ -6,7 +6,7 @@ import http from 'http'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
-import type { ResourceAssignment } from '@command-center/shared'
+import type { ResourceAssignment } from '@operationkit/shared'
 
 // Isolated DB + JWT secret BEFORE importing modules.
 process.env.JWT_SECRET = 'test-secret-resource-assignments'

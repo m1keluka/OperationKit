@@ -5,7 +5,7 @@
  */
 import fs from 'fs'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { resolveFilesTouched, realGhExec } from './files-touched.js'
 import { pickAccount, recordSessionStart } from './account-router.js'
@@ -68,6 +68,8 @@ export async function spawnPlannerSession(objective: Objective): Promise<string>
 
   const tmuxName = spawnInTmux({
     sessionId,
+    // Planner shares the objective with its worker, so the jail name is suffixed.
+    objectiveId: `${objective.id}-plan`,
     homeDir: account.homeDir,
     workdir,
     prompt,
@@ -208,6 +210,8 @@ export async function spawnReviewerSession(objective: Objective): Promise<string
   const reviewerModel = getReviewerModelId()
   const tmuxName = spawnInTmux({
     sessionId,
+    // Reviewer can run alongside the worker's jail — suffix keeps the name unique.
+    objectiveId: `${objective.id}-review`,
     homeDir: account.homeDir,
     workdir,
     prompt,

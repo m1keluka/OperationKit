@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildReviewerPrompt } from './session-manager.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Regression guard for the clock-gated `blocked` carve-out (distill 2026-08-15 P1, obj 706319).
 //
@@ -18,7 +18,7 @@ import type { Objective } from '@command-center/shared'
 function makeObjective(overrides: Partial<Objective> = {}): Objective {
   return {
     id: 42,
-    workspace: 'personal',
+    workspace: 'operator',
     type: 'feature',
     title: 'Test objective',
     description: 'do the thing',

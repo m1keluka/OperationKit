@@ -2,7 +2,7 @@
  * SessionViewer header — extracted from SessionViewer.tsx (behavior frozen).
  */
 import { X, GitPullRequest, Maximize2, Minimize2, Pencil } from 'lucide-react'
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import { ConnStatusPill, type ConnState } from '../ConnStatusPill'
 import { STATUS_META, AgentMonogram, LiveBadge } from '../design/primitives'
 import { Badge, Button, IconButton } from '../ui'

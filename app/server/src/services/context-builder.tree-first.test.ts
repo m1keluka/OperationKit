@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // P1-2 / gap G8 — tree-first session context, gated by CONTEXT_TREE_FIRST.
 //
@@ -32,7 +32,7 @@ const OTHER_WS = 700002  // another workspace entirely
 
 const BLOCKER = (what: string) => JSON.stringify([{ severity: 'moderate', description: what }])
 
-function insertObjective(id: number, parentId: number | null, title: string, workspace = 'personal') {
+function insertObjective(id: number, parentId: number | null, title: string, workspace = 'operator') {
   getDb().prepare(
     `INSERT INTO objectives (id, title, description, status, agent_context, workspace, parent_id)
      VALUES (?, ?, 'desc', 'working', 'cto', ?, ?)`
@@ -59,7 +59,7 @@ function self(over: Partial<Objective> = {}): Objective {
     title: 'P1-2: Tree-first session context',
     description: 'desc',
     status: 'working',
-    workspace: 'personal',
+    workspace: 'operator',
     agent_context: 'cto',
     parent_id: DELEGATOR,
     ...over,

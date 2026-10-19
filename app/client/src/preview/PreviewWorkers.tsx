@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronRight, Pencil } from 'lucide-react'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { StatusDot } from '../components/design/primitives'
 
 function stateLabel(o: Objective): string {

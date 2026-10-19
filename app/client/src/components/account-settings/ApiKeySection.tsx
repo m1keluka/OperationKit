@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { useConfirm } from '../ui'
 import { fmtDate } from './helpers'
-import type { ApiKeyIssued, ApiKeySummary } from '@command-center/shared'
+import type { ApiKeyIssued, ApiKeySummary } from '@operationkit/shared'
 
 export function ApiKeySection() {
   const [summary, setSummary] = useState<ApiKeySummary | null>(null)

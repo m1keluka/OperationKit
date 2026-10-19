@@ -4,7 +4,7 @@ import os from 'os'
 import path from 'path'
 import { buildDelegatorBlock } from './prompt-builder.js'
 import { clearGateConfigCache } from './design-context.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Spawn-prompt injection on the FILE control-plane (obj 1117).
@@ -22,14 +22,14 @@ import type { Objective } from '@command-center/shared'
 const GATE_FILE = path.join(os.tmpdir(), `ui-gate-pb-injection-test-${process.pid}.json`)
 // The line obj 1117 turns on at spawn (a stable, unique substring of the ds-criteria instruction).
 const DS_LINE = 'REQUIRED (UI): if a worker targets a registered frontend repo'
-const PLATFORMS = ['command-center-infra', 'example-project-platform', 'example-platform', 'example3-platform']
+const PLATFORMS = ['operationkit', 'example-project-platform', 'example-platform', 'example3-platform']
 
 function obj(partial: Partial<Objective>): Objective {
   return {
     id: 42,
     title: 'Delegate UI work',
     type: 'objective',
-    workspace: 'personal',
+    workspace: 'operator',
     project: 'example-project-platform',
     agent_context: 'cto',
     delegate_mode: 1,

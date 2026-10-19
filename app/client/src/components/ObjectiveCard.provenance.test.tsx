@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { ObjectiveCard } from './ObjectiveCard'
 
 // prov-ui (obj 2386): the board card must VISIBLY differentiate a

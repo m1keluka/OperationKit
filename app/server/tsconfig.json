@@ -4,7 +4,7 @@
     "outDir": "./dist",
     "rootDir": "..",
     "paths": {
-      "@command-center/shared": ["../shared/types.ts"]
+      "@operationkit/shared": ["../shared/types.ts"]
     }
   },
   "include": ["src/**/*", "../shared/**/*"]

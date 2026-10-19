@@ -1,7 +1,7 @@
 import fs from 'fs'
 import { getDb } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
-import type { Alert, AlertSeverity } from '@command-center/shared'
+import type { Alert, AlertSeverity } from '@operationkit/shared'
 
 export type Severity = AlertSeverity
 

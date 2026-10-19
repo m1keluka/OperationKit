@@ -20,7 +20,7 @@
 // Every retire is audit-logged (append-only) and broadcast so the board updates.
 
 import type { Database } from 'better-sqlite3'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { logObjectiveAudit } from '../services/objective-audit.js'
 
 export interface CleanupResult {

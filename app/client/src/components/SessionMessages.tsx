@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SessionMessage } from '@command-center/shared'
+import type { SessionMessage } from '@operationkit/shared'
 import { renderMarkdown } from '../lib/markdown'
 import { cleanupOrphanMermaid, renderMermaidIn } from '../lib/mermaid'
 import { ObjectiveProposalCard } from './mentor/ObjectiveProposalCard'
@@ -196,7 +196,7 @@ function ToolMeta({ cost, duration }: { cost?: number; duration?: number }) {
 // ── Tool-specific summaries ──
 
 function isEditableDocPath(p: string): boolean {
-  return /^\/home\/admin\/.+\.md$/.test(p)
+  return /^\/home\/mike\/.+\.md$/.test(p)
 }
 
 function getToolSummary(msg: SessionMessage): { label: string; icon: string; filePath?: string } {

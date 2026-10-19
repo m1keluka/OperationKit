@@ -6,7 +6,7 @@ import http from 'http'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
-import type { UserGoogleConnectionSummary } from '@command-center/shared'
+import type { UserGoogleConnectionSummary } from '@operationkit/shared'
 
 // obj-706070 — per-user Google Workspace connection API.
 //

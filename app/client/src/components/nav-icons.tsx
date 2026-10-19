@@ -3,7 +3,7 @@ import type { SVGProps } from 'react'
 /* ─────────────────────────────────────────────────────────────────────────
    Nav-bar icons — Heroicons v2 (24px), reused verbatim (W19)
    ----------------------------------------------------------------------------
-   The navigation icon family was swapped from Lucide → Heroicons (Operator's pick
+   The navigation icon family was swapped from Lucide → Heroicons (Mike's pick
    from the small-things showcase). The glyph path data below is copied byte-for-
    byte from the APPROVED showcase rendering
    (operationkit-showcase/shared/icons-data.js → the `hero-outline` / `hero-solid`
@@ -12,7 +12,7 @@ import type { SVGProps } from 'react'
    Why a local component instead of the `@heroicons/react` package:
      • zero new dependency → a live deploy stays a zero-impact `frontend` build
        (no `rebuild`, no container churn, no risk to running tmux sessions);
-     • guaranteed parity with the exact glyphs Operator approved.
+     • guaranteed parity with the exact glyphs Mike approved.
 
    Active-state treatment mirrors the showcase's "Heroicons · outline→solid":
    idle tabs render the OUTLINE glyph, the active tab flips to the SOLID glyph —
@@ -25,7 +25,7 @@ export type NavIconName =
   | 'board'
   | 'strategy'
   | 'dev'
-  | 'jarvis'
+  | 'assistant'
   | 'jobs'
   | 'loops'
   | 'content'
@@ -69,7 +69,7 @@ const GLYPHS: Record<NavIconName, Glyph> = {
     solid:
       '<path fill-rule="evenodd" d="M3 6a3 3 0 0 1 3-3h2.25a3 3 0 0 1 3 3v2.25a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6Zm9.75 0a3 3 0 0 1 3-3H18a3 3 0 0 1 3 3v2.25a3 3 0 0 1-3 3h-2.25a3 3 0 0 1-3-3V6ZM3 15.75a3 3 0 0 1 3-3h2.25a3 3 0 0 1 3 3V18a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-2.25Zm9.75 0a3 3 0 0 1 3-3H18a3 3 0 0 1 3 3V18a3 3 0 0 1-3 3h-2.25a3 3 0 0 1-3-3v-2.25Z" clip-rule="evenodd"/>',
   },
-  jarvis: {
+  assistant: {
     outline:
       '<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z"/>',
     solid:

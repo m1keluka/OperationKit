@@ -11,7 +11,7 @@ import { BoardShell, BoardThemeProvider } from './preview/BoardShell'
 import { PreviewBoard } from './preview/PreviewBoard'
 import { PreviewArchive } from './preview/PreviewArchive'
 import { PreviewWorkspace } from './preview/PreviewWorkspace'
-import type { Workspace } from '@command-center/shared'
+import type { Workspace } from '@operationkit/shared'
 
 // Route-level code-splitting (obj 700585): the board is the landing surface
 // and stays eager. Every secondary route is lazy-loaded so its code — most
@@ -35,6 +35,7 @@ const JobsBoard = lazy(() => import('./components/JobsBoard').then(m => ({ defau
 const StrategiesPage = lazy(() => import('./components/StrategiesPage').then(m => ({ default: m.StrategiesPage })))
 const StrategyDetailPage = lazy(() => import('./components/StrategyDetailPage').then(m => ({ default: m.StrategyDetailPage })))
 const DevelopmentPage = lazy(() => import('./components/DevelopmentPage').then(m => ({ default: m.DevelopmentPage })))
+const AgentsPage = lazy(() => import('./components/AgentsPage').then(m => ({ default: m.AgentsPage })))
 /**
  * Extract /w/<workspace> from a pathname. Returns null when not a workspace path.
  * Slugs are validated lexically only — the server (via /api/workspaces and
@@ -201,9 +202,9 @@ function AppContent() {
           <Route path="/preview/*" element={<Navigate to="/" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/config" element={<Navigate to="/settings/org" replace />} />
-          <Route path="/assistant" element={<Navigate to="/jarvis" replace />} />
+          <Route path="/assistant" element={<Navigate to="/assistant" replace />} />
           <Route path="/mentor" element={<MentorPage />} />
-          <Route path="/jarvis" element={<MentorPage />} />
+          <Route path="/assistant" element={<MentorPage />} />
           <Route path="/feed" element={<ProjectFeed workspace={workspace} />} />
           <Route path="/development/*" element={<DevelopmentPage workspace={workspace} />} />
           <Route path="/feedback" element={<Navigate to="/development" replace />} />
@@ -214,6 +215,7 @@ function AppContent() {
           <Route path="/loops" element={<LoopsPage />} />
           <Route path="/granola" element={<GranolaPage />} />
           <Route path="/jobs" element={<JobsBoard workspace={workspace} />} />
+          <Route path="/agents" element={<AgentsPage workspace={workspace} />} />
           <Route path="/strategies" element={<StrategiesPage workspace={workspace} />} />
           <Route path="/strategy/:id" element={<StrategyDetailPage workspace={workspace} />} />
           <Route path="/settings" element={<SettingsPage />}>

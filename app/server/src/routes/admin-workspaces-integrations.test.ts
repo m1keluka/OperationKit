@@ -6,7 +6,7 @@ import http from 'http'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
-import type { WorkspaceIntegration, GithubOrgRepo, WorkspaceRepo } from '@command-center/shared'
+import type { WorkspaceIntegration, GithubOrgRepo, WorkspaceRepo } from '@operationkit/shared'
 
 // Real SQLite via initDb() — exercises the actual workspace_integrations schema.
 const TMP_DB = path.join(os.tmpdir(), `cc-wsintg-test-${process.pid}-${Date.now()}.db`)
@@ -93,7 +93,7 @@ afterAll(async () => {
 beforeEach(async () => {
   getDb().exec('DELETE FROM workspace_integrations')
   getDb().exec('DELETE FROM workspace_repos')
-  getDb().exec("DELETE FROM workspaces WHERE slug NOT IN ('example','example-project','personal')")
+  getDb().exec("DELETE FROM workspaces WHERE slug NOT IN ('example','example-project','operator')")
   invalidateWorkspacesCache()
   installDefaultFake()
   await req('POST', '/api/admin/workspaces', { slug: 'acme', name: 'Acme Co' })
@@ -114,7 +114,7 @@ describe('github integration (admin)', () => {
   it('validates against GitHub and persists a connected, masked integration', async () => {
     const r = await req('POST', '/api/admin/workspaces/acme/integrations/github', {
       org: 'acme',
-      token: 'ghp_valid_secret_1234',
+      token: 'ghp_valid_secret_1234', // gitleaks:allow — literal test fixture, not a credential
     })
     expect(r.status).toBe(201)
     const intg = r.json as WorkspaceIntegration

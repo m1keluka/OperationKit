@@ -10,7 +10,7 @@ import {
   type GoalDraftRequest,
   type GoalDraftResponse,
   type GoalQuestion,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { stopSession, interruptSession, sendFollowUp } from '../services/session-manager.js'
 import { releaseBranchLeasesForObjective } from '../services/branch-lease.js'
 import { cancelDelegatorWake } from '../services/delegation.js'
@@ -29,6 +29,7 @@ import {
   mapObjective,
   requireOwnership,
 } from './objectives-helpers.js'
+import { resolveFollowUpSessionId } from '../services/objective-sessions.js'
 
 export function registerObjectiveGoalDraftRoutes(router: Router): void {
 // POST /api/objectives/goal/draft
@@ -196,7 +197,7 @@ router.get('/:id/governance', (req: AuthRequest, res) => {
   })
 })
 
-// POST /api/objectives/:id/decisions/:reviewId/resolve — Operator confirms/denies a
+// POST /api/objectives/:id/decisions/:reviewId/resolve — Mike confirms/denies a
 // pending Stage-0 Decision Request (obj 2385). Records the verdict on the
 // decision row, then resumes the strategy session with the structured
 // `[decision …]` follow-up via the existing sendFollowUp path (which flips the
@@ -242,13 +243,8 @@ router.post('/:id/decisions/:reviewId/resolve', async (req: AuthRequest, res) =>
     return
   }
 
-  let existingSessionId = objective.session_id
-  if (!existingSessionId) {
-    const lastSession = db.prepare(
-      'SELECT session_id FROM session_intel WHERE objective_id = ? ORDER BY ended_at DESC LIMIT 1'
-    ).get(objective.id) as { session_id: string } | undefined
-    existingSessionId = lastSession?.session_id || `cc-${objective.id}-${Date.now()}`
-  }
+  // Never an aux (`cc-review-*`/`cc-plan-*`) session — see objective-sessions.ts.
+  const existingSessionId = resolveFollowUpSessionId(db, objective)
 
   try {
     const newSessionId = sendFollowUp(existingSessionId, resolved.followUp, objective)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { scopeObjectives } from './scopeObjectives'
 
 // obj 700082 — the board's authoritative render-time scope gate. Proves an

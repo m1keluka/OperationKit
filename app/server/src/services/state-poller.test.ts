@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { AcceptanceCriterion } from '@command-center/shared'
+import type { AcceptanceCriterion } from '@operationkit/shared'
 import {
   parseCriteriaResults,
   extractScreenshotPaths,

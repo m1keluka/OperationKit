@@ -9,7 +9,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
 import { Modal, useConfirm } from '../ui'
-import type { SecretSummary, SetSecretRequest } from '@command-center/shared'
+import type { SecretSummary, SetSecretRequest } from '@operationkit/shared'
 
 const MASK = '••••••'
 

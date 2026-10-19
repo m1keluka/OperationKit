@@ -10,7 +10,7 @@ import type {
   ObjectiveType,
   AcceptanceCriterion,
   AcceptanceCriterionResult,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 
 export const MAX_NOOP_RESPAWNS = 2
 

@@ -6,7 +6,7 @@ import type {
   ObjectiveStatus,
   ServerMessage,
   Workspace,
-} from '@command-center/shared'
+} from '@operationkit/shared'
 import { useWebSocket } from './useWebSocket'
 import { api } from '../lib/api'
 import { mergeObjectiveUpdate } from '../lib/mergeObjective'

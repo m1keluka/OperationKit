@@ -6,7 +6,7 @@ import http from 'http'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
-import type { UserGithubTokenSummary } from '@command-center/shared'
+import type { UserGithubTokenSummary } from '@operationkit/shared'
 
 // Encryption key + isolated DB + JWT secret BEFORE importing modules.
 process.env.TEST_CRED_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64')

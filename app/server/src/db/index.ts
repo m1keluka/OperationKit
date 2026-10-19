@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url'
 import { backfillAllDepths } from '../lib/objective-depth.js'
 import { initDevelopmentSchema, seedDevelopmentRegistry } from './schema/development.js'
 import { initCoreSchema } from './schema/core.js'
+import { initAgentsSchema } from './schema/agents.js'
+import { rebuildObjectivesTable } from './schema/objectives-rebuild.js'
 import { initKitchenLoopSchema } from './schema/kitchen.js'
 import { initSecretsSchema } from './schema/secrets.js'
 import { initDsrSchema } from './schema/dsr.js'
@@ -18,6 +20,7 @@ import { initRuntimeSchema } from './schema/runtime.js'
 import { initLeasesSchema } from './schema/leases.js'
 import { initModelsSchema } from './schema/models.js'
 import { initTokensSchema } from './schema/tokens.js'
+import { initContentSchema } from './schema/content.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/command-center.db')
@@ -58,36 +61,10 @@ export function initDb(): Database.Database {
 
   initCoreSchema(db)
 
-  // Fix agent_context CHECK constraint for existing DBs — old constraint only allowed 5 values,
-  // but we now support 8 (added designer, hr, general-counsel). SQLite can't ALTER CHECK constraints,
-  // so we drop and recreate the constraint by rebuilding the table if the old constraint is detected.
-  try {
-    // Test if the old constraint blocks new values
-    db.exec("INSERT INTO objectives (title, agent_context) VALUES ('__constraint_test__', 'designer')")
-    db.exec("DELETE FROM objectives WHERE title = '__constraint_test__'")
-  } catch {
-    // Old constraint is blocking — need to rebuild the table
-    console.log('[db] Rebuilding objectives table to expand agent_context CHECK constraint...')
-    db.exec(`
-      CREATE TABLE objectives_new AS SELECT * FROM objectives;
-      DROP TABLE objectives;
-      CREATE TABLE objectives (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('queue', 'working', 'review', 'done')),
-        agent_context TEXT NOT NULL DEFAULT 'general' CHECK(agent_context IN ('cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel')),
-        assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        session_id TEXT,
-        transcript_path TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      INSERT INTO objectives SELECT id, title, description, status, agent_context, assigned_user_id, session_id, transcript_path, created_at, updated_at FROM objectives_new;
-      DROP TABLE objectives_new;
-      CREATE INDEX IF NOT EXISTS idx_objectives_status ON objectives(status);
-    `)
-  }
+  // Agent registry (table + seeds) and the agent_context CHECK drop. Runs right
+  // after the core schema so every later migration and every runtime read sees a
+  // populated `agents` table and an unconstrained agent_context column.
+  initAgentsSchema(db)
 
   // Status CHECK constraint management. The current allowed set is:
   //   planning, queue, working, ai_review, review, done, cancelled
@@ -128,47 +105,12 @@ export function initDb(): Database.Database {
     // new CHECK doesn't reject them during the data copy.
     db.exec("UPDATE objectives SET status = 'review' WHERE status = 'human_review'")
     console.log('[db] Rebuilding objectives table to apply current status CHECK (planning/queue/working/ai_review/review/done)...')
-    const cols = db.prepare("PRAGMA table_info(objectives)").all() as { name: string; type: string; dflt_value: string | null; notnull: number; pk: number }[]
-    const colNames = cols.map(c => c.name)
-    const colList = colNames.join(', ')
-
-    // Build CREATE statement with the expanded CHECK constraint. Keep every
-    // existing column with its current type/default — we only touch the
-    // status constraint; everything else passes through unchanged.
-    const colDefs = cols.map(c => {
-      if (c.name === 'status') {
-        return `status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('planning','queue','working','ai_review','review','done','cancelled'))`
-      }
-      // The status-rebuild path used to drop the agent_context CHECK because the
-      // generic branch below only re-emits type/NOT NULL/DEFAULT. Restate it.
-      if (c.name === 'agent_context') {
-        return `agent_context TEXT NOT NULL DEFAULT 'general' CHECK(agent_context IN ('cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel'))`
-      }
-      if (c.name === 'id') return `id INTEGER PRIMARY KEY AUTOINCREMENT`
-      const notNull = c.notnull ? ' NOT NULL' : ''
-      // PRAGMA strips outer parens from expression defaults (e.g. `(datetime('now'))` → `datetime('now')`).
-      // SQLite requires compound-expression defaults to be parenthesized, so re-wrap anything that
-      // isn't a bare literal (string-literal starting with `'`, plain number, NULL, or CURRENT_*).
-      let dflt = ''
-      if (c.dflt_value !== null) {
-        const v = String(c.dflt_value)
-        const isLiteral = /^'.*'$/.test(v) || /^-?\d+(\.\d+)?$/.test(v) || /^(NULL|CURRENT_TIMESTAMP|CURRENT_DATE|CURRENT_TIME)$/i.test(v)
-        dflt = isLiteral ? ` DEFAULT ${v}` : ` DEFAULT (${v})`
-      }
-      return `${c.name} ${c.type}${notNull}${dflt}`
-    }).join(',\n        ')
-
-    db.exec(`
-      BEGIN;
-      CREATE TABLE objectives_new (
-        ${colDefs}
-      );
-      INSERT INTO objectives_new (${colList}) SELECT ${colList} FROM objectives;
-      DROP TABLE objectives;
-      ALTER TABLE objectives_new RENAME TO objectives;
-      CREATE INDEX IF NOT EXISTS idx_objectives_status ON objectives(status);
-      COMMIT;
-    `)
+    // Only the status column definition changes; every other column (including
+    // agent_context, whose CHECK the agent registry deliberately dropped) is
+    // passed through verbatim, and all indexes are restored.
+    rebuildObjectivesTable(db, {
+      status: `status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('planning','queue','working','ai_review','review','done','cancelled'))`,
+    })
   }
 
   // Migrations: add columns if they don't exist (safe for existing DBs)
@@ -210,8 +152,8 @@ export function initDb(): Database.Database {
   // Per-workspace permission flags (additive migrations — idempotent)
   const uwCols = db.prepare("PRAGMA table_info(user_workspaces)").all() as { name: string }[]
   const uwNames = new Set(uwCols.map(c => c.name))
-  if (!uwNames.has('can_use_jarvis')) {
-    db.exec("ALTER TABLE user_workspaces ADD COLUMN can_use_jarvis INTEGER NOT NULL DEFAULT 1")
+  if (!uwNames.has('can_use_assistant')) {
+    db.exec("ALTER TABLE user_workspaces ADD COLUMN can_use_assistant INTEGER NOT NULL DEFAULT 1")
   }
   if (!uwNames.has('objective_visibility')) {
     // SQLite ADD COLUMN can't add a CHECK constraint after creation, so we just
@@ -355,7 +297,7 @@ export function initDb(): Database.Database {
     // Strategy progressive-trust ladder (obj 2511, 2026-06-29). Per-strategy
     // autonomy stage on the 4-rung ladder from the gating framework
     // (architecture/strategy-layer-gating-review-framework.md §2):
-    //   0 = full-gate (every strategic decision parks for Operator — the safe default)
+    //   0 = full-gate (every strategic decision parks for Mike — the safe default)
     //   1 = partial-autonomy   2 = supervised-autonomy   3 = autonomous
     // What is auto-allowed vs gated at each stage is a PURE function of this
     // column (decideTrustStageAction in services/strategy-governance.ts); the
@@ -373,7 +315,7 @@ export function initDb(): Database.Database {
   // Corrective one-time reset (obj 2835). obj 2383 shipped a backfill that stamped
   // is_strategy=1 on every top-level delegator (`delegate_mode=1 AND parent_id IS
   // NULL`) AND inferred the marker ungated at create/update time. Since nearly every
-  // objective Operator runs is a top-level delegator, his entire history got wrongly
+  // objective Mike runs is a top-level delegator, his entire history got wrongly
   // stamped is_strategy=1 and showed the STRATEGY badge. is_strategy is now an
   // EXPLICIT opt-in marker only (set at creation, never inferred). To clear the
   // bad historical data we reset is_strategy=0 for ALL currently-stamped rows.
@@ -402,7 +344,7 @@ export function initDb(): Database.Database {
     // Durable wake-storm guard (2026-06-21): the per-delegator child-state
     // "signature" the reconcile safety net (state-poller.reconcileDelegators)
     // last nudged for. Persisting it across restarts stops an all-done delegator
-    // parked in `review` (awaiting Operator's accept) from being spuriously re-woken
+    // parked in `review` (awaiting Mike's accept) from being spuriously re-woken
     // on every server restart — each spurious wake spawned a ~$7 [child-complete]
     // session. NULL until the reconcile pass first records a signature; cleared
     // when the delegator reaches `done`. See
@@ -424,6 +366,38 @@ export function initDb(): Database.Database {
   }
   if (!colNames.has('backstop_noprogress')) {
     db.exec("ALTER TABLE objectives ADD COLUMN backstop_noprogress INTEGER NOT NULL DEFAULT 0")
+  }
+  // dev_feedback bridge (obj 711117 W4): idempotency key + push-tracking columns.
+  // dev_feedback_uuid: links a CC objective to a platform dev_feedback row.
+  //   UNIQUE (per dev_feedback_source, see below) so a crash between create and sync cannot produce two objectives for
+  //   the same feedback item.
+  // last_known_kanban_status: tracks the kanban status last successfully pushed to
+  //   the platform so status-push pass only POSTs when something actually changed.
+  if (!colNames.has('dev_feedback_uuid')) {
+    db.exec("ALTER TABLE objectives ADD COLUMN dev_feedback_uuid TEXT")
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_objectives_dev_feedback_uuid ON objectives(dev_feedback_uuid) WHERE dev_feedback_uuid IS NOT NULL")
+  }
+  if (!colNames.has('last_known_kanban_status')) {
+    db.exec("ALTER TABLE objectives ADD COLUMN last_known_kanban_status TEXT")
+  }
+  // dev_feedback_source (obj 712905): which bridge instance (= CC workspace,
+  // e.g. 'example2' | 'example-project') a dev_feedback_uuid came from. Uniqueness is
+  // scoped per source so two platforms' uuids can never collide, and Pass B only
+  // pushes a row back to the platform it came from. Pre-712905 bridged rows all
+  // came from example2, so they are backfilled once when the column is added.
+  if (!colNames.has('dev_feedback_source')) {
+    db.exec("ALTER TABLE objectives ADD COLUMN dev_feedback_source TEXT")
+    db.exec("UPDATE objectives SET dev_feedback_source = 'example2' WHERE dev_feedback_uuid IS NOT NULL AND dev_feedback_source IS NULL")
+  }
+  db.exec("DROP INDEX IF EXISTS idx_objectives_dev_feedback_uuid")
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_objectives_dev_feedback_source_uuid ON objectives(dev_feedback_source, dev_feedback_uuid) WHERE dev_feedback_uuid IS NOT NULL")
+  // PostHog Signals bridge (obj 712024 W5): idempotency key.
+  // posthog_report_id links a CC objective to one PostHog Self-Driving signal
+  // report. UNIQUE (partial, so untagged objectives are unconstrained) so a
+  // re-run of the sweep can never file a second objective for the same report.
+  if (!colNames.has('posthog_report_id')) {
+    db.exec("ALTER TABLE objectives ADD COLUMN posthog_report_id TEXT")
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_objectives_posthog_report_id ON objectives(posthog_report_id) WHERE posthog_report_id IS NOT NULL")
   }
   // Objective-lifecycle hardening (obj 700415).
   // `terminal_by_human`: set to 1 when a HUMAN ends an objective via the public
@@ -501,7 +475,7 @@ export function initDb(): Database.Database {
   // ── Strategy decision gate (obj 2385, 2026-06-28) ──────────────────────────
   // Broaden objective_reviews to store a strategy node's Stage-0 Decision
   // Request as a review row: mode='decision' (a fourth review surface alongside
-  // browser/api/doc/noop) with verdict='pending' while it awaits Operator's
+  // browser/api/doc/noop) with verdict='pending' while it awaits Mike's
   // confirm/deny, then 'pass' (approved) / 'fail' (denied). This REUSES the
   // reviews table per the strategy-layer gating design (decision history,
   // review history, and the false-pass join all stay in one place) instead of a
@@ -692,7 +666,7 @@ export function initDb(): Database.Database {
   //   - origin: how the objective was created (manual|strategy|routine|job_reply).
   //   - strategy_id: the Strategy (is_strategy=1) this objective belongs to /
   //     is associated with. Inherited from the parent chain at insert, OR set
-  //     explicitly on a MANUAL objective (even when parent_id IS NULL) so Operator
+  //     explicitly on a MANUAL objective (even when parent_id IS NULL) so Mike
   //     can associate a hand-created objective with a strategy and still see it.
   // Both default such that absence preserves prior behavior (origin='manual',
   // strategy_id=NULL). See docs/terminology-glossary.md.
@@ -799,7 +773,7 @@ export function initDb(): Database.Database {
 
   initLeasesSchema(db)
 
-  // Seed routines — both DISABLED (enabled=0); Operator flips them on after review.
+  // Seed routines — both DISABLED (enabled=0); Mike flips them on after review.
   const seedRoutines: Array<{ name: string; cron_expr: string; template: Record<string, unknown>; enabled?: number }> = [
     {
       name: 'morning-briefing',
@@ -809,14 +783,14 @@ export function initDb(): Database.Database {
         description: [
           'Compose the daily morning brief.',
           '',
-          '1. GET http://localhost:3002/api/jarvis/briefing for board state and open loops.',
+          '1. GET http://localhost:3002/api/briefing/briefing for board state and open loops.',
           '2. Write a concise brief covering: board state (working / blocked / needs-review), stale items, and account/budget status.',
           "3. Write it to /home/operator/ai-workspace/briefings/YYYY-MM-DD.md using today's date (create the directory if needed).",
           '4. If a Telegram/Hermes send path is available, send the brief there too; otherwise the file is enough.',
         ].join('\n'),
         agent_context: 'cto',
         workspace: 'example',
-        project: 'command-center-infra',
+        project: 'operationkit',
         category: 'operations',
         completion_goal: 'Briefing file exists at /home/operator/ai-workspace/briefings/<today>.md covering board state, stale items, and account/budget status.',
         workflow_hint: null,
@@ -836,21 +810,21 @@ export function initDb(): Database.Database {
           'Convention: docs/product/README.md (sentence + paragraph + TOC), 01-what-it-is.md (one page + overview mermaid), 02-how-it-works.md (loop mermaid), 07-data.md (ER mermaid + table inventory). Spec: docs/product/LIVING.md.',
           '',
           '1. GET http://localhost:3002/api/internal/repos?living=1 — linked repos with living docs on and a disk path.',
-          '2. For THIS repo (command-center-infra): git log --since=yesterday.0:00 --oneline; also note Board cards with project=command-center-infra that moved to done since yesterday.',
+          '2. For THIS repo (operationkit): git log --since=yesterday.0:00 --oneline; also note Board cards with project=operationkit that moved to done since yesterday.',
           '3. Diff SQLite tables: rg -o "CREATE TABLE IF NOT EXISTS ([a-z_]+)" app/server/src/db/schema -r "$1" | sort -u  vs the inventory in docs/product/07-data.md.',
           '4. If nothing product-facing changed AND the table inventory matches: make no file edits, say so, finish.',
           '5. If nav/auth/engines/a user flow/tables changed: edit docs/product/ so a visual person and a language person both get the truth. Always keep the mermaid in 01 and 02 and the ER + inventory in 07-data.md current. Open/update the PR (create_pr is on).',
-          '6. For every OTHER living repo in the list whose docs/product exists: spawn a sibling Board card via POST http://localhost:3002/api/internal/objectives with workspace, project=repo name, create_pr=true, model claude-sonnet-4-6, title "Living docs — {name}", description pointing at that checkout and LIVING.md (flowchart + 07-data required). Do not edit those live checkouts from this session.',
+          '6. For every OTHER living repo in the list whose docs/product exists: spawn a sibling Board card via POST http://localhost:3002/api/internal/objectives with workspace, project=repo name, create_pr=true, model claude-sonnet-5, title "Living docs — {name}", description pointing at that checkout and LIVING.md (flowchart + 07-data required). Do not edit those live checkouts from this session.',
           '7. If a living repo has a path but no docs/product yet, spawn the same sibling to stub README.md + 01-what-it-is.md (with mermaid) + 07-data.md only — do not invent a novel wiki.',
         ].join('\n'),
         agent_context: 'cto',
         workspace: 'example',
-        project: 'command-center-infra',
+        project: 'operationkit',
         category: 'operations',
         completion_goal: 'Product docs in docs/product/ match yesterday’s user-visible product, or an explicit no-op if nothing changed. Other living repos either skipped or have a sibling PR card.',
         workflow_hint: null,
         effort: 'normal',
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         type: 'task',
         create_pr: true,
       },
@@ -870,7 +844,7 @@ export function initDb(): Database.Database {
         ].join('\n'),
         agent_context: 'general',
         workspace: 'example',
-        project: 'command-center-infra',
+        project: 'operationkit',
         category: 'operations',
         completion_goal: 'hygiene-latest.md is overwritten with a current digest of stale queue items, unattended reviews, and dead working sessions.',
         workflow_hint: null,
@@ -898,6 +872,11 @@ export function initDb(): Database.Database {
 
   initTokensSchema(db)
 
+  // Content-engine ownership (obj 710856). Must run AFTER initCoreSchema (FK to
+  // users) — its seed matches owners by username, so it is a no-op on a DB whose
+  // users have not been created yet.
+  initContentSchema(db)
+
   initSecretsSchema(db)
 
   // ── Universal Development — Phase 0 (obj-704214) ─────────────────────────
@@ -906,7 +885,7 @@ export function initDb(): Database.Database {
   // Supply's `portal_feedback` and Example3's `dev_feedback` into ONE table in
   // CC, so every platform's Development board is served from here.
   //
-  // Spec: ~/second-brain/workspaces/personal/projects/universal-development-schema.md
+  // Spec: ~/second-brain/workspaces/operator/projects/universal-development-schema.md
   // (§2.1-§2.6). Phase-0 plan: universal-development-migration.md §1.1-§1.2.
   //
   // Purely additive. Nothing below drops, renames or rewrites an existing
@@ -921,7 +900,7 @@ export function initDb(): Database.Database {
   // A "project" is a named subfolder INSIDE a workspace that objectives belong
   // to — it is the board's third-level organizer (org → project → objective).
   // IMPORTANT: this is ENTIRELY DISTINCT from `objectives.project` (the REPO
-  // LINK column, e.g. 'command-center-infra') — do not confuse the two.
+  // LINK column, e.g. 'operationkit') — do not confuse the two.
   // The new column is `objectives.project_id` referencing `projects.id`.
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
@@ -946,6 +925,15 @@ export function initDb(): Database.Database {
     db.exec('ALTER TABLE objectives ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL')
   }
   db.exec('CREATE INDEX IF NOT EXISTS idx_objectives_workspace_project ON objectives(workspace, project_id)')
+
+  // ── PostHog Self-Driving source uniqueness (obj 712024 W2) ──────────────
+  // Ensures INSERT OR IGNORE idempotency for posthog-bot-discovered dev_items.
+  // The DDL in development.ts includes this, but CREATE TABLE IF NOT EXISTS
+  // never alters an existing table, so prod DBs created before this schema
+  // version need the index applied as an explicit migration.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_dev_items_source ON dev_items(source_system, source_id) WHERE source_id IS NOT NULL",
+  )
 
   return db
 }

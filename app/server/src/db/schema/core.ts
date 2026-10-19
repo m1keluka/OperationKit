@@ -19,7 +19,7 @@ export function initCoreSchema(db: Database.Database): void {
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       workspace TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('admin', 'member')),
-      can_use_jarvis INTEGER NOT NULL DEFAULT 1,
+      can_use_assistant INTEGER NOT NULL DEFAULT 1,
       objective_visibility TEXT NOT NULL DEFAULT 'own' CHECK(objective_visibility IN ('own', 'all')),
       PRIMARY KEY (user_id, workspace)
     );
@@ -29,7 +29,7 @@ export function initCoreSchema(db: Database.Database): void {
       title TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('queue', 'working', 'review', 'done')),
-      agent_context TEXT NOT NULL DEFAULT 'general' CHECK(agent_context IN ('cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel')),
+      agent_context TEXT NOT NULL DEFAULT 'general',
       assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       session_id TEXT,
       transcript_path TEXT,

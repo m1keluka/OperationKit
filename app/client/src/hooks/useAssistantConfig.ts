@@ -5,7 +5,7 @@ import { api } from '../lib/api'
  * Client-local DTO for the per-user assistant configuration.
  *
  * These types intentionally MIRROR the frozen `/api/assistant/config` JSON
- * contract but are declared here (not imported from `@command-center/shared`)
+ * contract but are declared here (not imported from `@operationkit/shared`)
  * so this frontend worktree stays tsc-clean and merge-conflict-free while a
  * parallel backend worker owns the shared package. Keep in sync with the
  * server contract by hand.

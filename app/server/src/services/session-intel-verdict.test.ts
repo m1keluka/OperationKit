@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import Database from 'better-sqlite3'
 import { buildSummaryPrompt } from './session-intel-summary.js'
 import type { DeterministicIntel } from './session-intel-parse.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 // Regression coverage for the 06-20 verdict-grounded-summarizer fix (obj 913,
 // re-landed by obj 2162). The bug: generateSummary never received the review's

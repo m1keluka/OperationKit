@@ -20,7 +20,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } 
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import type { Objective, ObjectiveStatus } from '@command-center/shared'
+import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 
 const TMP_DB = path.join(os.tmpdir(), `cc-strategy-continuation-test-${process.pid}-${Date.now()}.db`)
 process.env.DB_PATH = TMP_DB
@@ -47,7 +47,7 @@ function seed(opts: {
   const r = getDb()
     .prepare(
       `INSERT INTO objectives (title, agent_context, workspace, status, parent_id, depth, delegate_mode)
-       VALUES (?, 'cto', 'personal', ?, ?, ?, ?)`
+       VALUES (?, 'cto', 'operator', ?, ?, ?, ?)`
     )
     .run(
       opts.title,

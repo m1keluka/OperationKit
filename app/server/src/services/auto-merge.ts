@@ -15,12 +15,12 @@
  */
 import { execFile } from 'child_process'
 import { getDb } from '../db/index.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 import { isMoneyPath } from './merge-lane.js'
 
 export { isMoneyPath }
 
-const HARNESS_REPO = process.env.HARNESS_REPO || 'your-org/command-center-infra'
+const HARNESS_REPO = process.env.HARNESS_REPO || 'your-org/operationkit'
 const AUTO_MERGE_SETTING = 'auto_merge_enabled'
 
 /** Owner-controlled switch. Reads the `settings` KV table; defaults OFF. */

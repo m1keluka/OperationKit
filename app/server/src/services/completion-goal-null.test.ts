@@ -20,7 +20,7 @@ import { initDb } from '../db/index.js'
 import { buildPrompt } from './prompt-builder.js'
 import { buildReviewerPrompt } from './session-reviewer-prompt.js'
 import { buildPlannerPrompt } from './session-planner-prompt.js'
-import type { Objective } from '@command-center/shared'
+import type { Objective } from '@operationkit/shared'
 
 beforeAll(() => {
   initDb()
@@ -33,7 +33,7 @@ function makeObjective(overrides: Partial<Objective> = {}): Objective {
     description: 'Strip the objective create modal down to title + description.',
     status: 'working',
     agent_context: 'cto',
-    workspace: 'personal',
+    workspace: 'operator',
     project: null,
     category: 'general',
     parent_id: null,
@@ -152,7 +152,7 @@ describe('planner prompt — completion_goal is null (obj 708817)', () => {
   })
 
   it('passes the real goal through when one is set', () => {
-    const prompt = buildPlannerPrompt(makeObjective({ completion_goal: 'Plan approved by Operator.' }))
-    expect(prompt).toContain('Completion goal: Plan approved by Operator.')
+    const prompt = buildPlannerPrompt(makeObjective({ completion_goal: 'Plan approved by Mike.' }))
+    expect(prompt).toContain('Completion goal: Plan approved by Mike.')
   })
 })

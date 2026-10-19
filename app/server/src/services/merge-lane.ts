@@ -9,7 +9,7 @@
  * Cheap/fast quality: deterministic CI + floor/oracle still run. The LLM
  * reviewer is a Yellow/Red sensor, not a serial lock on Green.
  */
-import type { ObjectiveType } from '@command-center/shared'
+import type { ObjectiveType } from '@operationkit/shared'
 
 export type MergeLane = 'green' | 'yellow' | 'red'
 
