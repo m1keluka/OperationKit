@@ -14,8 +14,8 @@ A **refactor PR** may not change anything in this file. If a change is required,
 | `/api/objectives/search` | JWT |
 | `/api/costs` | admin |
 | `/api/docs` | JWT or `cc_live_` API key (tree, file, search) |
-| `/api/mentor` | JWT + Jarvis flag |
-| `/api/jarvis` | JWT |
+| `/api/mentor` | JWT + Assistant flag |
+| `/api/briefing` | JWT |
 | `/api/assistant` | JWT |
 | `/api/status` | JWT |
 | `/api/webhooks` | UptimeRobot (no JWT) |
@@ -52,7 +52,7 @@ A **refactor PR** may not change anything in this file. If a change is required,
 | `GET /api/objectives/:id/intel` | JWT + ownership |
 | `GET /api/objectives/:id/timeline` | JWT + ownership |
 
-Previously unmounted, now live: `/api/alerts` (JWT list/ack + bearer ingest), `/api/internal/vault/*` and `/api/internal/rolodex/history` (localhost, telegram-rolodex).
+Previously unmounted, now live: `/api/alerts` (JWT list/ack + bearer ingest), `/api/internal/vault/*` and `/api/internal/contactbook/history` (localhost, telegram-contactbook).
 
 ## WebSocket
 

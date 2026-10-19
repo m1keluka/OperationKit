@@ -128,7 +128,7 @@ function parseLoops(content: string): { open: LoopEntry[]; closed: LoopEntry[] }
 // ── Conversation Parser ──
 
 interface ConversationMessage {
-  role: 'User' | 'Assistant'
+  role: 'Mike' | 'Assistant'
   text: string
   date: string
 }
@@ -136,7 +136,7 @@ interface ConversationMessage {
 function parseConversation(content: string): { messages: ConversationMessage[]; currentDate: string } {
   const messages: ConversationMessage[] = []
   let currentDate = ''
-  let currentRole: 'User' | 'Assistant' | null = null
+  let currentRole: 'Mike' | 'Assistant' | null = null
   let currentLines: string[] = []
 
   function finalizeMessage() {
@@ -158,20 +158,20 @@ function parseConversation(content: string): { messages: ConversationMessage[]; 
       continue
     }
 
-    // Structured format: ## [timestamp] User/Assistant
-    const structuredMatch = line.match(/^## \[(.+?)\] (User|Assistant)/)
+    // Structured format: ## [timestamp] Mike/Assistant
+    const structuredMatch = line.match(/^## \[(.+?)\] (Mike|Assistant)/)
     if (structuredMatch) {
       finalizeMessage()
       currentDate = structuredMatch[1]
-      currentRole = structuredMatch[2] as 'User' | 'Assistant'
+      currentRole = structuredMatch[2] as 'Mike' | 'Assistant'
       continue
     }
 
-    // Prose format: **User:** or **Assistant:**
-    const proseMatch = line.match(/^\*\*(User|Assistant):\*\*\s*(.*)/)
+    // Prose format: **Mike:** or **Assistant:**
+    const proseMatch = line.match(/^\*\*(Mike|Assistant):\*\*\s*(.*)/)
     if (proseMatch) {
       finalizeMessage()
-      currentRole = proseMatch[1] as 'User' | 'Assistant'
+      currentRole = proseMatch[1] as 'Mike' | 'Assistant'
       if (proseMatch[2].trim()) currentLines.push(proseMatch[2].trim())
       continue
     }
@@ -298,13 +298,13 @@ function ConversationView({ content }: { content: string }) {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-3">
       {messages.map((msg, i) => (
-        <div key={i} className={`flex ${msg.role === 'User' ? 'justify-end' : 'justify-start'}`}>
+        <div key={i} className={`flex ${msg.role === 'Mike' ? 'justify-end' : 'justify-start'}`}>
           <div className={`max-w-[85%] px-4 py-2.5 text-sm leading-relaxed ${
-            msg.role === 'User'
+            msg.role === 'Mike'
               ? 'rounded-2xl rounded-br-sm bg-accent text-accent-fg'
               : 'rounded-2xl rounded-bl-sm border border-line bg-surface-2 text-fg-1'
           }`}>
-            <div className={`mb-1 font-mono text-[10px] uppercase tracking-[0.12em] ${msg.role === 'User' ? 'text-accent-fg/70' : 'text-fg-3'}`}>
+            <div className={`mb-1 font-mono text-[10px] uppercase tracking-[0.12em] ${msg.role === 'Mike' ? 'text-accent-fg/70' : 'text-fg-3'}`}>
               {msg.role}
             </div>
             <p className="whitespace-pre-wrap">{msg.text}</p>

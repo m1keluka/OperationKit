@@ -6,7 +6,7 @@ The **objective** row is the source of truth. An agent finishing a sentence does
 flowchart LR
   subgraph in["In"]
     U[You]
-    J[Jarvis]
+    J[Assistant]
     R[Jobs]
   end
 

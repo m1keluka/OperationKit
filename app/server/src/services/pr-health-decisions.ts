@@ -97,7 +97,7 @@ export type OwnerState =
   /** No objective references this PR at all — nobody has ever been responsible for it. */
   | 'unowned'
 
-/** The single top-line label shown on the Operator-facing surface. Derived from the pair
+/** The single top-line label shown on the Mike-facing surface. Derived from the pair
  *  (failureKind, owner) by `classify()`. Precedence is documented there. */
 export type Classification =
   | 'green'
@@ -174,7 +174,7 @@ export interface PrHealth {
   /** True when the decided action was correct but this sweep's action cap was already
    *  spent, so it rolls to the next sweep. Kept separate from `action` on purpose: an
    *  earlier build overwrote action with 'skip-cap' and the digest became a wall of
-   *  "skip-cap" that told Operator nothing about what the watchdog actually intended. */
+   *  "skip-cap" that told Mike nothing about what the watchdog actually intended. */
   deferred: boolean
   /** True when the action was logged but not performed (flag off or dryRun). */
   wouldOnly: boolean
@@ -269,7 +269,7 @@ export function isWatchdogEnabled(db: Database | null, env: NodeJS.ProcessEnv = 
  * Before this existed, `buildDefaultDeps` returned no `dryRun` at all, so the scheduled
  * tick's deps carried `dryRun: undefined`. That was doubly wrong: `sweepHealth` reported
  * `dryRun: true` (its test is `!== false`) while `runWatchdogOnce` computed
- * `armed = enabled && dryRun !== true` — i.e. TRUE. The report told Operator "dry-run" while
+ * `armed = enabled && dryRun !== true` — i.e. TRUE. The report told Mike "dry-run" while
  * the sweep was live, and there was no runtime control either way. Flipping
  * pr_health_watchdog_enabled='1' went straight to acting with no observable rehearsal.
  *
@@ -565,7 +565,7 @@ export function failureKindOf(red: RedCheck[], pending: number): FailureKind {
 }
 
 /**
- * Collapse (failureKind, owner, pending) into the one label Operator reads.
+ * Collapse (failureKind, owner, pending) into the one label Mike reads.
  *
  * THE REQUIRED-CONTEXT GATE (obj 704763). When `gate` is supplied and its state is not
  * 'unknown', classification is computed from the checks that ACTUALLY BLOCK THE MERGE, not

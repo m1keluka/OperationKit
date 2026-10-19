@@ -196,7 +196,7 @@ function ToolMeta({ cost, duration }: { cost?: number; duration?: number }) {
 // ── Tool-specific summaries ──
 
 function isEditableDocPath(p: string): boolean {
-  return /^\/home\/admin\/.+\.md$/.test(p)
+  return /^\/home\/mike\/.+\.md$/.test(p)
 }
 
 function getToolSummary(msg: SessionMessage): { label: string; icon: string; filePath?: string } {

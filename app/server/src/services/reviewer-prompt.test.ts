@@ -7,7 +7,7 @@ import type { Objective } from '@operationkit/shared'
 function makeObjective(overrides: Partial<Objective> = {}): Objective {
   return {
     id: 42,
-    workspace: 'personal',
+    workspace: 'operator',
     type: 'feature',
     title: 'Test objective',
     description: 'do the thing',
@@ -63,7 +63,7 @@ describe('buildReviewerPrompt — adversarial framing (QW3)', () => {
     const p = buildReviewerPrompt(
       makeObjective({
         pr_number: 404,
-        pr_url: 'https://github.com/your-org/command-center-infra/pull/404',
+        pr_url: 'https://github.com/your-org/operationkit/pull/404',
       } as Partial<Objective>),
       ['app/server/src/lib/host-disk.ts'],
       null,
@@ -76,7 +76,7 @@ describe('buildReviewerPrompt — adversarial framing (QW3)', () => {
     const p = buildReviewerPrompt(
       makeObjective({
         pr_number: 404,
-        pr_url: 'https://github.com/your-org/command-center-infra/pull/404',
+        pr_url: 'https://github.com/your-org/operationkit/pull/404',
       } as Partial<Objective>),
       ['app/client/src/components/KanbanBoard.tsx'],
       null,

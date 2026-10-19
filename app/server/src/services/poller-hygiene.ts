@@ -316,7 +316,7 @@ export async function sweepAutoAcceptOnPass(): Promise<void> {
       // of a red PR. It has already been idle for the TTL, so a `hold` here would
       // just re-park it in the same place — the gate's own escalate/complete-with-red
       // outcomes are what apply. On a genuine required failure we leave it in review
-      // and let the escalation reach Operator.
+      // and let the escalation reach Mike.
       const gate = await runCompletionGate(db, obj, { pathway: 'auto-accept-on-pass-ttl', alert: insertAlert })
       if (gate.blocked) {
         applyGateHandback(db, obj, gate, { broadcast })

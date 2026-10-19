@@ -62,7 +62,7 @@ CREATE TABLE canary_runs (
     );
 CREATE TABLE changelog_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      repo TEXT NOT NULL,                       -- owner/name e.g. your-org/command-center-infra
+      repo TEXT NOT NULL,                       -- owner/name e.g. your-org/operationkit
       pr_number INTEGER NOT NULL,
       pr_url TEXT NOT NULL,
       merge_commit_sha TEXT,
@@ -285,7 +285,7 @@ CREATE TABLE objective_uat_runs (
       evidence_json TEXT NOT NULL DEFAULT '{}',
       cheat_paths TEXT,
       worktree TEXT,
-      workspace TEXT NOT NULL DEFAULT 'personal',
+      workspace TEXT NOT NULL DEFAULT 'operator',
       session_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -294,7 +294,7 @@ CREATE TABLE "objectives" (
         title TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('planning','queue','working','ai_review','review','done')),
-        agent_context TEXT NOT NULL DEFAULT 'general' CHECK(agent_context IN ('cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel')),
+        agent_context TEXT NOT NULL DEFAULT 'general',
         assigned_user_id INTEGER,
         session_id TEXT,
         transcript_path TEXT,
@@ -353,7 +353,7 @@ CREATE TABLE resource_assignments (
       created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
       UNIQUE(resource_type, resource_id, scope_type, workspace, project, user_id)
     );
-CREATE TABLE rolodex_threads (
+CREATE TABLE contactbook_threads (
       chat_id     TEXT PRIMARY KEY,
       user_id     TEXT NOT NULL,
       history     TEXT NOT NULL DEFAULT '[]',
@@ -555,7 +555,7 @@ CREATE TABLE user_workspaces (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       workspace TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('admin', 'member')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')), can_use_jarvis INTEGER NOT NULL DEFAULT 1, objective_visibility TEXT NOT NULL DEFAULT 'own',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')), can_use_assistant INTEGER NOT NULL DEFAULT 1, objective_visibility TEXT NOT NULL DEFAULT 'own',
       UNIQUE(user_id, workspace)
     );
 CREATE TABLE users (

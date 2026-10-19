@@ -352,6 +352,7 @@ export function PreviewBoard({ workspaces }: { workspaces: Workspace[] }) {
                   onOpen={handleOpen}
                   onEdit={handleEditObjective}
                   onChangeStatus={handleChangeStatus}
+                  showOrgChip={workspaces.length !== 1}
                 />
               ))}
               {status === 'done' && (

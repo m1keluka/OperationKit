@@ -29,7 +29,7 @@ export function initCoreSchema(db: Database.Database): void {
       title TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'queue' CHECK(status IN ('queue', 'working', 'review', 'done')),
-      agent_context TEXT NOT NULL DEFAULT 'general' CHECK(agent_context IN ('cto', 'cmo', 'coo', 'cfo', 'general', 'designer', 'hr', 'general-counsel')),
+      agent_context TEXT NOT NULL DEFAULT 'general',
       assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       session_id TEXT,
       transcript_path TEXT,

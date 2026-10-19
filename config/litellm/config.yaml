@@ -1,20 +1,22 @@
-# LiteLLM proxy configuration — OperationKit template
+# LiteLLM Proxy Configuration — OSS TEMPLATE
 #
-# This file is bind-mounted read-only into the `litellm` container by
-# docker-compose.yml (`./config/litellm/config.yaml:/app/config.yaml:ro`), so it
-# must exist before `docker compose up -d` or the proxy fails to start.
+# This file is the PUBLIC default for `config/litellm/config.yaml`. The OSS sync
+# pipeline strips the whole private `config/` tree (host-specific coordinates live in
+# config/caddy and config/systemd) and then copies THIS file into the assembled
+# tree at config/litellm/config.yaml, so the published `docker compose` bind-mount
+# resolves instead of failing on a missing path.
 #
-# Every credential is read from the environment at runtime — never put a literal
-# API key in this file. Set the keys you actually use in `.env`; providers whose
-# key is unset simply fail over to the next entry in the same model group.
+# Every credential is read from the environment — nothing here is a secret:
+#   ANTHROPIC_API_KEY, GEMINI_API_KEY, LITELLM_MASTER_KEY, DATABASE_URL
+#   GPU_OLLAMA_URL (optional; defaults to http://ollama:11434)
 #
-# Model groups below are logical names the application asks for ("orchestrator",
-# "research", …). Within a group, `order: 1` is tried first and higher numbers are
-# fallbacks. Delete or add providers to taste — the group names are the only part
-# other services depend on.
+# Model groups with priority-based fallback chains. order: 1 = tried first.
 
 model_list:
-  # Strategic reasoning and task delegation.
+  # ──────────────────────────────────────────────
+  # ORCHESTRATOR: strategic reasoning, task delegation
+  # Claude Opus → Claude Sonnet
+  # ──────────────────────────────────────────────
   - model_name: orchestrator
     litellm_params:
       model: anthropic/claude-opus-4-8
@@ -26,7 +28,10 @@ model_list:
       api_key: os.environ/ANTHROPIC_API_KEY
       order: 2
 
-  # Enrichment and large-context analysis.
+  # ──────────────────────────────────────────────
+  # RESEARCH: enrichment, large-context analysis
+  # Gemini Flash → Claude Sonnet
+  # ──────────────────────────────────────────────
   - model_name: research
     litellm_params:
       model: gemini/gemini-2.0-flash
@@ -38,9 +43,10 @@ model_list:
       api_key: os.environ/ANTHROPIC_API_KEY
       order: 2
 
-  # Code generation and data processing.
-  # The first entry points at a self-hosted Ollama server; if you do not run one,
-  # leave GPU_OLLAMA_URL unset and the group falls through to the hosted models.
+  # ──────────────────────────────────────────────
+  # CODE: code generation, data processing
+  # Local Ollama model (optional) → Claude Sonnet → Claude Opus
+  # ──────────────────────────────────────────────
   - model_name: code
     litellm_params:
       model: ollama_chat/qwen3:32b
@@ -57,7 +63,10 @@ model_list:
       api_key: os.environ/ANTHROPIC_API_KEY
       order: 3
 
-  # Copy, outreach, and other tone-sensitive content.
+  # ──────────────────────────────────────────────
+  # WRITING: copy, outreach, tone-sensitive content
+  # Claude Sonnet → Claude Opus
+  # ──────────────────────────────────────────────
   - model_name: writing
     litellm_params:
       model: anthropic/claude-sonnet-4-6
@@ -69,19 +78,30 @@ model_list:
       api_key: os.environ/ANTHROPIC_API_KEY
       order: 2
 
-  # Deep analysis, QA, and complex decisions.
+  # ──────────────────────────────────────────────
+  # REASONING: deep analysis, QA, complex decisions
+  # Claude Opus
+  # ──────────────────────────────────────────────
   - model_name: reasoning
     litellm_params:
       model: anthropic/claude-opus-4-8
       api_key: os.environ/ANTHROPIC_API_KEY
       order: 1
 
-  # Example of adding a non-Anthropic provider: uncomment and set OPENAI_API_KEY.
-  # - model_name: reasoning
-  #   litellm_params:
-  #     model: openai/gpt-5
-  #     api_key: os.environ/OPENAI_API_KEY
-  #     order: 2
+  # ──────────────────────────────────────────────
+  # ASSISTANT: always-on orchestration agent
+  # Opus primary, Sonnet fallback
+  # ──────────────────────────────────────────────
+  - model_name: assistant
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 1
+  - model_name: assistant
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      order: 2
 
 router_settings:
   routing_strategy: simple-shuffle
@@ -103,6 +123,7 @@ router_settings:
     - code: ["code"]
     - writing: ["writing"]
     - reasoning: ["reasoning"]
+    - assistant: ["assistant"]
 
 litellm_settings:
   drop_params: true
@@ -112,7 +133,6 @@ litellm_settings:
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
-  # Monthly spend ceiling in USD across the proxy. Raise, lower, or remove.
   max_budget: 500
   budget_duration: 30d
   store_prompts_in_spend_logs: false

@@ -306,6 +306,7 @@ export function sendFollowUp(
   // Spawn in tmux — session survives server restarts
   const tmuxName = spawnInTmux({
     sessionId,
+    objectiveId: objective.id,
     homeDir,
     workdir,
     prompt,

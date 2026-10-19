@@ -25,7 +25,7 @@
 //     (getFalsePassRate filters to source='reopen').
 //   • The SCHEDULED run is gated behind `canary_harness_enabled` (default 0 in
 //     code) plus a kill switch; nothing auto-fires on deploy. Manual invocation
-//     (runCanaryHarness) is always allowed for tests / Operator-triggered runs.
+//     (runCanaryHarness) is always allowed for tests / Mike-triggered runs.
 
 import fs from 'fs'
 import path from 'path'
@@ -168,7 +168,7 @@ export function isCanaryHarnessEnabled(db: Database, env: NodeJS.ProcessEnv = pr
  * which this module never edits) is OFF. When OFF, a canary escape is log-only
  * (alarm) exactly as before; when ON, an escape becomes a blocking signal
  * (CanaryRunSummary.blocked). The canary harness exclusively exercises the
- * command-center-infra gate, so it is command-center-scoped by construction — no
+ * operationkit gate, so it is command-center-scoped by construction — no
  * other workspace's merges run through it.
  */
 export function isReviewEnforceEnabled(db: Database, env: NodeJS.ProcessEnv = process.env): boolean {
@@ -208,7 +208,7 @@ export function raiseCanaryAlarm(db: Database, canary: { id: string; tier: numbe
   try {
     db.prepare(
       `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
-       VALUES ('command-center-infra', 'personal', NULL, NULL, 'error', ?, ?)`,
+       VALUES ('operationkit', 'operator', NULL, NULL, 'error', ?, ?)`,
     ).run(`Canary escape: ${canary.id}`, msg)
   } catch (err) {
     console.error('[canary-harness] failed to write alarm to activity_log:', err)
@@ -240,12 +240,12 @@ export interface RunCanaryOptions {
  * Writes one canary_runs summary row, a gate_false_pass(source='canary') row per
  * escape, and raises a critical alarm per escape. Returns the run summary.
  *
- * This is the MANUAL entry point — always runnable (tests, Operator-triggered). The
+ * This is the MANUAL entry point — always runnable (tests, Mike-triggered). The
  * scheduled wrapper (startCanaryHarnessScheduler) guards on the enable flag.
  */
 export function runCanaryHarness(db: Database = getDb(), opts: RunCanaryOptions = {}): CanaryRunSummary {
   const runner = opts.runner ?? execRunner
-  const workspace = opts.workspace ?? 'personal'
+  const workspace = opts.workspace ?? 'operator'
   const trigger = opts.trigger ?? 'manual'
   // Stage-C: enforcement is read from the flag unless explicitly overridden (tests).
   const enforcing = opts.enforce ?? isReviewEnforceEnabled(db)
@@ -380,7 +380,7 @@ const SCHEDULE_INTERVAL_MS = 6 * 60 * 60 * 1000
 /**
  * Start the scheduled canary harness. NO-OP unless `canary_harness_enabled` is set
  * (settings row or CC_CANARY_HARNESS_ENABLED) — so NOTHING auto-fires on deploy.
- * Each tick re-checks the flag + kill switch, so Operator can arm/disarm live without a
+ * Each tick re-checks the flag + kill switch, so Mike can arm/disarm live without a
  * restart. Safe to call unconditionally at boot.
  */
 export function startCanaryHarnessScheduler(db: Database = getDb()): void {

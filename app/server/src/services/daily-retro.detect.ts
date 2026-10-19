@@ -1,6 +1,6 @@
 // ── Daily Session Retrospective (DSR) — PURE detection primitives ────────────
 //
-// Spec: ~/second-brain/workspaces/personal/decisions/
+// Spec: ~/second-brain/workspaces/operator/decisions/
 //       2026-08-08-cc-daily-session-retrospective-loop-design.md  (§C.2, §D.1)
 //
 // Everything in this file is PURE and side-effect free: no DB handle, no fs, no

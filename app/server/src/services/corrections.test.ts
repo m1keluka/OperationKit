@@ -35,7 +35,7 @@ function seedObjective(overrides: Partial<{ title: string; workspace: string; ag
       overrides.title ?? 'ST5 test objective',
       'desc',
       overrides.agent_context ?? 'cto',
-      overrides.workspace ?? 'personal',
+      overrides.workspace ?? 'operator',
     )
   const id = Number(info.lastInsertRowid)
   // Minimal Objective shape — buildContext only reads id/workspace/agent_context/project/title/description.
@@ -43,7 +43,7 @@ function seedObjective(overrides: Partial<{ title: string; workspace: string; ag
     id,
     title: overrides.title ?? 'ST5 test objective',
     description: 'desc',
-    workspace: overrides.workspace ?? 'personal',
+    workspace: overrides.workspace ?? 'operator',
     agent_context: overrides.agent_context ?? 'cto',
   } as unknown as Objective
 }
@@ -65,7 +65,7 @@ describe('ST5 human correction surface', () => {
     })
     expect(created.id).toBeGreaterThan(0)
     expect(created.active).toBe(true)
-    expect(created.workspace).toBe('personal')
+    expect(created.workspace).toBe('operator')
     expect(created.agent_context).toBe('cto')
 
     // AFTER: the same buildContext call now injects it as a high-priority gotcha.
@@ -79,14 +79,14 @@ describe('ST5 human correction surface', () => {
   })
 
   it('a correction warns sibling objectives of the same agent role in the same workspace', () => {
-    const a = seedObjective({ title: 'objective A', workspace: 'personal', agent_context: 'cmo' })
-    const b = seedObjective({ title: 'objective B', workspace: 'personal', agent_context: 'cmo' })
+    const a = seedObjective({ title: 'objective A', workspace: 'operator', agent_context: 'cmo' })
+    const b = seedObjective({ title: 'objective B', workspace: 'operator', agent_context: 'cmo' })
 
-    recordCorrection({ objectiveId: a.id, label: 'Sibling-visible gotcha for cmo/personal.' })
+    recordCorrection({ objectiveId: a.id, label: 'Sibling-visible gotcha for cmo/operator.' })
 
     // Sibling B (same workspace + agent role) sees A's correction at spawn.
     const ctxB = buildContext(b)
-    expect(ctxB).toContain('Sibling-visible gotcha for cmo/personal.')
+    expect(ctxB).toContain('Sibling-visible gotcha for cmo/operator.')
   })
 
   it('does not leak corrections across workspaces or agent roles', () => {

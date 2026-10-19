@@ -68,7 +68,7 @@ function makeObjective(overrides: Partial<Objective> = {}): Objective {
     description: 'A sample objective for strategy-block tests.',
     status: 'working',
     agent_context: 'cto',
-    workspace: 'personal',
+    workspace: 'operator',
     project: null,
     category: 'build',
     parent_id: null,
@@ -121,11 +121,11 @@ function insertDelegatorWithDelegateChild(parentId: number): void {
   db.prepare(
     `INSERT INTO objectives (id, title, description, agent_context, workspace, parent_id, delegate_mode, is_strategy, status, type)
      VALUES (?, ?, ?, ?, ?, NULL, 1, 0, 'working', 'project')`,
-  ).run(parentId, 'Parent delegator', 'parent', 'cto', 'personal')
+  ).run(parentId, 'Parent delegator', 'parent', 'cto', 'operator')
   db.prepare(
     `INSERT INTO objectives (title, description, agent_context, workspace, parent_id, delegate_mode, status, type)
      VALUES (?, ?, ?, ?, ?, 1, 'queue', 'project')`,
-  ).run('Child project', 'child', 'cto', 'personal', parentId)
+  ).run('Child project', 'child', 'cto', 'operator', parentId)
 }
 
 describe('buildPrompt — P4 strategy-block injection (flag-gated)', () => {

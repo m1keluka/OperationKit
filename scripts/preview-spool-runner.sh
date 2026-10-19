@@ -5,20 +5,12 @@
 # (sudo Caddy reload, host-daemon docker build, git worktree add on the host
 # checkout).
 #
-# RUNS AS THE OPERATOR USER, not root: preview-deploy.sh fetches the PR branch
-# over the repo's SSH remote (git@github.com), whose key belongs to that user — a
-# root context fails with "Could not read from remote repository". The operator
-# user needs passwordless sudo for the Caddy steps and membership in the docker
-# group. The cc-preview-spool.service unit sets User to the operator account; the
-# in-container kick (preview-spool.ts kickHostDrain) nsenters the host then
-# `su - "$OPERATOR_USER"` (default: operator).
-# RUNS AS THE OPERATOR USER (`operator` by default), not root: preview-deploy.sh
-# fetches the PR branch over the repo's SSH remote (git@github.com) using that
-# user's key — a root context fails with "Could not read from remote
-# repository". The operator user needs passwordless sudo for the Caddy steps and
-# membership in the docker group. The cc-preview-spool.service unit sets
-# User=<operator>; the in-container kick (preview-spool.ts kickHostDrain)
-# nsenters the host then `su - <operator>`.
+# RUNS AS USER `mike`, not root: preview-deploy.sh fetches the PR branch over the
+# repo's SSH remote (git@github.com), whose key belongs to mike — a root context
+# fails with "Could not read from remote repository". mike has passwordless sudo
+# for the Caddy steps and is in the docker group, so it has everything the deploy
+# needs. The cc-preview-spool.service unit sets User=mike; the in-container kick
+# (preview-spool.ts kickHostDrain) nsenters the host then `su - mike`.
 #
 # Triggered by the cc-preview-spool.path systemd unit on every change to the
 # spool dir; also safe to run from cron or by hand. Drains ALL pending jobs on

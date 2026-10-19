@@ -4,18 +4,18 @@ import os from 'os'
 import path from 'path'
 
 // Point the loops engine at a throwaway vault BEFORE importing it (the module reads
-// VAULT_PATH at import time). Keeps these tests off Operator's real second-brain.
+// VAULT_PATH at import time). Keeps these tests off Mike's real second-brain.
 let loops: typeof import('./loops.js')
-let buildNudgeText: (typeof import('./assistant-nudge.js'))['buildNudgeText']
+let buildNudgeText: (typeof import('./briefing-nudge.js'))['buildNudgeText']
 let LOOPS_DIR: string
 
 beforeAll(async () => {
   const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'loops-vault-'))
   process.env.VAULT_PATH = vault
-  process.env.GRANOLA_WORKSPACE = 'personal'
-  LOOPS_DIR = path.join(vault, 'workspaces', 'personal', 'loops')
+  process.env.GRANOLA_WORKSPACE = 'operator'
+  LOOPS_DIR = path.join(vault, 'workspaces', 'operator', 'loops')
   loops = await import('./loops.js')
-  ;({ buildNudgeText } = await import('./assistant-nudge.js'))
+  ;({ buildNudgeText } = await import('./briefing-nudge.js'))
 })
 
 describe('loops service — create / list / archive', () => {
@@ -68,7 +68,7 @@ describe('loops service — create / list / archive', () => {
   })
 })
 
-describe('assistant-nudge — buildNudgeText (deterministic fallback)', () => {
+describe('briefing-nudge — buildNudgeText (deterministic fallback)', () => {
   const L = (over: Partial<import('./loops.js').Loop>): import('./loops.js').Loop => ({
     slug: 's', title: 't', status: 'queued', project: '', party: '', party_type: '',
     due: '', tags: [], source_meeting: '', source_note: '', opened: '2026-06-01', closed: '', body: '', ...over,

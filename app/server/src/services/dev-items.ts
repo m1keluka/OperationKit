@@ -47,6 +47,7 @@ export {
   getDevItem,
   listAttachments,
   listNotes,
+  listPosthogBotDevItems,
   listSubmitterItems,
   listUnifiedPrs,
   scopedDevItems,
@@ -54,6 +55,7 @@ export {
   serializeDetailItem,
   type DevItemFilters,
   type DevItemSort,
+  type PosthogBotPrListItem,
   type UnifiedPr,
 } from './dev-items-query.js'
 
