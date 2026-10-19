@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
+import { useComposerDraft } from '../hooks/useComposerDraft'
+import { draftKey } from '../lib/composerDrafts'
 import type { Objective, ObjectiveReview, ObjectivePR, SessionIntel } from '@operationkit/shared'
 
 import type { ConnState } from './ConnStatusPill'
@@ -59,7 +61,11 @@ export function SessionViewer({
   // Live-stream connection state bubbled up from ThreadTimeline (SSE open /
   // connecting / poll fallback) — backs the header connection pill.
   const [connState, setConnState] = useState<ConnState>('connecting')
-  const [message, setMessage] = useState('')
+  // Follow-up draft. Persisted per objective so typing, closing the drawer (or
+  // switching to another objective) and coming back restores the text
+  // (obj 711501). Same setter signature as useState — the send/restore paths
+  // below are unchanged.
+  const [message, setMessage] = useComposerDraft(draftKey('session', initialObjective.id))
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   // Optimistic echo of the just-sent follow-up. The real message surfaces as a

@@ -52,7 +52,7 @@ A **refactor PR** may not change anything in this file. If a change is required,
 | `GET /api/objectives/:id/intel` | JWT + ownership |
 | `GET /api/objectives/:id/timeline` | JWT + ownership |
 
-Previously unmounted, now live: `/api/alerts` (JWT list/ack + bearer ingest), `/api/internal/vault/*` and `/api/internal/rolodex/history` (localhost, telegram-rolodex).
+Previously unmounted, now live: `/api/alerts` (JWT list/ack + bearer ingest), `/api/internal/vault/*` and `/api/internal/contactbook/history` (localhost, telegram-contactbook).
 
 ## WebSocket
 

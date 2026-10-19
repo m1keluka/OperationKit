@@ -283,9 +283,9 @@ export function seedDevelopmentRegistry(db: Database.Database): void {
   const repos: Array<[string, string, string, string, string[]]> = [
     [
       'example',
-      'command-center-infra',
-      'your-org/command-center-infra',
-      '/home/operator/projects/command-center-infra',
+      'example-app',
+      'your-org/example-app',
+      '/home/operator/projects/example-app',
       ['react', 'express', 'sqlite'],
     ],
     [
@@ -334,16 +334,16 @@ export function seedDevelopmentRegistry(db: Database.Database): void {
         repo: 'Example-Project/example-project-platform',
         ingest_token_hash: '',
         ingest_token_prefix: 'dvi_example-project_',
-        allowed_origins: ['https://app.weightsupply.com'],
+        allowed_origins: ['https://app.example-project.com'],
         allow_anonymous: false,
         feed_public: false,
         feed_categories: ['feature', 'improvement', 'fix'],
         attachment_storage: {
           provider: 'supabase',
           bucket: 'feedback-attachments',
-          project_url: 'https://oftsdmfngqasevrfbwel.supabase.co',
+          project_url: 'https://your-project-ref.supabase.co',
         },
-        notify: { provider: 'resend', from: 'notifications@notify.weightsupply.com' },
+        notify: { provider: 'resend', from: 'notifications@notify.example-project.com' },
       },
       'connected',
     ],
@@ -362,7 +362,7 @@ export function seedDevelopmentRegistry(db: Database.Database): void {
         attachment_storage: {
           provider: 'supabase',
           bucket: 'feedback-attachments',
-          project_url: 'https://gaomuvxsybezkmykrkfm.supabase.co',
+          project_url: 'https://your-second-project-ref.supabase.co',
         },
         notify: { provider: 'none' },
       },

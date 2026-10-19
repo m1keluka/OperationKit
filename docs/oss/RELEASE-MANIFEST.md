@@ -36,7 +36,7 @@ must be STRIPPED.
 Any slug outside `scripts/oss-agent-allowlist.txt` in either seed source fails
 the publish (check 4). Adding one is a reviewable one-line diff.
 
-## `app/telegram-rolodex/` — DECISION: **STRIPPED** (obj 709956)
+## `app/telegram-contactbook/` — DECISION: **STRIPPED** (obj 709956)
 
 This reverses an earlier `OPTIONAL` reading of the subsystem, and the reversal is
 the point of the vocabulary note above.
@@ -45,42 +45,42 @@ the point of the vocabulary note above.
 chat, running as a sibling process spawned by the main server.
 
 **Why it was called OPTIONAL.** It is genuinely inert without configuration:
-`services/rolodex-supervisor.ts` returns immediately unless both
-`TELEGRAM_BOT_TOKEN` and `TELEGRAM_ROLODEX_OWNER_ID` are set, and again if the
+`services/contactbook-supervisor.ts` returns immediately unless both
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CONTACTBOOK_OWNER_ID` are set, and again if the
 entry file is missing. A self-hoster who ignores it pays nothing.
 
 **Why that is not sufficient.** Its source is operator identity, not
 configuration:
 
-- `app/telegram-rolodex/index.ts:30` defaults its system prompt to
-  `<ai-workspace>/agents/rolodex.md` — a persona file the gate already
+- `app/telegram-contactbook/index.ts:30` defaults its system prompt to
+  `<ai-workspace>/agents/contactbook.md` — a persona file the gate already
   hard-blocks from ever shipping, so the published bot points at a file that
   cannot exist.
-- `app/telegram-rolodex/README.md` documents the live host, the real webhook
+- `app/telegram-contactbook/README.md` documents the live host, the real webhook
   URL, and a unix socket under the operator's home.
 - It is built around one of the operator's **private personas**, which is exactly
   the class of leak the blank-slate work exists to remove. Shipping a whole
   subsystem named after a private persona re-establishes by prose what deleting
   the roster constants removed from the type system.
 
-**Decision.** `prefix:app/telegram-rolodex/` is on `scripts/oss-strip-paths.txt`.
+**Decision.** `prefix:app/telegram-contactbook/` is on `scripts/oss-strip-paths.txt`.
 
 **What still ships, and why that is safe:**
 
 | Kept | Reason |
 |---|---|
-| `app/server/src/services/rolodex-supervisor.ts` | `app/server/src/index.ts` imports it, so stripping it would break the published tree's typecheck. It is generic infrastructure — spawn-a-child-with-backoff — and its one identity leak (a hardcoded `/home/<operator>/projects/command-center-infra/...` path, which also leaked the **private upstream repo name**) is fixed: the entry now resolves from `CC_REPO_DIR`, overridable via `ROLODEX_SIBLING_ENTRY`. With the sibling stripped the path does not exist, and the existing `fs.existsSync` guard skips with a log line. |
-| `rolodex_threads` table, `/api/internal/rolodex/history` | Generic per-chat history storage for any sibling that wants it. Dropping the table would be a destructive migration on live data for no safety gain. |
+| `app/server/src/services/contactbook-supervisor.ts` | `app/server/src/index.ts` imports it, so stripping it would break the published tree's typecheck. It is generic infrastructure — spawn-a-child-with-backoff — and its one identity leak (a hardcoded `/home/<operator>/projects/operationkit/...` path, which also leaked the **private upstream repo name**) is fixed: the entry now resolves from `CC_REPO_DIR`, overridable via `CONTACTBOOK_SIBLING_ENTRY`. With the sibling stripped the path does not exist, and the existing `fs.existsSync` guard skips with a log line. |
+| `contactbook_threads` table, `/api/internal/contactbook/history` | Generic per-chat history storage for any sibling that wants it. Dropping the table would be a destructive migration on live data for no safety gain. |
 
-**Why `rolodex` is not on the denylist.** After the strip, the surviving
+**Why `contactbook` is not on the denylist.** After the strip, the surviving
 occurrences are a common noun used as a subsystem name (a supervisor, a table, a
 route). Denylisting it would fail the publish on those legitimate hits. The
-enforcement that actually matters is check 4: `rolodex` is deliberately **not**
+enforcement that actually matters is check 4: `contactbook` is deliberately **not**
 on `scripts/oss-agent-allowlist.txt`, so it can never re-enter the shipped agent
 roster — which is where it did damage.
 
 **Explicitly out of scope here** (noted, not done): removing the subsystem from
-the private repo, and dropping `rolodex_threads`. Both are separate decisions
+the private repo, and dropping `contactbook_threads`. Both are separate decisions
 with their own blast radius.
 
 ## Other stripped classes
@@ -95,11 +95,28 @@ Summarised; `scripts/oss-strip-paths.txt` carries the per-path reasoning.
 | Operator-specific ops scripts and docs | host deploy/cron scripts, internal runbooks, PR-triage records |
 | Internal design + evidence | `design/`, `config/`, `.evidence/`, `CLAUDE.md` |
 
-## Known gap (pre-existing, not introduced here)
+## Gate status
 
-`oss-genericize.sh` deliberately does **not** rewrite the bare workspace slug
-`example` ("too common a substring, false-positive risk" — its own header). It is on
-the denylist, so a full-tree gate run currently reports denylist hits in ~81
-files, mostly test fixtures using `example` as a workspace slug. Closing that needs
-a separate `example` → `example` pass over the private source; it is out of scope
-for the roster work and is unchanged by it.
+All five gate checks now pass on `origin/main` (verified 2026-09-04, obj 709966):
+
+| Check | Status | Notes |
+|---|---|---|
+| 0 — PRE denylist (persona slugs) | ✓ PASS | 0 private persona slugs in raw assembled tree |
+| 1 — gitleaks secret scan | ✓ PASS | CI installs gitleaks; 0 secrets detected |
+| 2 — POST denylist (business identity) | ✓ PASS | 0 hits after genericization (see below) |
+| 3 — real-content absence | ✓ PASS | no ai-workspace/, second-brain/, real seeds |
+| 4 — roster conformance | ✓ PASS | 5 allow-listed slugs: cto, cmo, coo, cfo, general |
+
+### Resolved: bare `example` workspace slug (obj 709966)
+
+`oss-genericize.sh` now rewrites the bare workspace slug `example` → `example`
+(all case variants: `EXAMPLE` → `EXAMPLE`, `Example` → `Example`). Added in commit
+`4cc24bd` (obj 709964) alongside PRE/POST denylist scoping. Previously deferred
+as "too common a substring, false-positive risk" — the concern was unfounded:
+the `apply()` helper is a whole-file literal substitution with no regex, and a
+post-genericize grep over the assembled 840-file tree returns zero hits.
+
+The ~1,016 pre-fix occurrences were overwhelmingly test fixtures using `example` as
+a workspace slug value (e.g. `workspace: 'example'` in `secrets.test.ts` and ~80
+other files). All rewrite to `workspace: 'example'` at publish time; the private
+source is unchanged.

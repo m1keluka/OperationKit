@@ -1,6 +1,6 @@
 # Migration: from hardcoded workspaces and agents to config-driven seeds
 
-Command Center used to ship a hardcoded list of workspaces (and their vault paths)
+OperationKit used to ship a hardcoded list of workspaces (and their vault paths)
 baked into `app/server/src/db/index.ts`. Those are now loaded from a config file
 at seed time. This note explains what to do after the change merges so your
 **running system is unaffected**.
@@ -155,7 +155,7 @@ registry via `services/assistant-persona.ts`, keyed by one setting:
 | `ASSISTANT_OWNER_GOOGLE_EMAIL` | Google identity for the seeded config's `google-workspace` connector. Omit and no connector is bound. |
 | `ASSISTANT_DISPLAY_NAME` / `ASSISTANT_TAGLINE` | Cosmetic overrides for the seeded config. |
 | `MENTOR_TELEGRAM_OWNER_USERNAME` | Username the one-time owner seed applies to. **Unset by default** — the seed is opt-in. |
-| `ROLODEX_SIBLING_ENTRY` | Optional override for the Telegram sibling entrypoint (defaults under `CC_REPO_DIR`). |
+| `CONTACTBOOK_SIBLING_ENTRY` | Optional override for the Telegram sibling entrypoint (defaults under `CC_REPO_DIR`). |
 
 **Leave `ASSISTANT_AGENT_SLUG` unset and everything still works.** No owner
 config is seeded, mentor threads fall back to the generic create-on-read

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useFileDrop } from '../hooks/useFileDrop'
-import { useAuth } from '../context/AuthContext'
 import { api, ApiError } from '../lib/api'
 import { MarkdownEditor } from './MarkdownEditor'
 import {
@@ -19,7 +18,7 @@ import {
 import type { TabItem } from './ui'
 
 // One-click copy with a transient "Copied!" confirmation. Copies the given text
-// (the post body — not the frontmatter) so Mike can paste straight into LinkedIn.
+// (the post body — not the frontmatter) so it pastes straight into LinkedIn.
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   const copy = useCallback(async () => {
@@ -294,6 +293,12 @@ const NEXT_STATUS: Record<DraftStatus, DraftStatus | null> = {
   posted: null,
 }
 
+const ALL_CATEGORIES = '__all__'
+const UNCATEGORISED = 'Uncategorised'
+function draftCategory(d: Draft): string {
+  return d.pillar?.trim() || UNCATEGORISED
+}
+
 interface Draft {
   file: string
   status: string
@@ -339,6 +344,20 @@ interface ScheduleInfo {
   cron_expr: string | null
   last_run_at: string | null
   workspace: string
+  routine?: string
+}
+
+// GET /api/granola-content/me — who this owner is and whether their flywheel is
+// actually turning. Drives the onboarding gate: no Granola key means there is
+// nothing to show, and no voice profile means drafts would come out generic.
+interface ContentMe {
+  workspace: string
+  founder: string
+  display_name: string
+  granola: { connected: boolean; source: 'stored' | 'env' | null; updated_at: string | null }
+  voice_profile_ready: boolean
+  voice_profile_path: string
+  schedule: ScheduleInfo
 }
 
 type Tab = 'queue' | 'hooks' | 'inbox'
@@ -349,7 +368,7 @@ type Tab = 'queue' | 'hooks' | 'inbox'
 const TAB_META: Record<Tab, { label: string; descriptor: string }> = {
   queue: {
     label: 'LinkedIn Drafts',
-    descriptor: 'Full written posts in Mike’s voice — copy-paste ready for LinkedIn.',
+    descriptor: 'Full written posts in your voice — copy-paste ready for LinkedIn.',
   },
   hooks: {
     label: 'Short-form & Video',
@@ -384,9 +403,68 @@ const STATUS_TONE: Record<string, 'info' | 'amber' | 'verify' | 'neutral'> = {
   posted: 'verify',
 }
 
+// Onboarding panel shown until the owner has connected Granola. This is the whole
+// self-serve path: paste a key, it is verified against Granola before it is stored,
+// and on success the vault streams + nightly routine are provisioned server-side.
+function ConnectGranola({ me, onConnected }: { me: ContentMe; onConnected: () => void }) {
+  const [key, setKey] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const submit = useCallback(async () => {
+    if (!key.trim()) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await api.post('/granola-content/connection', { api_key: key.trim() })
+      setKey('')
+      onConnected()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not connect Granola')
+    } finally {
+      setBusy(false)
+    }
+  }, [key, onConnected])
+
+  return (
+    <Card className="space-y-4">
+      <div>
+        <h3 className="font-display text-sm font-semibold text-fg-0">Connect Granola</h3>
+        <p className="mt-1 text-[13px] leading-relaxed text-fg-2">
+          Your meetings are the raw material. Paste your Granola API key and every new
+          meeting gets pulled in, triaged, and turned into LinkedIn drafts written in your
+          voice — into <span className="font-mono text-fg-1">{me.workspace}</span>, visible
+          only to you.
+        </p>
+        <p className="mt-2 text-[13px] leading-relaxed text-fg-2">
+          Granola → Settings → API keys → create a key (starts with{' '}
+          <span className="font-mono text-fg-1">grn_</span>). It is verified before it is
+          stored, and it is encrypted at rest — it is never shown again.
+        </p>
+      </div>
+      {err && <Alert tone="alarm">{err}</Alert>}
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          type="password"
+          autoComplete="off"
+          value={key}
+          onChange={e => setKey(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          placeholder="grn_..."
+          className="min-w-0 flex-1 rounded border border-line-soft bg-surface-2 px-3 py-2 font-mono text-sm text-fg-0 outline-none focus:border-line-strong"
+        />
+        <Button variant="primary" onClick={submit} disabled={busy || !key.trim()}>
+          {busy ? 'Verifying…' : 'Connect'}
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 export function GranolaPage() {
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
+  const [me, setMe] = useState<ContentMe | null>(null)
+  // `undefined` = still resolving; false = no content_owners row for this account.
+  const [hasAccess, setHasAccess] = useState<boolean | undefined>(undefined)
 
   const [tab, setTab] = useState<Tab>('queue')
   const [drafts, setDrafts] = useState<Draft[]>([])
@@ -394,6 +472,7 @@ export function GranolaPage() {
   const [ideas, setIdeas] = useState<InboxItem[]>([])
   const [schedule, setSchedule] = useState<ScheduleInfo | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | DraftStatus>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES)
   const [expanded, setExpanded] = useState<string | null>(null)
   // When set, the expanded draft opens directly in edit mode (one-click Edit from the row).
   const [editFile, setEditFile] = useState<string | null>(null)
@@ -406,17 +485,32 @@ export function GranolaPage() {
     setLoading(true)
     setError(null)
     try {
-      const [d, h, i, s] = await Promise.all([
+      // /me both authorizes (403 → no content workspace) and tells us whether the
+      // rest is worth fetching. A 403 here is the ONLY access check the page needs.
+      const info = await api.get<ContentMe>('/granola-content/me')
+      setMe(info)
+      setHasAccess(true)
+      setSchedule(info.schedule)
+      if (!info.granola.connected) {
+        setDrafts([])
+        setHooks([])
+        setIdeas([])
+        return
+      }
+      const [d, h, i] = await Promise.all([
         api.get<{ drafts: Draft[] }>('/granola-content/drafts?status=all'),
         api.get<{ hooks: HookDoc[] }>('/granola-content/hooks'),
         api.get<{ ideas: InboxItem[] }>('/granola-content/ideas'),
-        api.get<ScheduleInfo>('/granola-content/schedule'),
       ])
       setDrafts(d.drafts)
       setHooks(h.hooks)
       setIdeas(i.ideas)
-      setSchedule(s)
     } catch (e) {
+      if (e instanceof ApiError && e.status === 403) {
+        setHasAccess(false)
+        return
+      }
+      setHasAccess(true)
       setError(e instanceof Error ? e.message : 'Failed to load content')
     } finally {
       setLoading(false)
@@ -424,9 +518,8 @@ export function GranolaPage() {
   }, [])
 
   useEffect(() => {
-    if (isAdmin) loadAll()
-    else setLoading(false)
-  }, [isAdmin, loadAll])
+    loadAll()
+  }, [loadAll])
 
   const advanceStatus = useCallback(async (draft: Draft) => {
     const next = NEXT_STATUS[draft.status as DraftStatus]
@@ -487,27 +580,42 @@ export function GranolaPage() {
     }
   }, [])
 
-  if (!isAdmin) {
+  if (hasAccess === false) {
     return (
       <PageContainer>
         <EmptyState
-          title="Access denied"
-          description="This surface is admin-only."
+          title="No content workspace"
+          description="This account does not have a content workspace set up yet. Ask an admin to provision one."
         />
       </PageContainer>
     )
   }
 
-  const filteredDrafts = statusFilter === 'all' ? drafts : drafts.filter(d => d.status === statusFilter)
+  // Category tabs — one per post category (the draft's `pillar`), derived from the data so a
+  // new category appears on its own. Largest first; uncategorised posts get their own tab.
+  const categoryCounts = new Map<string, number>()
+  for (const d of drafts) categoryCounts.set(draftCategory(d), (categoryCounts.get(draftCategory(d)) ?? 0) + 1)
+  const categoryTabs: TabItem[] = [
+    { key: ALL_CATEGORIES, label: 'All', count: drafts.length },
+    ...[...categoryCounts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([key, count]) => ({ key, label: key, count })),
+  ]
+  // A category can empty out (e.g. after a refresh) — fall back to All rather than a blank list.
+  const activeCategory = categoryFilter === ALL_CATEGORIES || categoryCounts.has(categoryFilter) ? categoryFilter : ALL_CATEGORIES
+  const categoryDrafts =
+    activeCategory === ALL_CATEGORIES ? drafts : drafts.filter(d => draftCategory(d) === activeCategory)
+
+  const filteredDrafts = statusFilter === 'all' ? categoryDrafts : categoryDrafts.filter(d => d.status === statusFilter)
   const counts = {
-    all: drafts.length,
-    draft: drafts.filter(d => d.status === 'draft').length,
-    ready: drafts.filter(d => d.status === 'ready').length,
-    posted: drafts.filter(d => d.status === 'posted').length,
+    all: categoryDrafts.length,
+    draft: categoryDrafts.filter(d => d.status === 'draft').length,
+    ready: categoryDrafts.filter(d => d.status === 'ready').length,
+    posted: categoryDrafts.filter(d => d.status === 'posted').length,
   }
 
   const tabItems: TabItem[] = [
-    { key: 'queue', label: TAB_META.queue.label, count: counts.all },
+    { key: 'queue', label: TAB_META.queue.label, count: drafts.length },
     { key: 'hooks', label: TAB_META.hooks.label, count: hooks.length },
     { key: 'inbox', label: TAB_META.inbox.label, count: ideas.length },
   ]
@@ -516,7 +624,7 @@ export function GranolaPage() {
     <PageContainer>
       <PageHeader
         title="Content"
-        description="operator content streams — LinkedIn drafts, short-form & video, ideas."
+        description={`${me?.display_name || me?.workspace || 'Your'} content streams — LinkedIn drafts, short-form & video, ideas.`}
         actions={
           <>
             {schedule && (
@@ -533,7 +641,12 @@ export function GranolaPage() {
             <Button variant="secondary" size="sm" onClick={loadAll}>
               Refresh
             </Button>
-            <Button variant="primary" size="sm" onClick={runNow} disabled={running}>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={runNow}
+              disabled={running || !me?.granola.connected}
+            >
               {running ? 'Starting…' : 'Run now'}
             </Button>
           </>
@@ -548,6 +661,26 @@ export function GranolaPage() {
       {error && (
         <Alert tone="alarm" className="mb-3">
           {error}
+        </Alert>
+      )}
+
+      {/* Onboarding — until Granola is connected there is, by construction, nothing
+          to show, so the connect panel replaces the (empty) streams entirely. */}
+      {!loading && me && !me.granola.connected && (
+        <div className="mb-4">
+          <ConnectGranola me={me} onConnected={loadAll} />
+        </div>
+      )}
+
+      {/* Voice profile status. A connected account whose voice pack has not been built
+          yet will still draft — it will just sound generic — so this is a warning, not
+          a blocker. The nightly intake builds it on its first run. */}
+      {!loading && me?.granola.connected && !me.voice_profile_ready && (
+        <Alert tone="amber" className="mb-4">
+          Your voice profile has not been built yet. The next intake run reads your own
+          speech from your Granola transcripts and writes it to{' '}
+          <span className="font-mono text-[11px]">{me.voice_profile_path}</span>, after which
+          drafts are written in your voice. Hit “Run now” to build it.
         </Alert>
       )}
 
@@ -571,6 +704,10 @@ export function GranolaPage() {
         </div>
       ) : tab === 'queue' ? (
         <>
+          {/* Category tabs */}
+          {categoryTabs.length > 2 && (
+            <Tabs items={categoryTabs} value={activeCategory} onChange={setCategoryFilter} className="mb-3" />
+          )}
           {/* Status filter */}
           <div className="mb-4 flex flex-wrap gap-2">
             {(['all', 'draft', 'ready', 'posted'] as const).map(f => (
