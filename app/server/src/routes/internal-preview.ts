@@ -17,7 +17,7 @@ export function registerInternalPreviewRoutes(router: Router): void {
 // Caddy on-demand TLS check — validates preview subdomains
 router.get('/check-preview', (req, res) => {
   const domain = req.query.domain as string
-  if (domain?.match(/^pr-\d+\.ai\.examplegrowth\.com$/)) {
+  if (domain?.match(/^pr-\d+\.ai\.example\.com$/)) {
     res.status(200).end()
   } else {
     res.status(404).end()

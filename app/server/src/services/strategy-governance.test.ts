@@ -17,7 +17,7 @@ function makeStrategy(effort = 'normal', costUsd = 0): number {
   const db = getDb()
   const id = nextObjId++
   db.prepare(
-    "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, effort, total_cost_usd) VALUES (?, ?, 'cto', 'personal', 'working', 1, NULL, 0, ?, ?)"
+    "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, effort, total_cost_usd) VALUES (?, ?, 'cto', 'operator', 'working', 1, NULL, 0, ?, ?)"
   ).run(id, `strategy-${id}`, effort, costUsd)
   return id
 }
@@ -25,7 +25,7 @@ function makeProject(parentId: number, depth: number, costUsd = 0): number {
   const db = getDb()
   const id = nextObjId++
   db.prepare(
-    "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, total_cost_usd) VALUES (?, ?, 'cto', 'personal', 'working', 1, ?, ?, ?)"
+    "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, total_cost_usd) VALUES (?, ?, 'cto', 'operator', 'working', 1, ?, ?, ?)"
   ).run(id, `project-${id}`, parentId, depth, costUsd)
   return id
 }
@@ -356,7 +356,7 @@ describe('computeStrategyRollup (shared list+detail rollup, obj 700132)', () => 
     const db = getDb()
     const id = nextObjId++
     db.prepare(
-      "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, total_cost_usd) VALUES (?, ?, 'cto', 'personal', ?, 0, ?, 1, ?)"
+      "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, total_cost_usd) VALUES (?, ?, 'cto', 'operator', ?, 0, ?, 1, ?)"
     ).run(id, `child-${id}`, status, parentId, costUsd)
     return id
   }

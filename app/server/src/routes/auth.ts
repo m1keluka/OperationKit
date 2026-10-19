@@ -9,6 +9,7 @@ import {
   clearLoginFailures,
 } from '../middleware/login-rate-limit.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
+import { isContentOwner } from '../services/content-owners.js'
 import type { LoginRequest, TokenResponse, User } from '@operationkit/shared'
 
 const TOKEN_EXPIRES_IN_SEC = 7 * 24 * 60 * 60
@@ -65,6 +66,9 @@ async function authenticatePassword(
       role: row.role,
       created_at: row.created_at,
       workspaces: getUserWorkspaces(row.id),
+      // Must match GET /me: the client uses the login response as the user until the next reload,
+      // so omitting this hid Content from owners right after sign-in (obj 712749).
+      has_content: isContentOwner(row.id),
     },
   }
 }
@@ -145,6 +149,8 @@ router.get('/me', requireAuth, (req: AuthRequest, res) => {
   }
 
   user.workspaces = getUserWorkspaces(user.id)
+  // Content surface access (obj 710856) — a `content_owners` row, not a role.
+  user.has_content = isContentOwner(user.id)
   res.json(user)
 })
 

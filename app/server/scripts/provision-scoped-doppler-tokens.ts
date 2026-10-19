@@ -56,7 +56,7 @@ const TARGETS: ProvisionTarget[] = [
   { workspace: 'example', dopplerProject: 'example-platform', config: 'prd' },
   { workspace: 'example2', dopplerProject: 'example3-platform', config: 'prd' },
   { workspace: 'example-project', dopplerProject: 'example-project-platform', config: 'prd' },
-  { workspace: 'personal', dopplerProject: 'command-center', config: 'prd' },
+  { workspace: 'operator', dopplerProject: 'command-center', config: 'prd' },
 ]
 
 function tokenName(t: ProvisionTarget, config: string): string {

@@ -515,7 +515,7 @@ export function buildDsConformanceCriteria(project: string): AcceptanceCriterion
 // substitution live in `~/ai-workspace/skills/devops/qa-conformance-criteria.md`.
 
 /** Repos that ship a Playwright / E2E suite the QA gate applies to. Keyed on the
- *  project string (same identifier the board/API uses). command-center-infra is
+ *  project string (same identifier the board/API uses). operationkit is
  *  intentionally excluded: it has Vitest only, no Playwright e2e (see its CLAUDE.md). */
 const E2E_SUITE_REPOS: ReadonlySet<string> = new Set(['example-platform', 'example3-platform'])
 
@@ -570,7 +570,7 @@ export function buildQaConformanceCriteria(): AcceptanceCriterion[] {
 // ── Per-changed-files UI detection (obj 1453) ────────────────────────────────
 //
 // The auto-append above (and `isUiObjective`) keys the ds-* visual rubric on the
-// objective's PROJECT — `command-center-infra` is a registered frontend repo, so
+// objective's PROJECT — `operationkit` is a registered frontend repo, so
 // EVERY objective on it (a scheduler change, a state-poller fix) inherits the
 // 5-criterion ds-conformance block. The render/browser criteria
 // (ds-renders-conformant, ds-interaction-states, ds-a11y-contrast) need a screen,
@@ -797,7 +797,7 @@ export function buildVisionRubricBlock(
     '  at 360px, 768px, and 1440px width. Grade R1–R9 below pass/warn/fail with a one-line evidence',
     '  note per dimension citing the screenshot. Save screenshots to ABSOLUTE paths only (e.g.',
     '  under /tmp/ui-review-<objective>/) — never a "~/"-relative path (your $HOME is a per-account',
-    '  scratch home, NOT /home/mike). Return those absolute paths in screenshot_paths.',
+    '  scratch home, NOT /home/operator). Return those absolute paths in screenshot_paths.',
     '',
     'THE 9-POINT RUBRIC:',
     ...VISION_RUBRIC.map((r) => `  ${r}`),
@@ -808,7 +808,7 @@ export function buildVisionRubricBlock(
 
 /** Canonical filesystem roots injected into every spawned session's env so that
  *  `~`-relative paths can be replaced with absolute ones, and so prompts/scripts can
- *  reference the real /home/mike vault & projects regardless of the session's own
+ *  reference the real /home/operator vault & projects regardless of the session's own
  *  per-account `$HOME`. See the `~`-home false-negative fix (obj 532 / 553). */
 export function canonicalRootEnv(): Record<string, string> {
   return {
@@ -816,6 +816,6 @@ export function canonicalRootEnv(): Record<string, string> {
     SECOND_BRAIN_DIR,
     AI_WORKSPACE_DIR,
     VAULT_ROOT,
-    MIKE_HOME: HOME_DIR,
+    OPERATOR_HOME: HOME_DIR,
   }
 }

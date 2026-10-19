@@ -135,7 +135,7 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b'
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://host.docker.internal:11434'
 
 function buildClassifyPrompt(emailList: string): string {
-  return `Classify each email into exactly one of 4 categories for Mike Luka, CEO of Example Growth (M&A advisory):
+  return `Classify each email into exactly one of 4 categories for Operator, CEO of Example Growth (M&A advisory):
 
 "live" — genuine personal message or reply from a KNOWN contact. Ongoing conversation, client/partner comm, legal/contracts, replies where Mike initiated the thread, personal finance questions, job applicants responding to Mike's posts. The sender knows Mike personally or has an established relationship.
 

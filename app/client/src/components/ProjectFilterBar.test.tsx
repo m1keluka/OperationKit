@@ -27,7 +27,7 @@ const project = (id: number, name: string, count = 0): Project => ({
   created_at: '', updated_at: '',
 })
 
-const PROJECTS = [project(7, 'Data Sourcing', 3), project(8, 'Billing', 1)]
+const PROJECTS = [project(7, 'Designer', 3), project(8, 'Billing', 1)]
 
 const onSelect = vi.fn()
 const onCreate = vi.fn((_name: string) => Promise.resolve(project(9, 'Fresh')))
@@ -71,7 +71,7 @@ describe('ProjectFilterBar — the org subfolder picker (obj 708826)', () => {
 
   it('lists All projects, every project, and a No project bucket', async () => {
     const bar = await mount()
-    expect(chipsOf(bar)).toEqual(['All projects', 'Data Sourcing3', 'Billing1', 'No project'])
+    expect(chipsOf(bar)).toEqual(['All projects', 'Designer3', 'Billing1', 'No project'])
   })
 
   it('All projects is the pressed chip by default', async () => {
@@ -100,22 +100,22 @@ describe('ProjectFilterBar — the org subfolder picker (obj 708826)', () => {
     const input = bar.querySelector('input[aria-label="New project name"]') as HTMLInputElement
     expect(input).toBeTruthy()
     const proto = Object.getPrototypeOf(input)
-    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(input, 'Data Sourcing 2')
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(input, 'Designer 2')
     flushSync(() => input.dispatchEvent(new Event('input', { bubbles: true })))
     flushSync(() => (bar.querySelector('form') as HTMLFormElement)
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
     await flush()
-    expect(onCreate).toHaveBeenCalledWith('Data Sourcing 2')
+    expect(onCreate).toHaveBeenCalledWith('Designer 2')
     // Newly-created folder becomes the open one.
     expect(onSelect).toHaveBeenCalledWith(9)
   })
 
   it('renames the OPEN project from the picker', async () => {
     const bar = await mount(7)
-    click(bar.querySelector('[aria-label="Rename Data Sourcing"]'))
+    click(bar.querySelector('[aria-label="Rename Designer"]'))
     await flush()
     const input = bar.querySelector('input[aria-label="Rename project"]') as HTMLInputElement
-    expect(input.value).toBe('Data Sourcing')
+    expect(input.value).toBe('Designer')
     const proto = Object.getPrototypeOf(input)
     Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(input, 'Sourcing')
     flushSync(() => input.dispatchEvent(new Event('input', { bubbles: true })))
@@ -127,7 +127,7 @@ describe('ProjectFilterBar — the org subfolder picker (obj 708826)', () => {
 
   it('deletes the OPEN project and falls back to All projects', async () => {
     const bar = await mount(7)
-    click(bar.querySelector('[aria-label="Delete Data Sourcing"]'))
+    click(bar.querySelector('[aria-label="Delete Designer"]'))
     await flush()
     expect(onDelete).toHaveBeenCalledWith(7)
     expect(onSelect).toHaveBeenCalledWith(ALL_PROJECTS)

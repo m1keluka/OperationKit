@@ -254,5 +254,5 @@ Each step is independently reversible **before Step 5's token rotation**:
 
 Internal-route auth (B5/T6), `JWT_SECRET` assertion (A1), password rotation (A5),
 status-leak gating (S1), vault symlink containment (V1) — see
-`/home/operator/second-brain/workspaces/personal/audits/2026-06-27-user-system-security-audit.md`
+`/home/operator/second-brain/workspaces/operator/audits/2026-06-27-user-system-security-audit.md`
 §7. Onboarding a non-admin member requires those too, not just B1–B4.

@@ -40,7 +40,7 @@ const AGENT_PATHS = [
   '/api/objectives/{id}/output',
   '/api/objectives/{id}/timeline',
   '/api/objectives/{id}/stop',
-  '/api/assistant/briefing',
+  '/api/briefing/briefing',
   '/api/docs/search',
   '/api/docs/file',
 ]

@@ -1,40 +1,40 @@
-# .gitleaks.toml — false positive allowlist for the OSS publish gate.
+# oss-gitleaks.toml — secret-scanning config for the PUBLISHED OperationKit tree.
 #
-# Gitleaks scans the assembled tree (post-strip) before genericization.
-# These patterns are test fixtures, documentation examples, or
-# deliberately redacted placeholders — not real secrets.
+# Injected as `.gitleaks.toml` at the root of the assembled tree by
+# .github/workflows/oss-sync.yml (post-strip, pre-genericize), so the publish
+# gate and any public-repo contributor scan the tree the same way.
 #
-# NOTE: gitleaks 8.18+ uses [[allowlists]] (array of tables), not [allowlist].
-# The old [allowlist] format is silently ignored by modern gitleaks.
+# (It lives under scripts/ rather than oss/templates/ because it is consumed by
+# the gate itself, alongside oss-denylist.txt and oss-strip-paths.txt. Like them
+# it is stripped from the published tree — only the injected copy ships.)
+#
+# WHY IT EXISTS
+#   The gate's gitleaks pass (scripts/oss-sync-gate.sh check 1) fired on five
+#   obviously-fake fixtures in the test suite and therefore FAILED every publish:
+#     app/server/src/routes/internal-auth.test.ts                 'test-internal-secret-abc123'
+#     app/server/src/routes/admin-workspaces-integrations.test.ts 'ghp_valid_secret_1234'
+#     app/server/src/services/session-spawn-env-doppler.test.ts   'dp.st.prd.SCOPED_..._9876' (x2)
+#     app/server/src/services/user-github-tokens.test.ts          'ghp_cascadetest99x'
+#
+#   The allowlist below is written as NARROW value regexes, not as a blanket
+#   "ignore every *.test.ts" path rule. A path rule would make the whole test
+#   suite a blind spot for a real credential; these patterns only match the
+#   specific literal shapes the fixtures use.
 
-# === Test files allowlist ===
-# Test files can contain fake secrets by design.
-[[allowlists]]
-description = "test files — fake secrets allowed"
-paths = [
-    '''.*\.test\.ts$''',
-    '''.*\.test\.js$''',
-    '''.*\.spec\.ts$''',
-    '''.*\.spec\.js$''',
-]
+[extend]
+useDefault = true
 
-# === .env.example allowlist ===
-# Environment example files contain placeholder patterns, not real secrets.
-[[allowlists]]
-description = "environment example files"
-paths = [
-    '''\.env\.example$''',
-    '''\.env\.sample$''',
-]
-
-# === Test fixture fake API keys ===
-# These literal strings appear in test fixtures and documentation.
-[[allowlists]]
-description = "test fixture fake API keys"
+[allowlist]
+description = "Fake credential literals used as unit-test fixtures."
 regexTarget = "match"
 regexes = [
-    '''sk-secret''',
-    '''sk-global''',
-    '''sk-plaintext-value''',
-    '''sk-live-abcdef\d+''',
+  # internal-auth.test.ts — the shared-secret header fixture.
+  '''test-internal-secret-[a-z0-9]+''',
+  # admin-workspaces-integrations.test.ts / user-github-tokens.test.ts — fake PATs.
+  # Real GitHub PATs are 36+ chars after the prefix; these are short by construction.
+  '''ghp_valid_secret_[0-9]+''',
+  '''ghp_cascadetest[0-9a-z]+''',
+  # session-spawn-env-doppler.test.ts — fake scoped service token. The workspace
+  # segment is genericized at publish time, so match it structurally.
+  '''dp\.st\.prd\.SCOPED_[A-Z0-9_]+''',
 ]

@@ -1,6 +1,6 @@
 // ── Daily Session Retrospective (DSR) — core service ─────────────────────────
 //
-// Spec: ~/second-brain/workspaces/personal/decisions/
+// Spec: ~/second-brain/workspaces/operator/decisions/
 //       2026-08-08-cc-daily-session-retrospective-loop-design.md  (Part D)
 //
 // WHAT THIS DOES. Once a day (as a dream-cycle phase at 03:00 UTC) it reads

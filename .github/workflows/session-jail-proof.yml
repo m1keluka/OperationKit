@@ -15,7 +15,7 @@ jobs:
 
       - name: Create host decoy (must NOT leak into jail)
         run: |
-          sudo mkdir -p /home/mike
+          sudo mkdir -p /home/operator
           echo DECOY-SHOULD-NOT-LEAK | sudo tee /home/operator/DECOY-ok-jail.txt
           echo "Decoy written:"
           cat /home/operator/DECOY-ok-jail.txt

@@ -1,6 +1,6 @@
 name: gate
 
-# THE single required status check for command-center-infra.
+# THE single required status check for operationkit.
 #
 # Why this file exists: before it, the ONLY required context on main was
 # `harness/test-agent` — a commit status the Command Center harness posts about

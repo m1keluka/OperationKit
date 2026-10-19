@@ -17,7 +17,7 @@
  *   - restart     `no` — sessions are one-shot; the state poller owns retries
  *   - mounts      ONLY the session's own worktree at /workspace (rw, rprivate)
  *                 and its own per-session HOME at /home/jailuser (rw, rprivate).
- *                 Nothing else from /home/mike. In particular NO
+ *                 Nothing else from /home/operator. In particular NO
  *                 /var/run/docker.sock and no sibling `ccuser-*` home.
  *   - user        non-root (default uid:gid 1000:1000 = `jailuser`)
  *   - caps        --cap-drop ALL --security-opt no-new-privileges

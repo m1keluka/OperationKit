@@ -1,6 +1,6 @@
 # Security
 
-OperationKit is a **self-hosted, single-tenant operator tool**. It runs AI coding agents as jobs on a machine you control. It is **not** a multi-tenant SaaS.
+OperationKit is **self-hosted, multi-tenant work infrastructure**. It runs AI coding agents as jobs on a machine you control, with workspace-level isolation between teams or business units. It is **not** a multi-tenant SaaS run by someone else. You run the instance, so you decide who shares it.
 
 If you would not give someone SSH on this host, do not give them a login that can spawn sessions.
 
