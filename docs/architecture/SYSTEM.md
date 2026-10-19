@@ -1,4 +1,4 @@
-# Command Center — system map
+# OperationKit — system map
 
 Web control plane at `cc.example.com`. It runs AI coding agents (Claude Code, Codex) as **objectives** on a kanban board. Each working objective is a tmux session on the VPS. The Node process is a thin supervisor over host bind-mounts (projects, vault, transcripts, Claude account homes, Docker socket).
 
@@ -45,7 +45,7 @@ Self-deploy bind-mounts `app/server/src`, `app/client/src`, `app/shared`, `app/c
 
 **In this Node process (must stay green):** session spawn, poller, intel, Assistant/mentor, costs, workspaces, board HTTP, flag-gated gates/watchdogs.
 
-**Siblings:** LiteLLM, Caddy, host cron (`scripts/install-*-cron.sh`), optional Hermes/n8n/OpenHands/telegram-rolodex.
+**Siblings:** LiteLLM, Caddy, host cron (`scripts/install-*-cron.sh`), optional Hermes/n8n/OpenHands/telegram-contactbook.
 
 ## How to change this file
 

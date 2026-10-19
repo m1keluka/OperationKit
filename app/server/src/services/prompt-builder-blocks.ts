@@ -42,7 +42,7 @@ export const DEFAULT_OBJECTIVE_MEMORY_ROOT = '/home/operator/ai-workspace/object
  *
  * Env-overridable (`CC_OBJECTIVE_MEMORY_ROOT`) only so the suite can exercise the
  * artifact-PUBLISHED branch: on the host the default is real and writable, on a CI runner
- * there is no `/home/mike` at all, so a test that must `mkdir` there fails for reasons
+ * there is no `/home/operator` at all, so a test that must `mkdir` there fails for reasons
  * unrelated to the code under test. Unset in production ⇒ the default, unchanged.
  *
  * Resolved LAZILY, and that detail is load-bearing. `import` is hoisted above every other

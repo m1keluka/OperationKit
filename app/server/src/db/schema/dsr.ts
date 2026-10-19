@@ -9,7 +9,7 @@ export function initDsrSchema(db: Database.Database): void {
   // Additive ONLY (CREATE TABLE / INDEX IF NOT EXISTS, no ALTER of any existing
   // table) so this migration is a byte-for-byte no-op on an existing prod DB
   // apart from five new, initially-empty tables. Spec §D.2 of
-  // ~/second-brain/workspaces/personal/decisions/
+  // ~/second-brain/workspaces/operator/decisions/
   // 2026-08-08-cc-daily-session-retrospective-loop-design.md
   //
   //   dsr_runs         — one row per retro run: the observability surface that

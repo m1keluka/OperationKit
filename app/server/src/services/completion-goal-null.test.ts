@@ -33,7 +33,7 @@ function makeObjective(overrides: Partial<Objective> = {}): Objective {
     description: 'Strip the objective create modal down to title + description.',
     status: 'working',
     agent_context: 'cto',
-    workspace: 'personal',
+    workspace: 'operator',
     project: null,
     category: 'general',
     parent_id: null,

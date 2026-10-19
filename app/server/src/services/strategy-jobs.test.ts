@@ -39,14 +39,14 @@ function seedStrategy(title: string): number {
   return getDb()
     .prepare(
       `INSERT INTO objectives (title, agent_context, workspace, status, depth, delegate_mode)
-       VALUES (?, 'cto', 'personal', 'queue', 0, 1)`
+       VALUES (?, 'cto', 'operator', 'queue', 0, 1)`
     )
     .run(title)
     .lastInsertRowid as number
 }
 
 function seedRoutine(name: string, strategyId: number | null): RoutineRow {
-  const template = JSON.stringify({ title: 'Weekly competitor research', description: 'scan rivals', workspace: 'personal' })
+  const template = JSON.stringify({ title: 'Weekly competitor research', description: 'scan rivals', workspace: 'operator' })
   const id = getDb()
     .prepare(
       `INSERT INTO routines (name, cron_expr, objective_template, enabled, max_queue_depth, strategy_objective_id)

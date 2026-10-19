@@ -58,7 +58,7 @@ function seed(opts: {
   const r = getDb()
     .prepare(
       `INSERT INTO objectives (title, agent_context, workspace, status, parent_id, depth, delegate_mode)
-       VALUES (?, 'cto', 'personal', ?, ?, 0, ?)`,
+       VALUES (?, 'cto', 'operator', ?, ?, 0, ?)`,
     )
     .run(opts.title, opts.status ?? 'working', opts.parent_id ?? null, opts.delegate_mode ?? 0)
   return r.lastInsertRowid as number

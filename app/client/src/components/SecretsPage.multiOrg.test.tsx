@@ -54,7 +54,7 @@ const { state, apiMock, ApiErrorMock } = vi.hoisted(() => {
       organizations: [
         { slug: 'example', name: 'Example Growth' },
         { slug: 'example2', name: 'Grass Fed' },
-        { slug: 'personal', name: 'Mike Luka' },
+        { slug: 'operator', name: 'Operator' },
       ],
       users: [{ id: 1, username: 'mike' }],
       canUseGlobal: true,
@@ -106,7 +106,7 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
       organizations: [
         { slug: 'example', name: 'Example Growth' },
         { slug: 'example2', name: 'Grass Fed' },
-        { slug: 'personal', name: 'Mike Luka' },
+        { slug: 'operator', name: 'Operator' },
       ],
       users: [{ id: 1, username: 'mike' }],
       canUseGlobal: true,

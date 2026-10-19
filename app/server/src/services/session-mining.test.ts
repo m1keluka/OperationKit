@@ -22,7 +22,7 @@ const FAILING_SKILL = 'flaky-deploy-skill'
 
 // A minimal Objective good enough for buildContext (it reads id/workspace/
 // agent_context/project/title/description).
-function makeObjective(id: number, agent = 'cto', workspace = 'personal') {
+function makeObjective(id: number, agent = 'cto', workspace = 'operator') {
   return {
     id, title: `obj-${id}`, description: '', status: 'working',
     agent_context: agent, workspace, project: null,
@@ -47,7 +47,7 @@ beforeAll(() => {
   // Five objectives: 1-3 exhibit the recurring failure, 4 is a fresh consumer,
   // 5 is an unrelated control.
   for (let i = 1; i <= 5; i++) {
-    db.prepare("INSERT INTO objectives (id, title, agent_context, workspace, status) VALUES (?, ?, 'cto', 'personal', 'working')")
+    db.prepare("INSERT INTO objectives (id, title, agent_context, workspace, status) VALUES (?, ?, 'cto', 'operator', 'working')")
       .run(i, `obj-${i}`)
   }
 

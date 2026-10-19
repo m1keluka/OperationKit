@@ -1,5 +1,5 @@
-// Phase 5 Personal CRM — Internal vault + rolodex-history endpoints used by
-// the Telegram Rolodex sibling process. All endpoints are localhost-only;
+// Phase 5 Personal CRM — Internal vault + contactbook-history endpoints used by
+// the Telegram Contactbook sibling process. All endpoints are localhost-only;
 // the bot calls them from inside the same container (no auth header, no
 // session cookies — isLocalhost is the gate).
 //
@@ -23,7 +23,7 @@ const ALLOWED_CONTACT_DIRS = [
   'personal/contacts',
   'workspaces/example/contacts',
   'workspaces/example-project/contacts',
-  'workspaces/personal/contacts',
+  'workspaces/operator/contacts',
   'workspaces/personal/contacts',
 ]
 
@@ -103,9 +103,9 @@ function frontmatterDirsForWorkspace(ws: string): string {
     case 'personal': return 'personal/contacts'
     case 'example': return 'workspaces/example/contacts'
     case 'example-project': return 'workspaces/example-project/contacts'
-    case 'personal': return 'workspaces/personal/contacts'
+    case 'operator': return 'workspaces/operator/contacts'
     case 'example2': return 'workspaces/example2/contacts'
-    case 'shabo-dl': return 'workspaces/shabo-dl/contacts'
+    case 'example5': return 'workspaces/example5/contacts'
     default: return 'personal/contacts'
   }
 }
@@ -467,12 +467,12 @@ router.post('/vault/recent-interactions', (req, res) => {
   res.json({ contact: { name: contact.name, email: contact.email }, meetings, emails })
 })
 
-// ── rolodex_history ────────────────────────────────────────────────────────
+// ── contactbook_history ────────────────────────────────────────────────────────
 // GET: load history for a chat. Returns empty array if chat is new.
-router.get('/rolodex/history/:chatId', (req, res) => {
+router.get('/contactbook/history/:chatId', (req, res) => {
   const chatId = String(req.params.chatId)
   const row = getDb().prepare(
-    'SELECT chat_id, user_id, history, updated_at FROM rolodex_threads WHERE chat_id = ?'
+    'SELECT chat_id, user_id, history, updated_at FROM contactbook_threads WHERE chat_id = ?'
   ).get(chatId) as { chat_id: string; user_id: string; history: string; updated_at: string } | undefined
   if (!row) {
     res.json({ chat_id: chatId, user_id: null, history: [], updated_at: null })
@@ -484,7 +484,7 @@ router.get('/rolodex/history/:chatId', (req, res) => {
 })
 
 // POST: save (upsert) history.
-router.post('/rolodex/history', (req, res) => {
+router.post('/contactbook/history', (req, res) => {
   const { chat_id, user_id, history } = (req.body || {}) as {
     chat_id?: string; user_id?: string; history?: unknown[]
   }
@@ -501,7 +501,7 @@ router.post('/rolodex/history', (req, res) => {
     return
   }
   getDb().prepare(`
-    INSERT INTO rolodex_threads (chat_id, user_id, history, updated_at)
+    INSERT INTO contactbook_threads (chat_id, user_id, history, updated_at)
     VALUES (?, ?, ?, datetime('now'))
     ON CONFLICT(chat_id) DO UPDATE SET
       user_id    = excluded.user_id,

@@ -1,4 +1,4 @@
-// Loops engine — read/write surface for the personal "loops" tracker.
+// Loops engine — read/write surface for the operator "loops" tracker.
 //
 // A "loop" is a thread/task that moves through a 3-stage Kanban: queued -> working
 // -> done. It is either a thread with a person ("waiting on Colin's signed contract",
@@ -7,7 +7,7 @@
 // and MANUAL (the "New loop" button in the CC UI).
 //
 // Storage is Mike-only second-brain markdown — one file per loop under
-// workspaces/personal/loops/<slug>.md. This module READS those files for the
+// workspaces/operator/loops/<slug>.md. This module READS those files for the
 // admin UI and WRITES them on manual-add / edit / status-move. It is a SEPARATE
 // stream from the granola-content engine: it never touches the drafts/hooks files
 // nor the granola_processed_meetings / granola_action_items DB tables.
@@ -29,7 +29,7 @@ import path from 'path'
 
 // host path == container path (bind-mounted, verified writable)
 const VAULT_BASE = process.env.VAULT_PATH || '/home/operator/second-brain'
-export const LOOPS_WORKSPACE = process.env.GRANOLA_WORKSPACE || 'personal'
+export const LOOPS_WORKSPACE = process.env.GRANOLA_WORKSPACE || 'operator'
 const WS_ROOT = path.join(VAULT_BASE, 'workspaces', LOOPS_WORKSPACE)
 const LOOPS_DIR = path.join(WS_ROOT, 'loops')
 
@@ -41,7 +41,7 @@ const LOOPS_DIR = path.join(WS_ROOT, 'loops')
 // existing loop files are untouched by adding this lane.
 export const LOOP_STATUSES = ['pending', 'queued', 'working', 'done'] as const
 export type LoopStatus = (typeof LOOP_STATUSES)[number]
-export const LOOP_PROJECTS = ['example', 'example2', 'shabo-dl', 'example-project', 'personal', ''] as const
+export const LOOP_PROJECTS = ['example', 'example2', 'example5', 'example-project', 'personal', ''] as const
 export type LoopProject = (typeof LOOP_PROJECTS)[number]
 export const PARTY_TYPES = ['team', 'client', ''] as const
 

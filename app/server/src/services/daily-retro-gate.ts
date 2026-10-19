@@ -383,7 +383,7 @@ export function buildObjectivePayload(
     title: `[retro] ${statement}`,
     description,
     project: DSR_PROJECT,
-    workspace: 'personal',
+    workspace: 'operator',
     agent_context: 'cto',
     category: 'development',
     type: 'bug',
