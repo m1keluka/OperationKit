@@ -8,6 +8,48 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Board-level Agents tab — the layer a project's sessions actually run on (obj 712044)
+
+**What changed.** A new top-level **Agents** tab (`/agents`) renders the live
+OperationKit layer — agent persona → workspace overlay → skills → tools — scoped
+to one board project via `?project=<id>`. Server half: `GET /api/agents/board-layer`
+and `GET /api/agents/layer-file` (both `requireAuth`, not localhost-only), built on
+the existing `services/skill-graph.ts`. Client half reuses the SkillGraph
+`GraphCanvas` for the Graph view and `MarkdownEditor` in `readOnly` mode to render
+each file in place, so there is no second markdown renderer and no accidental
+write surface.
+
+**What an operator needs to know.**
+
+- **Agent usage is derived from objectives, not configured.** `projects` has no
+  agent column, so "which agents does project 16 use" is answered by counting
+  `objectives.agent_context` in that project. The per-agent badge (`1 objective`,
+  `146 objectives`) is that count. An agent that has never been given work in a
+  project simply does not appear — that is correct, not a bug.
+- **A declared-but-missing file is never silently dropped.** Any edge an agent or
+  skill declares whose target has no file on disk still renders as a node, carries
+  a red `file missing` chip, and is listed in the alarm banner at the top
+  (`N declared files missing`). Clicking it opens a "File missing on disk" panel
+  with the resolved path. The live sweep currently surfaces exactly one:
+  `skills/supercut` declares `tools/supercut`, which does not exist.
+- **The tab needs a single workspace.** The layer is per-workspace, so with the
+  board selector on *all* the tab shows "Pick a single workspace" rather than a
+  blank page (obj 712134).
+- **Deploy note.** The client half is bundled, so merging alone does not make the
+  tab appear — the tab requires a `self-deploy.sh both` (frontend rebuild + backend
+  restart), since the server half adds routes too.
+- **`layer-file` does not use a workspace's `doc_read_roots`.** `~/ai-workspace/tools`
+  is in no workspace's document read roots, so routing the file reader through the
+  docs route would 404 every tool node — and widening `doc_read_roots` to fix that
+  would open the whole tools tree to the generic docs reader for an unrelated
+  reason. Instead `GET /api/agents/layer-file` carries its own narrower allowlist
+  (the three `~/ai-workspace` layer roots plus `workspaces/<ws>/agent-profiles`)
+  with a post-resolve containment assert that also follows `realpath`, so a symlink
+  cannot escape. Verified live: `kind=tool&slug=command-center` returns HTTP 200
+  with `/home/operator/ai-workspace/tools/command-center/TOOL.md`. If you add a fourth
+  layer tier, extend `LAYER_ROOTS` in `app/server/src/services/board-layer.ts` —
+  the assert fails closed, so a forgotten root degrades to a 400, not a path escape.
+
 ### Agent roster is now data (obj 709939 + 709956)
 
 **What changed.** The 17-persona roster used to be a closed TypeScript union
@@ -57,5 +99,5 @@ the roster shipped in the first place:
 `scripts/oss-gate-roster-test.sh` proves all three against a throwaway fixture
 (clean → PASS, injected private slug → FAIL).
 
-The `app/telegram-rolodex/` sibling process is now stripped from the public cut
+The `app/telegram-contactbook/` sibling process is now stripped from the public cut
 — see [`docs/oss/RELEASE-MANIFEST.md`](docs/oss/RELEASE-MANIFEST.md).

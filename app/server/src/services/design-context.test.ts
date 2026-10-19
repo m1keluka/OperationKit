@@ -158,7 +158,7 @@ describe('canonicalRootEnv — injects the real /home/operator roots', () => {
 
 const INJ_GATE_FILE = path.join(os.tmpdir(), `ui-gate-injection-test-${process.pid}.json`)
 // The four registered frontend platforms obj 1117 activates (all present in .design-registry.json).
-const PLATFORMS = ['command-center-infra', 'example-project-platform', 'example-platform', 'example3-platform']
+const PLATFORMS = ['operationkit', 'example-project-platform', 'example-platform', 'example3-platform']
 
 function writeInjGate(contents: string) {
   fs.writeFileSync(INJ_GATE_FILE, contents)
@@ -232,7 +232,7 @@ describe('isUiInjectionActive — spawn-injection control-plane (obj 1117)', () 
     writeInjGate(JSON.stringify({ mode: 'advisory', platforms: ['example-project-platform'] }))
     clearGateConfigCache()
     expect(injectionFires(uiObj('example-project-platform'))).toBe(true)
-    for (const p of ['command-center-infra', 'example-platform', 'example3-platform', 'example-dashboard']) {
+    for (const p of ['operationkit', 'example-platform', 'example3-platform', 'example-dashboard']) {
       expect(isUiInjectionActive(uiObj(p))).toBe(false)
       expect(injectionFires(uiObj(p))).toBe(false)
     }
@@ -291,7 +291,7 @@ describe('isVisualCriterion (obj 1453)', () => {
 })
 
 describe('rubricForChangedFiles (obj 1453)', () => {
-  const dsCriteria = buildDsConformanceCriteria('command-center-infra')
+  const dsCriteria = buildDsConformanceCriteria('operationkit')
   const fnCriterion = { id: 'scheduler-fix', criterion: 'queue drains', type: 'functional' as const, method: 'doc' as const }
 
   it('detect-no-ui: strips every visual/ds-* criterion for a backend-only PR', () => {
@@ -325,8 +325,8 @@ describe('rubricForChangedFiles (obj 1453)', () => {
 })
 
 describe('buildVisionRubricBlock — backend-only skip (obj 1453)', () => {
-  // command-center-infra IS a registered frontend repo ⇒ isUiObjective true.
-  const ccObj = obj({ project: 'command-center-infra' })
+  // operationkit IS a registered frontend repo ⇒ isUiObjective true.
+  const ccObj = obj({ project: 'operationkit' })
 
   it("returns '' for a registered UI repo when the PR touches no UI file", () => {
     expect(buildVisionRubricBlock(ccObj, 'hard', false, ['app/server/src/services/state-poller.ts'])).toBe('')
@@ -346,7 +346,7 @@ describe('production-worthy QA gate (obj 2390)', () => {
     expect(repoHasE2eSuite('example-platform')).toBe(true)
     expect(repoHasE2eSuite('example3-platform')).toBe(true)
     // CC has Vitest only (no Playwright e2e) — must NOT be gated
-    expect(repoHasE2eSuite('command-center-infra')).toBe(false)
+    expect(repoHasE2eSuite('operationkit')).toBe(false)
     expect(repoHasE2eSuite('example-project-platform')).toBe(false)
     expect(repoHasE2eSuite(null)).toBe(false)
     expect(repoHasE2eSuite(undefined)).toBe(false)

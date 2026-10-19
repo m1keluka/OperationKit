@@ -153,3 +153,26 @@ describe('POST /api/auth/token', () => {
     expect(await res.json()).toEqual({ error: 'Invalid credentials' })
   })
 })
+
+// obj 712749 — the client uses the login response as the user until the next reload, so it must
+// carry has_content exactly like GET /me. Without it, a content owner signs in and the Content tab is gone.
+describe('POST /login has_content parity with /me', () => {
+  it('reports has_content for a content owner and not for anyone else', async () => {
+    const hash = bcrypt.hashSync('owner-pass', 4)
+    const ownerId = Number(getDb().prepare(
+      'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)'
+    ).run('ava-712749', hash, 'member').lastInsertRowid)
+    getDb().prepare(
+      `INSERT INTO content_owners (user_id, vault_workspace, founder_slug, display_name, routine_name, enabled)
+       VALUES (?, 'ava-kelly', 'ava', 'Ava Kelly', 'granola-intake-ava-kelly', 1)`
+    ).run(ownerId)
+
+    const owner = await login({ username: 'ava-712749', password: 'owner-pass' })
+    expect(owner.status).toBe(200)
+    expect((await owner.json()).user.has_content).toBe(true)
+
+    const other = await login({ username: 'mike', password: 'correct-horse' })
+    expect(other.status).toBe(200)
+    expect((await other.json()).user.has_content).toBe(false)
+  })
+})

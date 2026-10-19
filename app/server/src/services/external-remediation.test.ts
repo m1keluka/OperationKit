@@ -39,7 +39,7 @@ afterAll(() => {
   }
 })
 
-const REPO = 'your-org/command-center-infra'
+const REPO = 'your-org/operationkit'
 
 function insertObjective(fields: Partial<Objective> & { title?: string }): number {
   const db = getDb()

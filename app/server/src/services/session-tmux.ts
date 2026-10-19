@@ -8,7 +8,8 @@ import path from 'path'
 import { PROJECTS_DIR, SECOND_BRAIN_DIR, AI_WORKSPACE_DIR } from '../config.js'
 import { canonicalRootEnv } from './design-context.js'
 import { getModelEngine } from './model-registry.js'
-import { buildClaudeCommand } from './session-spawn-command.js'
+import { buildClaudeCommand, CODEX_HOME_DIR, codexConfigHome } from './session-spawn-command.js'
+import { writeGrokMcpConfig, writeCodexMcpProfile, writeGrokVocabShim } from './session-harness-mcp.js'
 import { spawnSegmentOffset } from './session-registry.js'
 import {
   JAIL_HOME_PATH,
@@ -243,6 +244,9 @@ export function spawnInTmux(opts: {
   // CRITICAL: unset provider API keys so the CLI uses OAuth/subscription auth,
   // not API billing. Codex reads ~/.codex/auth.json when OPENAI_API_KEY is
   // absent; Grok reads ~/.grok/auth.json (SuperGrok) when XAI_API_KEY is absent.
+  // Dir holding a hand-installed, newer Claude Code CLI (see the wrapper body).
+  // Override with CC_CLI_BIN_DIR; empty string disables the prepend entirely.
+  const cliBinDir = process.env.CC_CLI_BIN_DIR ?? '/app/data/cli/node_modules/.bin'
   const scriptFile = path.join(scriptDirHost, `${sessionId}.sh`)
   const scriptFileGuest = useJail ? `${scriptDirGuest}/${sessionId}.sh` : scriptFile
   // Container-side transcript targets. In tmux mode these ARE the caller's paths.
@@ -263,14 +267,31 @@ export function spawnInTmux(opts: {
   // PreToolUse worktree guard they carry is redundant once the container itself
   // is the filesystem boundary (only /workspace is writable host state).
   const isolatedMcp = useJail ? undefined : overlayGoogleMcpConfig(sessionId, homeDir, env, mcpConfigPath)
+  // Wire the session's MCP servers (Google overlay + Playwright reviewer) into Grok / Codex.
+  // Claude uses --mcp-config (handled below). Grok reads .grok/config.toml from the CWD
+  // (project-scoped, session-isolated via worktree). Codex loads a --profile overlay on top
+  // of its base user config (preserving existing n8n-mcp, apify, getleads servers).
+  // Both are skipped in jail mode — paths are not mounted inside the container.
+  const effectiveMcpPath = useJail ? undefined : (isolatedMcp ?? mcpConfigPath)
+  const grokRulesPath = (!useJail && engine === 'grok')
+    ? writeGrokVocabShim(TMUX_SCRIPT_DIR, sessionId)
+    : undefined
+  if (!useJail && engine === 'grok' && effectiveMcpPath) {
+    writeGrokMcpConfig(workdirGuest, effectiveMcpPath)
+  }
+  const codexProfileName = (!useJail && engine === 'codex')
+    ? writeCodexMcpProfile(codexConfigHome(CODEX_HOME_DIR), sessionId, effectiveMcpPath)
+    : undefined
   const claudeCmd = buildClaudeCommand({
     engine,
     budget,
     effortLevel,
     model,
     resumeSessionId,
-    mcpConfigPath: useJail ? undefined : (isolatedMcp ?? mcpConfigPath),
+    mcpConfigPath: useJail ? undefined : effectiveMcpPath,
     settingsPath: useJail ? undefined : settingsPath,
+    codexProfileName,
+    grokRulesPath,
   })
   // Official grok CLI takes the prompt as `-p` (not stdin / --prompt-file).
   const runLine = engine === 'grok'
@@ -289,6 +310,15 @@ unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN OPENAI_API_KEY GEMINI_API_KEY GOOGL
 # 7 concurrent sessions pegged the 8-core box at load ~40 and the site crawled.)
 renice -n 15 -p $$ >/dev/null 2>&1 || true
 ${envExports}
+# Newer-CLI override (2026-09-23, obj 712520). The image's /usr/local/bin/claude is
+# only refreshed by a full container rebuild, which kills every live tmux session —
+# so a CLI too old for the registry's default model would otherwise be unfixable
+# without an outage. If a newer copy has been installed into CC_CLI_BIN_DIR (a
+# ccuser-writable dir on the persistent /app/data volume), put it ahead of the
+# image's copy. Guarded on the binary actually existing, so this is a no-op in jail
+# mode (where /app/data is not mounted) and on a freshly rebuilt image.
+CC_CLI_BIN_DIR=${JSON.stringify(cliBinDir)}
+if [ -x "$CC_CLI_BIN_DIR/claude" ]; then export PATH="$CC_CLI_BIN_DIR:$PATH"; fi
 cd ${JSON.stringify(workdirGuest)} || exit 1
 echo "[wrapper] Starting at $(date)" >> ${JSON.stringify(logGuest)}
 echo "[wrapper] Prompt file size: $(wc -c < ${JSON.stringify(promptFileGuest)})" >> ${JSON.stringify(logGuest)}

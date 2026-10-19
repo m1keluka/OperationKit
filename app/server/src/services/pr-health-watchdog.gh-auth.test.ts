@@ -47,7 +47,7 @@ describe('pr-health-watchdog gh auth (buildDefaultDeps)', () => {
     const { buildDefaultDeps } = await import('./pr-health-watchdog.js')
     const deps = await buildDefaultDeps({} as Database)
 
-    await deps.exec('gh', ['pr', 'list', '--repo', 'your-org/command-center-infra'])
+    await deps.exec('gh', ['pr', 'list', '--repo', 'your-org/operationkit'])
 
     const ghCall = calls.find(c => c.file === 'gh')
     expect(ghCall, 'the watchdog exec should have shelled out to gh').toBeTruthy()

@@ -232,20 +232,20 @@ describe('resolveGithubRepo + gh pr create --repo', () => {
   beforeAll(() => {
     getDb().prepare(
       `INSERT INTO workspace_repos (workspace, name, github, repo_path)
-       VALUES ('example', 'factory-align-test', 'your-org/command-center-infra', '/tmp/factory-align-test')`,
+       VALUES ('example', 'factory-align-test', 'your-org/operationkit', '/tmp/factory-align-test')`,
     ).run()
   })
 
   it('resolves owner/repo from workspace_repos by project name', () => {
-    expect(resolveGithubRepo({ project: 'factory-align-test' })).toBe('your-org/command-center-infra')
-    expect(resolveGithubRepo({ project: 'your-org/command-center-infra' })).toBe('your-org/command-center-infra')
-    expect(resolveGithubRepo({ project: 'command-center-infra' })).toBe('your-org/command-center-infra')
+    expect(resolveGithubRepo({ project: 'factory-align-test' })).toBe('your-org/operationkit')
+    expect(resolveGithubRepo({ project: 'your-org/operationkit' })).toBe('your-org/operationkit')
+    expect(resolveGithubRepo({ project: 'operationkit' })).toBe('your-org/operationkit')
     expect(resolveGithubRepo({ project: null })).toBeNull()
   })
 
   it('tells a PR worker to open against the linked GitHub repo and wait on gate', () => {
     const prompt = buildPrompt(makeObjective({ create_pr: true, project: 'factory-align-test' }))
-    expect(prompt).toContain('gh pr create --repo your-org/command-center-infra --base main')
+    expect(prompt).toContain('gh pr create --repo your-org/operationkit --base main')
     expect(prompt).toContain('gated by GitHub Actions job `gate`')
     expect(prompt).not.toContain('harness/test-agent')
   })
@@ -278,7 +278,7 @@ describe('buildPrompt — distill 2026-08-12 P1 (block on your own background jo
 describe('Git Workflow — evidence gate on completion (both integration modes)', () => {
   it('emits the PROVE-the-PR-exists gate in `pr` mode', () => {
     const prompt = buildPrompt(
-      makeObjective({ id: 704167001, create_pr: true, project: 'command-center-infra' }),
+      makeObjective({ id: 704167001, create_pr: true, project: 'operationkit' }),
     )
     expect(prompt).toContain('**Before you report done — PROVE the PR actually exists')
     expect(prompt).toContain('git status --porcelain')
@@ -299,7 +299,7 @@ describe('Git Workflow — evidence gate on completion (both integration modes)'
     getDb()
       .prepare(
         `INSERT OR REPLACE INTO objectives (id, title, status, agent_context, workspace, project, create_pr)
-         VALUES (?, 'Parent delegator', 'working', 'cto', 'example', 'command-center-infra', 1)`,
+         VALUES (?, 'Parent delegator', 'working', 'cto', 'example', 'operationkit', 1)`,
       )
       .run(parentId)
 
@@ -308,7 +308,7 @@ describe('Git Workflow — evidence gate on completion (both integration modes)'
         id: 704167901,
         create_pr: false,
         parent_id: parentId,
-        project: 'command-center-infra',
+        project: 'operationkit',
       }),
     )
     expect(prompt).toContain("### Integration — fold into your parent's PR")
@@ -325,21 +325,21 @@ describe('Git Workflow — evidence gate on completion (both integration modes)'
 // objective and FAIL CLOSED (never the bare projects root) when it can't resolve.
 describe('resolveWorkdir — obj 1451 (cross-workspace resolution + fail-closed)', () => {
   // Mirrors the production registry shape that caused the bug:
-  // command-center-infra is registered ONLY under 'operator'; the 'example'
-  // workspace has projects but NOT command-center-infra.
-  const CC_PATH = `${HOME_DIR}/projects/command-center-infra`
+  // operationkit is registered ONLY under 'operator'; the 'example'
+  // workspace has projects but NOT operationkit.
+  const CC_PATH = `${HOME_DIR}/projects/operationkit`
   const fixtureWorkspaces = {
     example: { projects: [{ name: 'example-platform', path: '~/projects/example-platform' }] },
     'operator': {
-      projects: [{ name: 'command-center-infra', path: '~/projects/command-center-infra' }],
+      projects: [{ name: 'operationkit', path: '~/projects/operationkit' }],
     },
   }
 
-  it('resolves an EXAMPLE-tagged command-center-infra objective to the real repo path (the exact regression)', () => {
+  it('resolves an EXAMPLE-tagged operationkit objective to the real repo path (the exact regression)', () => {
     const obj = makeObjective({
       id: 1451,
       workspace: 'example', // tagged example, but project lives under operator
-      project: 'command-center-infra',
+      project: 'operationkit',
     })
     const resolved = resolveWorkdir(obj, {
       workspaces: fixtureWorkspaces,
@@ -349,7 +349,7 @@ describe('resolveWorkdir — obj 1451 (cross-workspace resolution + fail-closed)
   })
 
   it('never returns the bare projects root for a project-linked objective', () => {
-    const obj = makeObjective({ id: 1451, workspace: 'example', project: 'command-center-infra' })
+    const obj = makeObjective({ id: 1451, workspace: 'example', project: 'operationkit' })
     const resolved = resolveWorkdir(obj, {
       workspaces: fixtureWorkspaces,
       existsSync: (p) => p === CC_PATH,
@@ -359,7 +359,7 @@ describe('resolveWorkdir — obj 1451 (cross-workspace resolution + fail-closed)
   })
 
   it('still resolves when the project lives in the objective’s own workspace', () => {
-    const obj = makeObjective({ id: 7, workspace: 'operator', project: 'command-center-infra' })
+    const obj = makeObjective({ id: 7, workspace: 'operator', project: 'operationkit' })
     const resolved = resolveWorkdir(obj, {
       workspaces: fixtureWorkspaces,
       existsSync: (p) => p === CC_PATH,
@@ -375,7 +375,7 @@ describe('resolveWorkdir — obj 1451 (cross-workspace resolution + fail-closed)
   })
 
   it('FAILS CLOSED when the registered path does not exist on disk', () => {
-    const obj = makeObjective({ id: 9, workspace: 'example', project: 'command-center-infra' })
+    const obj = makeObjective({ id: 9, workspace: 'example', project: 'operationkit' })
     expect(() =>
       resolveWorkdir(obj, { workspaces: fixtureWorkspaces, existsSync: () => false }),
     ).toThrow(/UNGUARDED|fail-closed/i)
@@ -389,22 +389,22 @@ describe('resolveWorkdir — obj 1451 (cross-workspace resolution + fail-closed)
   })
 
   // Integration-flavoured guard: if the real registry + checkout are present
-  // (they are in the deploy container/harness), an example-tagged command-center-infra
+  // (they are in the deploy container/harness), an example-tagged operationkit
   // objective must resolve to the actual on-disk repo — not throw, not bare root.
-  it('resolves against the REAL workspaces.json when command-center-infra is registered + checked out', () => {
+  it('resolves against the REAL workspaces.json when operationkit is registered + checked out', () => {
     const realWorkspaces = loadWorkspacesConfig()
-    const ccPath = `${HOME_DIR}/projects/command-center-infra`
+    const ccPath = `${HOME_DIR}/projects/operationkit`
     const registeredSomewhere =
       !!realWorkspaces &&
       Object.values(realWorkspaces).some((ws) =>
-        ws.projects?.some((p) => p.name === 'command-center-infra'),
+        ws.projects?.some((p) => p.name === 'operationkit'),
       )
     if (!fs.existsSync(WORKSPACES_JSON) || !registeredSomewhere || !fs.existsSync(ccPath)) {
       // Registry/checkout not present in this environment — the hermetic tests
       // above already cover the logic; skip the on-disk assertion.
       return
     }
-    const obj = makeObjective({ id: 1451, workspace: 'example', project: 'command-center-infra' })
+    const obj = makeObjective({ id: 1451, workspace: 'example', project: 'operationkit' })
     const resolved = resolveWorkdir(obj)
     expect(resolved).toBe(ccPath)
     expect(resolved).not.toBe(PROJECTS_DIR)

@@ -28,8 +28,9 @@ import {
   resolveObjective,
   resolveOwnerObjective,
 } from './external-remediation-resolve.js'
+import { resolveFollowUpSessionId } from './objective-sessions.js'
 
-const DEFAULT_HARNESS_REPO = process.env.HARNESS_REPO || 'your-org/command-center-infra'
+const DEFAULT_HARNESS_REPO = process.env.HARNESS_REPO || 'your-org/operationkit'
 
 /**
  * A workflow_run whose JOBS were all cancelled still rolls up to `conclusion: failure`
@@ -206,7 +207,7 @@ export function buildRemediationPrompt(args: {
  *  table (example / example2 / operator / example-project all exist). Keyed on the short
  *  name so a fork/owner rename doesn't break the map. */
 const REPO_WORKSPACES: Record<string, string> = {
-  'command-center-infra': 'operator',
+  'operationkit': 'operator',
   'example-platform': 'example',
   'example-project-platform': 'example-project',
   'example3-platform': 'example2',
@@ -533,7 +534,8 @@ export async function handleExternalCheckEvent(
     )
     const prompt = buildRemediationPrompt({ objective: obj, classified, failureContext, attempt, maxAttempts: cap })
 
-    const sessionId = obj.session_id || lastSessionId(deps.db, obj.id) || `cc-${obj.id}-${Date.now()}`
+    // Never an aux (`cc-review-*`/`cc-plan-*`) session — see objective-sessions.ts.
+    const sessionId = resolveFollowUpSessionId(deps.db, { id: obj.id, session_id: obj.session_id ?? null })
     const newSessionId = deps.sendFollowUp(sessionId, prompt, obj)
     deps.db
       .prepare("UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?")
@@ -1047,16 +1049,6 @@ function countEscalated(db: Database, repo: string, prNumber: number): number {
   return row?.n || 0
 }
 
-function lastSessionId(db: Database, objectiveId: number): string | null {
-  try {
-    const row = db
-      .prepare('SELECT session_id FROM session_intel WHERE objective_id = ? ORDER BY ended_at DESC LIMIT 1')
-      .get(objectiveId) as { session_id?: string } | undefined
-    return row?.session_id || null
-  } catch {
-    return null
-  }
-}
 
 /** Best-effort branch extraction for status events (which carry no PR list). The
  *  status event includes `branches: [{name}]`; check_suite/workflow_run carry
