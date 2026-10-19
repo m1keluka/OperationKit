@@ -1,4 +1,4 @@
-// Supabase Storage helper for raw hook-video uploads (objective 891, personal content).
+// Supabase Storage helper for raw hook-video uploads (objective 891, operator content).
 //
 // Creds: process.env (compose or boot hydrate from the native secrets store).
 // Uploads use SIGNED UPLOAD URLs: the server mints a one-path scoped token (service key never leaves

@@ -137,22 +137,22 @@ describe('correct rejection → no false-pass row', () => {
 describe('reopen metric is uncorrupted by canary rows', () => {
   it('getFalsePassRate counts only source=reopen rows', () => {
     const db = getDb()
-    // a genuine human-reopen false pass for personal
+    // a genuine human-reopen false pass for operator
     const objId = 1
-    db.prepare("INSERT INTO objectives (id, title, agent_context, workspace, status) VALUES (?, 'o', 'cto', 'personal', 'done')").run(objId)
+    db.prepare("INSERT INTO objectives (id, title, agent_context, workspace, status) VALUES (?, 'o', 'cto', 'operator', 'done')").run(objId)
     db.prepare(
       "INSERT INTO objective_reviews (objective_id, iteration, reviewer_session_id, mode, verdict, created_at) VALUES (?, 1, 'r1', 'api', 'pass', datetime('now'))",
     ).run(objId)
-    const reopenId = recordReopenFalsePass({ id: objId, workspace: 'personal', agent_context: 'cto' })
+    const reopenId = recordReopenFalsePass({ id: objId, workspace: 'operator', agent_context: 'cto' })
     expect(reopenId).not.toBeNull()
 
-    const before = getFalsePassRate(30).find(r => r.workspace === 'personal')!
+    const before = getFalsePassRate(30).find(r => r.workspace === 'operator')!
     expect(before.false_passes).toBe(1)
 
-    // now flood with canary escapes (also bookkept under personal)
-    runCanaryHarness(db, { runner: escapeRunner, trigger: 'test', workspace: 'personal' })
+    // now flood with canary escapes (also bookkept under operator)
+    runCanaryHarness(db, { runner: escapeRunner, trigger: 'test', workspace: 'operator' })
 
-    const after = getFalsePassRate(30).find(r => r.workspace === 'personal')!
+    const after = getFalsePassRate(30).find(r => r.workspace === 'operator')!
     expect(after.false_passes).toBe(1) // UNCHANGED — canary rows excluded
 
     // sanity: canary rows DID land, just under source='canary'

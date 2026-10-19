@@ -16,7 +16,7 @@ Manual cards in queue still wait for Start. Approving a project plan starts the 
 
 Sessions write like a colleague. They do the work (APIs, Playwright, Google, GitHub, the filesystem) and only stop you for a decision, a missing secret, or a click they cannot reach. They do not ask “want me to?” for a commit, a PR, or a shell command. Worker-finished pings collapse into one line in the thread so a busy parent card stays readable. Ask in the composer if you want the technical dump.
 
-## Jarvis
+## Assistant
 
 Chat. It can brief you, spawn board work, and use your Google/GitHub if those are connected. Configure its name and autonomy under Settings → You.
 

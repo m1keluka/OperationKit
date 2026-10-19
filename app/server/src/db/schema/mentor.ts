@@ -3,6 +3,7 @@
  * (behavior frozen). Additive CREATE TABLE + column ALTERs only.
  */
 import type Database from 'better-sqlite3'
+import { AGENTS_DIR, SECOND_BRAIN_DIR } from '../../config.js'
 
 export function initMentorSchema(db: Database.Database): void {
   // Alerts — ingested from cron scripts and external monitors
@@ -95,7 +96,7 @@ export function initMentorSchema(db: Database.Database): void {
 
   // ── Personal Assistant configs (obj 701700, Phase 1) ──────────────────────
   // Per-(user, workspace) assistant config that replaces the hardcoded
-  // single-user ("Operator"/Assistant) path in services/mentor-session.ts. Grain
+  // single-user ("Mike"/Assistant) path in services/mentor-session.ts. Grain
   // mirrors user_workspaces (PK user_id, workspace). Nested persona/autonomy/
   // arrays are stored as JSON-in-TEXT, matching mentor_threads.tags. Defaults
   // are fail-closed (read_only, no capabilities/connectors) at the column level;
@@ -128,58 +129,78 @@ export function initMentorSchema(db: Database.Database): void {
   const haveAssistantCfgCols = new Set(assistantCfgCols.map(c => c.name))
   if (!haveAssistantCfgCols.has('model')) db.exec('ALTER TABLE assistant_configs ADD COLUMN model TEXT')
 
-  // Lossless seed for the assistant owner (obj 701700): reproduce TODAY's Assistant
-  // behavior through the generic config path so the owner's assistant is
-  // preserved byte-equivalent in its rule-bearing content. Idempotent — only
-  // seeds when the owner user exists AND has no config row yet. The persona
-  // systemPrompt carries the assistant.md pointer + capability map + the
-  // hardcoded google email (all now DATA, not code constants), matching the
-  // pre-change buildLegacyAssistantDirective body in mentor-session.ts.
+  // Optional owner seed for the assistant persona (obj 701700; decoupled from a
+  // hardcoded slug/path in obj 709956). This reproduces the owner's assistant
+  // behavior through the generic config path, but ONLY when the operator has
+  // opted in by pointing ASSISTANT_AGENT_SLUG at a row in the agent registry.
+  // A blank-slate install seeds cto/cmo/coo/cfo/general and sets no such slug,
+  // so this block is a no-op there: no private persona is implied, nothing
+  // crashes, and the mentor subsystem falls back to the generic
+  // `defaultAssistantConfig` create-on-read path.
+  // Idempotent — only seeds when the owner user exists AND has no config row yet.
   try {
-    const ownerUsername = process.env.MENTOR_TELEGRAM_OWNER_USERNAME || 'admin'
-    const owner = db
-      .prepare('SELECT id FROM users WHERE username = ?')
-      .get(ownerUsername) as { id: number } | undefined
-    if (owner) {
-      const ownerWorkspace = 'example'
-      const existing = db
-        .prepare('SELECT 1 FROM assistant_configs WHERE user_id = ? AND workspace = ?')
-        .get(owner.id, ownerWorkspace)
-      if (!existing) {
-        const ASSISTANT_AGENT_PATH = '/home/operator/ai-workspace/agents/assistant.md'
-        const systemPrompt = [
-          `Read ${ASSISTANT_AGENT_PATH} NOW as your complete operating manual. It is your`,
-          'persona, capability map, and rules. It SUPERSEDES the mentor-workspace CLAUDE.md',
-          'and any chief-of-staff persona — when they conflict, assistant.md wins.',
-          '',
-          'Capabilities (assistant.md documents these in full):',
-          '- Google Workspace (Gmail/Calendar/Drive/Docs/Sheets/Slides) via the',
-          '  `google-workspace` MCP server, already wired into this session. Always pass',
-          '  user_google_email: "dev@example.com"; never start an OAuth flow.',
-          '- The Command Center board internal API at http://localhost:3002/api/internal/...',
-          '  (briefing, objectives read, objective create — create is confirmation-gated).',
-          '- Vault retrieval over /home/operator/second-brain (active.md → index.md → kb_search).',
-        ].join('\n')
-        db.prepare(
-          `INSERT INTO assistant_configs
-             (user_id, workspace, display_name, tagline, system_prompt, manual_source,
-              model, autonomy, enabled_capabilities, enabled_connectors, connector_bindings,
-              knowledge_sources, enabled)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
-        ).run(
-          owner.id,
-          ownerWorkspace,
-          'Assistant',
-          "the operator's personal admin assistant",
-          systemPrompt,
-          JSON.stringify({ id: 'assistant-md', kind: 'file', locator: ASSISTANT_AGENT_PATH, label: 'Operating manual', writable: false }),
-          null,
-          JSON.stringify({ level: 'confirm_external' }),
-          JSON.stringify(['read-inbox', 'send-email', 'create-document', 'set-up-job', 'send-report']),
-          JSON.stringify(['google-workspace']),
-          JSON.stringify({ 'google-workspace': { identity: 'dev@example.com', credentialRef: 'env:GOOGLE_CREDENTIALS_DIR' } }),
-          JSON.stringify([{ id: 'vault', kind: 'vault', locator: '/home/operator/second-brain', label: 'Second brain' }]),
-        )
+    const personaSlug = (process.env.ASSISTANT_AGENT_SLUG || '').trim()
+    const ownerUsername = process.env.MENTOR_TELEGRAM_OWNER_USERNAME || ''
+    if (personaSlug && ownerUsername) {
+      // Resolve the persona's operating manual from the registry (initAgentsSchema
+      // runs earlier in initDb, so the table exists). prompt_file is normally NULL
+      // because the slug→filename mapping is the identity.
+      const agentRow = db
+        .prepare('SELECT slug, label, prompt_file FROM agents WHERE slug = ? AND archived = 0')
+        .get(personaSlug) as { slug: string; label: string; prompt_file: string | null } | undefined
+      const owner = db
+        .prepare('SELECT id FROM users WHERE username = ?')
+        .get(ownerUsername) as { id: number } | undefined
+      if (agentRow && owner) {
+        const promptFile = agentRow.prompt_file || `${agentRow.slug}.md`
+        const manualPath = promptFile.startsWith('/')
+          ? promptFile
+          : `${AGENTS_DIR}/${promptFile.endsWith('.md') ? promptFile : `${promptFile}.md`}`
+        const ownerWorkspace = process.env.ASSISTANT_OWNER_WORKSPACE || 'example'
+        const existing = db
+          .prepare('SELECT 1 FROM assistant_configs WHERE user_id = ? AND workspace = ?')
+          .get(owner.id, ownerWorkspace)
+        if (!existing) {
+          const googleEmail = (process.env.ASSISTANT_OWNER_GOOGLE_EMAIL || '').trim()
+          const displayName = process.env.ASSISTANT_DISPLAY_NAME || agentRow.label
+          const systemPrompt = [
+            `Read ${manualPath} NOW as your complete operating manual. It is your`,
+            'persona, capability map, and rules. It SUPERSEDES the mentor-workspace CLAUDE.md',
+            'and any other persona — when they conflict, the operating manual wins.',
+            '',
+            'Capabilities (the operating manual documents these in full):',
+            ...(googleEmail
+              ? [
+                  '- Google Workspace (Gmail/Calendar/Drive/Docs/Sheets/Slides) via the',
+                  '  `google-workspace` MCP server, already wired into this session. Always pass',
+                  `  user_google_email: "${googleEmail}"; never start an OAuth flow.`,
+                ]
+              : []),
+            '- The Command Center board internal API at http://localhost:3002/api/internal/...',
+            '  (briefing, objectives read, objective create — create is confirmation-gated).',
+            `- Vault retrieval over ${SECOND_BRAIN_DIR} (active.md → index.md → kb_search).`,
+          ].join('\n')
+          db.prepare(
+            `INSERT INTO assistant_configs
+               (user_id, workspace, display_name, tagline, system_prompt, manual_source,
+                model, autonomy, enabled_capabilities, enabled_connectors, connector_bindings,
+                knowledge_sources, enabled)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+          ).run(
+            owner.id,
+            ownerWorkspace,
+            displayName,
+            process.env.ASSISTANT_TAGLINE || null,
+            systemPrompt,
+            JSON.stringify({ id: `${agentRow.slug}-md`, kind: 'file', locator: manualPath, label: 'Operating manual', writable: false }),
+            null,
+            JSON.stringify({ level: 'confirm_external' }),
+            JSON.stringify(['read-inbox', 'send-email', 'create-document', 'set-up-job', 'send-report']),
+            JSON.stringify(googleEmail ? ['google-workspace'] : []),
+            JSON.stringify(googleEmail ? { 'google-workspace': { identity: googleEmail, credentialRef: 'env:GOOGLE_CREDENTIALS_DIR' } } : {}),
+            JSON.stringify([{ id: 'vault', kind: 'vault', locator: SECOND_BRAIN_DIR, label: 'Second brain' }]),
+          )
+        }
       }
     }
   } catch (err) {

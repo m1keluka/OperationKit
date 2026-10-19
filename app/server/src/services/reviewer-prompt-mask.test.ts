@@ -53,8 +53,8 @@ const SCRATCH_BASENAME = ['NOTES', 'md'].join('.')
 function makeObjective(overrides: Partial<Objective> = {}): Objective {
   return {
     id: 707060,
-    workspace: 'personal',
-    project: 'command-center-infra',
+    workspace: 'operator',
+    project: 'operationkit',
     agent_context: 'cto',
     type: 'feature',
     status: 'ai_review',

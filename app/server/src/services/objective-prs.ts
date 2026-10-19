@@ -1,6 +1,6 @@
 // Per-objective PR log (obj 2300).
 //
-// Operator's ask: "Within each objective, I want to be able to see each PR that was
+// Mike's ask: "Within each objective, I want to be able to see each PR that was
 // pushed from that objective and click links from it, instead of it just being
 // in chat. There can be multiple — I want a log of this."
 //
@@ -32,7 +32,7 @@ export function parseRepoFromPrUrl(prUrl: string | null | undefined): string | n
  *
  * The objectives table has no `repo` column, so a bare `WHERE pr_number = ?` matches
  * across every repo the Command Center drives. This is not hypothetical — three live
- * collisions with `your-org/command-center-infra` PR numbers, all with a `pass`
+ * collisions with `your-org/operationkit` PR numbers, all with a `pass`
  * verdict, which is exactly the state that makes a reader act:
  *
  *   obj 2040    pr_number=202  →  EXAMPLE2/example3-platform#202

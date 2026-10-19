@@ -10,9 +10,11 @@ import { evictTimelineCache } from './thread-timeline.js'
 function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
     case 'Bash':
+    case 'run_terminal_command':
       return String(input.command || '').slice(0, 200)
     case 'Read':
-      return String(input.file_path || '')
+    case 'read_file':
+      return String(input.file_path || input.target_file || '')
     case 'Write':
       return String(input.file_path || '')
     case 'Edit':
@@ -92,6 +94,91 @@ function handleStreamEvent(event: Record<string, unknown>, messages: SessionMess
   // to render. Leave the streamed text in place (a message may have multiple
   // blocks); finalization happens on the complete `assistant` event.
   return true
+}
+
+function grokToolOutputText(event: Record<string, unknown>): string {
+  const content = event.content
+  if (Array.isArray(content)) {
+    const parts: string[] = []
+    for (const block of content) {
+      const inner = (block as { content?: { type?: string; text?: string } | string })?.content
+      if (inner && typeof inner === 'object' && typeof inner.text === 'string') parts.push(inner.text)
+      else if (typeof inner === 'string') parts.push(inner)
+    }
+    if (parts.length) return parts.join('\n')
+  }
+  const raw = event.rawOutput
+  if (typeof raw === 'string') return raw
+  if (raw && typeof raw === 'object') {
+    const file = (raw as { FileContent?: { content?: string } }).FileContent?.content
+    if (typeof file === 'string') return file
+    return JSON.stringify(raw)
+  }
+  return ''
+}
+
+/**
+ * Grok CLI `--output-format streaming-json` events (`text`, `tool_call`, `end`,
+ * …). Token `text` lines coalesce like Claude stream_event. Returns true when
+ * the line was a Grok event (consumed even if we skip rendering it).
+ */
+function handleGrokCliEvent(event: Record<string, unknown>, messages: SessionMessage[], timestamp: string): boolean {
+  const t = event.type
+  if (t === 'thought' || t === 'available_commands' || t === 'usage') return true
+  if (t === 'text' && typeof event.data === 'string') {
+    let idx = findOpenStreamingIdx(messages)
+    if (idx === -1) {
+      messages.push({ type: 'assistant', text: '', streaming: true, timestamp })
+      idx = messages.length - 1
+    }
+    messages[idx].text = (messages[idx].text || '') + event.data
+    return true
+  }
+  if (t === 'tool_call') {
+    const openIdx = findOpenStreamingIdx(messages)
+    if (openIdx !== -1) messages[openIdx].streaming = false
+    const name = String(event.toolName || event.title || 'tool')
+    const input = (event.rawInput as Record<string, unknown>) || {}
+    messages.push({
+      type: 'tool',
+      toolName: name,
+      toolInput: summarizeToolInput(name, input),
+      toolUseId: String(event.toolCallId || ''),
+      timestamp,
+    })
+    return true
+  }
+  if (t === 'tool_call_update') {
+    const id = String(event.toolCallId || '')
+    const result = grokToolOutputText(event)
+    if (id && result) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].type === 'tool' && messages[i].toolUseId === id) {
+          messages[i].toolResult = result.slice(0, 20000)
+          break
+        }
+      }
+    }
+    return true
+  }
+  if (t === 'end') {
+    const openIdx = findOpenStreamingIdx(messages)
+    if (openIdx !== -1) messages[openIdx].streaming = false
+    const lastAssist = [...messages].reverse().find(m => m.type === 'assistant' && m.text)
+    const usage = (event.usage as Record<string, unknown>) || {}
+    const stop = String(event.stopReason || '')
+    const isErr = /error|abort/i.test(stop) && stop !== 'end_turn'
+    const cost = typeof event.total_cost_usd === 'number' ? event.total_cost_usd : undefined
+    messages.push({
+      type: isErr ? 'error' : 'result',
+      text: lastAssist?.text || (isErr ? `Session ended (${stop})` : 'Session completed'),
+      cost,
+      input_tokens: (usage.input_tokens as number) || undefined,
+      timestamp,
+    })
+    return true
+  }
+  return false
 }
 
 /** Parse a single stream-json line into SessionMessage(s) */
@@ -233,6 +320,7 @@ function parseNewLines(lines: string[], messages: SessionMessage[], startToolIdx
         handleStreamEvent(rawEvent, messages, now)
         continue
       }
+      if (handleGrokCliEvent(rawEvent, messages, now)) continue
     } catch {}
 
     const parsed = parseStreamJsonLine(trimmed, now)

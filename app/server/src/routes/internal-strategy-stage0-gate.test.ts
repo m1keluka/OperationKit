@@ -59,7 +59,7 @@ function seedObjective(opts: {
   const r = getDb()
     .prepare(
       `INSERT INTO objectives (title, agent_context, workspace, status, parent_id, depth, delegate_mode, is_strategy, trust_stage)
-       VALUES (?, 'cto', 'personal', ?, ?, ?, ?, ?, ?)`
+       VALUES (?, 'cto', 'operator', ?, ?, ?, ?, ?, ?)`
     )
     .run(
       opts.title,
@@ -190,6 +190,56 @@ describe('one approval authorizes exactly ONE spawn (consumed, no replay)', () =
     expect(status).toBe(409)
     // the rejected batch did not consume the approval (nothing committed)
     expect(gov.listApprovedUnconsumedDecisions(getDb(), strat)).toHaveLength(1)
+  })
+})
+
+describe('child-cap excludes cancelled children (obj 710386 defect 3 — CC root fix)', () => {
+  // Regression: cancelled objectives used to count as "non-done", permanently
+  // wedging the cap at 20 once a parent accumulated 20 cancelled children.
+  // The fix changes the query to NOT IN ('done', 'cancelled').
+
+  function childPayload(parentId: number, extra = {}) {
+    return {
+      title: 'child',
+      parent_id: parentId,
+      workspace: 'operator',
+      type: 'task',
+      completion_goal: 'done',
+      acceptance_criteria: [],
+      agent_context: 'general',
+      description: 'test',
+      ...extra,
+    }
+  }
+
+  it('a parent with CHILD_CAP_PER_PARENT cancelled children still allows a new child', async () => {
+    // Seed a parent + exactly 20 cancelled children (filling the old "non-done" count).
+    const parentId = seedObjective({ title: 'cap-test parent' })
+    for (let i = 0; i < 20; i++) {
+      seedObjective({ title: `cancelled-child-${i}`, parent_id: parentId, depth: 1, status: 'cancelled' })
+    }
+    // Under the fixed query, cancelled children are excluded → cap count = 0 → creation succeeds.
+    const r = await createObjectives([childPayload(parentId)])
+    expect(r.status).toBe(201)
+  })
+
+  it('a parent with CHILD_CAP_PER_PARENT done children still allows a new child', async () => {
+    const parentId = seedObjective({ title: 'done-cap-test parent' })
+    for (let i = 0; i < 20; i++) {
+      seedObjective({ title: `done-child-${i}`, parent_id: parentId, depth: 1, status: 'done' })
+    }
+    const r = await createObjectives([childPayload(parentId)])
+    expect(r.status).toBe(201)
+  })
+
+  it('a parent with CHILD_CAP_PER_PARENT active (non-terminal) children IS blocked', async () => {
+    const parentId = seedObjective({ title: 'active-cap-test parent' })
+    for (let i = 0; i < 20; i++) {
+      seedObjective({ title: `active-child-${i}`, parent_id: parentId, depth: 1, status: 'working' })
+    }
+    const r = await createObjectives([childPayload(parentId)])
+    expect(r.status).toBe(400)
+    expect((r.json as { error?: string }).error).toMatch(/child cap/)
   })
 })
 

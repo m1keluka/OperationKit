@@ -1,11 +1,11 @@
 /**
  * Per-user Google Workspace connections (obj-706070).
  *
- * Command Center's Google access used to be ONE shared credential — Operator's
+ * Command Center's Google access used to be ONE shared credential — Mike's
  * stored OAuth token, reused by every session regardless of who the work was
  * for (vault: 2026-06-12-hermes-google-suite-shared-credential). This module
  * replaces that with one OAuth grant per Command Center user: Ava's session
- * writes Docs as Ava, Operator's as Operator.
+ * writes Docs as Ava, Mike's as Mike.
  *
  * Storage posture, mirrored from services/user-github-tokens.ts:
  *   - The refresh token (and the cached access token) are encrypted at rest via
@@ -461,7 +461,7 @@ export async function disconnect(userId: number): Promise<{ removed: boolean; re
  *
  * workspace-mcp (and the ambient `~/.claude.json` google-workspace server) reads
  * EVERY `*.json` in `WORKSPACE_MCP_CREDENTIALS_DIR`. The shared folder
- * `/home/operator/assistant/google-credentials` holds Operator AND Ava, so a session
+ * `/home/operator/assistant/google-credentials` holds Mike AND Ava, so a session
  * can send as the other person. We write a private dir with that user's file
  * only. Returns null when the user has no usable grant.
  */

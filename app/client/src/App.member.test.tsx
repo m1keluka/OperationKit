@@ -164,7 +164,7 @@ describe('App.tsx — member-workspace clamp effect (obj 708893)', () => {
   it('admin is unaffected — selectedWorkspaces stays as initialised', async () => {
     const admin: User = {
       id: 1,
-      username: 'admin',
+      username: 'mike',
       role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',

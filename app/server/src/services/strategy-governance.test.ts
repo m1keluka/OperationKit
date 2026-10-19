@@ -17,7 +17,7 @@ function makeStrategy(effort = 'normal', costUsd = 0): number {
   const db = getDb()
   const id = nextObjId++
   db.prepare(
-    "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, effort, total_cost_usd) VALUES (?, ?, 'cto', 'personal', 'working', 1, NULL, 0, ?, ?)"
+    "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, effort, total_cost_usd) VALUES (?, ?, 'cto', 'operator', 'working', 1, NULL, 0, ?, ?)"
   ).run(id, `strategy-${id}`, effort, costUsd)
   return id
 }
@@ -25,7 +25,7 @@ function makeProject(parentId: number, depth: number, costUsd = 0): number {
   const db = getDb()
   const id = nextObjId++
   db.prepare(
-    "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, total_cost_usd) VALUES (?, ?, 'cto', 'personal', 'working', 1, ?, ?, ?)"
+    "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, total_cost_usd) VALUES (?, ?, 'cto', 'operator', 'working', 1, ?, ?, ?)"
   ).run(id, `project-${id}`, parentId, depth, costUsd)
   return id
 }
@@ -236,7 +236,7 @@ describe('decideTrustStageAction (pure)', () => {
 describe('decideTrustTransition (pure) — asymmetric ladder', () => {
   const HEALTHY = {
     consecutiveApproved: 8, denials: 0, approvalRate: 0.95,
-    falsePassRate: 0.02, shippedProjects: 5, strategyReviewPassRate: 0.99, ownerOptIn: true,
+    falsePassRate: 0.02, shippedProjects: 5, strategyReviewPassRate: 0.99, mikeOptIn: true,
   }
 
   it('promotion is metric-driven: 0→1 only when consecutive/denials/rate thresholds all clear', () => {
@@ -261,9 +261,9 @@ describe('decideTrustTransition (pure) — asymmetric ladder', () => {
     expect(gov.decideTrustTransition(1, { ...HEALTHY, consecutiveApproved: 15, shippedProjects: 2 }).promoteTo).toBeNull()
   })
 
-  it('2→3 additionally requires explicit Operator opt-in (never automatic)', () => {
+  it('2→3 additionally requires explicit Mike opt-in (never automatic)', () => {
     expect(gov.decideTrustTransition(2, HEALTHY).promoteTo).toBe(3)
-    expect(gov.decideTrustTransition(2, { ...HEALTHY, ownerOptIn: false }).promoteTo).toBeNull()
+    expect(gov.decideTrustTransition(2, { ...HEALTHY, mikeOptIn: false }).promoteTo).toBeNull()
   })
 
   it('no promotion past the final stage', () => {
@@ -356,7 +356,7 @@ describe('computeStrategyRollup (shared list+detail rollup, obj 700132)', () => 
     const db = getDb()
     const id = nextObjId++
     db.prepare(
-      "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, total_cost_usd) VALUES (?, ?, 'cto', 'personal', ?, 0, ?, 1, ?)"
+      "INSERT INTO objectives (id, title, agent_context, workspace, status, delegate_mode, parent_id, depth, total_cost_usd) VALUES (?, ?, 'cto', 'operator', ?, 0, ?, 1, ?)"
     ).run(id, `child-${id}`, status, parentId, costUsd)
     return id
   }

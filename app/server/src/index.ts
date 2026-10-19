@@ -16,7 +16,7 @@ import feedRouter from './routes/feed.js'
 import shellRouter from './routes/shell.js'
 import docsRouter from './routes/docs.js'
 import mentorRouter from './routes/mentor.js'
-import assistantBriefingRouter from './routes/assistant-briefing.js'
+import briefingRouter from './routes/briefing.js'
 import assistantRouter from './routes/assistant.js'
 import statusRouter from './routes/status.js'
 import webhooksRouter from './routes/webhooks.js'
@@ -33,6 +33,8 @@ import prHealthRouter from './routes/pr-health.js'
 import intelligenceRouter from './routes/intelligence.js'
 import adminWorkspacesRouter from './routes/admin-workspaces.js'
 import workspacesRouter from './routes/workspaces.js'
+import agentsRouter from './routes/agents.js'
+import adminAgentsRouter from './routes/admin-agents.js'
 import contactsRouter from './routes/contacts.js'
 import loopsRouter from './routes/loops.js'
 import scratchpadRouter from './routes/scratchpad.js'
@@ -55,6 +57,7 @@ import resourceAssignmentsRouter from './routes/resource-assignments.js'
 import projectsRouter from './routes/projects.js'
 import { isLocalhost } from './lib/is-localhost.js'
 import { requireAuth, requireAdmin, assertJwtSecret, type AuthRequest } from './middleware/auth.js'
+import { createLlmGatewayRouter } from './routes/llm-gateway.js'
 import { securityHeaders } from './middleware/security-headers.js'
 import { getUserWorkspaces } from './middleware/workspace.js'
 import { WORKSPACES_JSON } from './config.js'
@@ -69,15 +72,16 @@ import { startDreamCycleScheduler } from './services/dream-cycle.js'
 import { startRoutineScheduler } from './services/routine-scheduler.js'
 import { startCanaryHarnessScheduler } from './services/canary-harness.js'
 import { startKitchenLoop } from './services/kitchen-loop.js'
-import { startAssistantNudgeScheduler } from './services/assistant-nudge.js'
+import { startBriefingNudgeScheduler } from './services/briefing-nudge.js'
 import { startCiFeedbackBridge } from './services/ci-feedback-bridge.js'
+import { startDevFeedbackBridge } from './services/dev-feedback-bridge.js'
 import { startDriftGuard } from './services/drift-guard.js'
 import { startObjectivesSafety } from './services/objectives-safety.js'
 import { startPrHealthWatchdog } from './services/pr-health-watchdog.js'
 import { startHostBootDaemons } from './services/host-boot-daemons.js'
 import { startN8nWatchdog } from './services/n8n-watchdog.js'
 import { startDiskWatchdog } from './services/disk-watchdog.js'
-import { startRolodexSibling } from './services/rolodex-supervisor.js'
+import { startContactbookSibling } from './services/contactbook-supervisor.js'
 import { assertInternalApiSecret } from './middleware/internal-secret.js'
 import agentApiRouter from './routes/agent-api.js'
 
@@ -162,13 +166,14 @@ app.use(cookieParser())
 
 // API routes
 app.use('/api/auth', authRouter)
+app.use('/api/llm/v1', createLlmGatewayRouter())  // OpenAI-compatible LLM gateway on pool accounts (bearer TWENTY_LLM_GATEWAY_KEY, not CC auth; obj 713794)
 app.use('/api/objectives/search', objectivesSearchRouter)  // server-side objective search (keyword+fuzzy + AI); before objectivesRouter so /search isn't captured by GET /:id (obj 702388)
 app.use('/api/objectives', objectivesRouter)
 app.use('/api/costs', costsRouter)  // /api/costs/summary, /daily, /by-objective, /by-account
 app.use('/api', feedRouter)  // /api/projects/:project/feed, /api/feed/all
 app.use('/api/docs', docsRouter)  // /api/docs/tree, /api/docs/file
 app.use('/api/mentor', mentorRouter)  // /api/mentor/threads, /api/mentor/threads/:id/messages
-app.use('/api/assistant', assistantBriefingRouter)  // /api/assistant/briefing
+app.use('/api/briefing', briefingRouter)  // /api/briefing/briefing
 app.use('/api/assistant', assistantRouter)  // /api/assistant/config — per-user Personal Assistant config (obj 701700)
 app.use('/api/status', statusRouter)  // /api/status/monitors, /api/status/events
 app.use('/api/webhooks', webhooksRouter)  // /api/webhooks/uptimerobot
@@ -176,7 +181,7 @@ app.use('/api/admin', adminRouter)  // /api/admin/accounts, /system, /agents, /d
 app.use('/api/n8n', n8nRouter)      // n8n watchdog: /health, /refresh, /restart
 app.use('/api/projects', projectsRouter)  // /api/projects — board project CRUD (obj 708808)
 app.use('/api/internal', internalRouter)  // /api/internal/deploy, /restart, /objectives, /pr-created, /progress
-app.use('/api/internal', internalVaultRouter)  // /api/internal/vault/*, /rolodex/history — telegram-rolodex sibling (localhost)
+app.use('/api/internal', internalVaultRouter)  // /api/internal/vault/*, /contactbook/history — telegram-contactbook sibling (localhost)
 app.use('/api/alerts', alertsRouter)  // ingest (bearer) + list/ack (JWT) — AlertBell + notify-failure.sh
 app.use('/api/internal/routines', internalRoutinesRouter)  // routines CRUD + run-now (localhost-only)
 app.use('/api/internal/pr-health', prHealthRouter)         // read-only PR-health surface: / (JSON) + /digest (markdown)
@@ -185,12 +190,14 @@ app.use('/api/intel', intelligenceRouter)  // /api/intel/blockers, /conflicts, /
 app.use('/api/admin/workspaces', adminWorkspacesRouter)  // workspace membership + workspace CRUD
 app.use('/api/admin/users', adminUsersRouter)            // user CRUD + role + workspace memberships
 app.use('/api/workspaces', workspacesRouter)              // DB-backed: workspaces visible to caller
+app.use('/api/agents', agentsRouter)                      // DB-backed agent registry: the roster every picker/monogram reads
+app.use('/api/admin/agents-registry', adminAgentsRouter)  // agent registry CRUD (admin); /api/admin/agents lists persona FILES
 app.use('/api/models', modelsRouter)                      // model registry: GET enabled (auth) / all + PATCH toggle (admin)
 app.use('/api/contacts', contactsRouter)                  // Phase 1 Personal CRM: POST /reindex (admin)
 app.use('/api/meeting-queue', meetingQueueRouter)         // Granola action-item review queue → CC objectives
-app.use('/api/loops', loopsRouter)                        // personal loops tracker (Kanban: pending/queued/working/done; admin-only)
+app.use('/api/loops', loopsRouter)                        // operator loops tracker (Kanban: pending/queued/working/done; admin-only)
 app.use('/api/scratchpad', scratchpadRouter)              // per-user human markdown store (auth; strictly per-account)
-app.use('/api/granola-content', granolaContentRouter)     // personal Granola Content surface (drafts/hooks/ideas; admin-only)
+app.use('/api/granola-content', granolaContentRouter)     // per-owner Granola Content surface (drafts/hooks/ideas; content_owners-gated)
 app.use('/api/objectives', reviewsRouter)                 // /api/objectives/:id/reviews — AI Review iteration history
 app.use('/api/objectives', correctionsRouter)             // /api/objectives/:id/corrections — human mistake-labeling (ST5)
 app.use('/api/internal/reviews', internalReviewsRouter)   // /api/internal/reviews/:id/criteria (localhost-only)
@@ -221,7 +228,7 @@ app.use(
 // This must sit AFTER the raw-body GitHub webhook mount above (so the JSON
 // parser is never applied to webhook bytes) and BEFORE any SPA catch-all.
 app.use('/api/public', devIngestCors, publicDevRouter)     // P1-P4: ingest, attachment, "my requests", per-workspace changelog feed
-// Admin surface: CC session + admin gate (triage is Operator-only by decision; there
+// Admin surface: CC session + admin gate (triage is Mike-only by decision; there
 // is deliberately NO per-workspace ACL).
 app.use('/api/dev-items', devItemsRouter)                  // A1-A11: board list/detail/create/patch/triage/promote/rank/attach-pr/notes/delete/bulk
 app.use('/api/dev-changelog', devChangelogRouter)          // A12-A16: internal changelog list/edit/publish/retranslate/notify
@@ -340,25 +347,33 @@ startDreamCycleScheduler()
 startRoutineScheduler()
 
 // Start the anti-signal canary harness scheduler (obj-2376). Ticks are a NO-OP
-// until Operator opts in via `canary_harness_enabled=1` — nothing auto-fires on deploy.
+// until Mike opts in via `canary_harness_enabled=1` — nothing auto-fires on deploy.
 startCanaryHarnessScheduler()
 
 // Start the Kitchen Loop driver (obj 700099) — Phase-0 SHADOW. A COMPLETE no-op
-// until Operator opts in via `kitchen_loop_enabled=1`; with the flag OFF it returns
+// until Mike opts in via `kitchen_loop_enabled=1`; with the flag OFF it returns
 // before arming any timer (boot is byte-for-byte unchanged). When ON it ticks the
 // six-phase machine in SHADOW only — dry-run ideate, read-only oracle, drift
 // snapshots, logged-only pause gates. Nothing emits to the board.
 startKitchenLoop()
 
 // Start Assistant morning-nudge scheduler (daily 07:00 America/New_York Telegram digest)
-startAssistantNudgeScheduler()
+startBriefingNudgeScheduler()
 
 // Start the CI → objective feedback bridge poller (obj 701617, 5-min tick). Reads open
 // example-platform PRs' vitest check and, on FAILURE, posts the failing-test summary back
 // into the originating objective so the worker re-opens and iterates until green. The
-// timer arms but is INERT until Operator sets settings.ci_feedback_bridge_enabled=1 — while
+// timer arms but is INERT until Mike sets settings.ci_feedback_bridge_enabled=1 — while
 // off it only logs "WOULD nudge" and posts nothing (no live worker is disturbed).
 startCiFeedbackBridge()
+
+// Start the dev_feedback ↔ CC-objective bridge (obj 711117 W4 / 712905, 2-min tick).
+// Per workspace instance (example2, example-project): reads pending dev_feedback items
+// and creates CC board objectives; also pushes CC objective status changes back to
+// the platform kanban. An instance with missing env (example2: EXAMPLE2_PLATFORM_BASE_URL +
+// EXAMPLE2_INTERNAL_API_SECRET; example-project: WS_DEV_FEEDBACK_INTERNAL_SECRET) is
+// skipped with a log line. Disable with DEV_FEEDBACK_BRIDGE_ENABLED=false.
+startDevFeedbackBridge()
 
 // Start live-checkout drift guard (60s tick) — surfaces "unbacked production"
 // (uncommitted served-path edits, or HEAD != origin/main) loudly in logs + the
@@ -370,7 +385,7 @@ startObjectivesSafety()
 // PR-health watchdog (obj 704700, 10-min sweep). The RECONCILER under the event-driven
 // remediation loop: enumerates every open PR across the tracked repos and guarantees a
 // red PR is either being remediated or explicitly escalated, so a missed webhook or an
-// ownerless PR can no longer sit red forever. The timer arms but is INERT until Operator
+// ownerless PR can no longer sit red forever. The timer arms but is INERT until Mike
 // sets settings.pr_health_watchdog_enabled=1 — while off, ticks return before shelling
 // out to gh and every decided action only logs "WOULD act". The read-only surface at
 // GET /api/internal/pr-health[/digest] works either way.
@@ -473,8 +488,8 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 
 server.listen(PORT, () => {
   console.log(`Command Center running on port ${PORT}`)
-  // Telegram rolodex sibling — no-ops unless TELEGRAM_BOT_TOKEN + OWNER_ID are set.
-  startRolodexSibling()
+  // Telegram contactbook sibling — no-ops unless TELEGRAM_BOT_TOKEN + OWNER_ID are set.
+  startContactbookSibling()
   // Re-queue any sessions that completed while summarizer was broken (LiteLLM era)
   requeueParsedSessions()
 

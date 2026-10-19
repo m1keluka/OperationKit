@@ -177,9 +177,9 @@ describe('matchesBlockedPattern', () => {
 describe('blocked registry read/auto-expire', () => {
   it('findBlockingRule returns the matching active rule', () => {
     const db = freshDb()
-    addBlockedObjective(db, { objective_pattern: 'scoped-doppler cutover', reason: 'awaiting Operator approval', unblock_ticket: 'CC-1731' })
+    addBlockedObjective(db, { objective_pattern: 'scoped-doppler cutover', reason: 'awaiting Mike approval', unblock_ticket: 'CC-1731' })
     const rule = findBlockingRule(db, 'Execute scoped-Doppler cutover (Phase 0)')
-    expect(rule?.reason).toBe('awaiting Operator approval')
+    expect(rule?.reason).toBe('awaiting Mike approval')
     expect(findBlockingRule(db, 'totally different objective')).toBeNull()
   })
   it('TIME-based auto-expiry: a past expires_at is filtered out on read', () => {

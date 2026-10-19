@@ -1,4 +1,4 @@
-import type { ObjectiveStatus, AgentContext } from '@operationkit/shared'
+import type { ObjectiveStatus, AgentRow } from '@operationkit/shared'
 
 /* ─────────────────────────────────────────────────────────
    Command Center — design primitives (§04, §05, §06, §07)
@@ -29,29 +29,55 @@ export function StatusDot({ status, size = 8 }: { status: ObjectiveStatus; size?
 
 // ── Agent identity (§05) ─────────────────────────────────
 
-export const AGENT_META: Record<AgentContext | 'general', { mono: string; hex: string; tw: string }> = {
-  cto:                { mono: 'CT', hex: '#6F9AD8', tw: 'bg-agent-cto' },
-  cmo:                { mono: 'CM', hex: '#D389B0', tw: 'bg-agent-cmo' },
-  coo:                { mono: 'CO', hex: '#6FB58C', tw: 'bg-agent-coo' },
-  cfo:                { mono: 'CF', hex: '#D6A24E', tw: 'bg-agent-cfo' },
-  designer:           { mono: 'DS', hex: '#B89AD8', tw: 'bg-agent-general' },
-  hr:                 { mono: 'HR', hex: '#D89A6F', tw: 'bg-agent-general' },
-  'general-counsel':  { mono: 'GC', hex: '#8AB8D8', tw: 'bg-agent-general' },
-  general:            { mono: 'GN', hex: '#8C8A92', tw: 'bg-agent-general' },
-  // Routing-only / sub-agent personas (obj-2387) — distinct hues, neutral tw.
-  'chief-of-staff':     { mono: 'CS', hex: '#7FB0A0', tw: 'bg-agent-general' },
-  assistant:            { mono: 'AS', hex: '#9AA8C8', tw: 'bg-agent-general' },
-  'campaign-auditor':   { mono: 'CA', hex: '#C89A8A', tw: 'bg-agent-general' },
-  'campaign-launcher':  { mono: 'CL', hex: '#C8B07F', tw: 'bg-agent-general' },
-  'data-sourcing':      { mono: 'DA', hex: '#8AC8B0', tw: 'bg-agent-general' },
-  'fundraising-advisor':{ mono: 'FA', hex: '#B8C87F', tw: 'bg-agent-general' },
-  'example2-campaign-ops': { mono: 'GO', hex: '#7FA8C8', tw: 'bg-agent-general' },
-  'ma-advisor':         { mono: 'MA', hex: '#C87F9A', tw: 'bg-agent-general' },
-  rolodex:              { mono: 'RX', hex: '#A89AC8', tw: 'bg-agent-general' },
+/**
+ * Avatar meta for the FIVE default personas a fresh install ships. This is a
+ * bundled FALLBACK, not the roster: the real list is the DB-backed agent
+ * registry served by GET /api/agents and loaded via useAgents(), which calls
+ * setAgentRegistryMeta() below. Keeping a synchronous seed here is what stops a
+ * slow or failed fetch from rendering blank monograms and empty pickers
+ * (audit risk #5) — the registry merely overlays it once it arrives.
+ */
+const DEFAULT_AGENT_META: Record<string, AgentAvatarMeta> = {
+  cto:     { mono: 'CT', hex: '#6F9AD8', tw: 'bg-agent-cto' },
+  cmo:     { mono: 'CM', hex: '#D389B0', tw: 'bg-agent-cmo' },
+  coo:     { mono: 'CO', hex: '#6FB58C', tw: 'bg-agent-coo' },
+  cfo:     { mono: 'CF', hex: '#D6A24E', tw: 'bg-agent-cfo' },
+  general: { mono: 'GN', hex: '#8C8A92', tw: 'bg-agent-general' },
 }
 
-export function getAgentMeta(agent: string | null | undefined) {
-  return AGENT_META[(agent as keyof typeof AGENT_META) || 'general'] ?? AGENT_META.general
+export interface AgentAvatarMeta { mono: string; hex: string; tw: string }
+
+/** Neutral grey used for any slug the registry hasn't styled. Never blank. */
+const NEUTRAL_AGENT_META: AgentAvatarMeta = { mono: '··', hex: '#8C8A92', tw: 'bg-agent-general' }
+
+let registryMeta: Record<string, AgentAvatarMeta> = {}
+
+/** Called by useAgents() once GET /api/agents resolves. Rows without explicit
+ *  styling still get a deterministic monogram derived from their slug. */
+export function setAgentRegistryMeta(rows: AgentRow[]): void {
+  const next: Record<string, AgentAvatarMeta> = {}
+  for (const r of rows) {
+    const fallback = DEFAULT_AGENT_META[r.slug] ?? NEUTRAL_AGENT_META
+    next[r.slug] = {
+      mono: r.mono || monogramFor(r.slug) || fallback.mono,
+      hex: r.badge_hex || fallback.hex,
+      tw: r.badge_tw || fallback.tw,
+    }
+  }
+  registryMeta = next
+}
+
+/** `general-counsel` → `GC`, `rnd` → `RN`. Deterministic so a user-created
+ *  persona has a sensible avatar the moment it is created. */
+function monogramFor(slug: string): string {
+  const parts = slug.split('-').filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return slug.slice(0, 2).toUpperCase()
+}
+
+export function getAgentMeta(agent: string | null | undefined): AgentAvatarMeta {
+  const slug = agent || 'general'
+  return registryMeta[slug] ?? DEFAULT_AGENT_META[slug] ?? NEUTRAL_AGENT_META
 }
 
 export function AgentMonogram({ agent, size = 'sm' }: { agent: string | null | undefined; size?: 'sm' | 'md' }) {

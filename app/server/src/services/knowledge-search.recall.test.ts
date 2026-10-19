@@ -7,7 +7,7 @@ import { searchVaultIndex, resetVaultIndexCache } from './vault-index.js'
  * ST6 recall test — the ROADMAP verifier signal:
  *   "a paraphrased query retrieves a known-relevant decision that grep misses."
  *
- * Known doc: workspaces/personal/decisions/2026-04-27-uptimerobot-status-page-architecture.md
+ * Known doc: workspaces/operator/decisions/2026-04-27-uptimerobot-status-page-architecture.md
  *   — it talks about "uptime" (×17), "incident" (×4), "monitor" (×11) but NEVER
  *     the words "outage", "availability", "service", or "detection".
  *
@@ -29,7 +29,7 @@ const vaultPresent = existsSync(VAULT_ROOT)
 const hasTarget = (hits: { path: string }[]) => hits.some((h) => h.path.endsWith(TARGET))
 
 // Real-data integration test: it recalls against the live second-brain vault,
-// which is mounted in-container but NOT present on a CI runner (it is Operator's
+// which is mounted in-container but NOT present on a CI runner (it is Mike's
 // knowledge base, not a checkable fixture). Skip the whole block when the vault
 // is absent rather than failing CI — the suite still runs in full locally /
 // in-container. (SECOND_BRAIN_ROOT can point it elsewhere.)
@@ -44,13 +44,13 @@ describe.skipIf(!vaultPresent)('ST6 semantic vault retrieval', () => {
 
   it('GREP path MISSES the doc for a no-shared-keyword paraphrase', () => {
     if (!vaultPresent) return
-    const grepHits = searchKnowledgeGrep(PARAPHRASE, 'personal')
+    const grepHits = searchKnowledgeGrep(PARAPHRASE, 'operator')
     expect(hasTarget(grepHits)).toBe(false)
   })
 
   it('SEMANTIC path RETRIEVES the doc grep missed', () => {
     if (!vaultPresent) return
-    const semanticHits = searchVaultIndex(PARAPHRASE, 'personal')
+    const semanticHits = searchVaultIndex(PARAPHRASE, 'operator')
     expect(hasTarget(semanticHits)).toBe(true)
   })
 
@@ -58,21 +58,21 @@ describe.skipIf(!vaultPresent)('ST6 semantic vault retrieval', () => {
     if (!vaultPresent) return
     // This is exactly what context-builder calls; proves the wiring + that the
     // semantic path runs ahead of the grep fallback.
-    const hits = searchKnowledge(PARAPHRASE, 'personal')
+    const hits = searchKnowledge(PARAPHRASE, 'operator')
     expect(hasTarget(hits)).toBe(true)
   })
 
   it('the contrast IS the verifier signal: grep=miss, semantic=hit', () => {
     if (!vaultPresent) return
-    const grepHas = hasTarget(searchKnowledgeGrep(PARAPHRASE, 'personal'))
-    const semHas = hasTarget(searchVaultIndex(PARAPHRASE, 'personal'))
+    const grepHas = hasTarget(searchKnowledgeGrep(PARAPHRASE, 'operator'))
+    const semHas = hasTarget(searchVaultIndex(PARAPHRASE, 'operator'))
     expect({ grepHas, semHas }).toEqual({ grepHas: false, semHas: true })
   })
 
   it('falls back gracefully to grep on a plain keyword query (no regression)', () => {
     if (!vaultPresent) return
     // A direct keyword query should still return results via one path or the other.
-    const hits = searchKnowledge('uptimerobot status page monitoring', 'personal')
+    const hits = searchKnowledge('uptimerobot status page monitoring', 'operator')
     expect(hits.length).toBeGreaterThan(0)
   })
 })

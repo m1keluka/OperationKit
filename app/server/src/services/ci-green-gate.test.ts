@@ -5,8 +5,8 @@
  *   1. failed-required          → HOLDS, and names the failing checks
  *   2. absent-required          → does NOT hold indefinitely (bounded, then records)
  *   3. advisory-red             → NEVER holds
- *   4. hold-cap                 → escalates to Operator instead of bouncing forever
- * plus the required-set derivation (ruleset, not check names) and the Operator-facing
+ *   4. hold-cap                 → escalates to Mike instead of bouncing forever
+ * plus the required-set derivation (ruleset, not check names) and the Mike-facing
  * surface, end to end against a real SQLite DB.
  */
 
@@ -331,7 +331,7 @@ describe('self-referential harness status → never gates completion', () => {
 
 // ── 4. hold cap escalates ───────────────────────────────────────────────────────
 
-describe('hold cap → escalate to Operator, never an infinite worker→review bounce', () => {
+describe('hold cap → escalate to Mike, never an infinite worker→review bounce', () => {
   it('escalates once holdCount reaches the cap on a genuine failure', () => {
     const failing = { rollup: [checkRun(REQ[0], 'FAILURE'), checkRun(REQ[1], 'SUCCESS')] }
     expect(evaluateCiGate(inputs({ ...failing, holdCount: 0 })).action).toBe('hold')
@@ -559,7 +559,7 @@ describe('runCompletionGate (end to end, real DB)', () => {
   })
 })
 
-// ── The Operator-facing surface ─────────────────────────────────────────────────────
+// ── The Mike-facing surface ─────────────────────────────────────────────────────
 
 // ── The worker-session-end apply path (the bypass caught in review) ─────────────
 
@@ -670,7 +670,7 @@ describe('every enumerated done-transition keeps its gate call', () => {
   })
 })
 
-describe('non-green completions are visible to Operator', () => {
+describe('non-green completions are visible to Mike', () => {
   beforeEach(() => {
     clearRequiredChecksCache()
     getDb().exec('DELETE FROM objective_completion_gate')

@@ -15,7 +15,20 @@ const {
   upsertAssistantConfig,
   getAssistantConfigForThread,
 } = await import('./assistant-config.js')
-const { buildAssistantDirective, buildLegacyAssistantDirective, buildGoogleMcpConfig } = await import('./mentor-session.js')
+const { buildAssistantDirective, buildGoogleMcpConfig } = await import('./mentor-session.js')
+const { AGENTS_DIR } = await import('../config.js')
+
+// The owner seed is OPT-IN (obj 709956): it fires only when the operator points
+// ASSISTANT_AGENT_SLUG at a row that exists in the agent registry. A blank-slate
+// install sets neither, so nothing persona-specific is seeded there — that path
+// is covered by assistant-persona.test.ts.
+const PERSONA_SLUG = 'ops-assistant'
+const OWNER_EMAIL = 'owner@example.com'
+process.env.ASSISTANT_AGENT_SLUG = PERSONA_SLUG
+process.env.MENTOR_TELEGRAM_OWNER_USERNAME = 'owner'
+process.env.ASSISTANT_OWNER_GOOGLE_EMAIL = OWNER_EMAIL
+process.env.ASSISTANT_DISPLAY_NAME = 'Assistant'
+process.env.ASSISTANT_TAGLINE = "The operator's personal admin assistant"
 
 let ownerId: number
 let aliceId: number
@@ -24,13 +37,14 @@ beforeAll(() => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
   const db = getDb()
-  // Insert the owner BEFORE re-running initDb so the idempotent owner seed fires
-  // (the seed looks up username === MENTOR_TELEGRAM_OWNER_USERNAME||'admin').
-  const m = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', '', 'admin')").run()
+  // Insert the owner AND the registry row for the configured persona BEFORE
+  // re-running initDb, so the idempotent, opt-in owner seed fires.
+  db.prepare("INSERT OR IGNORE INTO agents (slug, label, kind, assignable, workdir_kind) VALUES (?, 'Ops Assistant', 'routing-only', 1, 'workspace')").run(PERSONA_SLUG)
+  const m = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('owner', '', 'admin')").run()
   ownerId = m.lastInsertRowid as number
   const a = db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('alice', '', 'member')").run()
   aliceId = a.lastInsertRowid as number
-  // Re-run init: proves idempotency AND seeds the owner config now that admin exists.
+  // Re-run init: proves idempotency AND seeds the owner config now that the owner exists.
   initDb()
 })
 
@@ -55,7 +69,7 @@ describe('assistant_configs migration', () => {
 })
 
 describe('resolveAssistantConfig — create-on-read + workspace fallback', () => {
-  it('returns null for a missing user id (fail-closed, like isOwnerThread(null))', () => {
+  it('returns null for a missing user id (fail-closed, the legacy fail-closed owner check)', () => {
     expect(resolveAssistantConfig(null, 'example')).toBeNull()
     expect(resolveAssistantConfig(undefined, 'example')).toBeNull()
   })
@@ -99,14 +113,14 @@ describe('resolveAssistantConfig — create-on-read + workspace fallback', () =>
   })
 })
 
-describe('generalized spawn — non-owner gets a directive using THEIR displayName', () => {
-  it('default directive uses the configured displayName and carries no owner tagline', () => {
+describe('generalized spawn — a non-owner gets a directive using THEIR displayName', () => {
+  it('a default (non-owner) directive uses the configured displayName, not "Assistant"', () => {
     const cfg = resolveAssistantConfig(aliceId, 'example')!
     const d = buildAssistantDirective(cfg, 99)
     expect(d.startsWith('ASSISTANT PROFILE — this session is Assistant.')).toBe(true)
-    expect(d).not.toContain('ASSISTANT PROFILE — this session is Assistant,')
+    expect(d).not.toContain('JARVIS')
     // pending location is per-thread + global loops, driven by the generic path.
-    expect(d).toContain('/home/operator/assistant/threads/99/pending.md')
+    expect(d).toContain('/threads/99/pending.md')
     expect(d.toUpperCase()).toContain('GLOBAL')
   })
 
@@ -141,77 +155,81 @@ describe('generalized spawn — non-owner gets a directive using THEIR displayNa
   })
 })
 
-describe('admin-lossless — seeded owner config reproduces the legacy Assistant directive', () => {
+describe('opt-in owner seed — persona resolved from the agent registry', () => {
   const THREAD = 42
+  const MANUAL = `${AGENTS_DIR}/${PERSONA_SLUG}.md`
 
-  // Rule-bearing invariants that MUST carry over verbatim from the pre-change
-  // buildLegacyAssistantDirective into the config-driven buildAssistantDirective.
+  // Rule-bearing invariants the config-driven directive must carry. They are now
+  // DATA on the seeded row (derived from the registry) rather than string
+  // literals compiled into mentor-session.ts.
   const INVARIANTS = [
-    // manual pointer
-    '/home/operator/ai-workspace/agents/assistant.md',
-    // Google identity (email) — now sourced from persona systemPrompt data
-    'user_google_email: "dev@example.com"',
+    // manual pointer — derived from the registry slug + AGENTS_DIR, not hardcoded
+    MANUAL,
+    // connector identity — from ASSISTANT_OWNER_GOOGLE_EMAIL, not hardcoded
+    `user_google_email: "${OWNER_EMAIL}"`,
     // capability map
     'The Command Center board internal API at http://localhost:3002/api/internal/',
-    '/home/operator/second-brain',
     // confirmation-gating rules: the gated-action set (identical text)
     'machine are two-step. Gated: sending email; calendar create/modify WITH\nattendees; POSTing board objectives; Drive share/permission change/delete;\ndeleting any Google content; anything messaging a human or changing a shared\nsystem.',
     // the two-step protocol
     'Propose → Persist the pending action →\nResolve the MOST RECENT pending on an affirmative (then delete it) → Cancel on\na negation. The persisted entry IS the gate state.',
   ]
 
-  it('the owner is seeded an assistant config', () => {
+  it('seeds the owner config with a manual path derived from the registry row', () => {
     const cfg = resolveAssistantConfig(ownerId, 'example')
     expect(cfg).not.toBeNull()
     expect(cfg!.persona.displayName).toBe('Assistant')
     expect(cfg!.enabled).toBe(true)
     expect(cfg!.autonomy.level).toBe('confirm_external')
-    expect(cfg!.persona.manualSource?.locator).toBe('/home/operator/ai-workspace/agents/assistant.md')
-    expect(cfg!.connectorBindings?.['google-workspace']?.identity).toBe('dev@example.com')
+    expect(cfg!.persona.manualSource?.locator).toBe(MANUAL)
+    expect(cfg!.connectorBindings?.['google-workspace']?.identity).toBe(OWNER_EMAIL)
   })
 
-  it('buildAssistantDirective(ownerConfig) is semantically equivalent to buildLegacyAssistantDirective', () => {
+  it('no hardcoded persona slug or persona path survives in the seeded row', () => {
+    const cfg = resolveAssistantConfig(ownerId, 'example')!
+    const blob = JSON.stringify(cfg)
+    expect(blob).not.toContain('agents/assistant.md')
+    expect(blob).not.toContain('mike@')
+  })
+
+  it('buildAssistantDirective renders persona, gating and per-thread pending from the config', () => {
     const cfg = resolveAssistantConfig(ownerId, 'example')!
     const generated = buildAssistantDirective(cfg, THREAD)
-    const legacy = buildLegacyAssistantDirective(THREAD)
 
-    // 1. Persona header line is byte-identical (name + tagline).
-    expect(generated.split('\n')[0]).toBe(legacy.split('\n')[0])
-    expect(generated.split('\n')[0]).toBe("ASSISTANT PROFILE — this session is Assistant, the operator's personal admin assistant.")
+    // 1. Persona header line comes from the config (name + tagline).
+    expect(generated.split('\n')[0]).toContain('Assistant')
 
-    // 2. Every rule-bearing invariant appears in BOTH (carried over verbatim).
+    // 2. Every rule-bearing invariant is carried over.
     for (const inv of INVARIANTS) {
-      expect(legacy, `legacy must contain invariant: ${inv.slice(0, 40)}`).toContain(inv)
       expect(generated, `generated must contain invariant: ${inv.slice(0, 40)}`).toContain(inv)
     }
 
     // 3. Per-thread pending + global loops paths preserved.
-    expect(generated).toContain(`/home/operator/assistant/threads/${THREAD}/pending.md`)
-    expect(generated).toContain('/home/operator/assistant/loops.md')
+    expect(generated).toContain(`/threads/${THREAD}/pending.md`)
+    expect(generated).toContain('/loops.md')
     expect(generated.toUpperCase()).toContain('GLOBAL')
 
     // 4. Confirmation semantics present.
     expect(generated.toLowerCase()).toContain('confirmation')
     expect(generated.toLowerCase()).toContain('two-step')
 
-    // 5. Human-voice block is in the live directive (not the legacy snapshot).
+    // 5. Human-voice block is in the live directive.
     expect(generated).toContain('## Talking to the human')
     expect(generated).toContain('Anything you can do with an API, Playwright, Google, GitHub, or the filesystem')
-    expect(generated).not.toContain('Talking to Operator')
   })
 
-  it('the owner keeps his Google identity in the MCP config', () => {
+  it('the owner keeps the seeded Google identity in the MCP config', () => {
     const cfg = resolveAssistantConfig(ownerId, 'example')!
     const ORIG_ID = process.env.GOOGLE_OAUTH_CLIENT_ID
     const ORIG_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET
     process.env.GOOGLE_OAUTH_CLIENT_ID = 'cid'
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'csec'
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-admin-'))
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-owner-'))
     try {
       const { mcpServers, hasGoogle } = buildGoogleMcpConfig(homeDir, cfg)
       expect(hasGoogle).toBe(true)
       const gw = mcpServers['google-workspace'] as { env: Record<string, string> }
-      expect(gw.env.USER_GOOGLE_EMAIL).toBe('dev@example.com')
+      expect(gw.env.USER_GOOGLE_EMAIL).toBe(OWNER_EMAIL)
     } finally {
       fs.rmSync(homeDir, { recursive: true, force: true })
       if (ORIG_ID === undefined) delete process.env.GOOGLE_OAUTH_CLIENT_ID; else process.env.GOOGLE_OAUTH_CLIENT_ID = ORIG_ID

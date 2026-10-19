@@ -14,8 +14,8 @@ const TMP_DB = path.join(os.tmpdir(), `cc-loops-pending-${process.pid}-${Date.no
 process.env.DB_PATH = TMP_DB
 const VAULT = fs.mkdtempSync(path.join(os.tmpdir(), 'loops-pending-vault-'))
 process.env.VAULT_PATH = VAULT
-process.env.GRANOLA_WORKSPACE = 'personal'
-const LOOPS_DIR = path.join(VAULT, 'workspaces', 'personal', 'loops')
+process.env.GRANOLA_WORKSPACE = 'operator'
+const LOOPS_DIR = path.join(VAULT, 'workspaces', 'operator', 'loops')
 
 const loops = await import('./loops.js')
 const { initDb, getDb } = await import('../db/index.js')
@@ -120,7 +120,7 @@ describe('loops — pending review lane', () => {
     expect(r.status).toBe(200)
     expect(r.json.ok).toBe(true)
     expect(loops.listLoops().some(x => x.slug === 'deny-me')).toBe(false)
-    expect(fs.existsSync(path.join(VAULT, 'workspaces', 'personal', 'loops-archive', 'deny-me.md'))).toBe(true)
+    expect(fs.existsSync(path.join(VAULT, 'workspaces', 'operator', 'loops-archive', 'deny-me.md'))).toBe(true)
   })
 
   it('approve on a missing slug 404s', async () => {

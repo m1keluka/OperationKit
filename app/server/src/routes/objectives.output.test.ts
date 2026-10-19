@@ -145,18 +145,26 @@ describe('GET /:id/output — payload bounding', () => {
 // continuations). The thread must concatenate every session's transcript
 // chronologically — the old latest-session-only behaviour hid every earlier
 // session's result summaries and user follow-ups.
+//
+// Aux (`cc-review-*`/`cc-plan-*`) transcripts are excluded UNLESS a human
+// actually spoke in one (obj 712524): the old follow-up routing bug appended
+// chat messages to reviewer JSONLs, and excluding them unconditionally erased
+// 255 human messages across 81 objectives.
 describe('GET /:id/output — multi-session concatenation', () => {
   let multiId: number
   const S1 = 'cc-multi-1' // earliest (in session_intel)
   const S2 = 'cc-multi-2' // middle (in session_intel)
   const S3 = 'cc-multi-3' // current (objective.session_id, not yet in intel)
-  const REVIEW = 'cc-review-multi-1' // reviewer transcript — must be excluded
+  const REVIEW = 'cc-review-multi-1' // SILENT reviewer transcript — must be excluded
 
-  function writeTranscript(sessionId: string, marker: string) {
+  function writeTranscript(sessionId: string, marker: string, opts: { followup?: boolean } = {}) {
+    const withFollowup = opts.followup !== false
     const lines = [
       JSON.stringify({ type: 'prompt', title: `start ${marker}` }),
       JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `echo ${marker}` } }] } }),
-      JSON.stringify({ type: 'followup', text: `user says ${marker}`, timestamp: new Date().toISOString() }),
+      ...(withFollowup
+        ? [JSON.stringify({ type: 'followup', text: `user says ${marker}`, timestamp: new Date().toISOString() })]
+        : []),
       JSON.stringify({ type: 'result', result: `summary ${marker}`, total_cost_usd: 0.01, duration_ms: 10 }),
     ]
     fs.writeFileSync(path.join(TMP, `${sessionId}.jsonl`), lines.join('\n') + '\n')
@@ -167,7 +175,7 @@ describe('GET /:id/output — multi-session concatenation', () => {
     writeTranscript(S1, 'one')
     writeTranscript(S2, 'two')
     writeTranscript(S3, 'three')
-    writeTranscript(REVIEW, 'review')
+    writeTranscript(REVIEW, 'review', { followup: false }) // nobody spoke -> stays hidden
     const r = db.prepare(
       `INSERT INTO objectives (title, agent_context, workspace, created_by, status, session_id)
        VALUES ('multi', 'cto', 'ws', 1, 'working', ?)`
@@ -196,6 +204,7 @@ describe('GET /:id/output — multi-session concatenation', () => {
     expect(dividers).toEqual(
       expect.arrayContaining(['user says one', 'user says two', 'user says three'])
     )
+    // The silent reviewer transcript contributes nothing to the thread.
     expect(JSON.stringify(json.segments)).not.toContain('review')
     // 4 parsed messages per session × 3 sessions (prompt→followup, tool, followup, result)
     expect(json.total).toBe(12)
@@ -216,6 +225,39 @@ describe('GET /:id/output — multi-session concatenation', () => {
     const json = await getMulti('?view=timeline&known=12')
     expect(json.unchanged).toBe(true)
     expect(json.total).toBe(12)
+  })
+
+  it('INCLUDES a reviewer transcript once a human has spoken in it (obj 712524)', async () => {
+    const db = getDb()
+    const r = db.prepare(
+      `INSERT INTO objectives (title, agent_context, workspace, created_by, status, session_id)
+       VALUES ('stranded', 'cto', 'ws', 1, 'working', NULL)`
+    ).run()
+    const strandedId = Number(r.lastInsertRowid)
+    const worker = 'cc-stranded-worker'
+    const chatty = 'cc-review-stranded-chatty'
+    const silent = 'cc-plan-stranded-silent'
+    writeTranscript(worker, 'worker')
+    writeTranscript(chatty, 'chatty')                      // has a followup -> included
+    writeTranscript(silent, 'silent', { followup: false }) // no followup    -> excluded
+    const intel = db.prepare(
+      `INSERT INTO session_intel (objective_id, session_id, started_at, ended_at) VALUES (?, ?, ?, ?)`
+    )
+    intel.run(strandedId, worker, '2026-09-22T21:29:55Z', '2026-09-22T21:35:35Z')
+    intel.run(strandedId, silent, '2026-09-22T21:34:00Z', '2026-09-22T21:35:00Z')
+    // The reviewer ended LAST — the exact ordering that made the old follow-up
+    // fallback (`ORDER BY ended_at DESC LIMIT 1`) pick it.
+    intel.run(strandedId, chatty, '2026-09-22T21:35:38Z', '2026-09-23T13:16:52Z')
+
+    const res = await fetch(`${baseUrl}/api/objectives/${strandedId}/output?view=timeline`, {
+      headers: { Cookie: cookie },
+    })
+    const json: any = await res.json()
+    const dividers = json.segments.filter((s: any) => s.type === 'divider').map((s: any) => s.text)
+    expect(dividers).toEqual(expect.arrayContaining(['user says worker', 'user says chatty']))
+    const summaries = json.segments.filter((s: any) => s.type === 'summary').map((s: any) => s.text)
+    expect(summaries).toEqual(['summary worker', 'summary chatty'])
+    expect(JSON.stringify(json.segments)).not.toContain('silent')
   })
 
   it('falls back to the newest transcript set when only aux sessions exist', async () => {
