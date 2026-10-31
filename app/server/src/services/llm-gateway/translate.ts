@@ -149,6 +149,7 @@ function toolsBlock(tools: OAITool[], choice: OAIToolChoice | undefined): string
     'To call one or more functions, your ENTIRE reply must be exactly this envelope and nothing else:',
     `${TOOL_CALLS_OPEN}[{"name": "<function name>", "arguments": {<arguments object matching its schema>}}]${TOOL_CALLS_CLOSE}`,
     'Rules: no text before or after the envelope; arguments must be a valid JSON object; only call functions listed above; you may list several calls in the array.',
+    `Always spell the tags exactly as ${TOOL_CALLS_OPEN} and ${TOOL_CALLS_CLOSE}, in full, with no abbreviation, truncation, or extra prefix characters.`,
     'Function results come back to you as <tool_result> messages; use them to write your answer.',
     'When no function is needed, reply normally in plain text and never mention this protocol.',
   ]
@@ -288,29 +289,74 @@ export interface ParsedOutput {
   toolCalls: OAIToolCall[]
 }
 
+// The model is instructed to wrap tool calls in `<tool_calls>...</tool_calls>`,
+// but it sometimes mangles or drops the tag (e.g. `_calls>[...]` or no tag at
+// all, just a bare JSON object). This regex catches the proper tag AND common
+// mangled forms: an optional leading `<`, up to 12 word/underscore chars (e.g.
+// a truncated "tool_"), then the literal "calls>" that both forms share.
+const ENVELOPE_TRIGGER_RE = /<?[A-Za-z_]{0,12}calls>/
+
+/**
+ * Find where a (possibly mangled) `<tool_calls>` envelope starts in `text`.
+ * Returns the index of the trigger and the body that follows it (up to the
+ * closing tag, or to the end of the string when the close tag is missing).
+ */
+function findEnvelope(text: string): { triggerStart: number; body: string } | null {
+  const m = text.match(ENVELOPE_TRIGGER_RE)
+  if (!m || m.index === undefined) return null
+  const afterOpen = text.slice(m.index + m[0].length)
+  const close = afterOpen.indexOf(TOOL_CALLS_CLOSE)
+  const body = close >= 0 ? afterOpen.slice(0, close) : afterOpen
+  return { triggerStart: m.index, body }
+}
+
 /** Parse a complete model reply into OpenAI message content + tool_calls. */
 export function parseAssistantOutput(text: string, toolNames: string[]): ParsedOutput {
   if (toolNames.length === 0) return { content: text, toolCalls: [] }
-  const open = text.indexOf(TOOL_CALLS_OPEN)
-  if (open < 0) return { content: text, toolCalls: [] }
-  const afterOpen = text.slice(open + TOOL_CALLS_OPEN.length)
-  const close = afterOpen.indexOf(TOOL_CALLS_CLOSE)
-  const body = close >= 0 ? afterOpen.slice(0, close) : afterOpen
-  const calls = parseToolCallsJson(body, toolNames)
-  if (!calls) return { content: text, toolCalls: [] }
-  const before = text.slice(0, open).trim()
-  return { content: before || null, toolCalls: calls }
+
+  const envelope = findEnvelope(text)
+  if (envelope) {
+    const calls = parseToolCallsJson(envelope.body, toolNames)
+    if (calls) {
+      const before = text.slice(0, envelope.triggerStart).trim()
+      return { content: before || null, toolCalls: calls }
+    }
+  }
+
+  // No envelope tag found (or it didn't parse) — the model may have skipped
+  // the envelope entirely and replied with a bare JSON tool call. Only treat
+  // the WHOLE reply as a bare call (no prefix/suffix text tolerated here,
+  // unlike the tagged case above) so ordinary prose is never misread as JSON.
+  const bareCalls = parseToolCallsJson(text, toolNames)
+  if (bareCalls) return { content: null, toolCalls: bareCalls }
+
+  return { content: text, toolCalls: [] }
+}
+
+/** Longest trailing run of `<?[A-Za-z_]*` in `s` — text that could still grow
+ * into an envelope trigger (proper or mangled) once more deltas arrive. */
+function trailingHoldback(s: string): number {
+  const m = s.match(/<?[A-Za-z_]*$/)
+  return m ? m[0].length : 0
 }
 
 /**
  * Incremental version of parseAssistantOutput for streaming. Text is passed
- * through as it arrives, except that any trailing fragment which could be the
- * start of `<tool_calls>` is held back; once the full tag appears, everything
- * after it is buffered and parsed as tool calls at finish().
+ * through as it arrives, except:
+ *  - any trailing fragment that could still grow into a `<tool_calls>` tag
+ *    (proper or mangled, e.g. `_calls>`) is held back until it resolves;
+ *  - once a trigger is found, everything after it is buffered and parsed as
+ *    tool calls at finish() — nothing from inside the envelope is ever
+ *    emitted as a content delta, even on a failed parse;
+ *  - if the reply looks like it opens with bare JSON (`{`/`[`, no envelope at
+ *    all), nothing is streamed until finish(), where the whole buffer is
+ *    tried as a bare tool call before falling back to plain text.
  */
 export class ToolEnvelopeStreamer {
   private pending = ''
   private toolBuf: string | null = null
+  private triggerText = ''
+  private bareJsonSuspect: boolean | undefined
 
   constructor(private readonly toolNames: string[]) {}
 
@@ -322,20 +368,23 @@ export class ToolEnvelopeStreamer {
     }
     if (this.toolNames.length === 0) return delta
     this.pending += delta
-    const idx = this.pending.indexOf(TOOL_CALLS_OPEN)
-    if (idx >= 0) {
-      const out = this.pending.slice(0, idx)
-      this.toolBuf = this.pending.slice(idx + TOOL_CALLS_OPEN.length)
+
+    const m = this.pending.match(ENVELOPE_TRIGGER_RE)
+    if (m && m.index !== undefined) {
+      const out = this.pending.slice(0, m.index)
+      this.triggerText = m[0]
+      this.toolBuf = this.pending.slice(m.index + m[0].length)
       this.pending = ''
       return out
     }
-    let keep = 0
-    for (let k = Math.min(TOOL_CALLS_OPEN.length - 1, this.pending.length); k > 0; k--) {
-      if (TOOL_CALLS_OPEN.startsWith(this.pending.slice(-k))) {
-        keep = k
-        break
-      }
+
+    if (this.bareJsonSuspect === undefined) {
+      const trimmed = this.pending.trimStart()
+      if (trimmed.length > 0) this.bareJsonSuspect = trimmed[0] === '{' || trimmed[0] === '['
     }
+    if (this.bareJsonSuspect) return ''
+
+    const keep = trailingHoldback(this.pending)
     const out = this.pending.slice(0, this.pending.length - keep)
     this.pending = this.pending.slice(this.pending.length - keep)
     return out
@@ -346,12 +395,16 @@ export class ToolEnvelopeStreamer {
     if (this.toolBuf === null) {
       const text = this.pending
       this.pending = ''
+      if (this.bareJsonSuspect) {
+        const calls = parseToolCallsJson(text, this.toolNames)
+        if (calls) return { text: '', toolCalls: calls }
+      }
       return { text, toolCalls: [] }
     }
     const close = this.toolBuf.indexOf(TOOL_CALLS_CLOSE)
     const body = close >= 0 ? this.toolBuf.slice(0, close) : this.toolBuf
     const calls = parseToolCallsJson(body, this.toolNames)
-    if (!calls) return { text: TOOL_CALLS_OPEN + this.toolBuf, toolCalls: [] }
+    if (!calls) return { text: this.triggerText + this.toolBuf, toolCalls: [] }
     return { text: '', toolCalls: calls }
   }
 }

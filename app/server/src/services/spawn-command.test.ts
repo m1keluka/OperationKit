@@ -15,7 +15,8 @@ describe('buildClaudeCommand — runaway caps (ST3)', () => {
     expect(cmd).toContain('--max-turns 150')
     expect(cmd).toContain('CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000')
     // token-cap env must prefix the claude invocation (on the command itself)
-    expect(cmd).toMatch(/^CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000 claude/)
+    // (other inline env vars — e.g. the obj-712954 print-mode bg wait — may precede it)
+    expect(cmd).toMatch(/^(?:[A-Z_]+=\S+ )*CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000 claude/)
   })
 
   it('still carries the existing print/stream/permission flags + fallback', () => {
@@ -175,5 +176,26 @@ describe('codexConfigHome — overlay path contract (W4b)', () => {
     expect(profilePath).toBe('/home/ccuser-codex/.codex/sess-abc123.config.toml')
     // Wrong (pre-fix): directly under unix home
     expect(profilePath).not.toBe('/home/ccuser-codex/sess-abc123.config.toml')
+  })
+})
+
+describe('buildClaudeCommand — print-mode background wait (obj 712954)', () => {
+  const base = { engine: 'claude', budget: 50, effortLevel: 'medium' }
+
+  it('raises CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS so --print does not kill background agents at 600s', () => {
+    // obj 712937 session 3 log: "Background tasks still running after 600s; terminating."
+    const cmd = buildClaudeCommand({ ...base, printBgWaitCeilingMs: 3_600_000 })
+    expect(cmd).toMatch(/^CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000 /)
+    expect(cmd).toContain(' claude --print ')
+  })
+
+  it('defaults to the pending-work horizon', () => {
+    expect(buildClaudeCommand(base)).toMatch(/CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=\d+ /)
+  })
+
+  it('omits the prefix when disabled, and never applies it to codex/grok', () => {
+    expect(buildClaudeCommand({ ...base, printBgWaitCeilingMs: 0 })).not.toContain('PRINT_BG_WAIT')
+    expect(buildClaudeCommand({ ...base, engine: 'codex' })).not.toContain('PRINT_BG_WAIT')
+    expect(buildClaudeCommand({ ...base, engine: 'grok' })).not.toContain('PRINT_BG_WAIT')
   })
 })

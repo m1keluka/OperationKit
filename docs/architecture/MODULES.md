@@ -29,16 +29,15 @@ Boot also calls `startContactbookSibling` after listen (no-ops unless Telegram e
 | `/api/costs` | `routes/costs.ts` | yes | spend summary/daily/range/by-objective/by-account |
 | `/api/projects/:project/feed`, `/api/feed/all` | `routes/feed.ts` | yes | activity feed |
 | `/api/docs` | `routes/docs.ts` | yes | vault tree + file R/W + search |
-| `/api/mentor` | `routes/mentor.ts` | yes | Assistant threads |
-| `/api/briefing` | `routes/briefing.ts` | yes | briefing |
-| `/api/assistant` | `routes/assistant.ts` | yes | personal assistant config |
+| `/api/briefing` | `routes/briefing.ts` | yes | board briefing (Agent API / MCP); the assistant chat was removed |
+| `/api/connectors` | `routes/connectors.ts` | yes | Settings → Connectors; one file per connector in `connectors/defs/` |
 | `/api/status` | `routes/status.ts` | yes | UptimeRobot |
 | `/api/webhooks` | `routes/webhooks.ts` | yes | UptimeRobot ingest |
 | `/api/webhooks/github` | `routes/github-webhook.ts` | yes | PR-merged HMAC |
 | `/api/admin` | `routes/admin.ts` | yes | accounts, system, agents, dream-cycle, skill-graph, cron, assistant ingest |
 | `/api/admin/workspaces` | `routes/admin-workspaces.ts` | yes | workspace CRUD + membership + repos/integrations |
 | `/api/admin/users` | `routes/admin-users.ts` | yes | user CRUD |
-| `/api/internal` | `routes/internal.ts` | yes | thin facade: `isLocalhost` re-export + register* (deploy, create, preview, progress, gmail, Hermes, mentor, repos) |
+| `/api/internal` | `routes/internal.ts` | yes | thin facade: `isLocalhost` re-export + register* (deploy, create, preview, progress, gmail, Hermes, repos) |
 | `/api/internal/routines` | `routes/internal-routines.ts` | yes | routines CRUD + run-now |
 | `/api/internal/pr-health` | `routes/pr-health.ts` | yes | watchdog JSON + digest |
 | `/api/internal/operationkit` | `routes/internal-operationkit.ts` | yes | OperationKit authoring |
@@ -52,7 +51,7 @@ Boot also calls `startContactbookSibling` after listen (no-ops unless Telegram e
 | `/api/meeting-queue` | `routes/meeting-queue.ts` | yes | Granola action items → objectives |
 | `/api/loops` | `routes/loops.ts` | yes | operator loops markdown kanban |
 | `/api/scratchpad` | `routes/scratchpad.ts` | yes | per-user markdown |
-| `/api/granola-content` | `routes/granola-content.ts` | yes | drafts/hooks/ideas |
+| `/api/granola-content` | `routes/granola-content.ts` | yes | drafts/hooks/ideas. No UI since the Content section was removed; left mounted until #598 merges (its hunk touches this line), then delete |
 | `/api/test-credentials` | `routes/test-credentials.ts` | yes | encrypted CRUD |
 | `/api/user/github-token` | `routes/user-github-token.ts` | yes | per-user PAT |
 | `/api/user/google` | `routes/user-google.ts` | yes | Google OAuth |
@@ -138,8 +137,7 @@ Boot also calls `startContactbookSibling` after listen (no-ops unless Telegram e
 | `dev-items.ts` | no | development board store |
 | `changelog.ts` | no | shipping changelog |
 | `secrets-store.ts` / `secrets-crypto.ts` | no | encrypted scoped secrets |
-| `mentor-session.ts` | on message | Assistant Claude subprocess (dies with Node) |
-| `mentor-context.ts` / `mentor-transcript.ts` | no | Assistant prompt + JSONL |
+| `mentor-context.ts` | no | Haiku summarizer + open-tasks block (shared helpers; the assistant chat that used them was removed) |
 | `workspaces.ts` | no | workspace table cache |
 | `notifier.ts` | no | alerts table + email/telegram |
 | `uptimerobot.ts` | no | monitor API cache |
@@ -148,7 +146,6 @@ Boot also calls `startContactbookSibling` after listen (no-ops unless Telegram e
 | `resource-assignments.ts` | no | agent/skill scope |
 | `user-github-tokens.ts` / `user-google-connections.ts` | no | per-user OAuth |
 | `scratchpad.ts` | no | per-user markdown |
-| `assistant-config.ts` | no | assistant settings |
 
 ## SQLite tables (from `db/index.ts` CREATE TABLE)
 
@@ -159,21 +156,23 @@ users, user_workspaces, objectives, schema_meta, objective_audit, external_check
 | Path | Component | Nav |
 |---|---|---|
 | `/`, `/w/:slug` | `KanbanBoard` (eager) | Work → Board |
-| `/assistant`, `/mentor` | `MentorPage` | Work → Assistant |
+| `/chat` | agent chat page (when installed) | Work → Chat |
+| `/assistant`, `/mentor`, `/assistant` | redirect → `/chat` (or `/`) | |
 | `/strategies`, `/strategy/:id` | `StrategiesPage` / `StrategyDetailPage` | Work → Strategies (admin) |
 | `/development`, `/feedback` | `DevelopmentPage` | Work → Development (admin) |
 | `/jobs` | `JobsBoard` | Automation |
 | `/loops` | `LoopsPage` | Automation (label Notes) |
-| `/granola` | `GranolaPage` | Automation (label Content) |
+| `/granola` | redirect → `/` (Content section removed) | |
 | `/contacts` | `ContactsPage` | Directory |
-| `/docs` | `DocsPage` | Directory |
+| `/knowledge` | `DocsPage` | Work → Knowledge base |
+| `/docs` | redirect → `/knowledge` | |
 | `/status` | `StatusPage` | System |
 | `/dashboard` | `Dashboard` | System |
 | `/feed` | `ProjectFeed` | System |
 | `/config` | `ConfigPage` | System |
 | `/costs` | `CostsPage` | check Layout System group |
-| `/assistant` | `AssistantPage` | routed; may be hidden |
-| `/settings/account` | `AccountSettings` | |
+| `/settings/you` | `AccountSettings` | |
+| `/settings/connectors` | `SettingsConnectors` | |
 | `/settings/test-credentials` | `TestCredentialsPage` | |
 | `/settings/secrets` | `SecretsPage` | |
 

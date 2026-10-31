@@ -325,7 +325,7 @@ function TestCredentialModal({ existing, adminWorkspaces, onClose, onSaved }: Mo
                 value={slug}
                 onChange={e => setSlug(e.target.value)}
                 disabled={isEdit}
-                placeholder="e.g. example-staging-admin"
+                placeholder="e.g. staging-admin"
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent disabled:opacity-50"
                 required
               />

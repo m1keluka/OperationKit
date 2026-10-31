@@ -1,0 +1,71 @@
+# Client installer smoke test (obj 719935): run ./install.sh for real on a fresh
+# GitHub-hosted Ubuntu 24.04 VM, verify, uninstall, re-install, verify again, and
+# report the measured times. No Cloudflare account in CI, so the tunnel/Access
+# step is skipped here (it has its own API-level test: install/test/cloudflare-mock-test.sh)
+# and the test card is skipped (no Claude credential in CI).
+name: install-smoke
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install/**'
+      - 'app/Dockerfile'
+      - 'app/jail/**'
+      - '.github/workflows/install-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Client config (fake sample data)
+        run: |
+          sed -e 's#^INSTALL_DIR=.*#INSTALL_DIR="/opt/operationkit"#' \
+              -e 's#^STARTER_PACKS=.*#STARTER_PACKS=""#' \
+              install/client.conf.example > ci.conf
+      - name: Cloudflare API logic against a mock
+        run: bash install/test/cloudflare-mock-test.sh
+      - name: Dry run
+        run: sudo ./install.sh --config ci.conf --dry-run --skip-cloudflare
+      - name: Install (timed)
+        run: |
+          start=$(date +%s)
+          sudo ./install.sh --config ci.conf --skip-cloudflare --skip-ssh-hardening --skip-verify
+          echo "INSTALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+      - name: Verify
+        run: sudo bash install/verify.sh --config ci.conf --local-only --skip-card
+      - name: No secret values in the install log or the settings file
+        run: |
+          sudo test "$(sudo stat -c %a /opt/operationkit/secrets/stack.env)" = 600
+          sudo test "$(sudo stat -c %a /opt/operationkit/secrets)" = 700
+          # settings file: no secret-looking KEYS (comment lines are prose, skipped)
+          ! grep -vE '^#' /opt/operationkit/install.env | grep -qiE '^[A-Z_]*(SECRET|TOKEN|_KEY|PASSWORD)'
+      - name: Sandbox smoke (jail image runs non-root, no docker socket)
+        run: |
+          sudo docker run --rm ok-jail:local bash -lc 'id -u; test ! -S /var/run/docker.sock; command -v claude'
+      - name: Uninstall (keep images) and re-install (timed demo reset)
+        run: |
+          sudo bash install/uninstall.sh --config ci.conf --yes --keep-images
+          test ! -d /opt/operationkit
+          start=$(date +%s)
+          sudo ./install.sh --config ci.conf --skip-cloudflare --skip-ssh-hardening --skip-verify
+          echo "REINSTALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+          sudo bash install/verify.sh --config ci.conf --local-only --skip-card
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### Install smoke"
+            echo "- fresh install (images built from scratch): ${INSTALL_SECONDS:-n/a}s"
+            echo "- re-install after uninstall --keep-images: ${REINSTALL_SECONDS:-n/a}s"
+            echo '```'; sudo cat /opt/operationkit/install-timing.log 2>/dev/null || true; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+      - name: Logs on failure
+        if: failure()
+        run: sudo docker logs --tail 200 command-center || true

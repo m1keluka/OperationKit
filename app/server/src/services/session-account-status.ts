@@ -163,33 +163,26 @@ export function getAccountRouterStatus() {
     account.activeSessions = live.map(l => l.sessionId)
     account.sessionsToday = td.sess
     account.tokensToday = td.tok
-    account.costToday = td.cost
+    // Codex / Grok are flat-rate subscriptions: no per-token dollar figure.
+    account.costToday = (account.kind || 'claude') === 'claude' ? td.cost : 0
     account.windows.sessionWindow = { tokens: swTokens, cost: swCost, resetsAt: swResetsAt }
     account.windows.weeklyWindow = { tokens: wTokens, cost: wCost, resetsAt: wResetsAt }
   }
 
-  // ── Codex / Grok (flat-rate subscriptions) ────────────────────────────────
-  // Not part of the Claude rotation. Upsert so a rename (which persists the
-  // slot into router state) cannot duplicate the card, and so grok's
-  // `available` flag uses grokAuthAvailable instead of Claude OAuth files.
-  const upsertSub = (card: (typeof status.accounts)[number]) => {
-    const i = status.accounts.findIndex(a => a.id === card.id)
-    if (i >= 0) {
-      const existing = status.accounts[i]
-      status.accounts[i] = { ...existing, ...card, label: existing.label || card.label }
-    } else {
-      status.accounts.push(card)
-    }
-  }
-
-  {
-    const live = livePerAccount.get(CODEX_ACCOUNT_ID) || []
-    const td = todayByAccount.get(CODEX_ACCOUNT_ID) ?? { cost: 0, tok: 0, sess: 0 }
-    upsertSub({
-      id: CODEX_ACCOUNT_ID,
-      label: 'Codex (ChatGPT sub)',
+  // ── Codex / Grok placeholders ─────────────────────────────────────────────
+  // Codex / Grok seats are ordinary router seats now (seat pool v2) and were
+  // totalled in the loop above. When an engine has NO seat yet, keep a
+  // not-connected placeholder card so the dashboard still offers Connect.
+  const placeholder = (id: string, kind: 'codex' | 'grok', label: string, homeDir: string, available: boolean) => {
+    if (status.accounts.some(a => (a.kind || 'claude') === kind)) return
+    const live = livePerAccount.get(id) || []
+    const td = todayByAccount.get(id) ?? { cost: 0, tok: 0, sess: 0 }
+    status.accounts.push({
+      id,
+      label,
+      kind,
       priority: 99,
-      homeDir: CODEX_HOME_DIR,
+      homeDir,
       sessionsToday: td.sess,
       tokensToday: td.tok,
       costToday: 0,
@@ -197,37 +190,16 @@ export function getAccountRouterStatus() {
       rateLimitResetsAt: null,
       activeSessions: live.map(l => l.sessionId),
       usageLog: [],
-      available: codexAuthAvailable(),
+      available,
+      health: available ? 'healthy' : 'needs_reconnect',
       windows: {
         sessionWindow: { tokens: 0, cost: 0, resetsAt: null },
         weeklyWindow: { tokens: 0, cost: 0, resetsAt: null },
       },
     })
   }
-
-  {
-    const live = livePerAccount.get(GROK_ACCOUNT_ID) || []
-    const td = todayByAccount.get(GROK_ACCOUNT_ID) ?? { cost: 0, tok: 0, sess: 0 }
-    upsertSub({
-      id: GROK_ACCOUNT_ID,
-      label: 'Grok (xAI)',
-      kind: 'grok',
-      priority: 99,
-      homeDir: GROK_HOME_DIR,
-      sessionsToday: td.sess,
-      tokensToday: td.tok,
-      costToday: 0,
-      lastRateLimit: null,
-      rateLimitResetsAt: null,
-      activeSessions: live.map(l => l.sessionId),
-      usageLog: [],
-      available: grokAuthAvailable(),
-      windows: {
-        sessionWindow: { tokens: 0, cost: 0, resetsAt: null },
-        weeklyWindow: { tokens: 0, cost: 0, resetsAt: null },
-      },
-    })
-  }
+  placeholder(CODEX_ACCOUNT_ID, 'codex', 'Codex', CODEX_HOME_DIR, codexAuthAvailable())
+  placeholder(GROK_ACCOUNT_ID, 'grok', 'Grok', GROK_HOME_DIR, grokAuthAvailable())
 
   return { ...status, untrackedToday: { cost: untracked.cost, tokens: untracked.tok, sessions: untracked.sess } }
 }

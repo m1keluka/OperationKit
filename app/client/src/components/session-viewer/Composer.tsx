@@ -1,11 +1,21 @@
 /**
  * Follow-up composer — extracted from SessionViewer.tsx (behavior frozen).
  */
-import type { ClipboardEvent, Dispatch, RefObject, SetStateAction } from 'react'
-import { Paperclip } from 'lucide-react'
+import { useMemo, useState, type ClipboardEvent, type Dispatch, type RefObject, type SetStateAction } from 'react'
+import { KeyRound, Paperclip } from 'lucide-react'
 import { Badge, Button } from '../ui'
 import { filesFromClipboard, useFileDrop } from '../../hooks/useFileDrop'
+import { detectSecrets, redactValue, type SecretCandidate } from '../../lib/secretDetect'
+import { AddSecretModal } from './AddSecretModal'
 import { formatFileSize, type UploadedFile } from './types'
+
+/** obj 719065: in-chat secret affordances. Omitted → no "+ Add secret", no paste prompt. */
+export interface ComposerSecrets {
+  objectiveId: number
+  workspace: string
+  /** Names the card is currently waiting on (for naming a bare pasted token). */
+  pendingNames: string[]
+}
 
 export function Composer({
   attachedFiles,
@@ -24,6 +34,7 @@ export function Composer({
   handleStop,
   interrupting,
   sending,
+  secrets,
 }: {
   attachedFiles: UploadedFile[]
   removeFile: (index: number) => void
@@ -41,9 +52,26 @@ export function Composer({
   handleStop: () => void
   interrupting: boolean
   sending: boolean
+  secrets?: ComposerSecrets
 }) {
   const canAttach = !inputDisabled && !uploading
   const { isDragging, dropProps } = useFileDrop(handleUpload, canAttach)
+  const [secretModal, setSecretModal] = useState<{ candidate?: SecretCandidate } | null>(null)
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
+  const [savedNote, setSavedNote] = useState<string | null>(null)
+  const pendingKey = secrets?.pendingNames.join(',') ?? ''
+  const candidates = useMemo(
+    () => (secrets ? detectSecrets(message, pendingKey ? pendingKey.split(',') : []).filter(c => !dismissed.has(c.value)) : []),
+    [message, pendingKey, dismissed, secrets],
+  )
+  const candidate = candidates[0]
+
+  function onSecretSaved(name: string) {
+    const value = secretModal?.candidate?.value
+    if (value) setMessage(m => redactValue(m, value, name))
+    setSecretModal(null)
+    setSavedNote(`${name} saved. The session was told it is available.`)
+  }
 
   function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>) {
     if (!canAttach) return
@@ -70,6 +98,27 @@ export function Composer({
                 </Badge>
               )
             })}
+          </div>
+        )}
+        {/* obj 719065 — a pasted key: offer to save it instead of sending it */}
+        {candidate && !secretModal && (
+          <div role="alert" className="cc-pop-in mb-2 flex flex-col gap-2 rounded-md border border-status-human/30 bg-status-human/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2 text-[12.5px] text-fg-1">
+              <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-human" aria-hidden />
+              <span>
+                This looks like a key{candidate.suggestedName ? <> (<span className="font-mono text-fg-0">{candidate.suggestedName}</span>)</> : ''}. Save it as a secret instead of sending it as chat text?
+              </span>
+            </div>
+            <div className="flex shrink-0 gap-1.5">
+              <Button size="sm" variant="ghost" className="min-h-[44px] sm:min-h-0" onClick={() => setDismissed(d => new Set(d).add(candidate.value))}>Keep as text</Button>
+              <Button size="sm" variant="primary" className="min-h-[44px] sm:min-h-0" onClick={() => setSecretModal({ candidate })}>Save as secret</Button>
+            </div>
+          </div>
+        )}
+        {savedNote && (
+          <div role="status" className="mb-2 flex items-center justify-between rounded-md bg-signal-verify/10 px-3 py-1.5 text-xs text-signal-verify">
+            <span>{savedNote}</span>
+            <button onClick={() => setSavedNote(null)} aria-label="Dismiss" className="ml-2 grid h-8 w-8 place-items-center rounded text-signal-verify/70 transition-colors hover:bg-signal-verify/10 hover:text-signal-verify">&times;</button>
           </div>
         )}
         {sendError && (
@@ -104,6 +153,18 @@ export function Composer({
           >
             <Paperclip className={`h-4 w-4 ${uploading ? 'animate-pulse' : ''}`} />
           </button>
+          {secrets && (
+            <button
+              type="button"
+              onClick={() => setSecretModal({})}
+              className="flex h-11 min-w-[44px] shrink-0 items-center justify-center gap-1 rounded-md px-2 text-[12.5px] font-medium text-fg-2 transition-[background-color,color,transform] duration-base hover:bg-surface-3 hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 active:scale-95 sm:h-9"
+              title="Add a secret — saved encrypted, never shown in chat"
+              aria-label="Add secret"
+            >
+              <KeyRound className="h-4 w-4" aria-hidden />
+              <span className="hidden whitespace-nowrap sm:inline">+ Add secret</span>
+            </button>
+          )}
           <textarea
             ref={messageRef}
             value={message}
@@ -149,6 +210,17 @@ export function Composer({
           </div>
         </div>
       </div>
+      {secrets && secretModal && (
+        <AddSecretModal
+          objectiveId={secrets.objectiveId}
+          workspace={secrets.workspace}
+          initialName={secretModal.candidate?.suggestedName ?? ''}
+          initialValue={secretModal.candidate?.value ?? ''}
+          fromPaste={!!secretModal.candidate}
+          onClose={() => setSecretModal(null)}
+          onSaved={onSecretSaved}
+        />
+      )}
     </div>
   )
 }

@@ -271,6 +271,14 @@ export function initWorkspacesSchema(db: Database.Database): void {
   db.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_api_token_hash ON users(api_token_hash) WHERE api_token_hash IS NOT NULL',
   )
+  // obj 719935: a one-time setup password (client installer) must be replaced at
+  // first sign-in, and stops working after password_setup_expires_at.
+  if (!userColNames.has('must_change_password')) {
+    db.exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!userColNames.has('password_setup_expires_at')) {
+    db.exec('ALTER TABLE users ADD COLUMN password_setup_expires_at TEXT')
+  }
 
   // Backfill NULL created_by on legacy rows (pre-Phase-2 inserts). Assigns to
   // first admin so subsequent ownership checks resolve cleanly. Idempotent.

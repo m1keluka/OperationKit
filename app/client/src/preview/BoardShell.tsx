@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import './preview.css'
+import { DiskLowBanner } from '../components/DiskLowBanner'
 
 const THEME_KEY = 'cc.preview.theme.v2'
 
@@ -43,6 +44,7 @@ export function BoardShell({ children }: { children: ReactNode }) {
   const { theme } = useBoardTheme()
   return (
     <div className="cc-ws flex h-full min-h-0 flex-col" data-theme={theme}>
+      <DiskLowBanner />
       {children}
     </div>
   )

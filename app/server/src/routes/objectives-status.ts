@@ -2,12 +2,10 @@
  * PATCH /:id/status — extracted from objectives.ts (behavior frozen).
  * Registered on the same /api/objectives router. Status machine and SQL unchanged.
  */
-import { execSync } from 'child_process'
 import { Router } from 'express'
 import { getDb } from '../db/index.js'
 import { type AuthRequest } from '../middleware/auth.js'
 import {
-  MAX_CONCURRENT_SESSIONS,
   isTransitionAllowed,
   type Objective,
   type StatusChangeRequest,
@@ -46,8 +44,12 @@ import { insertAlert } from '../services/notifier.js'
 import { resolveWorkdir } from '../services/prompt-builder.js'
 import { deriveWorktreeBranchName } from '../services/branch-scope.js'
 import { cleanupOrphanedChildrenOnParentTerminal } from '../lib/cleanup-orphaned-children.js'
+import { scheduleObjectiveWorktreeReap } from '../services/worktree-reaper.js'
+import { PROJECTS_DIR } from '../config.js'
 import { broadcast } from '../ws/index.js'
 import { mapObjective, requireOwnership } from './objectives-helpers.js'
+import { noteStartReason } from '../services/session-start-reasons.js'
+import { sessionCapReached, SESSION_CAP_ERROR } from '../lib/session-cap.js'
 
 export function registerObjectiveStatusRoutes(router: Router): void {
 router.patch('/:id/status', async (req: AuthRequest, res) => {
@@ -82,22 +84,10 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
     return
   }
 
-  // Enforce concurrent session cap — count only states that hold a RUNNING
-  // session: 'working' (active worker) and 'ai_review' (active AI reviewer).
-  // 'review' is excluded: it is parked awaiting a human with no session running,
-  // so it must not consume the concurrent-session budget (a review backlog was
-  // saturating the cap and blocking the queue).
-  if (status === 'working') {
-    const activeCount = db
-      .prepare("SELECT COUNT(*) as count FROM objectives WHERE status IN ('working', 'ai_review')")
-      .get() as { count: number }
-
-    if (activeCount.count >= MAX_CONCURRENT_SESSIONS) {
-      res.status(409).json({
-        error: `Maximum ${MAX_CONCURRENT_SESSIONS} concurrent sessions reached`,
-      })
-      return
-    }
+  // Enforce concurrent session cap (lib/session-cap.ts — shared with create+start).
+  if (status === 'working' && sessionCapReached(db)) {
+    res.status(409).json({ error: SESSION_CAP_ERROR })
+    return
   }
 
   // Handle session lifecycle
@@ -112,6 +102,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
       // ST2: if this objective was pass-gated, the reopen means the gate's pass
       // was a false pass — record it (links reopen → prior passing review).
       recordReopenFalsePass(existing)
+      noteStartReason(existing.id, (req.headers.authorization || '').startsWith('Bearer cc_live_') ? 'agent' : 'board', req.user?.username ?? null, 'reopen')
       const sessionId = await reopenObjective(existing)
       db.prepare(
         "UPDATE objectives SET status = ?, session_id = ?, updated_at = datetime('now') WHERE id = ?"
@@ -124,6 +115,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
         ).run(existing.session_id)
       }
 
+      noteStartReason(existing.id, (req.headers.authorization || '').startsWith('Bearer cc_live_') ? 'agent' : 'board', req.user?.username ?? null, null)
       const sessionId = await startSession(existing)
       db.prepare(
         "UPDATE objectives SET status = ?, session_id = ?, updated_at = datetime('now') WHERE id = ?"
@@ -181,6 +173,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
           ).run(decision.followUp, existing.id)
           if (existing.session_id) {
             try {
+              noteStartReason(existing.id, 'completion_gate', 'floor-gate')
               const newSessionId = sendFollowUp(existing.session_id, decision.followUp, existing)
               db.prepare(
                 "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -230,6 +223,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
           ).run(oracleDecision.followUp, existing.id)
           if (existing.session_id) {
             try {
+              noteStartReason(existing.id, 'completion_gate', 'oracle-gate')
               const newSessionId = sendFollowUp(existing.session_id, oracleDecision.followUp, existing)
               db.prepare(
                 "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -283,6 +277,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
           ).run(outcomeDecision.followUp, existing.id)
           if (existing.session_id) {
             try {
+              noteStartReason(existing.id, 'completion_gate', 'outcome-gate')
               const newSessionId = sendFollowUp(existing.session_id, outcomeDecision.followUp, existing)
               db.prepare(
                 "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -354,28 +349,10 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
       releaseBranchLeasesForObjective(db, Number(req.params.id))
       releaseSessionLeasesForObjective(db, Number(req.params.id))
 
-      // Clean up the git worktree + local branch. As of obj 1059 EVERY
-      // project-scoped session is isolated into /tmp/cc-worktree-<id>, so cleanup
-      // keys on `project`, not on a persisted branch_name (task workers never set
-      // one). The branch to delete is the deterministic worktree branch.
-      if (existing.project) {
-        const worktreePath = `/tmp/cc-worktree-${existing.id}`
-        const wtBranch = existing.branch_name || deriveWorktreeBranchName(existing)
-        try {
-          // Remove worktree directory first
-          execSync(`rm -rf ${worktreePath} 2>/dev/null || true`, { timeout: 5000 })
-          // Prune worktree references from all project repos
-          execSync(`find /home/operator/projects -maxdepth 2 -name .git -type d -exec git --git-dir={} worktree prune 2>/dev/null \\;`, { timeout: 10000 })
-          // Delete the local branch from the project repo (if we know which one)
-          if (wtBranch) {
-            const projectDir = `/home/operator/projects/${existing.project}`
-            execSync(`git -C ${projectDir} branch -D ${wtBranch} 2>/dev/null || true`, { timeout: 5000 })
-          }
-          console.log(`[objectives] Cleaned up worktree and branch for objective ${existing.id}: ${wtBranch || '(no branch)'}`)
-        } catch (err) {
-          console.log(`[objectives] Worktree cleanup failed for ${existing.id}: ${err instanceof Error ? err.message : err}`)
-        }
-      }
+      // Worktree + local branch cleanup moved to the worktree reaper (obj 718070),
+      // scheduled after the audit row below so it fires for done AND cancelled.
+      // It replaces an unconditional `rm -rf /tmp/cc-worktree-<id>` with gated
+      // `git worktree remove` (keeps dirty/unpushed/in-use worktrees).
     } else {
       db.prepare(
         "UPDATE objectives SET status = ?, updated_at = datetime('now') WHERE id = ?"
@@ -430,6 +407,19 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
   )
 
   broadcast({ type: 'objective_updated', payload: updated })
+
+  // Reap this card's git worktree(s) + local branch (obj 718070). Deferred and
+  // gated: only removes when the card is STILL done/cancelled, the tree is clean
+  // and pushed, and no process is using it. As of obj 1059 every project-scoped
+  // session is isolated into /tmp/cc-worktree-<id>; the branch is the
+  // deterministic worktree branch when none was persisted.
+  if (status === 'done' || status === 'cancelled') {
+    scheduleObjectiveWorktreeReap(existing.id, {
+      db,
+      projectDir: existing.project ? `${PROJECTS_DIR}/${existing.project}` : undefined,
+      branch: existing.project ? (existing.branch_name || deriveWorktreeBranchName(existing)) : null,
+    })
+  }
 
   // Orphan-child cleanup on parent-terminal (obj 700595, FIX 1a). When this
   // objective reaches a terminal state, retire its still-queued, never-ran

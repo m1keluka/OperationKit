@@ -3,6 +3,7 @@
  * live in prompt-builder-workdir.ts / prompt-builder-history.ts /
  * prompt-builder-blocks.ts. This file is buildPrompt + re-exports.
  */
+import { buildSessionTrustBlock } from './session-trust-prompt.js'
 import fs from 'fs'
 import type { Objective, AcceptanceCriterion } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
@@ -206,8 +207,10 @@ export function buildPrompt(objective: Objective): string {
     '',
     'That directory holds TWO files with different audiences — keep them separate:',
     `- \`${objectiveScratchPath(objective.id)}\` — YOUR private scratch. Hypotheses, dead ends, restart state, self-narration. Write freely; nobody grades it. The AI reviewer is deliberately masked off this file, so nothing you need judged may live only here.`,
-    `- \`${objectiveArtifactPath(objective.id)}\` — YOUR final artifact, and the thing consumers actually read. Write it before you finish: what you delivered, where it lives (branch / PR / file paths), and the evidence for each acceptance criterion. This is what the reviewer reads in place of your scratch, so an unstated deliverable is an ungraded deliverable.`,
+    `- \`${objectiveArtifactPath(objective.id)}\` — YOUR final artifact, and the thing consumers actually read. Write it before you finish: what you delivered, where it lives (branch / PR / file paths), and the evidence for each acceptance criterion. This is what the reviewer reads in place of your scratch, so an unstated deliverable is an ungraded deliverable. **EXCEPTION — fan-out workers:** if your brief or acceptance criteria name a DIFFERENT artifact file (e.g. a parent-scoped \`…/objective-memory/<parent>/ARTIFACT-W<N>.md\`), THAT file is what the reviewer grades — not this own-dir ARTIFACT.md. Put the real deliverable + evidence there; do not leave the graded file a skeleton or \`_(in progress)_\` when you route to review.`,
   )
+
+  parts.push('', ...buildLiveProgressBlock(objective.id, objectiveMemoryDir(objective.id)))
 
   parts.push(
     '',
@@ -274,6 +277,10 @@ export function buildPrompt(objective: Objective): string {
     '',
     `Context: ${objective.description}`,
   )
+  // obj 718944 — server-stamped sender rule + secret names (flag-gated; empty
+  // when off). Deliberately AFTER the card description: an agent-written card
+  // rule must not override verified-owner approval.
+  parts.push(...buildSessionTrustBlock(objective))
   if (objective.project) {
     parts.push('', `Project: ${objective.project}`)
   }
@@ -639,3 +646,31 @@ export function buildPrompt(objective: Objective): string {
   }
   return parts.join('\n')
 }
+
+/**
+ * Live card visibility (obj 715699) — tells the worker how to keep its card readable
+ * mid-run: structured progress snapshots, partial outputs under live/, and the fan-out
+ * helper for independent sub-jobs. Bots read all of it via GET /api/objectives/:id/progress
+ * and /artifacts; when the worker writes nothing they fall back to transcript-derived progress.
+ */
+export const CC_LIVE_SCRIPT = '/home/operator/projects/operationkit/scripts/cc-live.mjs'
+
+export function buildLiveProgressBlock(objectiveId: number, memoryDir: string): string[] {
+  return [
+    '## Live progress (keep the card readable while you run)',
+    '',
+    `Mike and his bots ask "how's it going?" mid-run through GET /api/objectives/${objectiveId}/progress. Write a snapshot at each meaningful step — when you start, at each milestone, before any long wait, and when blocked:`,
+    '```bash',
+    `node ${CC_LIVE_SCRIPT} progress ${objectiveId} --step 2 --of 5 --label "what you are doing now" --note "short status, counts so far" [--artifact live/partial.csv]`,
+    '```',
+    `- Partial outputs go in \`${memoryDir}/live/\` — listed and readable through the API while you run (secret-redacted). Your scratch file is never served.`,
+    '- Keep notes short and factual (numbers, what is next). Never paste secret values — they are redacted anyway.',
+    '- Parallel sub-jobs: when the work splits into 2+ INDEPENDENT, sizable pieces (e.g. N vendors to evaluate, N repos to audit), fan them out as child cards instead of running them in series:',
+    '```bash',
+    `node ${CC_LIVE_SCRIPT} fanout ${objectiveId} --spec /tmp/children-${objectiveId}.json --max 3   # spec: JSON array of {title, description}`,
+    `node ${CC_LIVE_SCRIPT} children ${objectiveId}   # each child's latest progress + final result`,
+    '```',
+    '  The server starts children up to --max (bounded by the shared account pool) and the rest as siblings finish. Aggregate their results into your ARTIFACT.md when they are done. Do not fan out small or sequential steps.',
+  ]
+}
+

@@ -10,6 +10,7 @@
 export * from './types-core.js'
 export * from './types-surfaces.js'
 export * from './types-runtime.js'
+export * from './types-connectors.js'
 
 // Type-aware transitions live in `./workflow.ts` to keep this file focused on
 // the data shape. Re-exported here so `@operationkit/shared` callers can get

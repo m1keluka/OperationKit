@@ -33,6 +33,7 @@ describe('SettingsPage tabs', () => {
             <Route path="/settings" element={<SettingsPage />}>
               <Route path="you" element={<div>you-pane</div>} />
               <Route path="secrets" element={<div>secrets-pane</div>} />
+              <Route path="seats" element={<div>seats-pane</div>} />
               <Route path="org" element={<div>org-pane</div>} />
             </Route>
           </Routes>
@@ -41,17 +42,29 @@ describe('SettingsPage tabs', () => {
     })
   }
 
-  it('shows You / Secrets / Org / Agents / Platform for a global admin', () => {
+  it('shows You / Connectors / Secrets / Seats / Org / Agents / Platform for a global admin', () => {
     mount('/settings/you')
     const labels = Array.from(container.querySelectorAll('[role="tab"]')).map(t => t.textContent)
-    expect(labels).toEqual(['You', 'Secrets', 'Org', 'Agents', 'Platform'])
+    expect(labels).toEqual(['You', 'Connectors', 'Secrets', 'Seats', 'Org', 'Agents', 'Platform'])
     expect(container.textContent).toContain('you-pane')
   })
 
-  it('hides org/agents/platform for a member and only shows You', () => {
-    auth.user = { id: 2, username: 'ava', role: 'member', workspaces: [{ role: 'member' }] }
+  it('hides secrets/seats/org/agents/platform for a member: You and Connectors only', () => {
+    auth.user = { id: 2, username: 'member', role: 'member', workspaces: [{ role: 'member' }] }
     mount('/settings/you')
     const labels = Array.from(container.querySelectorAll('[role="tab"]')).map(t => t.textContent)
-    expect(labels).toEqual(['You'])
+    expect(labels).toEqual(['You', 'Connectors'])
+  })
+
+  it('opens the Seats pane for an admin', () => {
+    mount('/settings/seats')
+    expect(container.textContent).toContain('seats-pane')
+  })
+
+  it('keeps Seats from a workspace admin who is not a global admin', () => {
+    auth.user = { id: 3, username: 'wsadmin', role: 'member', workspaces: [{ role: 'admin' }] }
+    mount('/settings/you')
+    const labels = Array.from(container.querySelectorAll('[role="tab"]')).map(t => t.textContent)
+    expect(labels).toEqual(['You', 'Connectors', 'Secrets'])
   })
 })

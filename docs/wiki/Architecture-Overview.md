@@ -17,11 +17,13 @@ OperationKit is a single self-hosted stack: a board (React client + Express serv
 | WebSocket + terminal bridge | Live session output streamed to the browser over tmux + a PTY | `app/server/src/ws/` |
 | Workspaces & RBAC | Multi-tenant isolation per team/org, admin vs. member roles | `app/server/src/db/schema/workspaces.ts`, `core.ts` |
 | Model registry | Which models are enabled, which engine (Claude/Codex/Grok) each maps to | `app/server/src/services/model-registry.ts` |
+| Account router | Pools subscription seats per engine, routes new sessions by priority and rate-limit state | `app/server/src/services/account-router.ts` — see [Accounts, Subscriptions & Seats](./Accounts-Subscriptions-and-Seats) |
 | LiteLLM sidecar (optional) | Routes model groups to non-native providers (Gemini, local Ollama) | `config/litellm/config.yaml`, `docker-compose.yml` |
 | Skills / Tools / Agents graph | Composable knowledge/procedure files, surfaced in the Agents admin tab | `app/client/src/components/SkillGraph.tsx`, `app/server/src/services/skill-graph.ts` |
 | Knowledge base / context loading | Per-workspace context + a shared vault, loaded before a session starts | see [Knowledge Base & Context Loading](./Knowledge-Base-and-Context-Loading) |
 | Adversarial review gate | A fresh-context AI reviewer grades generated work against the card's acceptance criteria | `app/server/src/services/poller-ai-review.ts` |
 | Agent HTTP API | Lets an external chat agent (Claude Project, Grok bot, custom GPT) manage the board | `docs/api/README.md`, `docs/api/AGENT-PROMPT.md` |
+| MCP connector | Read-only board + knowledge-base access over MCP for any MCP-capable agent | `app/server/src/routes/agent-mcp.ts` — see [MCP Connector & Tools](./MCP-Connector-and-Tools) |
 
 ## Deploy model
 

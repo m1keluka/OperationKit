@@ -18,6 +18,12 @@ export const DISK_WARN_PCT = 85
 export const DISK_CLEAN_PCT = 90
 /** Refuse new session writes when free space drops below this. */
 export const DISK_BLOCK_AVAIL_BYTES = 2 * 1024 * 1024 * 1024
+/**
+ * Low-disk alert: page (high) when free space is under this share of the disk.
+ * Separate from the used-% watermarks above because df's Use% excludes reserved
+ * blocks — free/total is the number the ENOSPC outages actually tracked.
+ */
+export const DISK_LOW_FREE_PCT = 15
 
 export type DiskAction = 'ok' | 'warn' | 'clean' | 'block'
 
@@ -50,6 +56,17 @@ export function diskAction(disk: HostDisk): DiskAction {
   if (disk.usedPct >= DISK_CLEAN_PCT) return 'clean'
   if (disk.usedPct >= DISK_WARN_PCT) return 'warn'
   return 'ok'
+}
+
+/** Free space as a percentage of the whole filesystem (0 when total is unknown). */
+export function freePct(disk: HostDisk): number {
+  if (!(disk.totalBytes > 0)) return 0
+  return (disk.availBytes / disk.totalBytes) * 100
+}
+
+/** True when free space is strictly below DISK_LOW_FREE_PCT (exactly 15% is not low). */
+export function isLowDisk(disk: HostDisk): boolean {
+  return freePct(disk) < DISK_LOW_FREE_PCT
 }
 
 export function diskBlockReason(disk: HostDisk): string {

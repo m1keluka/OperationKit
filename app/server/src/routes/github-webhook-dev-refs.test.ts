@@ -5,6 +5,7 @@ import path from 'path'
 import http from 'http'
 import crypto from 'crypto'
 import express from 'express'
+import { SELF_REPO } from '../services/auto-deploy.js'
 
 // Real SQLite via initDb(). Env MUST be set before the dynamic import of
 // db/index.js (and of the router, which reads GITHUB_WEBHOOK_SECRET per call
@@ -430,5 +431,74 @@ describe('(g) delivery dedupe (§6.5)', () => {
     expect(res.status).toBe(200)
     const json = (await res.json()) as any
     expect(json.duplicate).toBeUndefined()
+  })
+})
+
+// ── New: preview auto-provision on opened/reopened (obj 719327) ────────────
+//
+// Closes the gap where a PR opened with plain `gh pr create` never calls
+// POST /api/internal/pr-created, so enqueuePreviewDeploy() never runs and
+// pr-N.cc.example.com never points at anything (reads as a TLS outage).
+
+describe('preview auto-provision on opened/reopened (obj 719327)', () => {
+  function spoolFile(name: string): string {
+    return path.join(TMP_SPOOL, name)
+  }
+
+  it('enqueues a deploy job when a PR opens against the self repo', async () => {
+    const res = await deliver(
+      'pull_request',
+      prPayload({ action: 'opened', repo: SELF_REPO, branch: 'fix/some-infra-thing', number: 9001 }),
+    )
+    expect(res.status).toBe(200)
+
+    const job = JSON.parse(fs.readFileSync(spoolFile('deploy-pr9001.json'), 'utf8'))
+    expect(job.action).toBe('deploy')
+    expect(job.pr_number).toBe(9001)
+    expect(job.branch_name).toBe('fix/some-infra-thing')
+  })
+
+  it('enqueues a deploy job when a PR reopens against the self repo', async () => {
+    await deliver(
+      'pull_request',
+      prPayload({ action: 'reopened', repo: SELF_REPO, branch: 'fix/reopened-thing', number: 9002 }),
+    )
+    const job = JSON.parse(fs.readFileSync(spoolFile('deploy-pr9002.json'), 'utf8'))
+    expect(job.pr_number).toBe(9002)
+    expect(job.branch_name).toBe('fix/reopened-thing')
+  })
+
+  it('does NOT enqueue a deploy job for a PR opened against a different repo', async () => {
+    await deliver(
+      'pull_request',
+      prPayload({ action: 'opened', repo: REPO, branch: 'fix/other-repo-thing', number: 9003 }),
+    )
+    expect(fs.existsSync(spoolFile('deploy-pr9003.json'))).toBe(false)
+  })
+
+  it('does NOT enqueue a deploy job on synchronize, even for the self repo', async () => {
+    await deliver(
+      'pull_request',
+      prPayload({ action: 'synchronize', repo: SELF_REPO, branch: 'fix/pushed-again', number: 9004 }),
+    )
+    expect(fs.existsSync(spoolFile('deploy-pr9004.json'))).toBe(false)
+  })
+
+  it('still runs PR auto-link for the self repo alongside the new deploy enqueue', async () => {
+    const objInfo = getDb()
+      .prepare("INSERT INTO objectives (title, status, branch_name) VALUES ('Self-repo objective', 'working', ?)")
+      .run('fix/self-repo-link')
+    const objectiveId = Number(objInfo.lastInsertRowid)
+
+    await deliver(
+      'pull_request',
+      prPayload({ action: 'opened', repo: SELF_REPO, branch: 'fix/self-repo-link', number: 9005 }),
+    )
+
+    const obj = getDb().prepare('SELECT pr_number FROM objectives WHERE id = ?').get(objectiveId) as any
+    expect(obj.pr_number).toBe(9005)
+
+    const job = JSON.parse(fs.readFileSync(spoolFile('deploy-pr9005.json'), 'utf8'))
+    expect(job.objective_id).toBe(objectiveId)
   })
 })

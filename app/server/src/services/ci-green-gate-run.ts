@@ -7,6 +7,7 @@
  */
 import type { Database } from 'better-sqlite3'
 import { skipMachineStatusWrite, runMachineStatusUpdate } from '../lib/status-lock.js'
+import { checkCiFollowupCap, recordCiFollowup, noteCiFollowupCapExhausted } from './ci-followup-cap.js'
 import {
   type CiGateDecision,
   type ExecFn,
@@ -20,6 +21,7 @@ import {
   fetchPrCheckState,
   fetchRequiredChecks,
 } from './ci-green-gate-github.js'
+import { noteStartReason } from './session-start-reasons.js'
 
 // ── Durable state ───────────────────────────────────────────────────────────────
 
@@ -211,6 +213,13 @@ export async function runCompletionGate(
       obj.id,
     )
 
+    // A green resolution after an earlier HOLD must not leave that hold's stamp
+    // behind (objs 714323/714552: done on a green PR, still reading `fail`). This is
+    // the ONE place a stale gate stamp is cleared, because it is the one place the
+    // PR's checks are actually verified green. Only the gate's OWN stamp is cleared —
+    // the handback text is its signature — so a genuine reviewer `fail` survives.
+    if (decision.action === 'allow' && row.hold_count > 0) clearGateFailStamp(db, obj.id)
+
     if (decision.action === 'escalate' && opts.alert) {
       try {
         opts.alert({
@@ -259,6 +268,30 @@ export async function runCompletionGate(
   }
 }
 
+/** Prefix every {@link buildHandback} message starts with; identifies the gate's own `fail`. */
+export const GATE_HANDBACK_PREFIX = '## Completion blocked — PR #'
+
+/**
+ * Clear what the gate itself wrote on a HOLD: its handback findings, plus the `fail`
+ * verdict when that hold was a real red. An absent-check hold records findings but no
+ * verdict (see {@link applyGateHandback}), so those findings are cleared too. Matched
+ * on the handback prefix, so a reviewer's verdict/findings are never touched.
+ * Returns true when anything was cleared.
+ */
+export function clearGateFailStamp(db: Database, objectiveId: number): boolean {
+  try {
+    const res = db.prepare(
+      `UPDATE objectives SET
+         ai_review_verdict = CASE WHEN ai_review_verdict = 'fail' THEN NULL ELSE ai_review_verdict END,
+         ai_review_findings = NULL, updated_at = datetime('now')
+        WHERE id = ? AND substr(ai_review_findings, 1, ?) = ?`,
+    ).run(objectiveId, GATE_HANDBACK_PREFIX.length, GATE_HANDBACK_PREFIX)
+    return res.changes > 0
+  } catch {
+    return false // best effort — must never wedge completion
+  }
+}
+
 // ── Handback ────────────────────────────────────────────────────────────────────
 
 export interface HandbackDeps {
@@ -290,14 +323,42 @@ export function applyGateHandback(
 ): 'working' | 'review' {
   const findings = result.handback ?? result.decision.reason
   if (skipMachineStatusWrite(db, obj.id)) return 'review'
+  // Only a GENUINELY FAILING required check (a red) is a worker failure worth a
+  // terminal `fail` verdict. A `hold`/`complete-with-red` caused solely by a required
+  // check that has not REPORTED yet (`missingRequired`, e.g. "gate (never scheduled)"
+  // in the 1-3 min before GitHub registers the check-run) is a transient wait, not a
+  // failure — stamping it `fail` leaves a durable false verdict the green-lane
+  // completion path never clears once the check goes green (obj 714989/715203/715412/
+  // 715641/713966, 2026-10-08→12: all five PRs show gate=SUCCESS on GitHub).
+  const isRealRed = result.decision.failingRequired.length > 0
   db.prepare(
-    "UPDATE objectives SET ai_review_verdict = 'fail', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
+    isRealRed
+      ? "UPDATE objectives SET ai_review_verdict = 'fail', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?"
+      : "UPDATE objectives SET ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
   ).run(findings, obj.id)
 
   let landed: 'working' | 'review' = 'review'
+  // Shared cross-source per-PR cap (ci-followup-cap.ts) on automatic "CI is red"
+  // restarts. Over cap ⇒ do NOT respawn; park in review exactly like no-session.
+  let sharedCapOk = true
+  const capKey = {
+    repo: result.repo ?? repoFromPrUrl(obj.pr_url),
+    prNumber: result.prNumber ?? obj.pr_number ?? -obj.id,
+    objectiveId: obj.id,
+    source: 'ci-green-gate' as const,
+  }
   if (result.decision.action === 'hold' && obj.session_id && deps.sendFollowUp) {
+    const shared = checkCiFollowupCap(db, capKey)
+    if (!shared.allowed) {
+      noteCiFollowupCapExhausted(db, capKey, shared)
+      sharedCapOk = false
+    }
+  }
+  if (result.decision.action === 'hold' && obj.session_id && deps.sendFollowUp && sharedCapOk) {
     try {
+      noteStartReason(obj.id, 'ci_failure_followup', 'ci-green-gate')
       const newSessionId = deps.sendFollowUp(obj.session_id, findings, obj)
+      recordCiFollowup(db, capKey)
       runMachineStatusUpdate(
         db,
         "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",

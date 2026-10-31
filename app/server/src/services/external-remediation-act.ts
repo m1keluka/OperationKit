@@ -20,6 +20,8 @@ import {
   classifyCancelledEvent,
   classifyCheckEvent,
   classifyCheckFixability,
+  detectInfraBlock,
+  type InfraBlockJob,
   isRemediableObjective,
   isRemediationEnabled,
   maxRemediationAttempts,
@@ -29,6 +31,8 @@ import {
   resolveOwnerObjective,
 } from './external-remediation-resolve.js'
 import { resolveFollowUpSessionId } from './objective-sessions.js'
+import { checkCiFollowupCap, recordCiFollowup, noteCiFollowupCapExhausted } from './ci-followup-cap.js'
+import { noteStartReason } from './session-start-reasons.js'
 
 const DEFAULT_HARNESS_REPO = process.env.HARNESS_REPO || 'your-org/operationkit'
 
@@ -66,6 +70,52 @@ export async function runWasOnlyCancelled(
   }
 }
 
+
+/**
+ * Is this failure an account-level outage (billing / spending limit / quota / no
+ * runner) rather than a code problem? (obj 712948.) Such a block fails EVERY commit on
+ * the branch until the account is fixed, so a card per red sha is pure spam — and no
+ * worker can fix it with a push. Gathers the inputs for detectInfraBlock:
+ *  - workflow_run → the run's jobs (conclusion + steps actually run) and the
+ *    annotations of the first failed job (a job id IS its check-run id);
+ *  - check_run    → that check run's annotations;
+ *  - status       → the status description (Railway / Vercel wording).
+ * Best-effort like runWasOnlyCancelled: any exec/parse error → false (file as usual).
+ */
+export async function isInfraBlocked(
+  classified: Pick<ClassifiedCheck, 'kind' | 'repoFullName' | 'runId' | 'checkRunId'>,
+  statusDescription: string | null,
+  exec: ExecFn = defaultExec,
+): Promise<boolean> {
+  const annotations: string[] = []
+  let jobs: Array<InfraBlockJob & { id?: number }> = []
+  if (statusDescription) annotations.push(statusDescription)
+  const repo = classified.repoFullName
+  try {
+    let annotationRunId: number | null = null
+    if (classified.kind === 'workflow_run' && classified.runId && repo) {
+      const raw = await exec('gh', [
+        'api',
+        `repos/${repo}/actions/runs/${classified.runId}/jobs`,
+        '--jq',
+        '[.jobs[] | {id, conclusion, steps: ([.steps[]? | select(.status == "completed" and .conclusion != "skipped")] | length)}]',
+      ])
+      const parsed = JSON.parse(raw || '[]')
+      if (Array.isArray(parsed)) jobs = parsed
+      annotationRunId = jobs.find((j) => j.conclusion === 'failure' && typeof j.id === 'number')?.id ?? null
+    } else if (classified.kind === 'check_run' && classified.checkRunId) {
+      annotationRunId = classified.checkRunId
+    }
+    if (annotationRunId && repo) {
+      const raw = await exec('gh', ['api', `repos/${repo}/check-runs/${annotationRunId}/annotations`, '--jq', '[.[].message]'])
+      const parsed = JSON.parse(raw || '[]')
+      if (Array.isArray(parsed)) annotations.push(...parsed.filter((m): m is string => typeof m === 'string'))
+    }
+  } catch {
+    // Degrade to whatever we already have (the status description, or nothing).
+  }
+  return detectInfraBlock(annotations, jobs)
+}
 
 // ── Failure-context fetch (TOKEN DISCIPLINE) ────────────────────────────────────
 // We capture ONLY failing lines/annotations, never full logs. Caps are deliberate.
@@ -287,10 +337,10 @@ function createTrunkFailureObjective(
   try {
     const result = deps.db
       .prepare(
-        `INSERT INTO objectives (title, description, agent_context, workspace, category, status, origin)
-         VALUES (?, ?, 'cto', ?, 'general', 'queue', 'trunk-failure')`,
+        `INSERT INTO objectives (title, description, agent_context, workspace, category, status, origin, dedupe_key)
+         VALUES (?, ?, 'cto', ?, 'general', 'queue', 'trunk-failure', ?)`,
       )
-      .run(title, description, workspace)
+      .run(title, description, workspace, trunkDedupeKey(classified.repoFullName, branch, classified.checkName))
     const id = Number(result.lastInsertRowid)
     try {
       const obj = deps.db.prepare('SELECT * FROM objectives WHERE id = ?').get(id) as Objective | undefined
@@ -330,6 +380,9 @@ export interface RemediationResult {
     | 'trunk-card-created'
     | 'trunk-duplicate'
     | 'trunk-cap'
+    // obj 712948 — one open card per repo + branch + check; account outages file nothing.
+    | 'trunk-appended'
+    | 'trunk-infra-block'
     // obj 704698 — convergence outcomes. Every one of these is a state the loop used to
     // reach silently (or not at all); each now ends in an owned or escalated outcome.
     | 'not-code-fixable'
@@ -421,6 +474,14 @@ export async function handleExternalCheckEvent(
         `[external-remediation] run ${classified.runId} (${classified.checkName}) concluded 'failure' but every job was cancelled — treating as a cancellation`,
       )
       return await handleCancelledCheck(deps, { ...classified, outcome: 'cancelled' }, branchHint, env)
+    }
+    // obj 712948: an account-level outage (billing / spending limit / quota / no runner)
+    // on a trunk branch fails every commit until the account is fixed. No push fixes it,
+    // so neither a merged-PR nudge nor a trunk card helps — file nothing, log once.
+    // Trunk-only: the PR path keeps its existing behaviour.
+    if (isTrunkFailure && await isInfraBlocked(classified, (payload?.description as string) || null, deps.exec)) {
+      logDrop('trunk-infra-block', classified, branchHint, '(account-level: billing/quota/runner — no card)')
+      return { handled: false, reason: 'trunk-infra-block', checkName: classified.checkName }
     }
     // allowRecentDone (gap C): a merged PR flips its objective `done` before the
     // checks even finish, so a failure minutes later must still remediate. The
@@ -526,6 +587,16 @@ export async function handleExternalCheckEvent(
       return { handled: false, reason: 'cap-exhausted-already-escalated', objectiveId: obj.id, attempt }
     }
 
+    // Shared cross-source cap (ci-followup-cap.ts): an ADDITIONAL per-PR ceiling
+    // across every automatic CI-failure follow-up engine, on top of the cap above.
+    const capKey = { repo, prNumber, objectiveId: obj.id, source: 'external-remediation' as const }
+    const shared = checkCiFollowupCap(deps.db, capKey)
+    if (!shared.allowed) {
+      noteCiFollowupCapExhausted(deps.db, capKey, shared)
+      logDrop('shared-ci-followup-cap', classified, branchHint, `objective=${obj.id} count=${shared.count}/${shared.cap}`)
+      return { handled: false, reason: 'cap-exhausted', objectiveId: obj.id, attempt }
+    }
+
     // Fetch ONLY failing context, then resume the session.
     const failureContext = await fetchFailureContext(
       classified,
@@ -536,7 +607,9 @@ export async function handleExternalCheckEvent(
 
     // Never an aux (`cc-review-*`/`cc-plan-*`) session — see objective-sessions.ts.
     const sessionId = resolveFollowUpSessionId(deps.db, { id: obj.id, session_id: obj.session_id ?? null })
+    noteStartReason(obj.id, 'ci_failure_followup', 'external-remediation')
     const newSessionId = deps.sendFollowUp(sessionId, prompt, obj)
+    recordCiFollowup(deps.db, capKey)
     deps.db
       .prepare("UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?")
       .run(newSessionId, obj.id)
@@ -597,17 +670,93 @@ async function lookupMergedPrNumber(
   }
 }
 
+/** Stable identity of a trunk failure (obj 712948): repo + branch + check. The sha is
+ *  deliberately NOT part of it — a new red commit on the same check is the same open
+ *  problem, not a new card. Stored in objectives.dedupe_key. */
+export function trunkDedupeKey(repo: string, branch: string, checkName: string): string {
+  return `trunk:${repo}:${branch}:${checkName}`
+}
+
+/** Hours between follow-up messages into a trunk card that is already being worked. */
+export function trunkFollowUpHours(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = parseInt(env.TRUNK_FAILURE_FOLLOWUP_HOURS || '', 10)
+  return Number.isInteger(raw) && raw > 0 ? raw : 6
+}
+
 /**
- * Gap-D step 2: no objective resolves for a trunk failure → file a board card.
+ * The open trunk-failure card for (repo, branch, check), if any (obj 712948). Keyed on
+ * dedupe_key; legacy rows filed before the column existed fall back to the exact title
+ * buildTrunkFailureObjective produces within the repo's workspace. Oldest first, so the
+ * card that has accumulated history keeps accumulating it.
+ */
+export function findOpenTrunkCard(
+  db: Database,
+  classified: Pick<ClassifiedCheck, 'repoFullName' | 'checkName'>,
+  branch: string,
+): Objective | null {
+  const repo = classified.repoFullName || DEFAULT_HARNESS_REPO
+  const { title } = buildTrunkFailureObjective({
+    classified: { ...(classified as ClassifiedCheck), repoFullName: repo },
+    branch,
+    statusDescription: null,
+  })
+  try {
+    const row = db
+      .prepare(
+        `SELECT * FROM objectives
+          WHERE origin = 'trunk-failure'
+            AND (dedupe_key = ? OR (dedupe_key IS NULL AND workspace = ? AND title = ?))
+            AND status NOT IN ('done', 'cancelled', 'archived')
+            AND deleted_at IS NULL
+          ORDER BY id ASC LIMIT 1`,
+      )
+      .get(trunkDedupeKey(repo, branch, classified.checkName), workspaceForRepo(db, repo), title) as Objective | undefined
+    return row || null
+  } catch {
+    return null
+  }
+}
+
+/** One dated line per failing sha, idempotent on the short sha (obj 712948). Same
+ *  pattern as appendPrToMaintenanceObjective. Returns true when a line was added. */
+function appendTrunkFailureLine(db: Database, objectiveId: number, classified: ClassifiedCheck): boolean {
+  try {
+    const row = db.prepare('SELECT description FROM objectives WHERE id = ?').get(objectiveId) as { description?: string } | undefined
+    const desc = row?.description || ''
+    const sha7 = (classified.headSha || '').slice(0, 7) || '(unknown)'
+    if (desc.includes(`\`${sha7}\` failed again`)) return false
+    const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const header = desc.includes('### Repeat failures') ? '' : '\n\n### Repeat failures'
+    const line = `- ${ts} \`${sha7}\` failed again (${classified.outcome})${classified.targetUrl ? ` ${classified.targetUrl}` : ''}`
+    db.prepare("UPDATE objectives SET description = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(`${desc}${header}\n${line}`, objectiveId)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Gap-D step 2: no objective resolves for a trunk failure → file (or reuse) a board card.
  * Guards, in order:
  *  - IDEMPOTENT: INSERT OR IGNORE into external_check_remediations keyed
  *    (repo, 0, check_name, head_sha) — pr_number=0 is the trunk sentinel (real PR
  *    numbers are >0, branch-only objective keys are <0). Re-deliveries and check
  *    flaps on the same commit drop as `trunk-duplicate`.
- *  - CAPPED: at most maxTrunkCardsPerDay (default 3) auto-created cards per repo
- *    per rolling day; only rows that actually created a card (objective_id > 0)
- *    count, so capped/duplicate drops never consume budget. Beyond the cap we
- *    log + drop — the dedupe row stays so the same sha never re-fires later.
+ *  - ONE OPEN CARD per repo + branch + check (obj 712948). The per-sha key above made
+ *    every new red commit look "new" — 76 open trunk cards for 25 distinct checks. A
+ *    new sha now appends to the open card instead:
+ *      · card not being worked (queue/planning) → one dated line in its description.
+ *        NEVER a follow-up message: a message starts/resumes a worker, so messaging a
+ *        queued card would auto-start an agent on every red commit.
+ *      · card being worked (working/review/ai_review) → the same line, plus a
+ *        follow-up into its session, at most once per trunkFollowUpHours.
+ *    Appends never consume the daily cap.
+ *  - CAPPED: at most maxTrunkCardsPerDay (default 3) auto-CREATED cards per repo per
+ *    rolling day; only rows that created a card count (appended rows are stamped with
+ *    the reused card id but check_class='trunk-append', so they are excluded).
+ *    Beyond the cap we log + drop — the dedupe row stays so the same sha never
+ *    re-fires later.
  * Never throws (caller wraps, but each write is also individually best-effort).
  */
 function handleTrunkFailure(
@@ -630,11 +779,15 @@ function handleTrunkFailure(
     return { handled: false, reason: 'trunk-duplicate', checkName: classified.checkName }
   }
 
+  const open = findOpenTrunkCard(deps.db, { ...classified, repoFullName: repo }, branch)
+  if (open) return appendToOpenTrunkCard(deps, classified, repo, branch, open, env)
+
   const cap = maxTrunkCardsPerDay(env)
   const created = deps.db
     .prepare(
       `SELECT COUNT(*) AS n FROM external_check_remediations
         WHERE repo = ? AND pr_number = 0 AND objective_id > 0
+          AND (check_class IS NULL OR check_class != 'trunk-append')
           AND created_at >= datetime('now', '-1 day')`,
     )
     .get(repo) as { n: number }
@@ -660,6 +813,74 @@ function handleTrunkFailure(
     `[external-remediation] trunk failure on ${repo} ${branch} (${classified.checkName}) → created objective ${newId}`,
   )
   return { handled: true, reason: 'trunk-card-created', objectiveId: newId, checkName: classified.checkName }
+}
+
+const TRUNK_ACTIVE_STATUSES = new Set(['working', 'review', 'ai_review'])
+
+function appendToOpenTrunkCard(
+  deps: RemediationDeps,
+  classified: ClassifiedCheck,
+  repo: string,
+  branch: string,
+  open: Objective,
+  env: NodeJS.ProcessEnv,
+): RemediationResult {
+  const appended = appendTrunkFailureLine(deps.db, open.id, classified)
+
+  // A card someone is already working gets told, rate-limited. `escalated = 1` on a
+  // trunk-append row marks "this row sent the follow-up" — the window is measured from it.
+  let followedUp = false
+  if (TRUNK_ACTIVE_STATUSES.has(open.status)) {
+    const hours = trunkFollowUpHours(env)
+    const recent = deps.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM external_check_remediations
+          WHERE objective_id = ? AND pr_number = 0 AND check_class = 'trunk-append' AND escalated = 1
+            AND created_at >= datetime('now', ?)`,
+      )
+      .get(open.id, `-${hours} hours`) as { n: number }
+    if ((recent?.n || 0) === 0) {
+      const note = [
+        `## Trunk check still failing — ${classified.checkName} on ${repo} ${branch}`,
+        ``,
+        `A newer commit \`${classified.headSha || '(unknown)'}\` failed the same check (${classified.outcome}).`,
+        classified.targetUrl ? `Details: ${classified.targetUrl}` : ``,
+        `This card already owns the failure — no new card was filed. Fold it into your fix;`,
+        `further repeats are rate-limited to one message per ${hours}h and logged in the description.`,
+      ].filter((l) => l !== ``).join('\n')
+      try {
+        const sessionId = resolveFollowUpSessionId(deps.db, { id: open.id, session_id: open.session_id ?? null })
+        const newSessionId = deps.sendFollowUp(sessionId, note, open)
+        deps.db
+          .prepare("UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?")
+          .run(newSessionId, open.id)
+        followedUp = true
+      } catch (err) {
+        console.warn(`[external-remediation] trunk follow-up to obj ${open.id} failed:`, (err as Error).message)
+      }
+    }
+  }
+
+  try {
+    deps.db
+      .prepare(
+        `UPDATE external_check_remediations SET objective_id = ?, check_class = 'trunk-append', escalated = ?
+          WHERE repo = ? AND pr_number = 0 AND check_name = ? AND head_sha = ?`,
+      )
+      .run(open.id, followedUp ? 1 : 0, repo, classified.checkName, classified.headSha)
+  } catch { /* bookkeeping only */ }
+
+  if (appended || followedUp) {
+    try {
+      const updated = deps.db.prepare('SELECT * FROM objectives WHERE id = ?').get(open.id) as Objective | undefined
+      if (updated) deps.broadcast({ type: 'objective_updated', payload: updated })
+    } catch { /* broadcast is best-effort */ }
+  }
+
+  console.log(
+    `[external-remediation] trunk-appended repo=${repo} branch=${branch} check=${classified.checkName} objective=${open.id} status=${open.status}${followedUp ? ' followup=sent' : ''}`,
+  )
+  return { handled: true, reason: 'trunk-appended', objectiveId: open.id, checkName: classified.checkName }
 }
 
 /** Attempts CONSUMED by remediable work only (obj 704698, gap A). Rows stamped with a

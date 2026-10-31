@@ -8,7 +8,7 @@ import { Router } from 'express'
 import type { Request, Response } from 'express'
 import crypto from 'crypto'
 import { collectFromMergedPR, type MergedPRPayload } from '../services/changelog.js'
-import { enqueuePreviewTeardown, kickHostDrain } from '../services/preview-spool.js'
+import { enqueuePreviewDeploy, enqueuePreviewTeardown, kickHostDrain } from '../services/preview-spool.js'
 import { handleExternalCheckEvent } from '../services/external-remediation-act.js'
 import { autoLinkPullRequest } from '../services/external-remediation-resolve.js'
 import { markPRStateByRepoAndNumber } from '../services/objective-prs.js'
@@ -24,7 +24,7 @@ import {
   devRef,
   type DevRef,
 } from '../services/dev-items.js'
-import { isAutoDeployEnabled, shouldAutoDeploy, triggerAutoDeploy } from '../services/auto-deploy.js'
+import { isAutoDeployEnabled, shouldAutoDeploy, triggerAutoDeploy, SELF_REPO } from '../services/auto-deploy.js'
 import { getDb } from '../db/index.js'
 import { sendFollowUp } from '../services/session-manager.js'
 import { broadcast } from '../ws/index.js'
@@ -216,15 +216,46 @@ router.post('/', (req: Request, res: Response) => {
     // conflicting existing link is logged, never overwritten. Best-effort — a link
     // failure must never fail the webhook.
     if ((payload.action === 'opened' || payload.action === 'reopened' || payload.action === 'synchronize') && pr) {
+      let autoLinkedObjectiveId: number | undefined
       try {
-        autoLinkPullRequest(getDb(), {
+        const linkResult = autoLinkPullRequest(getDb(), {
           repoFullName: payload.repository?.full_name || '',
           prNumber: Number(payload.number || 0),
           prUrl: pr.html_url || null,
           branch: pr.head?.ref || null,
         })
+        autoLinkedObjectiveId = linkResult.objectiveId
       } catch (e) {
         console.warn('[github-webhook] PR auto-link failed:', (e as Error).message)
+      }
+
+      // Auto-provision the PR preview on opened/reopened (obj 719327, closing
+      // the gap flagged 2026-08-14: enqueuePreviewDeploy's ONLY other caller is
+      // POST /api/internal/pr-created, which a worker that opens its PR with
+      // plain `gh pr create` never hits — that PR's pr-N.cc.example.com URL
+      // then NEVER points at anything, and a reviewer's TLS probe against it
+      // reads as a platform-wide outage instead of "nobody provisioned this
+      // one". This is the webhook-side fallback so provisioning no longer
+      // depends on the worker remembering to call pr-created. Scoped to this
+      // repo ONLY — preview-deploy.sh does `git fetch origin <branch>` inside
+      // THIS repo's checkout, so enqueuing a deploy for any other org repo's
+      // PR fails every time with exit 128 and litters `.failed/` with dead
+      // jobs (documented 2026-08-14). Deliberately excludes `synchronize`
+      // (fires on every push) to avoid a full rebuild+redeploy per commit —
+      // the initial deploy already builds the branch HEAD at open time, and a
+      // preview going stale after further pushes is a separate, pre-existing
+      // gap, not one this fix needs to close.
+      if (
+        (payload.action === 'opened' || payload.action === 'reopened') &&
+        repoFullName === SELF_REPO
+      ) {
+        try {
+          const prNumber = Number(payload.number || 0)
+          const branch = pr.head?.ref || null
+          if (enqueuePreviewDeploy(prNumber, branch, autoLinkedObjectiveId)) kickHostDrain()
+        } catch (e) {
+          console.warn('[github-webhook] preview auto-provision failed:', (e as Error).message)
+        }
       }
 
       // Universal Development linkage (api.md §6.2). Independent of the

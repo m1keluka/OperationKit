@@ -7,26 +7,36 @@
  * runtime-safe: these functions run after module init (same pattern as session-death).
  */
 import fs from 'fs'
+import { redactForStorage } from './secret-redaction.js'
 import path from 'path'
-import type { Objective } from '@operationkit/shared'
+import type { MessageSender, Objective } from '@operationkit/shared'
+import { stampForSession, systemSender } from '../lib/message-provenance.js'
+import { VERIFIED_SENDER_FLAG, readSettingFlag } from '../lib/session-trust.js'
 import { getDb } from '../db/index.js'
 import {
-  pickAccount,
   recordSessionStart,
   enqueueSession,
   getAccountForSession,
   getRouterStatus,
+  chooseFollowUpAccount,
+  getAccountById,
+  seatCount,
+  type AccountSlot,
 } from './account-router.js'
 import { TRANSCRIPT_DIR } from '../config.js'
 import { assembleFlattenedFollowUpPrompt, buildPrompt, resolveWorkdir, buildObjectiveHistory } from './prompt-builder.js'
 import { acquireBranchLease } from './branch-lease.js'
 import { acquireSessionLeasesForSpawn } from './session-lease.js'
+import { claimObjectiveSession } from './objective-session-claim.js'
+import { logSessionStart } from './session-start-reasons.js'
+import { isSessionActive } from './session-control.js'
 import { deriveBranchName, deriveWorktreeBranchName } from './branch-scope.js'
 import { spawnInTmux } from './session-tmux.js'
 import { extractClaudeSessionId } from './session-jsonl.js'
 import { getModelEngine } from './model-registry.js'
 import { buildSpawnEnv } from './session-spawn-env.js'
-import { codexAuthAvailable, CODEX_ACCOUNT_ID, CODEX_HOME_DIR, grokAuthAvailable, GROK_ACCOUNT_ID, GROK_HOME_DIR } from './session-spawn-command.js'
+import { seatKind } from './seat-pool.js'
+import { recordSessionSeat, seatSignIn } from './seat-assign.js'
 import { buildPlannerPrompt } from './session-planner-prompt.js'
 import {
   type ActiveSession,
@@ -101,20 +111,45 @@ function claudeConversationExists(homeDir: string, claudeSessionId: string, work
 }
 
 /** Persist a follow-up into the session jsonl so the thread can show it immediately. */
-export function recordFollowUpInJsonl(sessionId: string, message: string, jsonlPath?: string): void {
+export function recordFollowUpInJsonl(sessionId: string, message: string, jsonlPath?: string, sender?: MessageSender): void {
   const file = jsonlPath || path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
-  const followupEvent = JSON.stringify({ type: 'followup', text: message, timestamp: new Date().toISOString() })
+  // obj 715532: a credential pasted into the chat is stored as [REDACTED:<NAME>].
+  // obj 718944: `sender` is the server-derived provenance, never parsed from text.
+  const followupEvent = JSON.stringify({
+    type: 'followup',
+    text: redactForStorage(message).text,
+    timestamp: new Date().toISOString(),
+    ...(sender ? { sender } : {}),
+  })
   fs.appendFileSync(file, followupEvent + '\n')
   try { fs.chmodSync(file, 0o666) } catch {}
+}
+
+const WORKER_SESSION_ID = /^cc-\d+-\d+$/
+
+/**
+ * obj 718944 — the text a session actually receives for a follow-up. With
+ * settings.verified_sender_stamps on: server stamp on line 1, body neutralised;
+ * a caller that passed no sender reads as SYSTEM, never as the owner. Off: the
+ * message unchanged.
+ */
+export function followUpSessionText(message: string, sender?: MessageSender): string {
+  return readSettingFlag(VERIFIED_SENDER_FLAG)
+    ? stampForSession(sender ?? systemSender('Command Center (unattributed)'), message)
+    : message
 }
 
 export function sendFollowUp(
   sessionId: string,
   message: string,
   objective: Objective,
-  opts?: { skipJsonl?: boolean },
+  opts?: { skipJsonl?: boolean; sender?: MessageSender },
 ): string {
   const session = activeSessions.get(sessionId)
+  // obj 718944: what the SESSION reads. With verified_sender_stamps on, every
+  // follow-up carries the server stamp on line 1 (unattributed callers read as
+  // SYSTEM, never as the owner); the jsonl keeps the raw body + `sender`.
+  const sessionText = followUpSessionText(message, opts?.sender)
 
   // If the process is still alive and has stdin, send via bidirectional stream-json
   if (session?.stdin && session.process && !session.process.killed) {
@@ -124,12 +159,12 @@ export function sendFollowUp(
 
       // Log the follow-up
       fs.appendFileSync(session.logPath, `\n\n--- Follow-up (via stdin): ${message.slice(0, 200)} ---\n\n`)
-      if (!opts?.skipJsonl) recordFollowUpInJsonl(sessionId, message, session.jsonlPath)
+      if (!opts?.skipJsonl) recordFollowUpInJsonl(sessionId, message, session.jsonlPath, opts?.sender)
 
       // Send via stdin — same process, same context, true multi-turn
       const stdinMessage = JSON.stringify({
         type: 'user',
-        message: { role: 'user', content: [{ type: 'text', text: message }] },
+        message: { role: 'user', content: [{ type: 'text', text: sessionText }] },
       }) + '\n'
       session.stdin.write(stdinMessage)
 
@@ -149,6 +184,22 @@ export function sendFollowUp(
   const jsonlPath = session?.jsonlPath || path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
   const isPlannerSession = sessionId.startsWith('cc-plan-')
 
+  // obj 715699 — one live session per card. The respawn path used to take no lease,
+  // so a follow-up addressed to an older worker session id while a NEWER session of
+  // the same card was live spawned a second worker (and the predecessor reaper then
+  // killed the live one, losing its work). Claim the card's identity lease; if
+  // another session of this card is live, ATTACH: redirect the follow-up to it.
+  // Worker-shaped ids only (`cc-<id>-<ts>`) — planners, reviewers and arena variants
+  // are separate session kinds and never hold the identity lease.
+  if (WORKER_SESSION_ID.test(sessionId)) {
+    const claim = claimObjectiveSession(getDb(), objective.id, sessionId, isSessionActive)
+    if (claim.outcome === 'attach') {
+      console.warn(`[session-claim][attach] Follow-up for ${sessionId} redirected to live session ${claim.sessionId} (objective ${objective.id}).`)
+      logSessionStart(getDb(), { objectiveId: objective.id, sessionId: claim.sessionId, kind: 'attach' })
+      return sendFollowUp(claim.sessionId, message, { ...objective, session_id: claim.sessionId }, opts)
+    }
+  }
+
   // ── Native resume lookup ──
   // Prefer `claude --resume <claude_session_id>` over rebuilding context from
   // flattened objective history. The CLI transcript lives in the owning
@@ -156,8 +207,6 @@ export function sendFollowUp(
   // unavailable (or no claude_session_id was ever captured) we fall back to
   // the legacy history-flattening respawn below.
   const engine = getModelEngine(objective.model)
-  const isCodex = engine === 'codex'
-  const isGrok = engine === 'grok'
   let runtimeRow: { claude_session_id: string | null; account_id: string | null } | undefined
   try {
     runtimeRow = getDb()
@@ -193,104 +242,72 @@ export function sendFollowUp(
   }
 
   fs.appendFileSync(logPath, `\n\n--- Follow-up (new process): ${message.slice(0, 200)} ---\n\n`)
-  if (!opts?.skipJsonl) recordFollowUpInJsonl(sessionId, message, jsonlPath)
+  if (!opts?.skipJsonl) recordFollowUpInJsonl(sessionId, message, jsonlPath, opts?.sender)
   try { fs.chmodSync(logPath, 0o666) } catch {}
 
-  // Pick account — try to reuse existing, but rotate if it's rate-limited.
-  // Codex sessions are pinned to the dedicated codex home and never rotate.
+  // Seat pool v2: stay on the session's seat while it is healthy; re-pick on
+  // the same engine when it is now parked / disabled / out of credits /
+  // cooling down. A follow-up never crosses engines (the resumable CLI
+  // transcript is engine-specific); with no healthy seat it queues.
   const existingAccount = session?.accountId ? getAccountForSession(sessionId) : null
-  let accountId = isGrok ? GROK_ACCOUNT_ID : isCodex ? CODEX_ACCOUNT_ID : (existingAccount?.id || session?.accountId || null)
-  let homeDir = isGrok ? GROK_HOME_DIR : isCodex ? CODEX_HOME_DIR : (existingAccount?.homeDir || '/home/ccuser-a')
+  let accountId: string | null = existingAccount?.id || session?.accountId || runtimeRow?.account_id || null
+  let seat: AccountSlot | null = null
 
-  // Resume pinning: the claude transcript only exists in the original
-  // account's HOME, so resume requires that exact account to be available.
+  // Resume pinning: the CLI transcript only exists in the original seat's
+  // HOME, so resume requires that exact seat to be available.
   let resumeSessionId: string | undefined
-  if (claudeSessionId && isGrok) {
-    if (grokAuthAvailable()) {
-      resumeSessionId = claudeSessionId
-      console.log(`[session-manager] Follow-up ${sessionId} resuming grok session ${claudeSessionId}`)
-    } else {
-      console.log(`[session-manager] Follow-up ${sessionId}: grok auth missing — falling back to history-flattening respawn`)
-    }
-  } else if (claudeSessionId && isCodex) {
-    // Codex isn't in the account router — no pinning/availability check needed.
-    // The thread transcript lives in the dedicated codex HOME, which is always
-    // the spawn target for codex sessions.
-    if (codexAuthAvailable()) {
-      resumeSessionId = claudeSessionId
-      console.log(`[session-manager] Follow-up ${sessionId} resuming codex thread ${claudeSessionId}`)
-    } else {
-      console.log(`[session-manager] Follow-up ${sessionId}: codex auth missing — falling back to history-flattening respawn`)
-    }
-  } else if (claudeSessionId) {
+  if (claudeSessionId) {
     const pinnedId = runtimeRow?.account_id || accountId
-    const pinned = pinnedId ? getRouterStatus().accounts.find(a => a.id === pinnedId) : undefined
-    if (!pinned?.available) {
-      console.log(`[session-manager] Follow-up ${sessionId}: resume account ${pinnedId || 'unknown'} unavailable — falling back to history-flattening respawn`)
-    } else if (!claudeConversationExists(pinned.homeDir, claudeSessionId, workdir)) {
+    const pinned = pinnedId ? getAccountById(pinnedId) : null
+    const pinnedAvailable = !!pinned && seatKind(pinned) === engine &&
+      !!getRouterStatus().accounts.find(a => a.id === pinned.id)?.available
+    if (!pinned || !pinnedAvailable) {
+      console.log(`[session-manager] Follow-up ${sessionId}: resume seat ${pinnedId || 'unknown'} unavailable — falling back to history-flattening respawn`)
+    } else if (engine === 'claude' && !claudeConversationExists(pinned.homeDir, claudeSessionId, workdir)) {
       // No resumable transcript for this workdir: either the CLI never
       // persisted it (e.g. instant 429 exit) or it lives under a different
       // cwd's project dir than the one we'll launch from. Either way resuming
       // would die with "No conversation found".
-      console.log(`[session-manager] Follow-up ${sessionId}: claude session ${claudeSessionId} has no resumable transcript for ${workdir} in ${pinned.homeDir} — falling back to history-flattening respawn`)
+      console.log(`[session-manager] Follow-up ${sessionId}: claude session ${claudeSessionId} has no resumable transcript for ${workdir} in seat ${pinned.id} — falling back to history-flattening respawn`)
     } else {
       resumeSessionId = claudeSessionId
-      accountId = pinned.id
-      homeDir = pinned.homeDir
+      seat = pinned
       recordSessionStart(pinned.id, sessionId)
-      console.log(`[session-manager] Follow-up ${sessionId} resuming claude session ${claudeSessionId} on account ${pinned.id}`)
+      console.log(`[session-manager] Follow-up ${sessionId} resuming ${engine} session ${claudeSessionId} on seat ${pinned.id}`)
     }
   }
 
-  if (!resumeSessionId) {
-    // Grok / Codex are pinned engines — never rotate onto a Claude OAuth slot.
-    if (isGrok) {
-      if (!grokAuthAvailable()) {
-        throw new Error(`Grok SuperGrok is not connected. Open System Dashboard → Grok → Connect and sign in with your grok.com subscription.`)
+  if (!seat) {
+    const choice = chooseFollowUpAccount(accountId, undefined, engine)
+    if (!choice.account) {
+      if (engine !== 'claude' && seatCount(engine) === 0) {
+        throw new Error(`No ${engine === 'codex' ? 'Codex' : 'Grok'} seat is connected. Add one in Settings → Seats.`)
       }
-    } else if (isCodex) {
-      if (!codexAuthAvailable()) {
-        throw new Error(`Codex auth missing: ${CODEX_HOME_DIR}/.codex/auth.json not found.`)
-      }
-    } else if (accountId) {
-      // Check if existing account is rate-limited — if so, pick a fresh one
-      const status = getRouterStatus()
-      const acct = status.accounts.find(a => a.id === accountId)
-      if (acct && !acct.available) {
-        console.log(`[session-manager] Account ${accountId} is rate-limited for follow-up ${sessionId}, rotating`)
-        const fresh = pickAccount()
-        if (fresh) {
-          accountId = fresh.id
-          homeDir = fresh.homeDir
-          recordSessionStart(fresh.id, sessionId)
-        } else {
-          console.log(`[session-manager] All accounts exhausted for follow-up ${sessionId}, enqueueing`)
-          enqueueSession(objective.id)
-          return sessionId
-        }
-      }
+      console.log(`[session-manager] No healthy ${engine} seat for follow-up ${sessionId} (original ${accountId || 'none'}), enqueueing`)
+      enqueueSession(objective.id)
+      return sessionId
     }
-
-    if (!isGrok && !isCodex && !accountId) {
-      const account = pickAccount()
-      if (account) {
-        accountId = account.id
-        homeDir = account.homeDir
-        recordSessionStart(account.id, sessionId)
-      }
+    if (choice.rerouted) {
+      console.log(`[session-manager] Seat ${accountId} is ${choice.parkedReason ? `parked (${choice.parkedReason})` : 'unavailable'} for follow-up ${sessionId}, re-picked ${choice.account.id}`)
     }
+    if (choice.account.id !== accountId || choice.rerouted) recordSessionStart(choice.account.id, sessionId)
+    seat = choice.account
   }
+  accountId = seat.id
+  const homeDir = seat.homeDir
+  const signIn = seatSignIn(seat)
+  recordSessionSeat(sessionId, seat.id)
 
   // Resume passes ONLY the follow-up text — the CLI restores prior context
   // natively. The flattened-history prompt is the no-claude_session_id fallback.
   // Flatten must NOT re-append buildContext: buildPrompt already includes it,
   // and extractObjectiveTurns skips the original spawn-prompt event so the
   // reconstructed basePrompt is not doubled inside <prior_conversation>.
-  let prompt = message
+  let prompt = sessionText
   if (!resumeSessionId) {
     const priorHistory = buildObjectiveHistory(objective.id)
     const basePrompt = isPlannerSession ? buildPlannerPrompt(objective) : buildPrompt(objective)
-    prompt = assembleFlattenedFollowUpPrompt(basePrompt, priorHistory, message)
+    prompt = assembleFlattenedFollowUpPrompt(basePrompt, priorHistory, sessionText)
   }
 
   ensureUser()
@@ -318,6 +335,8 @@ export function sendFollowUp(
     settingsPath: hookSettingsPath,
     worktreeRoot,
     env: buildSpawnEnv({ objective, homeDir, sessionKind: 'followup' }),
+    seatEnv: signIn.env,
+    seatMount: signIn.mount,
   })
 
   const newSession: ActiveSession = {
@@ -330,6 +349,7 @@ export function sendFollowUp(
     requestedModel: objective.model || undefined,
   }
   registerActiveSession(sessionId, newSession)
+  logSessionStart(getDb(), { objectiveId: objective.id, sessionId, kind: 'resume' })
 
   return sessionId
 }

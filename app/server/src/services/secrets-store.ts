@@ -26,12 +26,14 @@
  */
 import { getDb } from '../db/index.js'
 import { encryptSecret, decryptSecret } from './secrets-crypto.js'
+import { invalidateSecretRegistry } from './secret-redaction.js'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type SecretScopeType = 'global' | 'workspace' | 'user' | 'workspace_user'
 
-export type SecretAction = 'create' | 'update' | 'delete' | 'read' | 'inject' | 'rollback'
+/** `use` = injected server-side by the secrets broker (obj 715532); never revealed. */
+export type SecretAction = 'create' | 'update' | 'delete' | 'read' | 'inject' | 'rollback' | 'use'
 
 /**
  * Addresses a single scope bucket. `workspace` is required for `workspace` and
@@ -63,6 +65,8 @@ export interface SecretVersionSummary {
   version: number
   changedBy: number | null
   changedAt: string
+  /** obj 719065: relay provenance for this version (null = Settings / owner UI). */
+  via: string | null
 }
 
 interface SecretRow {
@@ -77,6 +81,17 @@ interface SecretRow {
   updated_by: number | null
   created_at: string
   updated_at: string
+}
+
+/**
+ * Seat credentials (seat pool v2) live in this store under this reserved key
+ * prefix. They are handed ONLY to the one session assigned to that seat
+ * (seat-credentials.ts), so the bulk resolvers below never inject them into
+ * every session's env, and boot never hydrates them into process.env.
+ */
+export const SEAT_SECRET_PREFIX = 'CC_SEAT_'
+export function isSeatSecretKey(key: string): boolean {
+  return key.startsWith(SEAT_SECRET_PREFIX)
 }
 
 const WS_SENTINEL = ''
@@ -163,6 +178,10 @@ export function logAccess(
   scope: string,
   key: string,
 ): void {
+  // Any value change must reach the redactor before the next text leaves the server.
+  if (action === 'create' || action === 'update' || action === 'delete' || action === 'rollback') {
+    invalidateSecretRegistry()
+  }
   try {
     getDb()
       .prepare(
@@ -189,6 +208,8 @@ export interface SetSecretInput {
   key: string
   value: string
   actorUserId?: number | null
+  /** obj 719065: recorded on the version row so History shows who relayed it. Never a value. */
+  via?: string | null
 }
 
 /**
@@ -202,6 +223,7 @@ export function setSecret(input: SetSecretInput): SecretSummary {
   if (!key || !key.trim()) throw new Error('secrets: key is required')
   const n = normalizeScope(input.scope)
   const actor = input.actorUserId ?? null
+  const via = input.via ?? null
   const encrypted = encryptSecret(value)
   const db = getDb()
 
@@ -217,9 +239,9 @@ export function setSecret(input: SetSecretInput): SecretSummary {
          WHERE id = ?`,
       ).run(encrypted, nextVersion, actor, existing.id)
       db.prepare(
-        `INSERT INTO secret_versions (secret_id, version, value_encrypted, changed_by)
-         VALUES (?, ?, ?, ?)`,
-      ).run(existing.id, nextVersion, encrypted, actor)
+        `INSERT INTO secret_versions (secret_id, version, value_encrypted, changed_by, via)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(existing.id, nextVersion, encrypted, actor, via)
       row = findRow(n, key)!
       action = 'update'
     } else {
@@ -231,9 +253,9 @@ export function setSecret(input: SetSecretInput): SecretSummary {
         .run(n.scopeType, n.workspace, n.userId, key, encrypted, actor, actor)
       const id = Number(info.lastInsertRowid)
       db.prepare(
-        `INSERT INTO secret_versions (secret_id, version, value_encrypted, changed_by)
-         VALUES (?, 1, ?, ?)`,
-      ).run(id, encrypted, actor)
+        `INSERT INTO secret_versions (secret_id, version, value_encrypted, changed_by, via)
+         VALUES (?, 1, ?, ?, ?)`,
+      ).run(id, encrypted, actor, via)
       row = db.prepare(`SELECT * FROM secrets WHERE id = ?`).get(id) as SecretRow
       action = 'create'
     }
@@ -361,10 +383,10 @@ export function listVersions(scope: SecretScope, key: string): SecretVersionSumm
   if (!row) return []
   const rows = getDb()
     .prepare(
-      `SELECT version, changed_by, changed_at FROM secret_versions WHERE secret_id = ? ORDER BY version DESC`,
+      `SELECT version, changed_by, changed_at, via FROM secret_versions WHERE secret_id = ? ORDER BY version DESC`,
     )
-    .all(row.id) as { version: number; changed_by: number | null; changed_at: string }[]
-  return rows.map(r => ({ version: r.version, changedBy: r.changed_by, changedAt: r.changed_at }))
+    .all(row.id) as { version: number; changed_by: number | null; changed_at: string; via: string | null }[]
+  return rows.map(r => ({ version: r.version, changedBy: r.changed_by, changedAt: r.changed_at, via: r.via ?? null }))
 }
 
 /**
@@ -463,6 +485,7 @@ export function resolveSecrets(opts: ResolveOptions = {}): Record<string, string
 
   const winners = new Map<string, SecretRow>()
   for (const r of applicable) {
+    if (isSeatSecretKey(r.key)) continue
     const cur = winners.get(r.key)
     if (!cur || PRECEDENCE[r.scope_type] >= PRECEDENCE[cur.scope_type]) {
       winners.set(r.key, r)
@@ -477,6 +500,27 @@ export function resolveSecrets(opts: ResolveOptions = {}): Record<string, string
     }
   }
   return out
+}
+
+/**
+ * NAMES ONLY of the effective secret set `resolveSecrets` would inject for this
+ * (workspace, user) — same buckets, no decryption, no audit row (obj 718944).
+ * Used to tell a session which names it already holds; never returns a value.
+ */
+export function resolveSecretNames(opts: { workspace?: string | null; userId?: number | null } = {}): string[] {
+  const ws = opts.workspace ?? null
+  const uid = opts.userId ?? null
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT key FROM secrets WHERE
+         (scope_type = 'global')
+         OR (scope_type = 'workspace' AND workspace = @ws AND @hasWs = 1)
+         OR (scope_type = 'user' AND user_id = @uid AND @hasUid = 1)
+         OR (scope_type = 'workspace_user' AND workspace = @ws AND user_id = @uid AND @hasWs = 1 AND @hasUid = 1)
+       ORDER BY key`,
+    )
+    .all({ ws: ws ?? WS_SENTINEL, uid: uid ?? USER_SENTINEL, hasWs: ws == null ? 0 : 1, hasUid: uid == null ? 0 : 1 }) as { key: string }[]
+  return rows.map(r => r.key).filter(k => !isSeatSecretKey(k))
 }
 
 /**

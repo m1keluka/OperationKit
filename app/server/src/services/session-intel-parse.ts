@@ -6,6 +6,7 @@
  */
 import fs from 'fs'
 import { easternDayKey } from '../lib/eastern-day.js'
+import { ResultCostTracker } from './result-cost.js'
 
 export interface DeterministicIntel {
   filesCreated: string[]
@@ -36,6 +37,12 @@ export interface DeterministicIntel {
    * ("session_intel fabricates … when a session is 429-TRUNCATED").
    */
   truncatedByUsageLimit: boolean
+  /**
+   * Text of the LAST successful (non-error) `result` event — the worker's own
+   * closing message. Fallback for last_session_summary when the LLM summary
+   * fails (obj 712954). Optional so hand-built intel literals stay valid.
+   */
+  finalResultText?: string
 }
 
 // ── Deterministic Parser (Phase A — $0 cost) ──
@@ -52,6 +59,7 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
   let exitCode: number | null = null
   let totalTokens = 0
   let totalCost = 0
+  const costTracker = new ResultCostTracker()
   let startedAt = ''
   let endedAt = ''
   let durationMs = 0
@@ -60,6 +68,7 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
   // terminal turn only — a transient 429 mid-run that later recovered to a
   // clean result must NOT flag the session as truncated.
   let truncatedByUsageLimit = false
+  let finalResultText = ''
   const modelUsage: Record<string, { tokens: number; cost_usd: number }> = {}
   // Per-turn cost/tokens bucketed by the Eastern day of the turn's timestamp.
   const daily = new Map<string, { cost_usd: number; tokens: number }>()
@@ -160,10 +169,25 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
       const text = (event.text || event.error || '') as string
       if (text) errors.push(text.slice(0, 500))
     }
+    // obj 716791: an errored TERMINAL result (e.g. the CLI's pre-API-call
+    // "Failed to authenticate: OAuth session expired and could not be
+    // refreshed" exit, `is_error:true` with `api_error_status:null`) carries
+    // its text on `result`/`error`, not as a `type:'error'` event, so the
+    // check above never saw it — callers that need to tell an auth-failure
+    // no-op apart from a generic no-op (poller-loop's noop_respawn guard) had
+    // no signal to act on. Captured into the same `errors` array so no new
+    // field is needed downstream.
+    if (event.type === 'result' && event.is_error === true) {
+      const text = (event.result || event.error || '') as string
+      if (text) errors.push(text.slice(0, 500))
+    }
 
-    // Sum across all `result` events. Stream-json emits one per agent turn,
-    // each carrying that turn's own usage/cost — they are NOT cumulative.
-    if (event.type === 'result') {
+    // One `result` per agent turn. `usage` is the turn's own tokens, but
+    // `total_cost_usd` / `modelUsage` are cumulative per Claude session, so
+    // each result contributes only its own share (obj 712954 — see
+    // ResultCostTracker). A duplicated result uuid contributes nothing.
+    const costShare = event.type === 'result' ? costTracker.take(event) : null
+    if (event.type === 'result' && costShare) {
       exitCode = event.subtype === 'error' ? 1 : 0
 
       // A Claude API 429 kills the run mid-stream and hands the summarizer a
@@ -171,6 +195,9 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
       // instead of inventing a content reason. Assigned (not OR-ed) each
       // result event so only the TERMINAL turn's status survives.
       const resultText = String((event.result as string) ?? (event.error as string) ?? '')
+      if (event.is_error !== true && event.subtype === 'success' && typeof event.result === 'string' && event.result.trim()) {
+        finalResultText = event.result
+      }
       truncatedByUsageLimit =
         event.api_error_status === 429 ||
         /hit your (session|usage) limit|monthly spend limit|resets \d/i.test(resultText)
@@ -181,7 +208,7 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
         ((usage.output_tokens as number) || 0) +
         ((usage.cache_read_input_tokens as number) || 0) +
         ((usage.cache_creation_input_tokens as number) || 0)
-      const turnCost = (event.total_cost_usd as number) || 0
+      const turnCost = costShare.cost
       totalTokens += turnTokens
       totalCost += turnCost
       durationMs = (event.duration_ms as number) || 0
@@ -190,16 +217,12 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
       // event (result events carry no timestamp; user/followup/prompt do).
       const day = easternDayKey(lastTs || startedAt || new Date())
 
-      // Per-model breakdown — same per-turn semantics as usage/total_cost_usd.
-      const mu = event.modelUsage as Record<string, Record<string, unknown>> | undefined
-      if (mu && Object.keys(mu).length > 0) {
+      // Per-model breakdown — this result's own share of the cumulative modelUsage.
+      const mu = costShare.models
+      if (Object.keys(mu).length > 0) {
         for (const [model, u] of Object.entries(mu)) {
-          const mTokens =
-            ((u.inputTokens as number) || 0) +
-            ((u.outputTokens as number) || 0) +
-            ((u.cacheReadInputTokens as number) || 0) +
-            ((u.cacheCreationInputTokens as number) || 0)
-          const mCost = (u.costUSD as number) || 0
+          const mTokens = u.tokens
+          const mCost = u.cost_usd
           const agg = modelUsage[model] ?? { tokens: 0, cost_usd: 0 }
           agg.tokens += mTokens
           agg.cost_usd += mCost
@@ -266,6 +289,7 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
       return { day: k.slice(0, sp), model: k.slice(sp + 1), cost_usd: v.cost_usd, tokens: v.tokens }
     }),
     truncatedByUsageLimit,
+    finalResultText,
   }
 }
 

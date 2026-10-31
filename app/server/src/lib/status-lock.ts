@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3'
+import { scheduleObjectiveWorktreeReap } from '../services/worktree-reaper.js'
 
 /** Statuses a machine must never overwrite. Human (or explicit reopen) only. */
 export const LOCKED_STATUSES = new Set(['done', 'cancelled'])
@@ -41,5 +42,18 @@ export function runMachineStatusUpdate(
   if (guarded === sql && !/status NOT IN\s*\(\s*'done'/i.test(sql)) {
     throw new Error('runMachineStatusUpdate: SQL must include WHERE id = ?')
   }
-  return db.prepare(guarded).run(...params)
+  const result = db.prepare(guarded).run(...params)
+  // Central hook for machine writes INTO done/cancelled (poller worker-end apply,
+  // AI-review verdicts, …): reap the card's worktree (obj 718070). Deferred and
+  // re-gated inside the reaper, so a false positive here is harmless.
+  if (result.changes > 0 && targetsTerminalStatus(sql, params)) scheduleObjectiveWorktreeReap(id, { db })
+  return result
+}
+
+/** Does this status UPDATE set status to done/cancelled (literal or bound)? */
+function targetsTerminalStatus(sql: string, params: unknown[]): boolean {
+  if (/SET\s+status\s*=\s*'(done|cancelled)'/i.test(sql)) return true
+  if (!/SET\s+status\s*=\s*\?/i.test(sql)) return false
+  // `status = ?` is the first SET placeholder in every caller.
+  return params[0] === 'done' || params[0] === 'cancelled'
 }

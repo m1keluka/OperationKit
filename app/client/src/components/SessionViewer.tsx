@@ -18,6 +18,8 @@ import {
 } from './session-viewer/types'
 import { ViewerHeader } from './session-viewer/ViewerHeader'
 import { CorrectionPanel } from './session-viewer/CorrectionPanel'
+import { NeedsSecretPanel } from './session-viewer/NeedsSecretPanel'
+import { useAuth } from '../context/AuthContext'
 import { BriefPanel } from './session-viewer/BriefPanel'
 import { ThreadPane } from './session-viewer/ThreadPane'
 import { Composer } from './session-viewer/Composer'
@@ -37,6 +39,13 @@ export function SessionViewer({
 }: SessionViewerProps) {
   const { labelOf: agentLabelOf } = useAgents()
   const [objective, setObjective] = useState(initialObjective)
+  const { user: authUser } = useAuth()
+  // obj 719065: a signed-in human who owns the card (or an admin) may type a
+  // secret in; the server re-checks (cookie only — never an agent key).
+  const canAddSecret = !!authUser && (authUser.role === 'admin' || objective.created_by === authUser.id)
+  const composerSecrets = canAddSecret
+    ? { objectiveId: objective.id, workspace: objective.workspace || 'example', pendingNames: (objective.needs_secret ?? []).map(n => n.name) }
+    : undefined
   // Sync if parent updates the objective (e.g. via WebSocket). MERGE rather than
   // replace: the board LIST is now slim (obj 700512) and omits heavy text fields
   // (description, approved_plan, ai_review_findings, last_session_summary), so a
@@ -500,6 +509,14 @@ export function SessionViewer({
         />
       )}
 
+      {/* obj 718944 — secrets the worker is blocked on; owner fills inline */}
+      <NeedsSecretPanel
+        objectiveId={objective.id}
+        workspace={objective.workspace || 'example'}
+        items={objective.needs_secret ?? []}
+        canFill={canAddSecret}
+      />
+
       {/* Objective Brief — collapsible */}
       {showBrief && (
         <BriefPanel objective={objective} reviews={reviews} prs={prs} />
@@ -544,6 +561,7 @@ export function SessionViewer({
               handleStop={handleStop}
               interrupting={interrupting}
               sending={sending}
+              secrets={composerSecrets}
             />
           </div>
         </div>
@@ -578,6 +596,7 @@ export function SessionViewer({
             handleStop={handleStop}
             interrupting={interrupting}
             sending={sending}
+            secrets={composerSecrets}
           />
         </>
       )}

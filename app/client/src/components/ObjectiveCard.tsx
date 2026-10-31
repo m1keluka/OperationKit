@@ -3,7 +3,7 @@ import { Pencil, ExternalLink, ShieldCheck, Clock, User as UserIcon, Folder, Bui
 import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import { STRATEGY_BADGE, ORIGIN_BADGES, isInFlightStatus } from '@operationkit/shared'
 import { relativeTime } from '../lib/time'
-import { getAgentMeta, AIReviewDots, BlockedFlag } from './design/primitives'
+import { getAgentMeta, AIReviewDots, BlockedFlag, NeedsSecretFlag } from './design/primitives'
 import { StatusGlyph } from './StatusGlyph'
 import { WorkerRollup } from './WorkerRollup'
 import { Button } from './ui'
@@ -108,6 +108,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
 
   const agent = getAgentMeta(objective.agent_context)
   const isBlocked = !!objective.has_blockers && !objective.session_id
+  const needsSecretNames = (objective.needs_secret ?? []).map(n => n.name)
   const aiIter = objective.ai_review_iteration ?? 0
   const showAIDots = (objective.status === 'ai_review' || aiIter > 0) && aiIter > 0
 
@@ -256,9 +257,13 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
             {!objective.is_strategy && objective.origin && ORIGIN_BADGES[objective.origin] && (
               <span
                 className={`rounded-full border px-1.5 py-px font-semibold tracking-[0.04em] ${ORIGIN_BADGES[objective.origin].cls}`}
-                title={ORIGIN_BADGES[objective.origin].description}
+                title={objective.agent_key_label
+                  ? `Created by ${objective.agent_key_label} (agent API key)`
+                  : ORIGIN_BADGES[objective.origin].description}
               >
-                {ORIGIN_BADGES[objective.origin].label}
+                {objective.origin === 'agent_api' && objective.agent_key_label
+                  ? objective.agent_key_label.toUpperCase()
+                  : ORIGIN_BADGES[objective.origin].label}
               </span>
             )}
             {/* Board Project chip (obj 710597): folder icon + project name.
@@ -360,8 +365,8 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
           />
         )}
 
-        {/* Footer — AI dots / blocked / orchestrating state */}
-        {(showAIDots || isBlocked || orchestrating) && (
+        {/* Footer — AI dots / blocked / needs-secret / orchestrating state */}
+        {(showAIDots || isBlocked || orchestrating || needsSecretNames.length > 0) && (
           <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
             {showAIDots && <AIReviewDots iteration={aiIter} verdict={objective.ai_review_verdict} />}
             {orchestrating && (
@@ -374,6 +379,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
               </span>
             )}
             {isBlocked && <BlockedFlag />}
+            {needsSecretNames.length > 0 && <NeedsSecretFlag names={needsSecretNames} />}
           </div>
         )}
       </div>

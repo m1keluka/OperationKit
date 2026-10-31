@@ -46,7 +46,8 @@ export function renderMarkdown(text: string): string {
   })
 
   // Escape HTML (after code blocks extracted)
-  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // Quotes too: link targets land inside href="…", and wiki/chat text is not trusted (obj 720117).
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
   // Headers — §07 prose hierarchy
   html = html.replace(/^#### (.+)$/gm, '<h4 class="text-xs font-semibold uppercase tracking-wider text-fg-2 mt-3 mb-1">$1</h4>')
@@ -97,7 +98,11 @@ export function renderMarkdown(text: string): string {
   html = html.replace(/\*([^*]+)\*/g, '<em class="text-fg-1">$1</em>')
 
   // Links [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">$1</a>')
+  // Only web, mail and relative targets become links — never javascript:/data: and the like.
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, text: string, href: string) =>
+    /^\s*[a-z][a-z0-9+.-]*:/i.test(href) && !/^\s*(https?|mailto):/i.test(href)
+      ? text
+      : `<a href="${href.trim()}" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">${text}</a>`)
 
   // Clickable markdown file paths — any .md under /home/operator/
   const docPathRe = /(?:\/home\/mike\/[\w./-]+\.md|~\/[\w./-]+\.md)/g

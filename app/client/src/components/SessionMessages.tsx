@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { SessionMessage } from '@operationkit/shared'
 import { renderMarkdown } from '../lib/markdown'
 import { cleanupOrphanMermaid, renderMermaidIn } from '../lib/mermaid'
-import { ObjectiveProposalCard } from './mentor/ObjectiveProposalCard'
+import { ObjectiveProposalCard } from './ObjectiveProposalCard'
+import { SenderTag } from './design/primitives'
 
 // ── Objective-proposal block splitter ──
 
@@ -42,7 +43,7 @@ interface CollapsibleDetailsProps {
   defaultExpanded?: boolean
   /** Optional status dot override (tool cards pass pending/success/error). When
    *  omitted, the colorScheme's static dot renders — preserving the existing
-   *  System/Thinking/Assistant/PlanningPanel appearance exactly. */
+   *  System/Thinking/PlanningPanel appearance exactly. */
   statusDot?: React.ReactNode
   /** Optional trailing meta (cost/duration) rendered before the chevron. */
   meta?: React.ReactNode
@@ -359,7 +360,7 @@ function ToolGroup({ tools }: { tools: SessionMessage[] }) {
   const summary = Object.entries(counts).map(([name, count]) => `${name} x${count}`).join(', ')
 
   // Example3-style status pills — derived with the SAME toolStatus() deriver the
-  // individual tool cards use (obj #239), so a card's dot and the group pill agree.
+  // individual tool cards use (obj 239), so a card's dot and the group pill agree.
   const errorCount = tools.filter(t => toolStatus(t) === 'error').length
   const pendingCount = tools.filter(t => toolStatus(t) === 'pending').length
 
@@ -538,10 +539,16 @@ export function GroupedMessages({ messages, initialCap = 100 }: GroupedMessagesP
         }
 
         if (msg.type === 'followup') {
+          // obj 718944: a server-stamped relay (agent/API/system) reads as a
+          // quiet surface bubble, not the owner's accent voice.
+          const relayed = !!msg.sender && msg.sender.kind !== 'owner' && msg.sender.kind !== 'member'
           return (
-            <div key={group.key} className="my-1 flex justify-end">
+            <div key={group.key} className="my-1 flex flex-col items-end gap-1">
+              {msg.sender && <SenderTag sender={msg.sender} />}
               <div
-                className="overflow-hidden break-words rounded-lg bg-accent px-4 py-3 text-[14px] leading-relaxed text-accent-fg"
+                className={relayed
+                  ? 'overflow-hidden break-words rounded-lg border border-line bg-surface-2 px-4 py-3 text-[14px] leading-relaxed text-fg-1'
+                  : 'overflow-hidden break-words rounded-lg bg-accent px-4 py-3 text-[14px] leading-relaxed text-accent-fg'}
                 style={{ maxWidth: 'min(85%, 64ch)' }}
               >
                 {msg.text}

@@ -161,7 +161,7 @@ export function routineTemplate(owner: ContentOwner): string {
       `content owner "${owner.display_name || owner.vault_workspace}"\n` +
       `(vault workspace ${owner.vault_workspace}, founder pack ${owner.founder_slug}).\n\n` +
       `Pull recent Granola meeting transcripts (default lookback 14 days) using THIS OWNER'S\n` +
-      `Granola API key — resolve it with scripts/owner-env.mjs, never a global env var.\n` +
+      `Granola API key — resolve it with scripts/owner-resolve.mjs, never a global env var.\n` +
       `For each NEW meeting write the content streams into\n` +
       `${VAULT_BASE}/workspaces/${owner.vault_workspace}/ exactly per the skill:\n` +
       `raw meeting note (content/granola/), LinkedIn draft(s) = the posting queue\n` +
@@ -188,6 +188,12 @@ export function routineTemplate(owner: ContentOwner): string {
     effort: 'normal',
     model: 'claude-opus-4-8',
     type: 'task',
+    // The owner must be able to SEE and start their own nightly run. Members in an
+    // `own`-visibility workspace only list objectives where they are the assignee or
+    // the creator (objectives-crud), and routine-spawned rows carry neither — so
+    // without this the content engine files a nightly objective its owner cannot
+    // open. Ava's first run (obj 710933) had to be reassigned by hand.
+    assigned_user_id: owner.user_id,
   })
 }
 

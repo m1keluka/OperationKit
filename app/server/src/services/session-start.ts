@@ -3,10 +3,12 @@
  * startSession + design-arena fan-out. Lease conflict errors stay on the facade.
  */
 import fs from 'fs'
+import { seatCredentialEnv } from './seat-credentials.js'
 import path from 'path'
 import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
-import { pickAccount, recordSessionStart, enqueueSession, getAccountById } from './account-router.js'
+import { pickAccount, recordSessionStart, enqueueSession, seatCount } from './account-router.js'
+import { assignSeatForStart, recordSessionSeat } from './seat-assign.js'
 import { TRANSCRIPT_DIR } from '../config.js'
 import { shouldRunArena, buildVariantSpecs, DEFAULT_ARENA_N, writeRankingArtifact } from './design-arena.js'
 import { registerArenaCohort } from './arena-lifecycle.js'
@@ -17,10 +19,12 @@ import { deriveBranchName, deriveWorktreeBranchName } from './branch-scope.js'
 import { spawnInTmux } from './session-tmux.js'
 import { getModelEngine } from './model-registry.js'
 import { buildSpawnEnv } from './session-spawn-env.js'
-import { codexAuthAvailable, CODEX_ACCOUNT_ID, CODEX_HOME_DIR, grokAuthAvailable, GROK_ACCOUNT_ID, GROK_HOME_DIR } from './session-spawn-command.js'
 import { writeReviewerPlaywrightMcpConfig } from './session-reviewer-prompt.js'
 import { type ActiveSession, registerActiveSession } from './session-registry.js'
 import { computeIsolation, ensureWorktree, ensureWorktreeHookAssets } from './session-worktree.js'
+import { claimObjectiveSession } from './objective-session-claim.js'
+import { logSessionStart } from './session-start-reasons.js'
+import { isSessionActive } from './session-control.js'
 import {
   ensureUser,
   ensureObjectiveMemoryDir,
@@ -115,11 +119,28 @@ export async function startSession(objective: Objective): Promise<string> {
     if (lease.status === 'conflict') {
       const msg = `Branch '${branchName}' is owned by objective ${lease.holder.objective_id} (session ${lease.holder.session_id}). Refusing to spawn a duplicate for objective ${objective.id}.`
       console.warn(`[branch-lease][conflict] ${msg}`)
+      logSessionStart(getDb(), { objectiveId: objective.id, sessionId: null, kind: 'rejected' })
       throw new BranchLeaseConflictError(msg, branchName, lease.holder.objective_id)
     }
     if (lease.status === 'reattached' && lease.holder.session_id) {
       console.warn(`[branch-lease][reattach] Objective ${objective.id} already has a live session ${lease.holder.session_id} on '${branchName}'; rebinding instead of spawning a duplicate.`)
+      logSessionStart(getDb(), { objectiveId: objective.id, sessionId: lease.holder.session_id, kind: 'attach' })
       return lease.holder.session_id
+    }
+    // obj 715699 — PR objectives now ALSO take the per-card identity lease, so
+    // "one live session per card" no longer depends on the branch name staying
+    // stable. Another live session of this card → attach to it.
+    const claim = claimObjectiveSession(getDb(), objective.id, sessionId, isSessionActive)
+    if (claim.outcome === 'attach') {
+      console.warn(`[session-claim][attach] Objective ${objective.id} already has live session ${claim.sessionId}; not spawning ${sessionId}.`)
+      // The branch lease above was just stamped with the never-spawned id; point it
+      // at the session that is actually running.
+      try {
+        getDb().prepare('UPDATE branch_leases SET session_id = ? WHERE branch_name = ? AND objective_id = ?')
+          .run(claim.sessionId, branchName, objective.id)
+      } catch { /* non-fatal */ }
+      logSessionStart(getDb(), { objectiveId: objective.id, sessionId: claim.sessionId, kind: 'attach' })
+      return claim.sessionId
     }
   } else {
     // Non-PR (taskworker) objective — no branch, so branch-lease above can't cover
@@ -137,10 +158,12 @@ export async function startSession(objective: Objective): Promise<string> {
       const msg = `Identity '${idLease.leaseKey}' is owned by objective ${idLease.holder.objective_id} (session ${idLease.holder.session_id}). Refusing to spawn a duplicate for objective ${objective.id}.`
       console.warn(`[session-lease][conflict] ${msg}`)
       emitSessionLeaseConflictWarning(objective, sessionId, idLease.holder)
+      logSessionStart(getDb(), { objectiveId: objective.id, sessionId: null, kind: 'rejected' })
       throw new SessionLeaseConflictError(msg, idLease.leaseKey, idLease.holder.objective_id)
     }
     if (idLease.status === 'reattached' && idLease.holder.session_id) {
       console.warn(`[session-lease][reattach] Objective ${objective.id} already has a live session ${idLease.holder.session_id} (${idLease.leaseKey}); rebinding instead of spawning a duplicate.`)
+      logSessionStart(getDb(), { objectiveId: objective.id, sessionId: idLease.holder.session_id, kind: 'attach' })
       return idLease.holder.session_id
     }
   }
@@ -177,45 +200,32 @@ export async function startSession(objective: Objective): Promise<string> {
 
   fs.mkdirSync(TRANSCRIPT_DIR, { recursive: true })
 
-  // Codex objectives bypass Claude account rotation entirely — they run on the
-  // ChatGPT subscription and can proceed even when every Claude slot is limited.
-  const engine = getModelEngine(objective.model)
-  const isCodex = engine === 'codex'
-  const isGrok = engine === 'grok'
-  let accountId: string
-  let homeDir: string
-  let accountLabel: string
-  if (isCodex) {
-    if (!codexAuthAvailable()) {
-      throw new Error(`Codex auth missing: ${CODEX_HOME_DIR}/.codex/auth.json not found. Run codex login on a machine with a browser and copy auth.json to the host dir /home/operator/.ccuser-codex/.codex/`)
+  // Seat pool v2: pick a SEAT first (on the card's engine, or — opt-in, only
+  // when every seat of that engine is down — the next engine in the failover
+  // order), then build the session's sign-in from that seat. No seat → queue.
+  const cardEngine = getModelEngine(objective.model)
+  const assignment = assignSeatForStart(objective, cardEngine)
+  if (!assignment) {
+    const engineName = cardEngine === 'codex' ? 'Codex' : cardEngine === 'grok' ? 'Grok' : 'Claude'
+    // An engine with no seat at all is a setup problem, not a wait: fail
+    // visibly (as before) instead of queueing forever.
+    if (cardEngine !== 'claude' && seatCount(cardEngine) === 0) {
+      throw new Error(`No ${engineName} seat is connected. Add one in Settings → Seats (or connect it from the Dashboard).`)
     }
-    accountId = CODEX_ACCOUNT_ID
-    homeDir = CODEX_HOME_DIR
-    accountLabel = 'Codex (ChatGPT sub)'
-  } else if (isGrok) {
+    enqueueSession(objective.id)
+    const msg = `All ${engineName} seats are unavailable. Objective ${objective.id} queued for auto-retry.`
+    console.log(`[session-manager] ${msg}`)
+    throw new Error(msg)
+  }
+  const accountId = assignment.seat.id
+  const homeDir = assignment.seat.homeDir
+  const accountLabel = assignment.seat.customLabel || assignment.seat.label
+  const spawnModel = assignment.model
+  if (assignment.engine === 'grok' || assignment.engine === 'codex') {
     try {
-      fs.mkdirSync(GROK_HOME_DIR, { recursive: true })
-      fs.chmodSync(GROK_HOME_DIR, 0o777)
-    } catch { /* spawn env still works if XAI_API_KEY is set */ }
-    if (!grokAuthAvailable()) {
-      throw new Error(`Grok SuperGrok is not connected. Open System Dashboard → Grok → Connect and sign in with your grok.com subscription (writes ${GROK_HOME_DIR}/.grok/auth.json).`)
-    }
-    accountId = GROK_ACCOUNT_ID
-    homeDir = GROK_HOME_DIR
-    const grokSlot = getAccountById(GROK_ACCOUNT_ID)
-    accountLabel = grokSlot?.customLabel || grokSlot?.label || 'Grok (xAI)'
-  } else {
-    // Pick the best available account via rotation
-    const account = pickAccount()
-    if (!account) {
-      enqueueSession(objective.id)
-      const msg = `All Claude accounts exhausted. Objective ${objective.id} queued for auto-retry.`
-      console.log(`[session-manager] ${msg}`)
-      throw new Error(msg)
-    }
-    accountId = account.id
-    homeDir = account.homeDir
-    accountLabel = account.label
+      fs.mkdirSync(homeDir, { recursive: true })
+      fs.chmodSync(homeDir, 0o777)
+    } catch { /* the CLI reports a missing login itself */ }
   }
   console.log(`[session-manager] Session ${sessionId} -> account ${accountId} (${accountLabel}), HOME=${homeDir}, mode=tmux`)
 
@@ -250,10 +260,12 @@ export async function startSession(objective: Objective): Promise<string> {
     jsonlPath,
     logPath,
     effort: objective.effort || 'normal',
-    model: objective.model || undefined,
+    model: spawnModel,
     settingsPath: hookSettingsPath,
     worktreeRoot,
     env: buildSpawnEnv({ objective, homeDir, sessionKind: 'worker' }),
+    seatEnv: assignment.env,
+    seatMount: assignment.mount,
   })
 
   const session: ActiveSession = {
@@ -263,9 +275,11 @@ export async function startSession(objective: Objective): Promise<string> {
     accountId,
     objective,
     tmuxName,
-    requestedModel: objective.model || undefined,
+    requestedModel: spawnModel,
   }
   registerActiveSession(sessionId, session)
+  logSessionStart(getDb(), { objectiveId: objective.id, sessionId, kind: 'spawn' })
+  recordSessionSeat(sessionId, accountId)
 
   // Record the tmux handle on the lease for observability (the guard itself only
   // needs objective_id + heartbeat).
@@ -348,6 +362,7 @@ async function startArenaSession(objective: Objective): Promise<string> {
       model: objective.model || undefined,
       mcpConfigPath,
       env: buildSpawnEnv({ objective, homeDir: account.homeDir, sessionKind: 'arena' }),
+      seatEnv: seatCredentialEnv(account),
     })
 
     registerActiveSession(sessionId, {

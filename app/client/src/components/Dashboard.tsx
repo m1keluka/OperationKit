@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../lib/api'
 import { ModelsModule } from './ModelsModule'
 import { CostModule } from './CostModule'
@@ -36,6 +36,8 @@ interface AccountInfo {
   lastRateLimit: string | null
   rateLimitResetsAt: string | null
   authFailedAt?: string | null
+  // 'needs_admin' = org disabled subscription access (re-login won't fix it)
+  authFailureReason?: 'needs_admin' | 'needs_reconnect' | null
   activeSessions: string[]
   available: boolean
   windows: {
@@ -190,6 +192,7 @@ function AccountCard({ account, onChanged }: { account: AccountInfo; onChanged?:
   // a re-login, not a cooldown. Surface it as "Reconnect needed" (amber), and
   // don't let it masquerade as "Exhausted" (red).
   const needsReconnect = !!account.authFailedAt
+  const needsAdmin = needsReconnect && account.authFailureReason === 'needs_admin'
   const isRateLimited = !account.available && !needsReconnect && account.rateLimitResetsAt
 
   const [rechecking, setRechecking] = useState(false)
@@ -198,14 +201,32 @@ function AccountCard({ account, onChanged }: { account: AccountInfo; onChanged?:
   // Inline label rename
   const [editingLabel, setEditingLabel] = useState(false)
   const [labelDraft, setLabelDraft] = useState(account.label)
+  const [labelSaveFailed, setLabelSaveFailed] = useState(false)
+  // onBlur AND Enter's onKeyDown both call saveLabel: Enter sets editingLabel
+  // false, which unmounts the <input>, which fires a native blur that re-enters
+  // saveLabel a second time with the same stale closure. Without this guard that
+  // fires two redundant PUTs (and two races against the poll); with it the
+  // second call is a no-op.
+  const savingLabel = useRef(false)
 
   const saveLabel = async () => {
+    if (savingLabel.current) return
+    const next = labelDraft.trim()
     setEditingLabel(false)
-    if (labelDraft.trim() === account.label) return
+    if (next === account.label) return
+    savingLabel.current = true
     try {
-      await api.put(`/admin/accounts/${account.id}/label`, { label: labelDraft.trim() })
+      await api.put(`/admin/accounts/${account.id}/label`, { label: next })
+      setLabelSaveFailed(false)
       onChanged?.()
-    } catch { /* keep old label on failure */ }
+    } catch {
+      // Don't let the failure masquerade as a silent revert — surface it so a
+      // dropped PUT (expired session, transient network error) is visible
+      // instead of looking like the rename "just reverted".
+      setLabelSaveFailed(true)
+    } finally {
+      savingLabel.current = false
+    }
   }
 
   const onRecheck = async () => {
@@ -260,12 +281,17 @@ function AccountCard({ account, onChanged }: { account: AccountInfo; onChanged?:
             />
           ) : (
             <button
-              onClick={() => { setLabelDraft(account.label); setEditingLabel(true) }}
+              onClick={() => { setLabelDraft(account.label); setEditingLabel(true); setLabelSaveFailed(false) }}
               title="Rename"
               className="rounded border border-line/60 px-1.5 py-0.5 text-xs text-fg-2 hover:border-line-strong hover:text-fg-0"
             >
               {account.label}
             </button>
+          )}
+          {labelSaveFailed && (
+            <span className="text-[11px] text-signal-alarm" title="The rename did not save — try again">
+              Rename failed
+            </span>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -275,7 +301,7 @@ function AccountCard({ account, onChanged }: { account: AccountInfo; onChanged?:
           {account.available ? (
             <Badge tone="verify">Available</Badge>
           ) : needsReconnect ? (
-            <Badge tone="amber">Reconnect needed</Badge>
+            <Badge tone="amber">{needsAdmin ? 'Account needs admin' : 'Reconnect needed'}</Badge>
           ) : (
             <Badge tone="alarm">{isRateLimited ? 'Exhausted' : 'Unavailable'}</Badge>
           )}
@@ -354,10 +380,12 @@ function AccountCard({ account, onChanged }: { account: AccountInfo; onChanged?:
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-signal-amber/30 bg-signal-amber/10 px-3 py-2.5">
           <div className="h-2 w-2 shrink-0 rounded-full bg-signal-amber" />
           <div className="flex-1 text-xs text-signal-amber">
-            Credential expired {formatTimeAgo(account.authFailedAt!)} — re-login required
+            {needsAdmin
+              ? <>Org disabled subscription access {formatTimeAgo(account.authFailedAt!)} — an admin must re-enable it (parked until a health check passes)</>
+              : <>Credential expired {formatTimeAgo(account.authFailedAt!)} — re-login required</>}
           </div>
           <div className="rounded bg-signal-amber/20 px-2 py-0.5 font-mono text-xs font-medium text-signal-amber">
-            Reconnect
+            {needsAdmin ? 'Needs admin' : 'Reconnect'}
           </div>
         </div>
       )}
@@ -437,7 +465,7 @@ function AddAccountButton({ onAdded }: { onAdded: () => void }) {
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') void submit(); if (e.key === 'Escape') setOpen(false) }}
-        placeholder="Name (e.g. Ava Max)"
+        placeholder="Name (e.g. Jordan Lee)"
         className="h-8 w-40 rounded bg-surface-3 px-2 text-xs text-fg-1 outline-none focus:ring-1 focus:ring-accent/50"
       />
       <select
@@ -468,18 +496,29 @@ export function Dashboard() {
   const [rateLimitHistory, setRateLimitHistory] = useState<RateLimitEvent[]>([])
   const [error, setError] = useState<string | null>(null)
 
+  // Monotonic request counter: a slow poll tick that started before a label
+  // save can resolve AFTER the save's own refetch, and a bare `setAccounts`
+  // would then clobber the just-saved name with the stale pre-save payload
+  // (obj 718892 — nicknames reverting on poll/recheck). Only the response
+  // from the most recently-STARTED fetchData call is applied; anything older
+  // that resolves late is discarded.
+  const fetchSeq = useRef(0)
+
   const fetchData = useCallback(async () => {
+    const reqId = ++fetchSeq.current
     try {
       const [acc, sys, rl] = await Promise.all([
         api.get<AccountsData>('/admin/accounts').catch(() => null),
         api.get<SystemData>('/admin/system').catch(() => null),
         api.get<RateLimitEvent[]>('/admin/rate-limits?limit=20').catch(() => null),
       ])
+      if (reqId !== fetchSeq.current) return // superseded by a newer fetch — drop this stale response
       if (acc) setAccounts(acc)
       if (sys) setSystem(sys)
       if (rl) setRateLimitHistory(rl)
       setError(null)
     } catch {
+      if (reqId !== fetchSeq.current) return
       setError('Failed to fetch dashboard data')
     }
   }, [])

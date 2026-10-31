@@ -3,17 +3,22 @@
  *
  * Complements scripts/disk-cleanup.sh (cron every 6h). This process:
  *   - reads host df every 5 min
- *   - pages AlertBell at 85% / 90% / <2 GiB
+ *   - pages AlertBell at 85% / 90% / <2 GiB, and (high) when free < 15%
  *   - shells out to disk-cleanup.sh at 90%+ (30 min cooldown)
+ *   - kicks an extra finished-worktree sweep when free < 15% (obj 718070)
  *
  * Kill switch: CC_DISK_WATCHDOG=false
  */
 import { execFile } from 'child_process'
 import { insertAlert } from './notifier.js'
 import { broadcast } from '../ws/index.js'
+import { kickWorktreeSweep } from './worktree-reaper.js'
 import {
   diskAction,
+  freePct,
+  isLowDisk,
   readHostDisk,
+  DISK_LOW_FREE_PCT,
   type DiskAction,
   type HostDisk,
 } from '../lib/host-disk.js'
@@ -26,7 +31,15 @@ const CLEANUP_SCRIPT = '/home/operator/projects/operationkit/scripts/disk-cleanu
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastCleanupMs = 0
 let cleanupRunning = false
-let latest: { disk: HostDisk | null; action: DiskAction; checkedAt: string } | null = null
+export interface DiskWatchdogState {
+  disk: HostDisk | null
+  action: DiskAction
+  /** free < DISK_LOW_FREE_PCT of the filesystem (false when df failed). */
+  low: boolean
+  checkedAt: string
+}
+
+let latest: DiskWatchdogState | null = null
 
 function fireAlert(severity: 'high' | 'normal', title: string, message: string, dedupKey: string): void {
   try {
@@ -76,11 +89,24 @@ function runCleanup(reason: string): void {
 function tick(): void {
   const disk = readHostDisk()
   const action: DiskAction = disk ? diskAction(disk) : 'ok'
-  latest = { disk, action, checkedAt: new Date().toISOString() }
+  const low = disk ? isLowDisk(disk) : false
+  latest = { disk, action, low, checkedAt: new Date().toISOString() }
   if (!disk) return
 
   const availGiB = (disk.availBytes / (1024 * 1024 * 1024)).toFixed(1)
   const summary = `${disk.usedPct}% used, ${availGiB} GiB free`
+
+  // Low-free alert (obj 718070): independent of the used-% ladder below, which
+  // keeps its own alerts. Own dedup bucket so it pages at most once per 3h.
+  if (low) {
+    fireAlert(
+      'high',
+      `Disk low — ${freePct(disk).toFixed(1)}% free`,
+      `${summary} (under ${DISK_LOW_FREE_PCT}% free). Sweeping finished-card worktrees; check /home/operator/projects for leftovers.`,
+      bucketKey('disk-watchdog-low', 3),
+    )
+    kickWorktreeSweep('low-disk')
+  }
 
   if (action === 'warn') {
     fireAlert(
@@ -103,8 +129,20 @@ function tick(): void {
   }
 }
 
-export function getDiskWatchdogState(): typeof latest {
+export function getDiskWatchdogState(): DiskWatchdogState | null {
   return latest
+}
+
+/** Latest state, or a fresh df read when the watchdog has not ticked (disabled / boot). */
+export function readDiskStateNow(): DiskWatchdogState {
+  if (latest) return latest
+  const disk = readHostDisk()
+  return {
+    disk,
+    action: disk ? diskAction(disk) : 'ok',
+    low: disk ? isLowDisk(disk) : false,
+    checkedAt: new Date().toISOString(),
+  }
 }
 
 export function startDiskWatchdog(): void {

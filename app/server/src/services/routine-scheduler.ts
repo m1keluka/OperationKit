@@ -305,7 +305,7 @@ async function spawnRoutineObjective(objectiveId: number): Promise<{ ok: boolean
     const resp = await fetch(`http://127.0.0.1:${PORT}/api/internal/objectives/${objectiveId}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'working' }),
+      body: JSON.stringify({ status: 'working', reason: 'routine', actor: 'routine-scheduler' }),
     })
     if (!resp.ok) return { ok: false, reason: `${resp.status} ${(await resp.text()).slice(0, 300)}` }
     return { ok: true }
@@ -314,8 +314,87 @@ async function spawnRoutineObjective(objectiveId: number): Promise<{ ok: boolean
   }
 }
 
+// ── Over-fire guard (routine #972 fired every 5 min instead of hourly, 10/1–10/2) ──
+/** Refuse an automatic fire when the previous run is newer than this fraction of the
+ *  routine's minimum cron interval. */
+const OVERFIRE_FRACTION = 0.5
+const OVERFIRE_FLOOR_MS = 60 * 1000
+const MINUTE_MS = 60 * 1000
+
+/**
+ * The smallest gap between consecutive cron matches around `around`: considers the
+ * last two matches at/before it and the next two after it (so irregular schedules like
+ * `0 9,10 * * *` resolve to their tightest spacing, 60 min). Returns null for a
+ * malformed expression or when fewer than two matches are found (e.g. yearly).
+ */
+export function minCronIntervalMs(expr: string, around: Date = new Date()): number | null {
+  if (validateCronExpr(expr) !== null) return null
+  const LOOKBACK = 8 * 24 * 60 // covers weekly cadences
+  const matches: number[] = []
+  const p0 = mostRecentRunAt(expr, around, LOOKBACK)
+  if (p0) {
+    matches.push(p0.getTime())
+    const p1 = mostRecentRunAt(expr, new Date(p0.getTime() - MINUTE_MS), LOOKBACK)
+    if (p1) matches.push(p1.getTime())
+  }
+  const n0 = nextRunAt(expr, around)
+  if (n0) {
+    matches.push(n0.getTime())
+    const n1 = nextRunAt(expr, n0)
+    if (n1) matches.push(n1.getTime())
+  }
+  const uniq = [...new Set(matches)].sort((a, b) => a - b)
+  let min: number | null = null
+  for (let i = 1; i < uniq.length; i++) {
+    const gap = uniq[i] - uniq[i - 1]
+    if (gap > 0 && (min === null || gap < min)) min = gap
+  }
+  return min
+}
+
+/**
+ * Pure over-fire check: a reason string when an AUTOMATIC fire must be refused because
+ * `lastRunAt` is more recent than max(1 min, 50% of the cron's minimum interval);
+ * null when the fire may proceed.
+ */
+export function overFireGuardReason(cronExpr: string, lastRunAt: string | null, now: Date = new Date()): string | null {
+  if (!lastRunAt) return null
+  const last = new Date(lastRunAt).getTime()
+  if (!Number.isFinite(last)) return null
+  const interval = minCronIntervalMs(cronExpr, now)
+  if (interval === null) return null
+  // The 1-min floor never applies to an every-minute cron (interval == floor), or its
+  // next legitimate fire ~60s later could be refused by timer jitter.
+  const threshold = interval > OVERFIRE_FLOOR_MS
+    ? Math.max(OVERFIRE_FLOOR_MS, interval * OVERFIRE_FRACTION)
+    : interval * OVERFIRE_FRACTION
+  const sinceMs = now.getTime() - last
+  if (sinceMs >= threshold) return null
+  const mins = (ms: number) => Math.round((ms / MINUTE_MS) * 10) / 10
+  return (
+    `over-fire guard: last run ${mins(sinceMs)} min ago < ${mins(threshold)} min ` +
+    `(50% of the ${mins(interval)}-min minimum interval of '${cronExpr}')`
+  )
+}
+
 export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now'): Promise<FireResult> {
   const db = getDb()
+
+  // Over-fire guard — EVERY automatic fire path (fresh card AND stranded-card retry)
+  // goes through here, so it sits first. An explicit 'run-now' (admin/internal route,
+  // granola) is deliberately unguarded. last_run_at is re-read from the DB rather than
+  // trusted from the caller's (possibly stale) row.
+  if (source !== 'run-now') {
+    const fresh = db.prepare('SELECT last_run_at FROM routines WHERE id = ?').get(routine.id) as
+      | { last_run_at: string | null }
+      | undefined
+    const reason = overFireGuardReason(routine.cron_expr, fresh?.last_run_at ?? routine.last_run_at)
+    if (reason) {
+      console.warn(`[routines] '${routine.name}' (#${routine.id}) refused: ${reason}`)
+      lastSkipReason.set(routine.id, reason)
+      return { ok: false, reason }
+    }
+  }
 
   // Queue-depth guard. Count only GENUINELY IN-FLIGHT objectives for this
   // routine — `done` is terminal and `review` is parked awaiting a human;
@@ -407,12 +486,27 @@ export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now
   // so a strategy-owned recurring job is queryable via strategy_id like any other
   // member. Standalone routines leave strategy_id NULL (unchanged behavior).
   const routineStrategyId = resolveStrategyId(db, null, parentId)
+
+  // Per-owner routines (the multi-owner content engine) belong to a specific
+  // person, and a member in an `own`-visibility workspace only lists objectives
+  // where they are the assignee or the creator. A routine-spawned row carried
+  // neither, so the nightly run was invisible and unstartable to the very person
+  // it was filed for. Honored only when the template names a real user; every
+  // pre-existing template omits the key and is byte-identical to before.
+  let assignedUserId: number | null = null
+  const rawAssignee = tpl.assigned_user_id
+  if (typeof rawAssignee === 'number' && Number.isInteger(rawAssignee) && rawAssignee > 0) {
+    const u = db.prepare('SELECT id FROM users WHERE id = ?').get(rawAssignee) as { id: number } | undefined
+    if (u) assignedUserId = u.id
+    else console.warn(`[routines] '${routine.name}': assigned_user_id ${rawAssignee} does not exist — leaving unassigned`)
+  }
+
   const result = db.prepare(
     `INSERT INTO objectives
        (title, description, agent_context, workspace, project, category,
         completion_goal, workflow_hint, effort, model, type, routine_id,
-        parent_id, depth, status, origin, strategy_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queue', 'routine', ?)`
+        parent_id, depth, status, origin, strategy_id, assigned_user_id, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queue', 'routine', ?, ?, ?)`
   ).run(
     title,
     str('description') || '',
@@ -429,8 +523,14 @@ export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now
     parentId,
     parentDepth,
     routineStrategyId,
+    assignedUserId,
+    assignedUserId,
   )
   const objectiveId = result.lastInsertRowid as number
+  if (assignedUserId != null) {
+    db.prepare('INSERT OR IGNORE INTO objective_assignees (objective_id, user_id) VALUES (?, ?)')
+      .run(result.lastInsertRowid as number, assignedUserId)
+  }
   if (tpl.create_pr === true || tpl.create_pr === 1) {
     db.prepare('UPDATE objectives SET create_pr = 1 WHERE id = ?').run(objectiveId)
   }

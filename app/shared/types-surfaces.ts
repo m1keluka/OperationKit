@@ -161,6 +161,9 @@ export interface SecretVersionSummary {
   version: number
   changedBy: number | null
   changedAt: string
+  /** obj 719065: how the value arrived when it was not typed in Settings — e.g.
+   *  "agent Grok Bot (key #4) relayed request on card #123". null = Settings / API. */
+  via?: string | null
 }
 
 /** Body for POST /api/secrets — create-or-update a secret at a scope. The
@@ -504,6 +507,83 @@ export interface ApiKeyIssued {
   created_at: string
 }
 
+// ── Agent API keys (obj 714090) ──────────────────────────────────────────────
+// Named, scoped, multi-key principals so each Grok Bot is its own
+// least-privilege identity instead of a copy of the user's whole account.
+// The legacy single users.api_token_hash key above keeps full access.
+
+/** Every scope an agent key can carry. Order is the display order. */
+export const AGENT_SCOPES = [
+  'board:read',
+  'board:write',
+  'board:start',
+  'board:cancel',
+  'board:done',
+  'board:delete',
+  'vault:read',
+  'vault:write',
+  'board:secrets_request',
+] as const
+export type AgentScope = (typeof AGENT_SCOPES)[number]
+
+/** New-key default: everything except the human signatures (done, delete). */
+export const DEFAULT_AGENT_SCOPES: AgentScope[] = [
+  'board:read',
+  'board:write',
+  'board:start',
+  'board:cancel',
+  'vault:read',
+  'vault:write',
+]
+
+export const AGENT_SCOPE_DESCRIPTIONS: Record<AgentScope, string> = {
+  'board:read': 'List, search and read cards and threads',
+  'board:write': 'Create, edit, message and stop cards',
+  'board:start': 'Start a card (status → working, approve plan)',
+  // obj 718417: cancel split out of done so a bot can retire a duplicate
+  // without holding Mike's signature.
+  'board:cancel': 'Retire a card (status → cancelled), e.g. a duplicate',
+  'board:done': 'Sign off a card (status → done)',
+  'board:delete': 'Delete cards',
+  'vault:read': 'Search and read the second-brain vault',
+  'vault:write': 'Write vault markdown files',
+  // obj 719065: write-only. Never in the default set — Mike grants it per key.
+  'board:secrets_request': 'Relay a card\'s secret request: mint a one-time, write-only upload link (never reads a value)',
+}
+
+/** GET /api/auth/agent-keys row. Never carries the secret. */
+export interface AgentApiKeySummary {
+  id: number
+  label: string
+  last4: string
+  scopes: AgentScope[]
+  /** null = every workspace the owning user can see. */
+  workspaces: string[] | null
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
+/** POST /api/auth/agent-keys — plaintext shown once. */
+export interface AgentApiKeyIssued extends AgentApiKeySummary {
+  token: string
+}
+
+export interface CreateAgentApiKeyRequest {
+  label: string
+  scopes?: AgentScope[]
+  workspaces?: string[] | null
+}
+
+/** GET /api/auth/me `api_key` block when the caller authenticated with a key. */
+export interface ApiKeyIdentity {
+  kind: 'agent' | 'legacy'
+  id: number | null
+  label: string
+  scopes: AgentScope[]
+  workspaces: string[] | null
+}
+
 export interface CreateObjectiveRequest {
   title: string
   description: string
@@ -571,6 +651,11 @@ export interface UpdateObjectiveRequest {
   /** Explicit Strategy marker (obj 2835). Only changes the stored marker when
    *  supplied; NEVER re-derived from delegate_mode/parent_id on update. */
   is_strategy?: boolean
+  /** Admin-only PR link override (obj 712954). pr_url must be a GitHub PR URL;
+   *  pr_number, when sent, must equal the URL's number; null clears the link. */
+  pr_url?: string | null
+  pr_number?: number | null
+  branch_name?: string | null
 }
 
 export interface StatusChangeRequest {

@@ -34,6 +34,8 @@ const {
   loadConfig,
   DEFAULT_CONFIG,
   ensureGateTable,
+  getGateRow,
+  GATE_HANDBACK_PREFIX,
   isHarnessOwnStatus,
 } = await import('./ci-green-gate.js')
 // Cross-module agreement check: this gate's exclusion predicate and the remediation
@@ -180,13 +182,37 @@ describe('absent / queued / cancelled required check → bounded, never indefini
     expect(d.missingRequired).toEqual([`${REQ[0]} (queued/in progress)`])
   })
 
-  it('the hold cap also releases an absent check, so the two bounds cannot conspire to wedge it', () => {
+  it('the hold cap does NOT release an absent check inside the wall-clock window (obj 714772 / PR 527)', () => {
+    // Two ~1-min worker bounces tripped holdCap=2 and completed PR 527 as red 25s
+    // before its own ~3-min gate run went green. Absent = GitHub lag → wall clock only.
+    for (const holdCount of [DEFAULT_CONFIG.holdCap, DEFAULT_CONFIG.holdCap + 3]) {
+      const d = evaluateCiGate(inputs({
+        rollup: [checkRun(REQ[0], '', 'QUEUED'), checkRun(REQ[1], 'SUCCESS')],
+        waitedMinutes: 2,
+        holdCount,
+      }))
+      expect(d.action).toBe('hold')
+      expect(d.missingRequired).toEqual([`${REQ[0]} (queued/in progress)`])
+    }
+    const neverScheduled = evaluateCiGate(inputs({ rollup: [], waitedMinutes: 0, holdCount: DEFAULT_CONFIG.holdCap }))
+    expect(neverScheduled.action).toBe('hold')
+  })
+
+  it('past the cap, the wall-clock bound still releases an absent check, so it cannot wedge', () => {
     const d = evaluateCiGate(inputs({
       rollup: [],
-      waitedMinutes: 0,
+      waitedMinutes: DEFAULT_CONFIG.absentWaitMinutes,
       holdCount: DEFAULT_CONFIG.holdCap,
     }))
     expect(d.action).toBe('complete-with-red')
+  })
+
+  it('a missing-only handback tells the worker to wait for the checks, not to expect escalation', () => {
+    const d = evaluateCiGate(inputs({ rollup: [checkRun(REQ[0], '', 'QUEUED')], waitedMinutes: 1 }))
+    const msg = buildHandback(d, 'your-org/operationkit', 527)
+    expect(msg).toContain('gh pr checks 527 --repo your-org/operationkit --required')
+    expect(msg).not.toMatch(/escalates to Mike/)
+    expect(msg.startsWith(GATE_HANDBACK_PREFIX)).toBe(true)
   })
 })
 
@@ -541,6 +567,97 @@ describe('runCompletionGate (end to end, real DB)', () => {
     expect(released.decision.action).toBe('complete-with-red')
   })
 
+  it('a green resolution after a prior real-red HOLD clears the gate\'s stale fail verdict (objs 714323/714552)', async () => {
+    const db = getDb()
+    const id = insertObjective({ status: 'working' })
+    const obj = { id, pr_number: 679, pr_url: 'https://github.com/EXAMPLE2/example3-platform/pull/679', session_id: null }
+    const t0 = new Date('2026-10-06T06:18:16Z')
+
+    const held = await runCompletionGate(db, obj, {
+      pathway: 'worker-end-apply', now: () => t0,
+      exec: execFor([checkRun(REQ[0], 'FAILURE'), checkRun(REQ[1], 'SUCCESS')]),
+    })
+    expect(held.decision.action).toBe('hold')
+    applyGateHandback(db, obj, held)
+    const stamped = db.prepare('SELECT ai_review_verdict, ai_review_findings FROM objectives WHERE id = ?').get(id) as { ai_review_verdict: string | null; ai_review_findings: string | null }
+    expect(stamped.ai_review_verdict).toBe('fail')
+
+    const green = await runCompletionGate(db, obj, {
+      pathway: 'worker-end-apply', now: () => new Date(t0.getTime() + 3 * 60_000),
+      exec: execFor([checkRun(REQ[0], 'SUCCESS'), checkRun(REQ[1], 'SUCCESS')]),
+    })
+    expect(green.decision.action).toBe('allow')
+    const cleared = db.prepare('SELECT ai_review_verdict, ai_review_findings FROM objectives WHERE id = ?').get(id) as { ai_review_verdict: string | null; ai_review_findings: string | null }
+    expect(cleared.ai_review_verdict).toBeNull()
+    expect(cleared.ai_review_findings).toBeNull()
+    expect(getGateRow(db, id)!.resolution).toBe('green')
+  })
+
+  it('bundled race (obj 718441): absent check at the hold cap holds WITHOUT a fail stamp, and green clears its findings', async () => {
+    // Both halves of the false fail in one timeline: (PR 537) a "never scheduled" hold
+    // must not stamp verdict=fail, (PR 528) neither may the hold cap release it as red,
+    // and the eventual green leaves no gate-authored residue on the card.
+    const db = getDb()
+    const id = insertObjective({ status: 'working' })
+    const obj = { id, pr_number: 680, pr_url: 'https://github.com/EXAMPLE2/example3-platform/pull/680', session_id: null }
+    const t0 = new Date('2026-10-12T07:00:00Z')
+    const read = () => db.prepare('SELECT ai_review_verdict, ai_review_findings FROM objectives WHERE id = ?').get(id) as { ai_review_verdict: string | null; ai_review_findings: string | null }
+
+    for (let bounce = 0; bounce <= DEFAULT_CONFIG.holdCap; bounce++) {
+      const held = await runCompletionGate(db, obj, {
+        pathway: 'worker-end-apply', now: () => new Date(t0.getTime() + bounce * 60_000), exec: execFor([]),
+      })
+      expect(held.decision.action).toBe('hold')
+      applyGateHandback(db, obj, held)
+      expect(read().ai_review_verdict).toBeNull()
+      expect(read().ai_review_findings?.startsWith(GATE_HANDBACK_PREFIX)).toBe(true)
+    }
+    expect(getGateRow(db, id)!.hold_count).toBe(DEFAULT_CONFIG.holdCap + 1)
+
+    const green = await runCompletionGate(db, obj, {
+      pathway: 'worker-end-apply', now: () => new Date(t0.getTime() + 4 * 60_000),
+      exec: execFor([checkRun(REQ[0], 'SUCCESS'), checkRun(REQ[1], 'SUCCESS')]),
+    })
+    expect(green.decision.action).toBe('allow')
+    expect(read()).toEqual({ ai_review_verdict: null, ai_review_findings: null })
+  })
+
+  it('a green CI run clears a legacy gate fail stamped on an absent-check hold by pre-fix code', async () => {
+    const db = getDb()
+    const id = insertObjective({ status: 'working' })
+    const obj = { id, pr_number: 681, pr_url: 'https://github.com/EXAMPLE2/example3-platform/pull/681', session_id: null }
+    const t0 = new Date('2026-10-12T07:00:00Z')
+    const held = await runCompletionGate(db, obj, { pathway: 'test', now: () => t0, exec: execFor([]) })
+    // What the old applyGateHandback wrote unconditionally on every hold.
+    db.prepare("UPDATE objectives SET ai_review_verdict = 'fail', ai_review_findings = ? WHERE id = ?").run(held.handback, id)
+
+    await runCompletionGate(db, obj, {
+      pathway: 'test', now: () => new Date(t0.getTime() + 3 * 60_000),
+      exec: execFor([checkRun(REQ[0], 'SUCCESS'), checkRun(REQ[1], 'SUCCESS')]),
+    })
+    const row = db.prepare('SELECT ai_review_verdict, ai_review_findings FROM objectives WHERE id = ?').get(id)
+    expect(row).toEqual({ ai_review_verdict: null, ai_review_findings: null })
+  })
+
+  it('a green CI run never erases a genuine REVIEWER fail — only the gate\'s own stamp', async () => {
+    const db = getDb()
+    const id = insertObjective({ status: 'working' })
+    const obj = { id, pr_number: 679, pr_url: 'https://github.com/EXAMPLE2/example3-platform/pull/679', session_id: null }
+    const t0 = new Date('2026-10-06T06:18:16Z')
+    const held = await runCompletionGate(db, obj, {
+      pathway: 'test', now: () => t0, exec: execFor([checkRun(REQ[0], '', 'QUEUED')]),
+    })
+    expect(held.decision.action).toBe('hold')
+    db.prepare("UPDATE objectives SET ai_review_verdict = 'fail', ai_review_findings = 'Criterion 2 FAIL: no test' WHERE id = ?").run(id)
+
+    await runCompletionGate(db, obj, {
+      pathway: 'test', now: () => new Date(t0.getTime() + 60_000),
+      exec: execFor([checkRun(REQ[0], 'SUCCESS'), checkRun(REQ[1], 'SUCCESS')]),
+    })
+    const row = db.prepare('SELECT ai_review_verdict FROM objectives WHERE id = ?').get(id) as { ai_review_verdict: string | null }
+    expect(row.ai_review_verdict).toBe('fail')
+  })
+
   it('fails OPEN when gh blows up, and records that it did', async () => {
     const db = getDb()
     const id = insertObjective({})
@@ -638,6 +755,59 @@ describe('worker-session-end apply path is gated', () => {
     const entry = listNonGreenCompletions(db).find(e => e.objectiveId === id)
     expect(entry?.pathway).toBe('ai-review-cap-out')
     expect(entry?.failingChecks).toEqual([REQ[0]])
+  })
+})
+
+// ── Regression: an absent-check HOLD must never stamp a terminal fail verdict ────
+// (distillation 2026-10-08 P1 / 2026-10-12 confirmation — obj 714989/715203/715412/
+// 715641/713966 all completed green on GitHub but read ai_review_verdict='fail'
+// because this bounced write happened on the first poll, before the check registered.)
+
+describe('applyGateHandback on an absent-check HOLD does not stamp a terminal fail', () => {
+  beforeEach(() => {
+    clearRequiredChecksCache()
+    getDb().exec('DELETE FROM objective_completion_gate')
+  })
+
+  it('a required check not yet reported by GitHub (never scheduled) holds without writing verdict=fail', async () => {
+    const db = getDb()
+    const id = insertObjective({ title: 'brand-new PR, gate check not registered yet', status: 'working' })
+    const obj = { id, pr_number: 679, pr_url: 'https://github.com/EXAMPLE2/example3-platform/pull/679', session_id: null }
+
+    // Neither required check is present in the rollup yet — the race this bug is about.
+    const gate = await runCompletionGate(db, obj, {
+      pathway: 'worker-end-apply',
+      exec: execFor([]),
+    })
+    expect(gate.decision.action).toBe('hold')
+    expect(gate.decision.failingRequired).toEqual([])
+    expect(gate.decision.missingRequired.every(m => m.includes('never scheduled'))).toBe(true)
+
+    applyGateHandback(db, obj, gate)
+    const row = db.prepare('SELECT ai_review_verdict, ai_review_findings FROM objectives WHERE id = ?').get(id) as {
+      ai_review_verdict: string | null
+      ai_review_findings: string | null
+    }
+    expect(row.ai_review_verdict).not.toBe('fail')
+    expect(row.ai_review_verdict).toBeNull()
+    // Findings are still recorded so the handback message reaches the worker.
+    expect(row.ai_review_findings).toMatch(/never reported|never scheduled/)
+  })
+
+  it('a genuinely FAILING required check still stamps verdict=fail (the real-red path is unchanged)', async () => {
+    const db = getDb()
+    const id = insertObjective({ title: 'real red', status: 'working' })
+    const obj = { id, pr_number: 679, pr_url: 'https://github.com/EXAMPLE2/example3-platform/pull/679', session_id: null }
+
+    const gate = await runCompletionGate(db, obj, {
+      pathway: 'worker-end-apply',
+      exec: execFor([checkRun(REQ[0], 'FAILURE'), checkRun(REQ[1], 'SUCCESS')]),
+    })
+    expect(gate.decision.failingRequired).toEqual([REQ[0]])
+
+    applyGateHandback(db, obj, gate)
+    const row = db.prepare('SELECT ai_review_verdict FROM objectives WHERE id = ?').get(id) as { ai_review_verdict: string | null }
+    expect(row.ai_review_verdict).toBe('fail')
   })
 })
 

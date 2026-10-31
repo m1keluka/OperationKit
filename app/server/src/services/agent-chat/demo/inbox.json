@@ -1,0 +1,17 @@
+{
+  "owner": { "name": "Jordan Lee", "email": "jordan@northwind-studio.example" },
+  "messages": [
+    { "id": "m-101", "hours_ago": 1, "from": "Priya Shah <priya@harbor-coffee.example>", "subject": "Can we move Thursday's review?", "unread": true,
+      "body": "Hi Jordan,\n\nSomething came up on Thursday afternoon. Could we move the menu-board review to Friday morning instead? Any time before 11 works for me.\n\nThanks,\nPriya" },
+    { "id": "m-102", "hours_ago": 3, "from": "Accounts <billing@cloudhost.example>", "subject": "Invoice INV-2291 is ready", "unread": true,
+      "body": "Your monthly hosting invoice of $48.00 is ready. It will be charged automatically on the 5th." },
+    { "id": "m-103", "hours_ago": 5, "from": "Marcus Bell <marcus@bell-legal.example>", "subject": "Contract redlines attached", "unread": true,
+      "body": "Jordan,\n\nI've marked up the services agreement. Two points need your call: the payment terms (net 30 vs net 45) and the cap on revisions. Can you reply with your preference by Wednesday?\n\nMarcus" },
+    { "id": "m-104", "hours_ago": 20, "from": "Elena Ruiz <elena@ruiz-fitness.example>", "subject": "New website — quote?", "unread": false,
+      "body": "Hello! A friend recommended you. We're a two-location gym and need a new website with class booking. Could you send a rough quote and timeline?\n\nElena Ruiz" },
+    { "id": "m-105", "hours_ago": 26, "from": "Team Northwind <team@northwind-studio.example>", "subject": "Friday social", "unread": false,
+      "body": "Reminder: team lunch on Friday at 12:30. Reply if you have dietary needs." },
+    { "id": "m-106", "hours_ago": 50, "from": "Newsletter <hello@design-weekly.example>", "subject": "10 colour trends for next year", "unread": false,
+      "body": "This week: colour trends, a type-pairing guide, and a free icon set." }
+  ]
+}

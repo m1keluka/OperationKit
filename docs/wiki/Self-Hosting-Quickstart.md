@@ -1,5 +1,14 @@
 # Self-Hosting Quickstart
 
+**Installing for a client, or on a fresh Ubuntu server you want to run for real?** Use the
+installer: `INSTALL.md` at the top of the repository. Claude Code on your laptop follows it
+and sets up the server, a web address on Cloudflare, the sign-in door, sandboxed AI sessions and
+the first admin, in about 30 to 45 minutes. Then see `docs/CONNECT-YOUR-AGENT.md`
+(connecting Claude, ChatGPT or Grok) and `docs/SECURITY-OVERVIEW.md` (the plain-language security page).
+
+The steps below are the **manual developer setup**: plain Docker Compose, no Cloudflare, no
+sandboxes. Use it to try the code on your own machine.
+
 OperationKit runs via Docker Compose on a server you control — a VPS, a home box, whatever you've got. The compose stack has three core services: the OperationKit app itself, and (optionally) a LiteLLM proxy + its own small Postgres, for routing model groups to non-native providers (see [Model Portability](./Model-Portability)).
 
 ## Prerequisites
@@ -12,7 +21,7 @@ OperationKit runs via Docker Compose on a server you control — a VPS, a home b
 
 1. **Clone the repo** and copy the env template:
    ```
-   git clone https://github.com/m1keluka/OperationKit.git
+   git clone <the Operation Kit repository URL>
    cd OperationKit
    cp .env.example .env
    ```

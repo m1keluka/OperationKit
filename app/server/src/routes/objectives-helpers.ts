@@ -7,7 +7,7 @@ import { type AuthRequest } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { getWorkspace } from '../services/workspaces.js'
 import { resolveAvailable } from '../services/resource-assignments.js'
-import type { Objective } from '@operationkit/shared'
+import type { NeedsSecretItem, Objective } from '@operationkit/shared'
 
 /**
  * Lightweight card projection for the board LIST (obj 700512). This is EVERY
@@ -33,6 +33,8 @@ const LIST_COLUMNS_ARRAY = [
   'job_review_note', 'source_job_id', 'scope_flags', 'reconcile_sig', 'is_strategy',
   'rejected_tree_sha', 'not_mergeable', 'trust_stage', 'origin', 'strategy_id',
   'last_activity_at', 'ran_on_fallback', 'fallback_detected_at', 'ran_model',
+  // obj 714090: agent-key attribution so the card chip can name the bot.
+  'agent_key_id', 'agent_key_label',
 ]
 
 /**
@@ -116,6 +118,17 @@ export function resolveUsernames(assignedIds: number[], userMap?: Map<number, st
     .filter((name): name is string => typeof name === 'string')
 }
 
+/** obj 718944: tolerant parse of objectives.needs_secret (names + reasons only). */
+export function parseNeedsSecret(raw: unknown): NeedsSecretItem[] {
+  if (typeof raw !== 'string' || !raw) return []
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter(x => x && typeof x.name === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 export function mapObjective(row: Objective, userMap?: Map<number, string>): Objective {
   const r = row as unknown as Record<string, unknown>
   let acceptance: unknown = null
@@ -135,6 +148,7 @@ export function mapObjective(row: Objective, userMap?: Map<number, string>): Obj
   }
   return {
     ...row,
+    needs_secret: parseNeedsSecret(r.needs_secret),
     has_blockers: !!r.has_blockers,
     create_pr: !!r.create_pr,
     delegate_mode: !!r.delegate_mode,

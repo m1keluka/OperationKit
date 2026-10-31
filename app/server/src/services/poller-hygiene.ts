@@ -10,6 +10,7 @@ import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { startSession } from './session-manager.js'
 import { logObjectiveAudit } from './objective-audit.js'
+import { scheduleObjectiveWorktreeReap } from './worktree-reaper.js'
 import { broadcast } from '../ws/index.js'
 import { insertAlert } from './notifier.js'
 import { runCompletionGate, applyGateHandback } from './ci-green-gate.js'
@@ -31,6 +32,8 @@ import {
   HYGIENE_DIGEST_DIR,
   HYGIENE_DIGEST_PATH,
 } from '../lib/hygiene-config.js'
+import { noteStartReason } from './session-start-reasons.js'
+import { fanoutManagedChildIds } from './fanout.js'
 
 // ── Board-hygiene sweeps (obj 700595) ────────────────────────────────────────
 //
@@ -177,6 +180,7 @@ export async function sweepTopLevelQueueStarter(): Promise<void> {
     if (active.count >= MAX_CONCURRENT_SESSIONS) break
 
     try {
+      noteStartReason(obj.id, 'queue_drain', 'top-level-queue-starter')
       const sessionId = await startSession(obj)
       db.prepare(
         "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -234,6 +238,10 @@ export async function sweepOrphanedQueueChildren(): Promise<void> {
     console.error('[state-poller] queue-drainer selection failed:', (err as Error).message)
     return
   }
+  // obj 715699 — children in an open fan-out group are started by the fan-out
+  // tick under the group's own ceiling; starting them here would overshoot it.
+  const managed = fanoutManagedChildIds(db)
+  candidates = candidates.filter(c => !managed.has(c.id))
   if (candidates.length === 0) return
 
   const startedPerParent = new Map<number, number>()
@@ -254,6 +262,7 @@ export async function sweepOrphanedQueueChildren(): Promise<void> {
     if (perParent >= perParentCap) continue
 
     try {
+      noteStartReason(child.id, 'queue_drain', 'orphaned-child-starter')
       const sessionId = await startSession(child)
       db.prepare(
         "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -339,6 +348,7 @@ export async function sweepAutoAcceptOnPass(): Promise<void> {
         titleSnapshot: obj.title ?? null,
         workspace: obj.workspace ?? null,
       })
+      scheduleObjectiveWorktreeReap(obj.id, { db })
       const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(obj.id) as Objective
       broadcast({ type: 'objective_updated', payload: updated })
       console.warn(
@@ -455,6 +465,7 @@ export function buildHygieneDigest(
           titleSnapshot: obj.title ?? null,
           workspace: obj.workspace ?? null,
         })
+        scheduleObjectiveWorktreeReap(obj.id, { db })
         hardExpiredIds.push(obj.id)
       } catch (err) {
         console.warn(`[state-poller] review-hard-expiry failed for #${obj.id}:`, (err as Error).message)

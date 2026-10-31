@@ -9,6 +9,7 @@
 import { Router } from 'express'
 import { requireAuth, requireAdmin } from '../middleware/auth.js'
 import accountsRouter from './admin-accounts.js'
+import seatsRouter from './admin-seats.js'
 import opsRouter from './admin-ops.js'
 import jobsRouter from './admin-jobs.js'
 
@@ -17,6 +18,7 @@ const router = Router()
 // All admin routes require auth + admin
 router.use(requireAuth, requireAdmin)
 router.use(accountsRouter)
+router.use(seatsRouter)
 router.use(opsRouter)
 router.use(jobsRouter)
 

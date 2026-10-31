@@ -3,6 +3,7 @@ import { getDb } from '../db/index.js'
 import { isStrategyTierEnabled } from './strategy-governance.js'
 import { runMachineStatusUpdate } from '../lib/status-lock.js'
 import type { Objective } from '@operationkit/shared'
+import { noteStartReason } from './session-start-reasons.js'
 
 // Wake-on-completion for delegator orchestration.
 //
@@ -415,6 +416,7 @@ export async function fireWake(parentId: number): Promise<void> {
     // coalesced into this one wake names all of its children.
     const pending = collectPendingForWake(parentId)
     const msg = buildWakeMessage(isStrategy, parent.trust_stage ?? 0, pending)
+    noteStartReason(parent.id, 'delegator_wake', 'delegation')
     const newSessionId = sendFollowUp(sessionId, msg, parent)
     runMachineStatusUpdate(
       db,

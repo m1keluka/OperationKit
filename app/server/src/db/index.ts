@@ -18,9 +18,16 @@ import { initReviewsSchema } from './schema/reviews.js'
 import { initGatesSchema } from './schema/gates.js'
 import { initRuntimeSchema } from './schema/runtime.js'
 import { initLeasesSchema } from './schema/leases.js'
+import { initLiveProgressSchema } from './schema/live-progress.js'
 import { initModelsSchema } from './schema/models.js'
 import { initTokensSchema } from './schema/tokens.js'
 import { initContentSchema } from './schema/content.js'
+import { initAgentKeysSchema } from './schema/agent-keys.js'
+import { initNeedsSecretSchema, initSecretRotationFlagsSchema, initSecretUploadTokensSchema } from './schema/needs-secret.js'
+import { initAgentControlSchema } from './schema/agent-control.js'
+import { initAgentChatSchema } from './schema/agent-chat.js'
+import { installWriteScrubber } from './write-scrubber.js'
+import { redactForStorage } from '../services/secret-redaction.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/command-center.db')
@@ -280,6 +287,13 @@ export function initDb(): Database.Database {
     // keeps its agent persona).
     db.exec("ALTER TABLE objectives ADD COLUMN delegate_mode INTEGER NOT NULL DEFAULT 0")
   }
+  if (!colNames.has('dedupe_key')) {
+    // Stable identity for auto-filed cards (obj 712948). Trunk-failure cards carry
+    // `trunk:<repo>:<branch>:<check>` so a new red sha appends to the open card instead
+    // of filing a twin. Nullable + additive; legacy rows fall back to a title match.
+    db.exec("ALTER TABLE objectives ADD COLUMN dedupe_key TEXT")
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_objectives_dedupe_key ON objectives(dedupe_key) WHERE dedupe_key IS NOT NULL")
   if (!colNames.has('is_strategy')) {
     // Stored Strategy marker (obj 2383, 2026-06-28). A "Strategy" is the canonical
     // top tier of the hierarchy (Strategy > Objective > Sub-objective): a
@@ -770,8 +784,27 @@ export function initDb(): Database.Database {
   if (!colNames.has('ran_model')) {
     db.exec('ALTER TABLE objectives ADD COLUMN ran_model TEXT')
   }
+  // objectives.engine_failover — seat pool v2 per-card cross-engine failover
+  // override: NULL = inherit the workspace setting, 'pinned' = never fail over,
+  // or a JSON array of engines in fallback order (services/seat-assign.ts).
+  if (!colNames.has('engine_failover')) {
+    db.exec('ALTER TABLE objectives ADD COLUMN engine_failover TEXT')
+  }
+  // Seat pool v2 admin audit (Settings → Seats). Every seat mutation lands here
+  // with the acting user; `detail` is field names / labels only, never a value.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS seat_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at TEXT NOT NULL DEFAULT (datetime('now')),
+      actor_user_id INTEGER,
+      action TEXT NOT NULL,
+      seat_id TEXT,
+      detail TEXT
+    );
+  `)
 
   initLeasesSchema(db)
+  initLiveProgressSchema(db)
 
   // Seed routines — both DISABLED (enabled=0); Mike flips them on after review.
   const seedRoutines: Array<{ name: string; cron_expr: string; template: Record<string, unknown>; enabled?: number }> = [
@@ -812,10 +845,16 @@ export function initDb(): Database.Database {
           '1. GET http://localhost:3002/api/internal/repos?living=1 — linked repos with living docs on and a disk path.',
           '2. For THIS repo (operationkit): git log --since=yesterday.0:00 --oneline; also note Board cards with project=operationkit that moved to done since yesterday.',
           '3. Diff SQLite tables: rg -o "CREATE TABLE IF NOT EXISTS ([a-z_]+)" app/server/src/db/schema -r "$1" | sort -u  vs the inventory in docs/product/07-data.md.',
-          '4. If nothing product-facing changed AND the table inventory matches: make no file edits, say so, finish.',
-          '5. If nav/auth/engines/a user flow/tables changed: edit docs/product/ so a visual person and a language person both get the truth. Always keep the mermaid in 01 and 02 and the ER + inventory in 07-data.md current. Open/update the PR (create_pr is on).',
-          '6. For every OTHER living repo in the list whose docs/product exists: spawn a sibling Board card via POST http://localhost:3002/api/internal/objectives with workspace, project=repo name, create_pr=true, model claude-sonnet-5, title "Living docs — {name}", description pointing at that checkout and LIVING.md (flowchart + 07-data required). Do not edit those live checkouts from this session.',
-          '7. If a living repo has a path but no docs/product yet, spawn the same sibling to stub README.md + 01-what-it-is.md (with mermaid) + 07-data.md only — do not invent a novel wiki.',
+          '4. Before writing anything, check for an OPEN, unmerged breathe/docs PR: gh pr list --repo your-org/operationkit --state open --json number,title,headRefName,files and match any PR whose headRefName contains "living-product-docs-breathe" OR whose files touch docs/product/ (titles drift, so do not rely on a title search).',
+          '   - If one exists: do NOT open a new branch/PR — that fix is already waiting to merge. Comment on that PR (or push a follow-up commit to its branch if it is now stale) and STOP the docs edit for this repo. Report it as skipped-open-pr(#n). Opening a second PR for drift a prior run already fixed is a pure duplicate (runs 716773/716910/717126 → PRs #548/#550/#554, all touching only 07-data.md).',
+          '5. If nothing product-facing changed AND the table inventory matches: make no file edits, say so, finish.',
+          '6. Only if no breathe PR is open, and nav/auth/engines/a user flow/tables changed: edit docs/product/ so a visual person and a language person both get the truth. Always keep the mermaid in 01 and 02 and the ER + inventory in 07-data.md current. Open the PR (create_pr is on).',
+          '7. Before filing ANY sibling card, list open cards: GET http://localhost:3002/api/internal/objectives?workspace=<ws>&include_terminal=0&fields=minimal and match any card whose status is NOT done/cancelled and whose title starts with "Living docs" and contains "{name}" (covers "Living docs — {name}", "Living docs stub — {name}", "Living docs — {name} (stub)").',
+          '   - If one exists and is still queue/never started: do NOT file a new card and do NOT message it (a message starts a worker). Skip it. (There is no localhost route to edit a description; if a twin create slips through anyway, the server refuses it and stamps one "still pending as of <date>" line on the open card itself.)',
+          '   - If one exists and is working/review: skip (optionally POST /api/objectives/{id}/message with the new commits, only if something product-facing changed).',
+          '   - Only if none is open: for every OTHER living repo whose docs/product exists, file exactly one card via POST http://localhost:3002/api/internal/objectives with workspace, project=repo name, create_pr=true, model claude-sonnet-5, title exactly "Living docs — {name}" (no "stub" variants), description pointing at that checkout and LIVING.md (flowchart + 07-data required; that card must run the same open-PR check on its own repo before opening a PR). Do not edit those live checkouts from this session. The server also refuses twins: a response with deduped > 0 means a card was already open — report it as skipped-open.',
+          '8. Same rule for repos with a path but no docs/product yet (stub): one open card per repo, ever; never re-file while one is open. The card stubs README.md + 01-what-it-is.md (with mermaid) + 07-data.md only — do not invent a novel wiki.',
+          '9. Report per repo: filed / appended / skipped-open(#id) / skipped-open-pr(#n) / skipped-no-change.',
         ].join('\n'),
         agent_context: 'cto',
         workspace: 'example',
@@ -879,6 +918,15 @@ export function initDb(): Database.Database {
 
   initSecretsSchema(db)
 
+  // Agent API keys (obj 714090): named/scoped per-bot keys + the
+  // objectives.agent_key_id / agent_key_label attribution columns. Additive.
+  initAgentKeysSchema(db)
+
+  // obj 718944: objectives.needs_secret (names + reasons the worker is blocked on). Additive.
+  initNeedsSecretSchema(db)
+  initSecretRotationFlagsSchema(db)
+  initSecretUploadTokensSchema(db)
+
   // ── Universal Development — Phase 0 (obj-704214) ─────────────────────────
   // The canonical, cross-platform store for development items (bugs / features
   // / improvements / chores) and the curated changelog. Collapses Weight
@@ -926,6 +974,17 @@ export function initDb(): Database.Database {
   }
   db.exec('CREATE INDEX IF NOT EXISTS idx_objectives_workspace_project ON objectives(workspace, project_id)')
 
+  // `blocked_reason` (obj 719328): distinguishes WHY a `blocked` ai_review_verdict
+  // happened. Currently the only populated value is 'preview-infra' (poller-ai-review.ts,
+  // when the reviewer's findings carry the P1 marker `PREVIEW-INFRA-UNREACHABLE:` — see
+  // session-reviewer-prompt.ts). NULL for every other blocked verdict (reviewer couldn't
+  // verify for an ordinary reason) and for pass/fail verdicts. This is the signal the
+  // preview-infra-resurrect sweep keys on — it does NOT touch pr-linkage.ts's
+  // pass-only self-heal gate.
+  if (!colNames.has('blocked_reason')) {
+    db.exec('ALTER TABLE objectives ADD COLUMN blocked_reason TEXT')
+  }
+
   // ── PostHog Self-Driving source uniqueness (obj 712024 W2) ──────────────
   // Ensures INSERT OR IGNORE idempotency for posthog-bot-discovered dev_items.
   // The DDL in development.ts includes this, but CREATE TABLE IF NOT EXISTS
@@ -934,6 +993,19 @@ export function initDb(): Database.Database {
   db.exec(
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_dev_items_source ON dev_items(source_system, source_id) WHERE source_id IS NOT NULL",
   )
+
+  // Control-layer changes feed + Idempotency-Key store (obj 714091). Last, so the
+  // triggers attach to the final objectives / objective_prs shape.
+  initAgentControlSchema(db)
+  initAgentChatSchema(db)
+  // ── Secret scrubbing on persistence (obj 715532) ──────────────────────────
+  // Installed LAST so migrations above run unwrapped. From here on, writes to
+  // activity_log / objectives / session_events / … have known secret values and
+  // high-confidence credential shapes replaced by [REDACTED:<NAME>].
+  // CC_SCRUB_DB_WRITES=0 disables it (escape hatch, not a default).
+  if (process.env.CC_SCRUB_DB_WRITES !== '0') {
+    installWriteScrubber(db, s => redactForStorage(s).text)
+  }
 
   return db
 }

@@ -13,7 +13,10 @@ Yes — that's the multi-tenant half of the category claim. Workspaces isolate c
 The review gate is an automated, fresh-context AI pass that grades a card's output against its own locked acceptance criteria — it's a filter, not a replacement for a person on anything that needs real judgment. See [Review Gate](./Review-Gate).
 
 **Can I drive the board from outside the UI?**
-Yes, through the agent HTTP API and a minted API key — a Claude Project, a Grok bot, a ChatGPT custom GPT, or a script can create and manage cards that way. See [External Agents](./External-Agents).
+Yes, through the agent HTTP API and a minted API key — a Claude Project, a Grok bot, a ChatGPT custom GPT, or a script can create and manage cards that way. See [External Agents](./External-Agents). A read-only MCP connector is also available for any MCP-capable agent to read the board and knowledge base directly — see [MCP Connector & Tools](./MCP-Connector-and-Tools).
+
+**Does OperationKit give me more usage than my subscription's terms allow?**
+No. It pools multiple subscriptions you hold (several Claude seats, for example) so concurrent sessions aren't all capped by one plan's rate limit — it's routing across legitimately held accounts, not multiplying what any single one allows. See [Accounts, Subscriptions & Seats](./Accounts-Subscriptions-and-Seats).
 
 **What happens to my knowledge base / skills / agents if I change which model I'm using?**
 Nothing — that's the point. They're plain files on your server, not stored inside a model provider's product. See [Why Own Your AI Infrastructure](./Why-Own-Your-AI-Infrastructure).

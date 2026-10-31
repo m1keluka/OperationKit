@@ -105,57 +105,63 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: No new test skips, no deleted test files
+      # The rule lives in a script so it can be fixture-tested; the fixture
+      # runs first so a broken rule cannot silently wave a deletion through.
+      - name: Fixture test for the test-integrity rule
+        run: bash scripts/test-integrity-fixture-test.sh
+      - name: No new test skips, no unjustified deleted test files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # Every command's exit code is load-bearing: no error suppression and no
         # tolerated-failure idioms anywhere in this step. If git itself fails
         # (e.g. an unreachable base sha) the step fails and the gate goes red.
-        # Fail closed, never fail quiet.
+        # Fail closed, never fail quiet. A deleted test file is allowed only
+        # when the code it tests is deleted in the same PR — see the script.
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os, subprocess, sys, re
-
-          base, head = os.environ['BASE_SHA'], os.environ['HEAD_SHA']
-          TESTS = ['*.test.ts', '*.test.tsx', '*.spec.ts', '*.spec.tsx']
-
-          def git(*args):
-              # check=True: a git failure fails the job rather than reading as "clean".
-              return subprocess.run(['git', *args], check=True,
-                                    capture_output=True, text=True).stdout
-
-          fail = 0
-
-          added = [l for l in git('diff', base, head, '--', *TESTS).splitlines()
-                   if l.startswith('+') and not l.startswith('+++')]
-          NARROWING = re.compile(r'\.skip\(|\.only\(|\bxit\(|\bxdescribe\(')
-          hits = [l for l in added if NARROWING.search(l)]
-          if hits:
-              for l in hits:
-                  print(f'  {l}')
-              print('::error title=New test skip/only introduced::'
-                    'A gated suite must not be narrowed to obtain a green.')
-              fail = 1
-
-          deleted = git('diff', '--diff-filter=D', '--name-only',
-                        base, head, '--', *TESTS).split()
-          if deleted:
-              print('::error title=Test file deleted::' + ', '.join(deleted))
-              fail = 1
-
-          if not fail:
-              print('OK: no new skips, no deleted test files')
-          sys.exit(fail)
-          PY
+          python3 scripts/test-integrity.py "$BASE_SHA" "$HEAD_SHA"
 
   # ===========================================================================
   # THE ONLY REQUIRED CHECK. Context name is exactly `gate` (the job id).
   # ===========================================================================
+  shellcheck:
+    name: shellcheck (scripts/migrate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # Migration scripts run as root against production hosts; keep them lint-clean.
+      # shellcheck ships on the ubuntu-latest runner image.
+      - name: shellcheck
+        run: shellcheck --version && shellcheck -x scripts/migrate/*.sh
+
+  gitleaks-config:
+    name: gitleaks-config (OSS publish allowlist)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: "8.21.2"   # keep in step with oss-sync.yml
+    steps:
+      - uses: actions/checkout@v4
+      # The OSS publish allowlist (scripts/oss-gitleaks.toml) is only exercised by
+      # oss-sync.yml, which runs AFTER merge. This proves on the PR, through the
+      # same pinned binary, that the allowlist hides no real-shaped secret.
+      - name: Install gitleaks (pinned)
+        run: |
+          set -euo pipefail
+          cd /tmp
+          curl -fsSL --retry 3 -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Negative control — allowlist hides no real-shaped secret
+        run: bash scripts/oss-gitleaks-config-check.sh scripts/oss-gitleaks.toml
+
   gate:
     if: always()
-    needs: [typecheck, unit, build, test-integrity]
+    needs: [typecheck, unit, build, test-integrity, shellcheck, gitleaks-config]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

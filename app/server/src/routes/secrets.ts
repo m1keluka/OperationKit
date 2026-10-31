@@ -22,6 +22,7 @@
 import { Router } from 'express'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { getDb } from '../db/index.js'
+import { listRotationFlags, resolveRotationFlag } from '../services/chat-secret-capture.js'
 import {
   setSecret,
   listSecrets,
@@ -167,6 +168,27 @@ router.get('/access-log', (req: AuthRequest, res) => {
     return
   }
   res.json(recentAccessLog(100))
+})
+
+// GET /api/secrets/rotation-flags — secrets the owner pasted into a card chat
+// (obj 718944). Moved into the store at capture time; listed here so they get
+// rotated later. Names only. Global admin only.
+router.get('/rotation-flags', (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    res.status(403).json({ error: 'Global admin role required' })
+    return
+  }
+  res.json(listRotationFlags({ includeResolved: req.query.all === '1' }))
+})
+
+// POST /api/secrets/rotation-flags/:id/resolve — "rotated", drops it off the list.
+router.post('/rotation-flags/:id/resolve', (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    res.status(403).json({ error: 'Global admin role required' })
+    return
+  }
+  const ok = resolveRotationFlag(Number(req.params.id))
+  res.status(ok ? 200 : 404).json({ ok })
 })
 
 // GET /api/secrets/principals — the organizations + users the caller may target

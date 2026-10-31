@@ -19,6 +19,7 @@ const {
   buildNudgeMessage,
   runCiFeedbackBridgeOnce,
 } = await import('./ci-feedback-bridge.js')
+const { ensureCiFollowupTable, recordCiFollowup } = await import('./ci-followup-cap.js')
 
 beforeAll(() => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
@@ -43,6 +44,8 @@ function insertObjective(id: number, status = 'done'): void {
 beforeEach(() => {
   const db = getDb()
   db.exec('DELETE FROM external_check_remediations')
+  ensureCiFollowupTable(db)
+  db.exec('DELETE FROM ci_followup_log')
   db.exec("DELETE FROM objectives WHERE title LIKE 'test obj%'")
 })
 
@@ -257,6 +260,38 @@ describe('runCiFeedbackBridgeOnce — orchestration', () => {
     expect(posted).toHaveLength(0)
     const blocked = (db.prepare('SELECT has_blockers FROM objectives WHERE id = 701604').get() as { has_blockers: number }).has_blockers
     expect(blocked).toBe(1)
+  })
+
+  it('respects the SHARED cross-source cap even when the bridge cap has room', async () => {
+    insertObjective(701604)
+    const db = getDb()
+    // 3 follow-ups already sent for this PR by OTHER engines (shared default cap = 3).
+    for (const source of ['external-remediation', 'ci-green-gate', 'pr-health-watchdog']) {
+      recordCiFollowup(db, { repo: REPO, prNumber: 355, objectiveId: 701604, source })
+    }
+    const { posted, deps } = makeDeps(
+      [{ number: 355, title: 'x (obj 701604)', headRefName: 'worker/701604-email', headRefOid: 'sha-SHARED' }],
+      { 355: [{ name: 'vitest', state: 'FAILURE', link: 'l' }] },
+      {},
+      { force: true },
+    )
+    const outs = await runCiFeedbackBridgeOnce(deps)
+    expect(outs[0].action).toBe('cap-exhausted')
+    expect(outs[0].detail).toContain('shared cap')
+    expect(posted).toHaveLength(0)
+  })
+
+  it('records a delivered nudge against the shared cap', async () => {
+    insertObjective(701604)
+    const { deps } = makeDeps(
+      [{ number: 355, title: 'x (obj 701604)', headRefName: 'worker/701604-email', headRefOid: 'sha-REC' }],
+      { 355: [{ name: 'vitest', state: 'FAILURE', link: 'l' }] },
+      {},
+      { force: true },
+    )
+    await runCiFeedbackBridgeOnce(deps)
+    const n = (getDb().prepare("SELECT COUNT(*) AS n FROM ci_followup_log WHERE pr_number = 355 AND source = 'ci-feedback-bridge' AND kind = 'sent'").get() as { n: number }).n
+    expect(n).toBe(1)
   })
 
   it('DARK mode (flag off): logs intent, posts nothing, leaves no dedupe row', async () => {

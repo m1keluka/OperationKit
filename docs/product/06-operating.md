@@ -1,6 +1,29 @@
 # Operating
 
-## Deploy
+## Running a client install
+
+A client install is made by `install.sh` ([INSTALL.md](../../INSTALL.md)). The code lives in
+`/opt/operationkit-src`, everything else in `/opt/operationkit` (change it with `INSTALL_DIR`).
+
+| Task | How |
+| --- | --- |
+| **Update to a newer version** | `cd /opt/operationkit-src && git pull`, then `./install.sh --config client.conf`. No secrets file is needed: existing secrets are kept, images are rebuilt and the app restarts. Do it when no cards are running. |
+| **Check it is healthy** | `bash install/verify.sh --config client.conf`. Every line should say PASS. |
+| **Change a setting** (name, allowed emails, agents, time zone) | Edit `client.conf`, re-run `./install.sh --config client.conf`. |
+| **New one-time admin password** | `bash install/admin-password.sh --config client.conf` |
+| **Reconnect Claude** (expired or changed account) | The person runs `claude setup-token` in their own terminal, then `install/claude-login.sh` (INSTALL.md step 7). |
+| **Back up** | Copy `/opt/operationkit/` off the server (database, knowledge base, secrets). Keep it somewhere private: it includes the secrets folder. |
+| **Add a secret** (an API key for a connector or agent) | Settings → Secrets in the app. Values are write-only. |
+| **Remove everything** | `bash install/uninstall.sh --config client.conf --yes` |
+
+Plain-language security summary for the client: [Security overview](../SECURITY-OVERVIEW.md).
+Letting outside AI apps in through Cloudflare: [Connect your AI, Step 0](../CONNECT-YOUR-AGENT.md).
+
+## Developing and deploying this repo (hosted instance)
+
+The rest of this page is for the team that develops Operation Kit on its own hosted instance.
+
+### Deploy
 
 | Change | Command | Sessions |
 | --- | --- | --- |
@@ -10,7 +33,7 @@
 
 From a session: `scripts/self-deploy.sh` with the same modes. Never `docker compose build` / `up -d` for code.
 
-## How we ship
+### How we ship
 
 1. Every card with a linked repo works in `/tmp/cc-worktree-<id>/`, never the live checkout.
 2. Push a branch. If the card is set to open a PR, `gh pr create --repo owner/repo` against that GitHub repo (from Settings → Org → linked repos).
@@ -19,13 +42,13 @@ From a session: `scripts/self-deploy.sh` with the same modes. Never `docker comp
 
 The “open a PR” checkbox is how the branch comes back (own PR vs fold into a parent). Isolation always happens.
 
-## Worktrees
+### Worktrees
 
-Editing `/home/operator/projects/<repo>` from a project card is a production incident waiting to happen. The session starts in the worktree; a hook blocks writes to the live tree.
+Editing the live checkout (`<projects dir>/<repo>`) from a project card is a production incident waiting to happen. The session starts in the worktree; a hook blocks writes to the live tree.
 
-## Secrets
+### Secrets
 
-Source of truth is **Settings → Secrets** (AES-256-GCM in SQLite, master key at `/home/operator/projects/.secrets-master-key`). Sessions get those keys as env vars. They do **not** get a Doppler token.
+Source of truth is **Settings → Secrets** (AES-256-GCM in SQLite, master key in `<projects dir>/.secrets-master-key`). Sessions get those keys as env vars. They do **not** get a Doppler token.
 
 - Add or rotate a key in the UI. New spawns pick it up; running tmux sessions keep the old env until they respawn.
 - Host cron / `docker exec` that needs a value: `docker exec command-center tsx /app/server/src/scripts/secrets-get.ts KEY_NAME`
@@ -36,6 +59,6 @@ Rollback: set `USE_SCOPED_SECRETS=0` and restart Node. That stops injecting stor
 
 Threat model and the open-source baseline (JWT, CSP, webhooks, what we are *not*): [SECURITY.md](../../SECURITY.md).
 
-## Architecture map
+### Architecture map
 
 Engineers: [`../architecture/README.md`](../architecture/README.md). Product language lives in this folder; do not fork it into CLAUDE.md except as a pointer.

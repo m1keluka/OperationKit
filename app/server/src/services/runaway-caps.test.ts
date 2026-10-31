@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { decideRespawnAction, watchdogDecision, budgetCeilingForEffort, AI_REVIEW_ITERATION_CAP } from './state-poller.js'
+import {
+  decideRespawnAction,
+  classifyFailType,
+  watchdogDecision,
+  budgetCeilingForEffort,
+  AI_REVIEW_ITERATION_CAP,
+} from './state-poller.js'
 
 // ST3 — VERIFIER SIGNAL #1: a low-ceiling objective must auto-escalate (cap-out)
 // instead of respawning once cumulative spend crosses the ceiling. The per-spawn
@@ -55,6 +61,103 @@ describe('decideRespawnAction (cumulative ceiling / cap-out)', () => {
     expect(budgetCeilingForEffort('ultracode')).toBeGreaterThanOrEqual(budgetCeilingForEffort('high'))
     expect(budgetCeilingForEffort(undefined)).toBe(budgetCeilingForEffort('normal'))
     expect(budgetCeilingForEffort('bogus')).toBe(budgetCeilingForEffort('normal'))
+  })
+})
+
+// obj 714137 — completeness-type iter-1 FAILs must respawn a fresh worker
+// instead of bouncing into the exited session for a guaranteed-to-fail iter-2.
+// Each findings excerpt below is the ACTUAL (verbatim, truncated) iteration-1
+// `objective_reviews.markdown_body` from prod for the objective named, pulled
+// from the 2026-10-05 distillation's 5-objective, ~$80 cap-out window — see
+// `~/ai-workspace/objective-memory/714137/ARTIFACT.md` for the full replay.
+describe('classifyFailType (completeness vs logic) — real cap-out findings', () => {
+  it('713954: "zero commits" / working-tree-only edit → completeness', () => {
+    const findings =
+      '- [FAIL] fields-live: No committed/pushed setup script exists to produce this. ' +
+      '`example-crm-infra-wt-713954` has `scripts/setup-bd-workspace.ts` modified only in the ' +
+      'working tree (`git status --short` shows `M scripts/setup-bd-workspace.ts`, ' +
+      '`?? scripts/bd-segments.ts`) with zero commits on `cto/713954-bd-segments`.'
+    expect(classifyFailType(findings)).toBe('completeness')
+  })
+
+  it('713962: no ARTIFACT.md / unpushed local-only branches → completeness', () => {
+    const findings =
+      '- No `ARTIFACT.md` was ever written for this objective.\n' +
+      '- No PR opened on either repo — let alone merged.\n' +
+      'Both branches are local-only, unpushed ("ahead of origin by N commits", no `origin/feat/...` ref).'
+    expect(classifyFailType(findings)).toBe('completeness')
+  })
+
+  it('713979: ARTIFACT.md literal "TBD" pending the apply → completeness', () => {
+    const findings =
+      '- [FAIL] apply-counts-match: ARTIFACT.md section reads literally "TBD — filled after ' +
+      'the apply run exits and live Twenty opportunity counts are queried."'
+    expect(classifyFailType(findings)).toBe('completeness')
+  })
+
+  it('714006: ARTIFACT.md "TBD ... pending apply completion" → completeness', () => {
+    const findings =
+      '- [FAIL] import-counts: ARTIFACT.md states "TBD — dry-run table + live readback ' +
+      'pending apply completion." No dry-run table, no live Twenty readback exists.'
+    expect(classifyFailType(findings)).toBe('completeness')
+  })
+
+  it('714114: PR still open / checks IN_PROGRESS, not merged → completeness', () => {
+    const findings =
+      '- [FAIL] flag-merged-deployed: PR #739 is still OPEN, not merged (`gh pr view 739` → ' +
+      '"mergeStateStatus":"BLOCKED"), and gate CI checks build, typecheck, unit, migration-drift ' +
+      'are still IN_PROGRESS/pending.'
+    expect(classifyFailType(findings)).toBe('completeness')
+  })
+
+  it('a genuine code/logic defect does NOT classify as completeness', () => {
+    const findings =
+      '- [FAIL] rate-limit: the retry handler does not back off on a 429 response and busy-loops, ' +
+      'exhausting the account in under a minute. Add exponential backoff keyed on retryAfterSeconds.'
+    expect(classifyFailType(findings)).toBe('logic')
+  })
+
+  it('null/empty findings default to logic (never silently respawn on nothing)', () => {
+    expect(classifyFailType(null)).toBe('logic')
+    expect(classifyFailType('')).toBe('logic')
+  })
+})
+
+describe('decideRespawnAction — completeness-type iteration-1 FAIL routes to respawn', () => {
+  const completenessFindings = '- [FAIL] evidence: zero commits exist on the branch for this work.'
+  const logicFindings = 'fix the off-by-one in the paginator'
+
+  it('iteration 1, completeness-type FAIL → respawn (skips the guaranteed-fail bounce)', () => {
+    const d = decideRespawnAction({
+      iteration: 1, iterationCap: 2, spend: 5, ceiling: 75,
+      findings: completenessFindings, prevFindings: null,
+    })
+    expect(d).toEqual({ action: 'respawn', reason: 'completeness' })
+  })
+
+  it('iteration 1, logic-type FAIL → still bounces (unchanged behavior)', () => {
+    const d = decideRespawnAction({
+      iteration: 1, iterationCap: 2, spend: 5, ceiling: 75,
+      findings: logicFindings, prevFindings: null,
+    })
+    expect(d).toEqual({ action: 'bounce' })
+  })
+
+  it('iteration 2, completeness-type FAIL → the normal iteration-cap still governs (no infinite respawn)', () => {
+    const d = decideRespawnAction({
+      iteration: 2, iterationCap: 2, spend: 5, ceiling: 75,
+      findings: completenessFindings, prevFindings: completenessFindings,
+    })
+    expect(d).toEqual({ action: 'cap', reason: 'iteration-cap' })
+  })
+
+  it('completeness classification never overrides the iteration-cap/budget backstops', () => {
+    // iteration already AT the cap — cap-out wins even though findings are completeness-type.
+    const d = decideRespawnAction({
+      iteration: 3, iterationCap: 2, spend: 5, ceiling: 75,
+      findings: completenessFindings, prevFindings: null,
+    })
+    expect(d).toEqual({ action: 'cap', reason: 'iteration-cap' })
   })
 })
 

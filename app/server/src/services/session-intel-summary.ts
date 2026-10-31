@@ -179,6 +179,21 @@ Session data:
 Respond with ONLY valid JSON, no markdown fences.`
 }
 
+/**
+ * Cheap liveness probe for the local (free) Ollama path. The periodic
+ * parsed-backlog drain (index.ts, obj 713406) only runs when this is true:
+ * with Ollama down, generateSummary() falls through to the metered Anthropic
+ * key, and a background loop must never be what spends it.
+ */
+export async function isOllamaReachable(timeoutMs = 3000): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(timeoutMs) })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export async function generateSummary(
   intel: DeterministicIntel,
   objective: Objective,

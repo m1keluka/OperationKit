@@ -2,8 +2,8 @@
  * Hermes localhost read + control endpoints — extracted from internal.ts
  * (behavior frozen). Localhost gate unchanged.
  */
+import { relaySender } from '../lib/message-provenance.js'
 import { Router } from 'express'
-import { execSync } from 'child_process'
 import { getDb } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
 import { logActivity } from './feed.js'
@@ -29,6 +29,8 @@ import { listObjectivePRs } from '../services/objective-prs.js'
 import { enqueuePreviewTeardown, kickHostDrain } from '../services/preview-spool.js'
 import { mustRouteToHumanReview } from '../lib/human-tracked.js'
 import { cleanupOrphanedChildrenOnParentTerminal } from '../lib/cleanup-orphaned-children.js'
+import { scheduleObjectiveWorktreeReap } from '../services/worktree-reaper.js'
+import { PROJECTS_DIR } from '../config.js'
 import { releaseSessionLeasesForObjective } from '../services/session-lease.js'
 import { getOpenTasksBlock } from '../services/mentor-context.js'
 import { runCompletionGate, applyGateHandback } from '../services/ci-green-gate.js'
@@ -61,6 +63,7 @@ import { isLocalhost } from '../lib/is-localhost.js'
 import { isLockedStatus, runMachineStatusUpdate } from '../lib/status-lock.js'
 import { diskAction, diskBlockReason, readHostDisk } from '../lib/host-disk.js'
 import { resolveFollowUpSessionId } from '../services/objective-sessions.js'
+import { noteStartReason } from '../services/session-start-reasons.js'
 
 export function registerInternalHermesRoutes(router: Router): void {
 // ─── Hermes integration: localhost-only read + control endpoints ───────────
@@ -346,6 +349,7 @@ router.patch('/objectives/:id/status', async (req, res) => {
       // Re-Open: resume the most recent thread in place instead of starting over.
       // ST2: pass-gated reopen ⇒ false pass; record it before the state changes.
       recordReopenFalsePass(existing)
+      noteStartReason(existing.id, typeof req.body?.reason === 'string' && req.body.reason ? String(req.body.reason).slice(0, 40) : 'agent', typeof req.body?.actor === 'string' ? String(req.body.actor).slice(0, 80) : 'internal-api', 'reopen')
       const sessionId = await reopenObjective(existing)
       db.prepare("UPDATE objectives SET status = ?, session_id = ?, updated_at = datetime('now') WHERE id = ?").run(status, sessionId, req.params.id)
     } else if (status === 'working' && startsFromReviewLike) {
@@ -365,6 +369,7 @@ router.patch('/objectives/:id/status', async (req, res) => {
       if (existing.status !== 'queue' && existing.session_id) {
         db.prepare("UPDATE session_intel SET outcome = 'failed' WHERE session_id = ? AND outcome IS NULL").run(existing.session_id)
       }
+      noteStartReason(existing.id, typeof req.body?.reason === 'string' && req.body.reason ? String(req.body.reason).slice(0, 40) : 'agent', typeof req.body?.actor === 'string' ? String(req.body.actor).slice(0, 80) : 'internal-api', null)
       const sessionId = await startSession(existing)
       db.prepare("UPDATE objectives SET status = ?, session_id = ?, updated_at = datetime('now') WHERE id = ?").run(status, sessionId, req.params.id)
     } else if (status === 'done') {
@@ -452,16 +457,9 @@ router.patch('/objectives/:id/status', async (req, res) => {
         if (enqueuePreviewTeardown(existing.pr_number, existing.id)) kickHostDrain()
       }
 
-      if (existing.branch_name) {
-        const worktreePath = `/tmp/cc-worktree-${existing.id}`
-        try {
-          execSync(`rm -rf ${worktreePath} 2>/dev/null || true`, { timeout: 5000 })
-          execSync(`find /home/operator/projects -maxdepth 2 -name .git -type d -exec git --git-dir={} worktree prune 2>/dev/null \\;`, { timeout: 10000 })
-          if (existing.project) {
-            execSync(`git -C /home/operator/projects/${existing.project} branch -D ${existing.branch_name} 2>/dev/null || true`, { timeout: 5000 })
-          }
-        } catch {}
-      }
+      // Worktree + branch cleanup → worktree reaper, scheduled after the audit
+      // row below for done AND cancelled (obj 718070). Replaces an unconditional
+      // rm -rf with gated `git worktree remove` (keeps dirty/unpushed/in-use).
     } else {
       db.prepare("UPDATE objectives SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, req.params.id)
     }
@@ -497,6 +495,16 @@ router.patch('/objectives/:id/status', async (req, res) => {
     workspace: updated.workspace,
   })
   broadcast({ type: 'objective_updated', payload: updated })
+
+  // Reap this card's worktree(s) on the LANDED terminal status (obj 718070).
+  // Deferred + gated; re-reads status before removing.
+  if (updated.status === 'done' || updated.status === 'cancelled') {
+    scheduleObjectiveWorktreeReap(existing.id, {
+      db,
+      projectDir: existing.project ? `${PROJECTS_DIR}/${existing.project}` : undefined,
+      branch: existing.project ? existing.branch_name : null,
+    })
+  }
 
   // Orphan-child cleanup on parent-terminal (obj 700595, FIX 1a). Mirror of the
   // authenticated path in routes/objectives.ts — keyed on the LANDED status so a
@@ -632,7 +640,11 @@ router.post('/objectives/:id/message', (req, res) => {
   }
 
   try {
-    const newSessionId = sendFollowUp(existingSessionId, message, objective)
+    noteStartReason(objective.id, message.trimStart().startsWith('[child-complete]') ? 'delegator_wake' : 'follow_up', from_objective_id != null ? `obj:${from_objective_id}` : 'internal-api')
+    // obj 718944: a localhost relay is never the owner, whatever the text says.
+    const newSessionId = sendFollowUp(existingSessionId, message, objective, {
+      sender: relaySender(Number.isFinite(Number(from_objective_id)) && from_objective_id != null ? Number(from_objective_id) : null),
+    })
     runMachineStatusUpdate(
       db,
       "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",

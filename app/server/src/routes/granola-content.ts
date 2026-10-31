@@ -143,14 +143,19 @@ router.get('/drafts', (req: OwnerRequest, res) => {
 })
 
 // PATCH /api/granola-content/drafts/:file/status — advance draft→ready→posted.
-// Rewrites only the frontmatter `status:` value, re-renders, returns the draft.
+// Rewrites only the frontmatter `status:` value (plus `pillar:` when one is passed,
+// e.g. the Posted button), re-renders, returns the draft.
 router.patch('/drafts/:file/status', (req: OwnerRequest, res) => {
-  const { status } = (req.body || {}) as { status?: string }
+  const { status, pillar } = (req.body || {}) as { status?: string; pillar?: string }
   if (!status) {
     res.status(400).json({ error: 'status required' })
     return
   }
-  const result = patchDraftStatus(req.owner!, req.params.file as string, status)
+  if (pillar !== undefined && typeof pillar !== 'string') {
+    res.status(400).json({ error: 'pillar must be a string' })
+    return
+  }
+  const result = patchDraftStatus(req.owner!, req.params.file as string, status, { pillar })
   if (!result.ok) {
     const code = result.error === 'draft not found' ? 404 : 400
     res.status(code).json({ error: result.error })

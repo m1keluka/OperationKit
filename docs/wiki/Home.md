@@ -17,6 +17,9 @@ Run it on Claude today. Point a workload at an open-weight model on your own GPU
 | Understand how the pieces fit together | [Architecture Overview](./Architecture-Overview) |
 | Browse what's actually built | [Features](./Features) |
 | Install it on your own server | [Self-Hosting Quickstart](./Self-Hosting-Quickstart) |
+| Connect your own agent over MCP | [MCP Connector & Tools](./MCP-Connector-and-Tools) |
+| Understand subscription seats vs. your own identity | [Accounts, Subscriptions & Seats](./Accounts-Subscriptions-and-Seats) |
+| See what's shipped vs. in progress, right now | [Project Status](./Project-Status) |
 | Find a quick answer | [FAQ](./FAQ) |
 
 ## Elsewhere

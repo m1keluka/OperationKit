@@ -5,14 +5,23 @@ const db = initDb()
 
 const SALT_ROUNDS = 12
 
+// obj 719935: no built-in default password. Dev/preview seeding must pass
+// SEED_PASSWORD explicitly; real installs never run this file (install.sh uses
+// scripts/install-bootstrap.ts, which forces a new password at first sign-in).
+const SEED_PASSWORD = process.env.SEED_PASSWORD || ''
+
 async function seed() {
+  if (SEED_PASSWORD.length < 8) {
+    console.error('seed: set SEED_PASSWORD (8+ chars). There is no default password.')
+    process.exit(2)
+  }
   const users = [
-    { username: 'mike', password: 'changeme', role: 'admin', workspaces: [
+    { username: 'mike', password: SEED_PASSWORD, role: 'admin', workspaces: [
       { workspace: 'example', role: 'admin' },
       { workspace: 'example-project', role: 'admin' },
       { workspace: 'personal', role: 'admin' },
     ]},
-    { username: 'ava', password: 'changeme', role: 'member', workspaces: [
+    { username: 'ava', password: SEED_PASSWORD, role: 'member', workspaces: [
       { workspace: 'example', role: 'member' },
     ]},
   ]

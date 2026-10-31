@@ -332,14 +332,63 @@ export function budgetCeilingForEffort(effort: string | null | undefined): numbe
 
 export type CapOutReason = 'iteration-cap' | 'budget' | 'no-progress'
 
+export type FailType = 'completeness' | 'logic'
+
+/**
+ * Pattern bank for `classifyFailType` — every pattern below is verified against
+ * the iteration-1 `markdown_body` of a real cap-out in prod (objectives 713954,
+ * 713962, 713979, 714006, 714114 — 2026-10-05 distillation window, ~$80 burned
+ * on a guaranteed-to-fail iter-2). Each is a signal that the FAIL is about
+ * missing/uncommitted/in-flight EVIDENCE of work that may already be done, not
+ * a defect in the diff itself — so bouncing a follow-up into the SAME (often
+ * already-exited) worker session re-confirms the identical FAIL on iteration 2
+ * before the iteration cap ever gets a chance to help.
+ */
+const COMPLETENESS_PATTERNS: RegExp[] = [
+  /\bzero commits?\b/i,
+  /\bno commits? (?:exist|found|on)\b/i,
+  /\buncommitted\b/i,
+  /\bexists? untracked\b/i,
+  /\b(?:is|are|left) untracked\b/i,
+  /\bunpushed\b/i,
+  /\blocal-only\b/i,
+  /\bno ARTIFACT\.md\b/i,
+  /\bARTIFACT\.md was (?:never|not) written\b/i,
+  /\bTBD\b/,
+  /\bpending (?:apply|completion|the apply)\b/i,
+  /\bmid-apply\b/i,
+  /\bstill (?:in flight|running|in progress)\b/i,
+  /\bnot (?:yet )?merged\b/i,
+  /\bstill open\b/i,
+  /\bIN_PROGRESS\b/,
+]
+
+/**
+ * Classify a FAIL verdict's findings text as `completeness` (missing/uncommitted/
+ * in-flight evidence — unrecoverable by re-prompting the SAME worker session,
+ * since the work/process that would produce the evidence already ended) or
+ * `logic` (an actual code/behavior defect the worker can fix by editing and
+ * re-running). Pure string classifier — no DB, no network — so it is
+ * unit-testable and safe to call from the hot review-decision path.
+ */
+export function classifyFailType(findings: string | null | undefined): FailType {
+  const text = findings || ''
+  return COMPLETENESS_PATTERNS.some((re) => re.test(text)) ? 'completeness' : 'logic'
+}
+
 /**
  * Pure decision for whether a failed AI review should bounce back to the worker
- * for another iteration, or stop and escalate (cap-out). Stops when ANY of:
- *   (a) iteration cap reached (backstop),
+ * for another iteration, respawn a FRESH worker session, or stop and escalate
+ * (cap-out). Order of checks:
+ *   (a) iteration cap reached (backstop) → cap,
  *   (b) CUMULATIVE objective spend ≥ the effort-derived ceiling (the gap ST3
- *       closes — `--max-budget-usd` resets per spawn, this does not),
- *   (c) the reviewer's findings repeat verbatim (no-progress — another bounce
- *       just burns budget).
+ *       closes — `--max-budget-usd` resets per spawn, this does not) → cap,
+ *   (c) iteration 1 FAIL classified `completeness` → respawn (skip the
+ *       guaranteed-to-fail bounce-into-the-same-session iter-2 — see
+ *       `classifyFailType`),
+ *   (d) the reviewer's findings repeat verbatim, or no previously-failing
+ *       criterion flipped to pass (no-progress — another bounce just burns
+ *       budget) → cap.
  * Extracted as a pure function so the cap-out logic is unit-testable. (ST3)
  */
 export function decideRespawnAction(input: {
@@ -351,13 +400,23 @@ export function decideRespawnAction(input: {
   prevFindings: string | null
   failedCriteriaIds?: string[]      // current round's status==='fail' criterion ids
   prevFailedCriteriaIds?: string[]  // previous round's status==='fail' criterion ids
-}): { action: 'bounce' } | { action: 'cap'; reason: CapOutReason } {
+}): { action: 'bounce' } | { action: 'respawn'; reason: 'completeness' } | { action: 'cap'; reason: CapOutReason } {
   const {
     iteration, iterationCap, spend, ceiling, findings, prevFindings,
     failedCriteriaIds, prevFailedCriteriaIds,
   } = input
   if (iteration >= iterationCap) return { action: 'cap', reason: 'iteration-cap' }
   if (ceiling > 0 && spend >= ceiling) return { action: 'cap', reason: 'budget' }
+  // Completeness-type iter-1 FAIL: the worker's session already ended (or is
+  // mid-apply/unmerged — state outside its control to fix by just talking more
+  // in the SAME session). Respawn a fresh worker with the findings as context
+  // instead of bouncing a follow-up into a session that cannot act on it — this
+  // is what makes iteration 2's review meaningful instead of a guaranteed repeat.
+  // Only fires on the FIRST fail; a second completeness-type fail after a
+  // respawn still falls through to the normal cap-out logic below/above.
+  if (iteration === 1 && classifyFailType(findings) === 'completeness') {
+    return { action: 'respawn', reason: 'completeness' }
+  }
   // No-progress by CRITERIA (preferred). When a structured failing-criterion set is
   // available for BOTH rounds and NO criterion that failed last round flipped to pass
   // this round, the worker resolved nothing the reviewer flagged — another bounce just
@@ -422,4 +481,26 @@ export function watchdogDecision(input: {
   if (wallClockLimitMs > 0 && wallClockMs >= wallClockLimitMs) return { forceRoute: true, reason: 'wall-clock' }
   if (idleForceMs > 0 && idleMs >= idleForceMs) return { forceRoute: true, reason: 'idle' }
   return { forceRoute: false, reason: null }
+}
+
+/**
+ * Pure selector for the per-tick review `session_id` clear (obj 712954). A
+ * `review` card normally drops its session_id so it leaves the live poll set
+ * (and its tmux becomes reapable). A card whose live session is parked between
+ * turns with pending background work (ScheduleWakeup / async Agent / Monitor
+ * inside the horizon) keeps it — clearing it is what hands the still-running
+ * worker to the orphan sweep. Fail-safe: a predicate error clears as before.
+ */
+export function selectReviewSessionIdsToClear(
+  rows: Array<{ id: number; session_id: string | null }>,
+  hasPendingWork: (sessionId: string) => boolean,
+): number[] {
+  const ids: number[] = []
+  for (const r of rows) {
+    if (!r.session_id) continue
+    let keep = false
+    try { keep = hasPendingWork(r.session_id) } catch { keep = false }
+    if (!keep) ids.push(r.id)
+  }
+  return ids
 }

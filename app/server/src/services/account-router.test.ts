@@ -96,11 +96,39 @@ describe('isAuthFailureMessage — 401 credential-outage detection (obj 1286)', 
     expect(isAuthFailureMessage('invalid authentication credentials')).toBe(true)
   })
 
+  it('detects the 403 org-disabled-subscription exit string (obj 717763)', () => {
+    expect(
+      isAuthFailureMessage('Your organization has disabled Claude subscription access for Claude Code · Use an Anthropic API key instead, or ask your admin to enable access')
+    ).toBe(true)
+  })
+
+  it('detects the dead OAuth refresh exit string (obj 717763)', () => {
+    expect(isAuthFailureMessage('Failed to authenticate: OAuth session expired and could not be refreshed')).toBe(true)
+  })
+
   it('does not false-positive on normal text mentioning authentication', () => {
     // Narrow on purpose: must not trip on assistant output discussing auth.
     expect(isAuthFailureMessage('We added authentication to the login route.')).toBe(false)
     expect(isAuthFailureMessage('rate limit exceeded')).toBe(false)
     expect(isAuthFailureMessage('')).toBe(false)
+  })
+})
+
+// Regression guard for obj 716791 (distill 2026-10-17): a dead *refresh* token
+// exits the CLI with "Failed to authenticate: OAuth session expired and could
+// not be refreshed" (api_error_status: null — never an HTTP 401), which the
+// pre-fix regex did not match, so recordAuthFailure never fired and the dead
+// account was re-picked identically across 3 noop_respawn attempts.
+describe('isAuthFailureMessage — OAuth refresh-token-expired detection (obj 716791)', () => {
+  it('detects the exact CLI OAuth-refresh-expired exit string', () => {
+    expect(
+      isAuthFailureMessage('Failed to authenticate: OAuth session expired and could not be refreshed')
+    ).toBe(true)
+  })
+
+  it('is case-insensitive', () => {
+    expect(isAuthFailureMessage('oauth session expired')).toBe(true)
+    expect(isAuthFailureMessage('COULD NOT BE REFRESHED')).toBe(true)
   })
 })
 
@@ -190,5 +218,34 @@ describe('isOAuthTokenUsable — expired-without-refresh detection (obj 913)', (
   it('is permissive on unknown/unparseable input (never false-benches)', () => {
     expect(isOAuthTokenUsable('not json', NOW)).toBe(true)
     expect(isOAuthTokenUsable(JSON.stringify({ claudeAiOauth: { accessToken: 'x' } }), NOW)).toBe(true)
+  })
+
+  // Regression guard for obj 716791: a PRESENT refresh token that is itself
+  // expired (refreshTokenExpiresAt in the past) cannot mint a new access
+  // token either — the old check stopped at "is refreshToken a non-empty
+  // string" and treated this as usable, so 6 of 7 pool accounts kept getting
+  // picked for ~2 days while every spawn died with a 0-cost auth-failure no-op.
+  it('rejects an expired access token whose refresh token has ALSO expired (obj 716791)', () => {
+    expect(
+      isOAuthTokenUsable(
+        creds({ accessToken: 'x', expiresAt: NOW - 1000, refreshToken: 'r', refreshTokenExpiresAt: NOW - 500 }),
+        NOW
+      )
+    ).toBe(false)
+  })
+
+  it('accepts an expired access token whose refresh token is still within its own expiry', () => {
+    expect(
+      isOAuthTokenUsable(
+        creds({ accessToken: 'x', expiresAt: NOW - 1000, refreshToken: 'r', refreshTokenExpiresAt: NOW + 60_000 }),
+        NOW
+      )
+    ).toBe(true)
+  })
+
+  it('is permissive when refreshTokenExpiresAt is absent/unknown shape (legacy creds)', () => {
+    expect(
+      isOAuthTokenUsable(creds({ accessToken: 'x', expiresAt: NOW - 1000, refreshToken: 'r' }), NOW)
+    ).toBe(true)
   })
 })

@@ -348,10 +348,14 @@ export function evaluateCiGate(input: CiGateInput): CiGateDecision {
 
   // ── 2. Required checks absent / queued / cancelled-at-a-gate. NOT the worker's ──
   //      fault (GitHub Actions outages do exactly this). Bounded wait only.
+  //      The per-bounce hold cap is deliberately NOT a release condition here: it is
+  //      the right bound for a FAILING check (stop bouncing the worker) and the wrong
+  //      one for an ABSENT one. A worker-end read lands ~1 min after the PR opens while
+  //      `gate` takes ~3 min, so two quick bounces used to trip the cap and complete a
+  //      PR as red 25s before its own gate went green (obj 714772, PR 527).
   if (missingRequired.length > 0) {
-    const capped = holdCount >= config.holdCap
     const waited = waitedMinutes >= config.absentWaitMinutes
-    if (capped || waited || mode === 'record-only') {
+    if (waited || mode === 'record-only') {
       return {
         ...base,
         action: 'complete-with-red',
@@ -414,6 +418,10 @@ export function buildHandback(decision: CiGateDecision, repo: string, prNumber: 
       'cancellations look like this). Do NOT `workflow_dispatch` anything to force them —',
       'a third entrant to a static concurrency group evicts the real pending run. Push a',
       'commit if you have a real fix; otherwise the gate will release this on its own bound.',
+      '',
+      'If you have nothing to fix, WAIT for them before ending your turn — ending immediately',
+      'just re-runs this gate before GitHub has finished. Poll for up to ~10 minutes:',
+      `\`for i in $(seq 1 20); do gh pr checks ${prNumber} --repo ${repo} --required && break; sleep 30; done\``,
     )
   }
   if (decision.advisoryRed.length) {
@@ -426,7 +434,9 @@ export function buildHandback(decision: CiGateDecision, repo: string, prNumber: 
   lines.push('')
   lines.push(
     `_Required-vs-advisory was read from the repo's live branch ${decision.requiredSource}. ` +
-    `Hold ${decision.holdCount + 1}/${DEFAULT_CONFIG.holdCap} — after the cap this escalates to Mike instead of bouncing again._`,
+    (decision.failingRequired.length
+      ? `Hold ${decision.holdCount + 1}/${DEFAULT_CONFIG.holdCap} — after the cap this escalates to Mike instead of bouncing again._`
+      : `Unreported checks are released on the ${DEFAULT_CONFIG.absentWaitMinutes}-minute wall-clock bound, not the hold cap._`),
   )
   lines.push('')
   lines.push('Do NOT merge the PR. Fix the checks, push, then complete again.')

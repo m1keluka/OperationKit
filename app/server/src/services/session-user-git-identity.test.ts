@@ -243,3 +243,28 @@ describe('E2E ATTRIBUTION PROOF (deterministic harness; live-push limitation sta
     expect(env.GIT_SSH_COMMAND).toBeTruthy()
   })
 })
+
+// obj 720115 — Settings → Connectors access rules decide whether a spawn gets the
+// person's GitHub identity. No rule = allowed (above); a rule that leaves this
+// agent/workspace out withholds it and the spawn falls back to the bot identity.
+describe('buildSpawnEnv — Connectors access rules', () => {
+  it('withholds the GitHub token from an agent or workspace the person left out', async () => {
+    const { setAccess } = await import('../connectors/access.js')
+    seedUser(42, 'eva')
+    linkEva(42)
+    const obj = { ...objectiveOwnedBy(42), agent_context: 'operator' } as Objective
+
+    setAccess('github', 42, { agents: ['operator'], workspaces: null })
+    expect(buildSpawnEnv({ objective: obj, homeDir: '/tmp/h', sessionKind: 'worker' }).GH_TOKEN).toBe(RAW_PAT)
+
+    setAccess('github', 42, { agents: ['librarian'], workspaces: null })
+    const env = buildSpawnEnv({ objective: obj, homeDir: '/tmp/h', sessionKind: 'worker' })
+    expect(env.GH_TOKEN).toBeUndefined()
+    expect(env.GITHUB_TOKEN).toBeUndefined()
+    expect(env.GIT_AUTHOR_EMAIL).not.toBe(EVA_EMAIL)
+
+    setAccess('github', 42, { agents: null, workspaces: ['some-other-workspace'] })
+    expect(buildSpawnEnv({ objective: obj, homeDir: '/tmp/h', sessionKind: 'worker' }).GH_TOKEN).toBeUndefined()
+    setAccess('github', 42, { agents: null, workspaces: null })
+  })
+})

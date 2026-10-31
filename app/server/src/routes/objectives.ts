@@ -10,6 +10,7 @@ import {
 } from './objectives-control.js'
 import { registerObjectiveOutputRoutes } from './objectives-output.js'
 import { registerObjectiveDesignRoutes } from './objectives-design.js'
+import { registerObjectiveProgressRoutes } from './objectives-progress.js'
 
 const router = Router()
 router.use(requireAuth)
@@ -18,6 +19,7 @@ registerObjectiveCrudRoutes(router)
 registerObjectiveGoalDraftRoutes(router)
 registerObjectiveStatusRoutes(router)
 registerObjectiveOutputRoutes(router)
+registerObjectiveProgressRoutes(router)
 registerObjectiveDesignRoutes(router)
 registerObjectiveControlRoutes(router)
 registerObjectiveUploadRoutes(router)

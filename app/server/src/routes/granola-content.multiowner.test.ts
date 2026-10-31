@@ -244,3 +244,37 @@ describe('provisioning', () => {
     expect(res.json.reason).toContain('granola-intake-bob-vault')
   })
 })
+
+describe('Posted button: status + pillar move', () => {
+  const draftsDir = () => path.join(process.env.VAULT_PATH!, 'workspaces', 'alice-vault', 'content', 'drafts')
+
+  it('marks posted and moves the draft into the Posted category, keeping the old pillar', async () => {
+    fs.writeFileSync(
+      path.join(draftsDir(), '2026-09-15-alice-yw.md'),
+      '---\nstatus: draft\ntype: linkedin-draft\npillar: "Your words"\ntopic: t\ndate: 2026-09-15\n---\n\nbody stays\n',
+      'utf8'
+    )
+    const res = await call('PATCH', '/drafts/2026-09-15-alice-yw.md/status', alice, { status: 'posted', pillar: 'Posted' })
+    expect(res.status).toBe(200)
+    expect(res.json.draft.status).toBe('posted')
+    expect(res.json.draft.pillar).toBe('Posted')
+    const raw = fs.readFileSync(path.join(draftsDir(), '2026-09-15-alice-yw.md'), 'utf8')
+    expect(raw).toContain('pillar: "Posted"')
+    expect(raw).toContain('pillar_before: "Your words"')
+    expect(raw).toContain('\nbody stays\n')
+  })
+
+  it('adds a pillar when the draft had none', async () => {
+    writeDraft('alice-vault', '2026-09-16-alice-np.md', 'np')
+    const res = await call('PATCH', '/drafts/2026-09-16-alice-np.md/status', alice, { status: 'posted', pillar: 'Posted' })
+    expect(res.json.draft.pillar).toBe('Posted')
+    expect(fs.readFileSync(path.join(draftsDir(), '2026-09-16-alice-np.md'), 'utf8')).not.toContain('pillar_before')
+  })
+
+  it('rejects a pillar that would break the frontmatter', async () => {
+    writeDraft('alice-vault', '2026-09-17-alice-bad.md', 'bad')
+    const res = await call('PATCH', '/drafts/2026-09-17-alice-bad.md/status', alice, { status: 'posted', pillar: 'a"\nstatus: x' })
+    expect(res.status).toBe(400)
+    expect(fs.readFileSync(path.join(draftsDir(), '2026-09-17-alice-bad.md'), 'utf8')).toContain('status: draft')
+  })
+})

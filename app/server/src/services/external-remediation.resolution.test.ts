@@ -31,7 +31,9 @@ const {
   workspaceForRepo,
   maxTrunkCardsPerDay,
   handleExternalCheckEvent,
+  trunkDedupeKey,
 } = await import('./external-remediation-act.js')
+const { detectInfraBlock } = await import('./external-remediation-classify.js')
 
 beforeAll(() => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
@@ -77,6 +79,7 @@ function insertObjective(fields: Partial<Objective> & { title?: string }): numbe
 beforeEach(() => {
   const db = getDb()
   db.exec('DELETE FROM external_check_remediations')
+  try { db.exec('DELETE FROM ci_followup_log') } catch { /* shared CI follow-up cap table (lazy) */ }
   db.exec("DELETE FROM objectives")
 })
 
@@ -242,11 +245,13 @@ describe('trunk-branch failures → objective card', () => {
   })
 
   it('caps auto-created cards at 3/day/repo — beyond that: log + drop', async () => {
+    // Distinct checks: since obj 712948 a new sha on the SAME check appends to the open
+    // card, so only distinct (repo, branch, check) triples create — and hit the cap.
     for (let i = 1; i <= 3; i++) {
-      const r = await handleExternalCheckEvent('status', railwayStatus(`cap-sha-${i}`), deps())
+      const r = await handleExternalCheckEvent('status', { ...railwayStatus(`cap-sha-${i}`), context: `svc-${i}` }, deps())
       expect(r.reason).toBe('trunk-card-created')
     }
-    const r4 = await handleExternalCheckEvent('status', railwayStatus('cap-sha-4'), deps())
+    const r4 = await handleExternalCheckEvent('status', { ...railwayStatus('cap-sha-4'), context: 'svc-4' }, deps())
     expect(r4.reason).toBe('trunk-cap')
     const n = getDb().prepare("SELECT COUNT(*) AS n FROM objectives WHERE title LIKE '[Auto]%'").get() as { n: number }
     expect(n.n).toBe(3)
@@ -301,6 +306,220 @@ describe('trunk-branch failures → objective card', () => {
     expect(isWithinDays('2026-07-01 12:00:00', 7, Date.parse('2026-07-18T12:00:00Z'))).toBe(false)
     expect(isWithinDays(null, 7)).toBe(false)
     expect(isWithinDays('garbage', 7)).toBe(false)
+  })
+})
+
+// ── D2. One open trunk card per repo + branch + check (obj 712948) ──────────────
+// The per-sha dedupe key made every new red commit on main "new": 76 open trunk
+// cards for 25 distinct checks (22× example3 Migration backlog). A new sha now
+// appends to the open card; a queued card is NEVER messaged (a message starts a worker).
+describe('trunk failures — one open card per repo+branch+check (obj 712948)', () => {
+  function status(sha: string, context = 'example-platform - example-platform', extra: Record<string, unknown> = {}) {
+    return {
+      repository: { full_name: REPO },
+      state: 'failure',
+      context,
+      sha,
+      target_url: `https://railway.app/deploy/${sha}`,
+      description: 'Deployment failed during build',
+      branches: [{ name: 'main' }],
+      ...extra,
+    }
+  }
+  let followUps = 0
+  const deps = (env: Record<string, string> = ENV) => ({
+    db: getDb(),
+    sendFollowUp: () => { followUps++; return 'cc-trunk-s' },
+    broadcast: () => {},
+    exec: noExec,
+    env,
+  })
+  const row = (id: number) =>
+    getDb().prepare('SELECT status, description, dedupe_key FROM objectives WHERE id = ?').get(id) as { status: string; description: string; dedupe_key: string | null }
+  const trunkCards = () => (getDb().prepare("SELECT COUNT(*) AS n FROM objectives WHERE origin = 'trunk-failure'").get() as { n: number }).n
+  const repeatLines = (desc: string) => (desc.match(/failed again/g) || []).length
+
+  beforeEach(() => { followUps = 0 })
+
+  it('stamps dedupe_key = trunk:<repo>:<branch>:<check> on the created card', async () => {
+    const r = await handleExternalCheckEvent('status', status('k-1'), deps())
+    expect(r.reason).toBe('trunk-card-created')
+    expect(row(r.objectiveId!).dedupe_key).toBe(trunkDedupeKey(REPO, 'main', 'example-platform - example-platform'))
+  })
+
+  it('different sha, card still queue → appends ONE line, no new card, no follow-up, still queue', async () => {
+    const r1 = await handleExternalCheckEvent('status', status('aaaaaaa1111'), deps())
+    const before = row(r1.objectiveId!).description
+    const r2 = await handleExternalCheckEvent('status', status('bbbbbbb2222'), deps())
+    expect(r2.reason).toBe('trunk-appended')
+    expect(r2.objectiveId).toBe(r1.objectiveId)
+    expect(trunkCards()).toBe(1)
+    const after = row(r1.objectiveId!)
+    expect(after.status).toBe('queue')
+    expect(repeatLines(after.description)).toBe(1)
+    expect(after.description.startsWith(before)).toBe(true)
+    expect(after.description).toMatch(/- \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z `bbbbbbb` failed again \(failure\) https:\/\/railway\.app\/deploy\/bbbbbbb2222/)
+    expect(followUps).toBe(0)
+    // The dedupe row is stamped with the reused card.
+    const d = getDb().prepare("SELECT objective_id, check_class FROM external_check_remediations WHERE head_sha = 'bbbbbbb2222'").get() as { objective_id: number; check_class: string }
+    expect(d).toEqual({ objective_id: r1.objectiveId, check_class: 'trunk-append' })
+  })
+
+  it('same-sha re-delivery after an append → trunk-duplicate, description unchanged', async () => {
+    const r1 = await handleExternalCheckEvent('status', status('dup-1'), deps())
+    await handleExternalCheckEvent('status', status('dup-2'), deps())
+    const before = row(r1.objectiveId!).description
+    const r3 = await handleExternalCheckEvent('status', status('dup-2'), deps())
+    expect(r3.reason).toBe('trunk-duplicate')
+    expect(row(r1.objectiveId!).description).toBe(before)
+    expect(trunkCards()).toBe(1)
+  })
+
+  it('card being worked → follow-up sent once; a second failure inside the window is NOT sent', async () => {
+    const r1 = await handleExternalCheckEvent('status', status('w-1'), deps())
+    getDb().prepare("UPDATE objectives SET status = 'working', session_id = 'cc-live' WHERE id = ?").run(r1.objectiveId)
+    const r2 = await handleExternalCheckEvent('status', status('w-2'), deps())
+    expect(r2.reason).toBe('trunk-appended')
+    expect(followUps).toBe(1)
+    const r3 = await handleExternalCheckEvent('status', status('w-3'), deps())
+    expect(r3.reason).toBe('trunk-appended')
+    expect(followUps).toBe(1)
+    expect(repeatLines(row(r1.objectiveId!).description)).toBe(2)
+    expect(trunkCards()).toBe(1)
+  })
+
+  it('review / ai_review cards also get the (rate-limited) follow-up', async () => {
+    for (const st of ['review', 'ai_review']) {
+      getDb().exec("DELETE FROM external_check_remediations; DELETE FROM objectives")
+      followUps = 0
+      const r1 = await handleExternalCheckEvent('status', status(`${st}-1`), deps())
+      getDb().prepare('UPDATE objectives SET status = ? WHERE id = ?').run(st, r1.objectiveId)
+      await handleExternalCheckEvent('status', status(`${st}-2`), deps())
+      expect(followUps).toBe(1)
+    }
+  })
+
+  it('existing card done or cancelled → a NEW card is created', async () => {
+    for (const st of ['done', 'cancelled']) {
+      getDb().exec("DELETE FROM external_check_remediations; DELETE FROM objectives")
+      const r1 = await handleExternalCheckEvent('status', status(`${st}-a`), deps())
+      getDb().prepare('UPDATE objectives SET status = ? WHERE id = ?').run(st, r1.objectiveId)
+      const r2 = await handleExternalCheckEvent('status', status(`${st}-b`), deps())
+      expect(r2.reason).toBe('trunk-card-created')
+      expect(r2.objectiveId).not.toBe(r1.objectiveId)
+      expect(trunkCards()).toBe(2)
+    }
+  })
+
+  it('a different check on the same repo gets its own card', async () => {
+    const a = await handleExternalCheckEvent('status', status('c-1', 'svc-a'), deps())
+    const b = await handleExternalCheckEvent('status', status('c-1', 'svc-b'), deps())
+    expect(a.reason).toBe('trunk-card-created')
+    expect(b.reason).toBe('trunk-card-created')
+    expect(a.objectiveId).not.toBe(b.objectiveId)
+  })
+
+  it('daily cap applies to creates only — appends never consume it', async () => {
+    const env = { ...ENV, MAX_TRUNK_FAILURE_CARDS_PER_DAY: '2' }
+    const first = await handleExternalCheckEvent('status', status('cap-a1', 'svc-a'), deps(env))
+    for (let i = 2; i <= 6; i++) {
+      const r = await handleExternalCheckEvent('status', status(`cap-a${i}`, 'svc-a'), deps(env))
+      expect(r.reason).toBe('trunk-appended')
+      expect(r.objectiveId).toBe(first.objectiveId)
+    }
+    // Five appends later, the second create still fits under a cap of 2 …
+    expect((await handleExternalCheckEvent('status', status('cap-b1', 'svc-b'), deps(env))).reason).toBe('trunk-card-created')
+    // … and only a third distinct check hits it.
+    expect((await handleExternalCheckEvent('status', status('cap-c1', 'svc-c'), deps(env))).reason).toBe('trunk-cap')
+    // An open card still takes appends after the cap is reached.
+    expect((await handleExternalCheckEvent('status', status('cap-a7', 'svc-a'), deps(env))).reason).toBe('trunk-appended')
+  })
+
+  it('legacy open card (no dedupe_key, filed before the column) is reused via its exact title', async () => {
+    const legacy = Number(getDb()
+      .prepare(`INSERT INTO objectives (title, description, workspace, status, origin)
+                VALUES ('[Auto] Deploy/check failure on example-platform main: example-platform - example-platform', 'legacy', 'example', 'queue', 'trunk-failure')`)
+      .run().lastInsertRowid)
+    const r = await handleExternalCheckEvent('status', status('legacy-2'), deps())
+    expect(r.reason).toBe('trunk-appended')
+    expect(r.objectiveId).toBe(legacy)
+    expect(trunkCards()).toBe(1)
+  })
+
+  it('billing annotation on a trunk workflow_run → trunk-infra-block, 0 objectives', async () => {
+    const exec = async (_f: string, args: string[]) => {
+      const a = args.join(' ')
+      if (a.includes('[.jobs[].conclusion]')) return '["failure"]'
+      if (a.includes('/jobs')) return JSON.stringify([{ id: 555, conclusion: 'failure', steps: 1 }])
+      if (a.includes('/check-runs/555/annotations')) {
+        return JSON.stringify(['The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the \'Billing & plans\' section in your settings'])
+      }
+      return '[]'
+    }
+    const payload = {
+      repository: { full_name: REPO },
+      workflow_run: { id: 9001, name: 'CI', status: 'completed', conclusion: 'failure', head_sha: 'bill-1', head_branch: 'main', event: 'push', html_url: 'https://github.com/x/actions/runs/9001' },
+    }
+    const r = await handleExternalCheckEvent('workflow_run', payload, { ...deps(), exec })
+    expect(r.reason).toBe('trunk-infra-block')
+    expect(trunkCards()).toBe(0)
+    expect((getDb().prepare('SELECT COUNT(*) AS n FROM objectives').get() as { n: number }).n).toBe(0)
+  })
+
+  it('every job failed with ZERO steps run (runner never assigned) → trunk-infra-block', async () => {
+    const exec = async (_f: string, args: string[]) => {
+      const a = args.join(' ')
+      if (a.includes('[.jobs[].conclusion]')) return '["failure","failure"]'
+      if (a.includes('/jobs')) return JSON.stringify([{ id: 1, conclusion: 'failure', steps: 0 }, { id: 2, conclusion: 'failure', steps: 0 }])
+      return '[]'
+    }
+    const payload = {
+      repository: { full_name: REPO },
+      workflow_run: { id: 9002, name: 'CI', status: 'completed', conclusion: 'failure', head_sha: 'bill-2', head_branch: 'main', event: 'push' },
+    }
+    const r = await handleExternalCheckEvent('workflow_run', payload, { ...deps(), exec })
+    expect(r.reason).toBe('trunk-infra-block')
+    expect(trunkCards()).toBe(0)
+  })
+
+  it('spending-limit wording in a status description → trunk-infra-block', async () => {
+    const r = await handleExternalCheckEvent('status', status('bill-3', 'svc', { description: 'Build blocked: spending limit reached' }), deps())
+    expect(r.reason).toBe('trunk-infra-block')
+    expect(trunkCards()).toBe(0)
+  })
+
+  it('a real code failure with steps run and ordinary annotations still files a card', async () => {
+    const exec = async (_f: string, args: string[]) => {
+      const a = args.join(' ')
+      if (a.includes('[.jobs[].conclusion]')) return '["failure"]'
+      if (a.includes('/jobs')) return JSON.stringify([{ id: 7, conclusion: 'failure', steps: 5 }])
+      if (a.includes('/annotations')) return JSON.stringify(['Process completed with exit code 1.'])
+      return '[]'
+    }
+    const payload = {
+      repository: { full_name: REPO },
+      workflow_run: { id: 9003, name: 'CI', status: 'completed', conclusion: 'failure', head_sha: 'real-1', head_branch: 'main', event: 'push' },
+    }
+    const r = await handleExternalCheckEvent('workflow_run', payload, { ...deps(), exec })
+    expect(r.reason).toBe('trunk-card-created')
+  })
+})
+
+describe('detectInfraBlock (obj 712948)', () => {
+  it('matches the GitHub billing / quota / runner wording', () => {
+    expect(detectInfraBlock(['The job was not started because recent account payments have failed or your spending limit needs to be increased.'], [])).toBe(true)
+    expect(detectInfraBlock(['You have exceeded your Actions minutes quota'], [])).toBe(true)
+    expect(detectInfraBlock(['No runners available matching labels'], [])).toBe(true)
+  })
+  it('all-failed-zero-steps jobs are a block; any job that ran steps is not', () => {
+    expect(detectInfraBlock([], [{ conclusion: 'failure', steps: 0 }])).toBe(true)
+    expect(detectInfraBlock([], [{ conclusion: 'failure', steps: 0 }, { conclusion: 'failure', steps: 3 }])).toBe(false)
+    expect(detectInfraBlock([], [{ conclusion: 'cancelled', steps: 0 }])).toBe(false)
+  })
+  it('ordinary failures and empty inputs are not a block', () => {
+    expect(detectInfraBlock(['Process completed with exit code 1.', 'TS2345: Argument of type'], [])).toBe(false)
+    expect(detectInfraBlock([], [])).toBe(false)
+    expect(detectInfraBlock([null, undefined, ''], [])).toBe(false)
   })
 })
 

@@ -16,7 +16,10 @@ import {
   resolveWorkdir,
   startSession,
   sweepOrphanWorkerTmux,
+  transcriptHasPendingWork,
 } from './session-manager.js'
+import { tmuxSessionAlive } from './session-tmux.js'
+import { authParkReason, isAuthFailureMessage, recordAuthFailure } from './account-router.js'
 import {
   isFloorActiveForProject,
   getFloorConfig,
@@ -33,6 +36,7 @@ import {
 } from './deterministic-floor.js'
 import { heartbeatBranchLease, releaseBranchLease } from './branch-lease.js'
 import { heartbeatSessionLeasesForObjective, releaseSessionLeasesForObjective } from './session-lease.js'
+import { runFanoutTick } from './fanout-runtime.js'
 import { logObjectiveAudit, isClearDeadSessionEnabled } from './objective-audit.js'
 import { deriveBranchName } from './branch-scope.js'
 import {
@@ -44,6 +48,8 @@ import {
   discoverAndBackfillPR,
   isPrAutolinkKilled,
 } from './pr-linkage.js'
+import { sweepPreviewInfraResurrect } from './preview-infra-resurrect.js'
+import { relinkPrFromTranscript } from './pr-transcript-link.js'
 import { insertAlert } from './notifier.js'
 import { runCompletionGate, applyGateHandback } from './ci-green-gate.js'
 import { extractDeterministic } from './session-intel-parse.js'
@@ -68,6 +74,7 @@ import {
   classifyNoOpSpawn,
   resolveWorkerEndStatus,
   watchdogDecision,
+  selectReviewSessionIdsToClear,
 } from './poller-decisions.js'
 import {
   forceRouteStuckWorker,
@@ -96,12 +103,14 @@ import {
   scanForKnowledgeWrites,
   scanForScopeBleed,
   handleLimitDeath,
+  handleAuthDeath,
   handleOverloadDeath,
   handleTurnsDeath,
   recordFloorRun,
   logFloorMilestone,
   promoteArenaCohortIfReady,
 } from './poller-worker.js'
+import { noteStartReason } from './session-start-reasons.js'
 
 const MAX_AI_REVIEW_ITERATIONS = 5
 // No-op-spawn guard (objective 840). A worker `claude` process can exit near-
@@ -169,6 +178,11 @@ export async function pollActiveSessions(): Promise<void> {
     console.error('[state-poller] pollAIReviewSessions failed:', err)
   }
 
+  // obj 715699 — start queued fan-out children up to each group's ceiling as
+  // earlier siblings finish. Fire-and-forget: starts go through the HTTP status
+  // route, and the tick is non-reentrant.
+  void runFanoutTick().catch(err => console.error('[state-poller] runFanoutTick failed:', err))
+
   // Safety net: revive dormant delegators with workers awaiting processing.
   try {
     reconcileDelegators()
@@ -209,6 +223,15 @@ export async function pollActiveSessions(): Promise<void> {
     console.error('[state-poller] sweepPRLinkageAndHarness failed:', err)
   }
 
+  // Auto-re-review for preview-infra-blocked PRs (obj 719328). A SIBLING sweep,
+  // deliberately separate from sweepPRLinkageAndHarness/selfHealHarnessStatus above
+  // — it never touches the pass-only self-heal gate. Internally throttled.
+  try {
+    await sweepPreviewInfraResurrect()
+  } catch (err) {
+    console.error('[state-poller] sweepPreviewInfraResurrect failed:', err)
+  }
+
   // Board-hygiene sweeps (obj 700595). All three are internally throttled + flag-
   // gated (queue-drainer / auto-accept DEFAULT OFF); the digest is always written
   // but is read-only unless the hard-expiry flag is armed. Each is wrapped so one
@@ -247,13 +270,20 @@ export async function pollActiveSessions(): Promise<void> {
   // objective hung for several seconds. Drop them out of the live set first.
   if (isClearDeadSessionEnabled()) {
     try {
-      db.prepare(
-        `UPDATE objectives
-            SET session_id = NULL
+      const reviewRows = db.prepare(
+        `SELECT id, session_id FROM objectives
           WHERE status = 'review'
             AND session_id IS NOT NULL
             AND deleted_at IS NULL`,
-      ).run()
+      ).all() as Array<{ id: number; session_id: string | null }>
+      // obj 712954 — keep the session_id of a live worker parked between turns
+      // with pending work, so the orphan sweep can't reap it (see selector).
+      const toClear = selectReviewSessionIdsToClear(
+        reviewRows,
+        (sid) => tmuxSessionAlive(sid) && transcriptHasPendingWork(sid).pending,
+      )
+      const clear = db.prepare('UPDATE objectives SET session_id = NULL WHERE id = ?')
+      db.transaction(() => { for (const id of toClear) clear.run(id) })()
     } catch (err) {
       console.error('[state-poller] review session_id sweep failed:', err)
     }
@@ -304,11 +334,12 @@ export async function pollActiveSessions(): Promise<void> {
         const ownedBranch = deriveBranchName(objective)
         if (ownedBranch) {
           heartbeatBranchLease(getDb(), ownedBranch, objective.id)
-        } else {
-          // obj 1075 — non-PR objective: keep its identity lease(s) alive while it
-          // works, so a duplicate wake reattaches/refuses instead of double-spawning.
-          heartbeatSessionLeasesForObjective(getDb(), objective.id)
         }
+        // obj 1075 — keep the identity lease(s) alive while the card works, so a
+        // duplicate wake reattaches/refuses instead of double-spawning. obj 715699:
+        // PR objectives hold the `obj:<id>` identity lease too now, so heartbeat it
+        // unconditionally (a no-op for a card that holds no session_leases rows).
+        heartbeatSessionLeasesForObjective(getDb(), objective.id)
         scanForScopeBleed(objective)
       } catch (err) {
         // Non-fatal — guardrail telemetry must never break the poll loop.
@@ -418,6 +449,10 @@ export async function pollActiveSessions(): Promise<void> {
       scopeScanOffsets.delete(objective.session_id!)
       const death = handleSessionDeath(objective.session_id!)
 
+      // Auth failure (401 / 403 org-disabled) before any tool call → block the
+      // card and alert; never rotate/respawn or review it. (obj 717767)
+      if (handleAuthDeath(objective, death)) continue
+
       // Account hit a usage/spend limit → auto-rotate to a fresh account and
       // resume uninterrupted (or queue for auto-resume when all are limited),
       // instead of dumping to a manual-resume review. (objective 337)
@@ -444,13 +479,13 @@ export async function pollActiveSessions(): Promise<void> {
       const deadBranch = deriveBranchName(objective)
       if (deadBranch) {
         try { releaseBranchLease(getDb(), deadBranch) } catch { /* non-fatal */ }
-      } else {
-        // obj 1075 — non-PR objective died: release its identity lease(s) so a
-        // legit reopen does a fresh acquire+spawn rather than reattaching to the
-        // corpse. (Not reached on limitHit — handleLimitDeath continued above and
-        // keeps the lease, since auto-resume stays under the same session id.)
-        try { releaseSessionLeasesForObjective(getDb(), objective.id) } catch { /* non-fatal */ }
       }
+      // obj 1075 — release the identity lease(s) so a legit reopen does a fresh
+      // acquire+spawn rather than reattaching to the corpse. (Not reached on
+      // limitHit — handleLimitDeath continued above and keeps the lease, since
+      // auto-resume stays under the same session id.) obj 715699: PR objectives
+      // hold `obj:<id>` too now, so this is unconditional.
+      try { releaseSessionLeasesForObjective(getDb(), objective.id) } catch { /* non-fatal */ }
       // ── FIX A (obj 700415) — kill the MODE-1 dead-session re-park churn ────
       // A `review` objective whose session died with a resultless transcript is
       // re-selected by the poll query every tick (it requires session_id IS NOT
@@ -497,7 +532,7 @@ export async function pollActiveSessions(): Promise<void> {
       // route-to-review: working→review (session died) — unchanged behavior. Audit the transition.
       // `status === 'review'` is already `continue`d at :269, so TS has narrowed
       // it out of the union and flags this comparison as TS2367, which fails the
-      // `typecheck` gate. (Pre-existing on main — it landed with #448.) The guard
+      // `typecheck` gate. (Pre-existing on main — it landed with PR 448.) The guard
       // is kept: it documents the intent and is a no-op at runtime. Widened so
       // the compiler accepts it. Type-only; no behavior change.
       if ((objective.status as string) !== 'review') {
@@ -517,7 +552,7 @@ export async function pollActiveSessions(): Promise<void> {
       // 'clear-session' or 'skip-noop' for every already-`review` row and both
       // branches `continue` above, so reaching here means the status is not
       // 'review'. TypeScript proves it (the narrowed union excludes 'review'),
-      // and the guard was a compile error — TS2367 on main after #448.
+      // and the guard was a compile error — TS2367 on main after PR 448.
       logObjectiveAudit(db, {
         objectiveId: objective.id,
         eventType: 'status_change',
@@ -551,6 +586,8 @@ export async function pollActiveSessions(): Promise<void> {
       // Session finished (or hit rate limit) — clean up account slot + detect rate limits
       if (newStatus === 'review' && objective.status === 'working') {
         const death = handleSessionDeath(objective.session_id!)
+        // 0-tool-call auth death → blocked + alert, no respawn. (obj 717767)
+        if (handleAuthDeath(objective, death)) continue
         // Account hit a usage/spend limit → auto-rotate to a fresh account and
         // resume uninterrupted (or queue for auto-resume when all are limited),
         // instead of routing to review/ai_review for a manual resume. (objective 337)
@@ -587,6 +624,29 @@ export async function pollActiveSessions(): Promise<void> {
           console.warn(`[state-poller] session-end PR discovery failed for obj ${objective.id}:`, (err as Error).message)
         }
       }
+      // obj 712954 — the branch discovery above only covers create_pr cards with
+      // no link yet, in this repo. Also link from the worker's own transcript
+      // (`gh pr create` output / code_change_published): catches create_pr = 0
+      // cards (obj 712937 → PR 717) and relinks a card still pointing at a merged
+      // PR when the worker opened a newer one (obj 712923: PR 715 → PR 716).
+      if (
+        newStatus === 'review' &&
+        objective.status === 'working' &&
+        objective.session_id &&
+        !isPrAutolinkKilled(db)
+      ) {
+        try {
+          const transcript = fs.readFileSync(path.join(TRANSCRIPT_DIR, `${objective.session_id}.jsonl`), 'utf-8')
+          const linked = await relinkPrFromTranscript(db, objective, transcript.split('\n'), realGhExec)
+          if (linked.linked) {
+            if (linked.pr_number != null) objective.pr_number = linked.pr_number
+            if (linked.pr_url) objective.pr_url = linked.pr_url
+            if (linked.branch) objective.branch_name = linked.branch
+          }
+        } catch (err) {
+          console.warn(`[state-poller] session-end transcript PR link failed for obj ${objective.id}:`, (err as Error).message)
+        }
+      }
 
       // ── No-op-spawn guard (objective 840) ─────────────────────────────────
       // Before routing a just-ended worker into the review lifecycle, check the
@@ -604,6 +664,7 @@ export async function pollActiveSessions(): Promise<void> {
         objective.session_id
       ) {
         let decision: NoOpDecision = { isNoOp: false, action: 'none' }
+        let authFailureText: string | null = null
         try {
           const intel = await extractDeterministic(
             path.join(TRANSCRIPT_DIR, `${objective.session_id}.jsonl`)
@@ -617,6 +678,7 @@ export async function pollActiveSessions(): Promise<void> {
             },
             noopRespawnCounts.get(objective.id) || 0
           )
+          authFailureText = intel.errors.find(e => isAuthFailureMessage(e)) ?? null
         } catch (err) {
           // Can't parse the transcript → don't risk a false positive; fall
           // through to normal routing (the genuine-empty-deliverable path).
@@ -626,6 +688,31 @@ export async function pollActiveSessions(): Promise<void> {
           )
         }
 
+        // obj 716791 — backstop for a no-op whose transcript carries the
+        // auth-failure wire signature ("OAuth session expired and could not be
+        // refreshed", 401, 403 org-disabled) but which handleSessionDeath did
+        // NOT classify (e.g. the session was missing from activeSessions, so
+        // no account was known and nothing was parked). Respawning would
+        // re-pick the same dead seat, so treat it like any other 0-tool auth
+        // death (obj 717767): park the seat if we can resolve it from
+        // session_runtime, block the card + alert, never noop_respawn.
+        // activeSessions can't be used here — handleSessionDeath already
+        // removed the entry above.
+        if (decision.isNoOp && authFailureText) {
+          let deadAccountId: string | null = null
+          try {
+            const row = db.prepare('SELECT account_id FROM session_runtime WHERE session_id = ?').get(objective.session_id) as { account_id: string | null } | undefined
+            deadAccountId = row?.account_id ?? null
+          } catch { /* table missing / read error → unknown seat */ }
+          if (deadAccountId) recordAuthFailure(deadAccountId, authFailureText)
+          console.warn(
+            `[state-poller] No-op spawn for objective ${objective.id} carried the auth-failure signature (account ${deadAccountId ?? 'unknown'}) — blocking, no respawn: ${authFailureText.slice(0, 160)}`
+          )
+          if (handleAuthDeath(objective, {
+            limitHit: true, spendCapHit: false, overloaded: false, turnsExhausted: false,
+            authFailed: true, authReason: authParkReason(authFailureText), toolCalls: 0, accountId: deadAccountId,
+          })) continue
+        }
         if (decision.action === 'respawn') {
           // No-op spawn re-queued — NOT a deliverable, do NOT spawn a reviewer.
           noopRespawnCounts.set(objective.id, decision.attempt!)
@@ -646,6 +733,7 @@ export async function pollActiveSessions(): Promise<void> {
             console.error(`[state-poller] Failed to log noop-requeue for obj ${objective.id}:`, err)
           }
           try {
+            noteStartReason(objective.id, 'noop_respawn', 'state-poller')
             const newSessionId = await startSession(objective)
             runMachineStatusUpdate(
               db,
@@ -916,6 +1004,7 @@ export async function pollActiveSessions(): Promise<void> {
             ).run(followUp, objective.id)
             if (objective.session_id) {
               try {
+                noteStartReason(objective.id, 'merge_lane', 'state-poller')
                 const newSessionId = sendFollowUp(objective.session_id, followUp, objective)
                 runMachineStatusUpdate(
                   db,
@@ -1003,6 +1092,7 @@ export async function pollActiveSessions(): Promise<void> {
           ).run(followUp, objective.id)
           if (objective.session_id) {
             try {
+              noteStartReason(objective.id, 'merge_lane', 'state-poller')
               const newSessionId = sendFollowUp(objective.session_id, followUp, objective)
               runMachineStatusUpdate(
                 db,
@@ -1062,6 +1152,7 @@ export async function pollActiveSessions(): Promise<void> {
           ).run(followUp, objective.id)
           if (objective.session_id) {
             try {
+              noteStartReason(objective.id, 'merge_lane', 'state-poller')
               const newSessionId = sendFollowUp(objective.session_id, followUp, objective)
               runMachineStatusUpdate(
                 db,

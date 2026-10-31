@@ -14,6 +14,7 @@ import {
   USE_SCOPED_SECRETS,
 } from '../config.js'
 import { getDecryptedForUser, getForUser } from './user-github-tokens.js'
+import { isConnectorAllowed } from '../connectors/access.js'
 import {
   getForUser as getGoogleConnectionForUser,
   getDecryptedRefreshToken as getGoogleRefreshToken,
@@ -22,6 +23,13 @@ import {
   writeEmptyGoogleCredsDir,
 } from './user-google-connections.js'
 import { resolveSecrets } from './secrets-store.js'
+import {
+  SESSION_SECRET_ACCESS_FLAG,
+  VERIFIED_SENDER_FLAG,
+  mintSessionToken,
+  readSettingFlag,
+  stripServerSigningSecrets,
+} from '../lib/session-trust.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Spawn-env construction (obj-2202 / onboarding gate B1–B4)
@@ -302,7 +310,12 @@ export function buildSpawnEnv(opts: {
 
   // W4 per-user GitHub identity. Assigned user wins over creator so Ava's
   // assigned card does not open PRs as Mike (and vice versa).
-  Object.assign(env, userGitIdentityEnv(actingUserId))
+  // Settings → Connectors access rules (obj 720115): no rule = allowed, so this
+  // only withholds a credential the person has explicitly limited.
+  const connectorUse = { agent: objective.agent_context, workspace: objective.workspace }
+  if (isConnectorAllowed('github', actingUserId, connectorUse)) {
+    Object.assign(env, userGitIdentityEnv(actingUserId))
+  }
 
   // Durable Vercel COMMIT_AUTHOR_REQUIRED guard (obj-701130). If the block above
   // injected NO commit-author identity (the owner has no linked GitHub token ⇒
@@ -330,7 +343,10 @@ export function buildSpawnEnv(opts: {
   // credential. Token keys are added ONLY on the connected branch. This appends
   // after the git-identity block and BEFORE scoped secrets, so an explicit scoped
   // secret can still override a Google key if an operator ever needs to.
-  Object.assign(env, userGoogleCredentialEnv(actingUserId))
+  const googleEnv = isConnectorAllowed('google-workspace', actingUserId, connectorUse)
+    ? userGoogleCredentialEnv(actingUserId)
+    : { GOOGLE_WORKSPACE_CONNECTION: 'absent' }
+  Object.assign(env, googleEnv)
 
   // Always isolate the Google MCP credential dir. The shared folder
   // `/home/operator/assistant/google-credentials` holds every user's JSON; workspace-mcp
@@ -362,5 +378,45 @@ export function buildSpawnEnv(opts: {
     }
   }
 
+  // obj-716719: the store's GLOBAL GOOGLE_OAUTH_CLIENT_ID/SECRET (the primary
+  // web client) clobbered the per-user grant's issuing client above. A refresh
+  // token only works against the client that minted it, so Ava's session got
+  // her legacy-client refresh token paired with the primary client → 401
+  // unauthorized_client. A connected user's grant must win as one unit.
+  if (googleEnv.GOOGLE_WORKSPACE_CONNECTION === 'user') Object.assign(env, googleEnv)
+
+  applySessionTrustEnv(env, objective, actingUserId)
+
   return env
+}
+
+/**
+ * obj 718944 — session trust env. Flag-gated, so a flags-off spawn env is
+ * byte-identical to before. Either flag on: drop the server's JWT signing key
+ * (store-injected copies here, inherited tmux-env copies via the wrapper's
+ * `unset`). `session_secret_access` on: hand the worker an objective-scoped
+ * token for the secrets broker and its own card's needs-secret route.
+ */
+export function applySessionTrustEnv(
+  env: Record<string, string>,
+  objective: Pick<Objective, 'id' | 'workspace'>,
+  actingUserId: number | null,
+): void {
+  const stamps = readSettingFlag(VERIFIED_SENDER_FLAG)
+  const secretAccess = readSettingFlag(SESSION_SECRET_ACCESS_FLAG)
+  if (!stamps && !secretAccess) return
+  stripServerSigningSecrets(env)
+  env.CC_STRIP_SIGNING_SECRETS = '1'
+  if (secretAccess) {
+    try {
+      env.CC_OBJECTIVE_ID = String(objective.id)
+      env.CC_SESSION_TOKEN = mintSessionToken({
+        objectiveId: objective.id,
+        workspace: objective.workspace || 'example',
+        actingUserId,
+      })
+    } catch (err) {
+      console.warn('[session-trust] session token not minted:', (err as Error).message)
+    }
+  }
 }

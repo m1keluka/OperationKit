@@ -2,6 +2,7 @@
  * PR-health sweep and act-path — extracted from pr-health-watchdog.ts (behavior frozen).
  */
 import type { Database } from 'better-sqlite3'
+import { checkCiFollowupCap, recordCiFollowup, noteCiFollowupCapExhausted } from './ci-followup-cap.js'
 import {
   type ExecFn,
   type PrSummary,
@@ -35,6 +36,7 @@ import {
   minutesSince,
   NOT_ENGAGED_NO_ROW,
 } from './pr-health-owner.js'
+import { noteStartReason } from './session-start-reasons.js'
 
 // ── Required-context resolution (the ruleset) ───────────────────────────────────
 
@@ -382,7 +384,18 @@ async function performAction(
       `Please drive this PR's checks to green. Do not merge.`
     const sid = lastSessionFor(deps.db, h.objectiveId)
     if (sid && deps.sendFollowUp) {
+      // Shared cross-source per-PR cap (ci-followup-cap.ts) on automatic CI follow-ups.
+      const capKey = { repo: h.repo, prNumber: h.number, objectiveId: h.objectiveId, source: 'pr-health-watchdog' as const }
+      const shared = checkCiFollowupCap(deps.db, capKey)
+      if (!shared.allowed) {
+        noteCiFollowupCapExhausted(deps.db, capKey, shared)
+        h.actionDetail = `${detail} — shared CI follow-up cap reached (${shared.count}/${shared.cap}); not re-fired`
+        escalate(deps, h, `${detail} (shared CI follow-up cap ${shared.count}/${shared.cap} reached)`)
+        return
+      }
+      if (h.objectiveId != null) noteStartReason(h.objectiveId, 'ci_failure_followup', 'pr-health-watchdog')
       deps.sendFollowUp(sid, msg, { id: h.objectiveId })
+      recordCiFollowup(deps.db, capKey)
       console.log(`[pr-health-watchdog] re-fired remediation on objective ${h.objectiveId} (${h.repo}#${h.number})`)
     } else {
       escalate(deps, h, `${detail} (no session to nudge)`)

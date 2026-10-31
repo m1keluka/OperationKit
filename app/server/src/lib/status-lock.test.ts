@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import Database from 'better-sqlite3'
+
+const reap = vi.hoisted(() => vi.fn())
+vi.mock('../services/worktree-reaper.js', () => ({ scheduleObjectiveWorktreeReap: reap }))
 import { isLockedStatus, skipMachineStatusWrite, runMachineStatusUpdate } from './status-lock.js'
 
 describe('isLockedStatus', () => {
@@ -84,5 +87,30 @@ describe('runMachineStatusUpdate', () => {
     expect(() =>
       runMachineStatusUpdate(db, "UPDATE objectives SET status = 'review'", 1),
     ).toThrow(/WHERE id/)
+  })
+})
+
+describe('runMachineStatusUpdate → worktree reaper hook (obj 718070)', () => {
+  let db: Database.Database
+  beforeEach(() => {
+    reap.mockClear()
+    db = new Database(':memory:')
+    db.exec(`CREATE TABLE objectives (id INTEGER PRIMARY KEY, status TEXT NOT NULL, updated_at TEXT)`)
+    db.prepare("INSERT INTO objectives (id, status) VALUES (5, 'working')").run()
+  })
+  it('schedules a reap when a machine write lands in done (bound param)', () => {
+    runMachineStatusUpdate(db, "UPDATE objectives SET status = ?, updated_at = datetime('now') WHERE id = ?", 'done', 5)
+    expect(reap).toHaveBeenCalledWith(5, { db })
+  })
+  it('schedules a reap for a literal cancelled write', () => {
+    runMachineStatusUpdate(db, "UPDATE objectives SET status = 'cancelled' WHERE id = ?", 5)
+    expect(reap).toHaveBeenCalledTimes(1)
+  })
+  it('does not schedule for non-terminal writes or skipped writes', () => {
+    runMachineStatusUpdate(db, "UPDATE objectives SET status = ?, updated_at = datetime('now') WHERE id = ?", 'review', 5)
+    runMachineStatusUpdate(db, "UPDATE objectives SET status = 'working' WHERE id = ?", 5)
+    db.prepare("UPDATE objectives SET status = 'done' WHERE id = 5").run()
+    runMachineStatusUpdate(db, "UPDATE objectives SET status = ? WHERE id = ?", 'cancelled', 5) // locked → no-op
+    expect(reap).not.toHaveBeenCalled()
   })
 })

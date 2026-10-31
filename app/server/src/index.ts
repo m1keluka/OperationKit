@@ -10,15 +10,21 @@ import { initWebSocket } from './ws/index.js'
 import { startPoller } from './services/state-poller.js'
 import { logPreviewSpoolHealth } from './services/preview-spool.js'
 import authRouter from './routes/auth.js'
+import brandingRouter from './routes/branding.js'
+import { agentKeyGuard } from './middleware/agent-key-guard.js'
 import objectivesRouter from './routes/objectives.js'
+import needsSecretRouter from './routes/objective-needs-secret.js'
+import secretUploadRouter from './routes/secret-upload.js'
 import objectivesSearchRouter from './routes/objectives-search.js'
 import feedRouter from './routes/feed.js'
 import shellRouter from './routes/shell.js'
 import docsRouter from './routes/docs.js'
-import mentorRouter from './routes/mentor.js'
+import filesRouter from './routes/files.js'
+import secretsBrokerRouter from './routes/secrets-broker.js'
+import agentMcpRouter from './routes/agent-mcp.js'
 import briefingRouter from './routes/briefing.js'
-import assistantRouter from './routes/assistant.js'
 import statusRouter from './routes/status.js'
+import systemRouter from './routes/system.js'
 import webhooksRouter from './routes/webhooks.js'
 import costsRouter from './routes/costs.js'
 import adminRouter from './routes/admin.js'
@@ -28,6 +34,11 @@ import internalRouter from './routes/internal.js'
 import internalVaultRouter from './routes/internal-vault.js'
 import alertsRouter from './routes/alerts.js'
 import internalRoutinesRouter from './routes/internal-routines.js'
+import starterPacksRouter, { internalStarterPacksRouter } from './routes/starter-packs.js'
+import kbIngestRouter, { internalKbIngestRouter } from './routes/kb-ingest.js'
+import { resumeAfterRestart as resumeDocIngest } from './services/doc-ingest/service.js'
+import kbWikiRouter, { internalKbWikiRouter, resumeKbWiki } from './routes/kb-wiki.js'
+import { getWorkspaceSlugs } from './services/workspaces.js'
 import internalOperationkitRouter from './routes/internal-operationkit.js'
 import prHealthRouter from './routes/pr-health.js'
 import intelligenceRouter from './routes/intelligence.js'
@@ -35,9 +46,12 @@ import adminWorkspacesRouter from './routes/admin-workspaces.js'
 import workspacesRouter from './routes/workspaces.js'
 import agentsRouter from './routes/agents.js'
 import adminAgentsRouter from './routes/admin-agents.js'
+import { agentTemplatesRouter, internalAgentTemplatesRouter } from './routes/agent-templates.js'
+import { installStarterTemplatesFromEnv } from './services/agent-templates.js'
 import contactsRouter from './routes/contacts.js'
 import loopsRouter from './routes/loops.js'
 import scratchpadRouter from './routes/scratchpad.js'
+import agentChatRouter from './routes/agent-chat.js'
 import granolaContentRouter from './routes/granola-content.js'
 import meetingQueueRouter from './routes/meeting-queue.js'
 import { reviewsRouter, internalReviewsRouter } from './routes/reviews.js'
@@ -53,6 +67,7 @@ import { devIngestCors } from './middleware/dev-ingest-token.js'
 import userGithubTokenRouter from './routes/user-github-token.js'
 import secretsRouter from './routes/secrets.js'
 import userGoogleRouter from './routes/user-google.js'
+import connectorsRouter from './routes/connectors.js'
 import resourceAssignmentsRouter from './routes/resource-assignments.js'
 import projectsRouter from './routes/projects.js'
 import { isLocalhost } from './lib/is-localhost.js'
@@ -67,6 +82,7 @@ import {
   requeueParsedSessions,
   backfillDailyUsage,
 } from './services/session-intel-pipeline.js'
+import { isOllamaReachable } from './services/session-intel-summary.js'
 import { prewarmSessionOutputs } from './services/stream-parser.js'
 import { startDreamCycleScheduler } from './services/dream-cycle.js'
 import { startRoutineScheduler } from './services/routine-scheduler.js'
@@ -80,10 +96,14 @@ import { startObjectivesSafety } from './services/objectives-safety.js'
 import { startPrHealthWatchdog } from './services/pr-health-watchdog.js'
 import { startHostBootDaemons } from './services/host-boot-daemons.js'
 import { startN8nWatchdog } from './services/n8n-watchdog.js'
+import { startSlotHealthCheck } from './services/account-health-check.js'
 import { startDiskWatchdog } from './services/disk-watchdog.js'
+import { startPreviewHealthWatchdog } from './services/preview-health-watchdog.js'
+import { startWorktreeReaper } from './services/worktree-reaper.js'
 import { startContactbookSibling } from './services/contactbook-supervisor.js'
 import { assertInternalApiSecret } from './middleware/internal-secret.js'
 import agentApiRouter from './routes/agent-api.js'
+import agentControlRouter from './routes/agent-control.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = parseInt(process.env.PORT || '3002', 10)
@@ -163,19 +183,26 @@ app.use(cors({
 app.use('/api/webhooks/github', express.raw({ type: '*/*', limit: '5mb' }), githubWebhookRouter)
 app.use(express.json({ limit: '2mb' }))
 app.use(cookieParser())
+// Named/scoped agent API keys (obj 714090): scope + workspace guardrails and
+// attribution for Grok Bots. No-op for cookies, JWTs and the legacy key.
+app.use(agentKeyGuard)
 
 // API routes
 app.use('/api/auth', authRouter)
 app.use('/api/llm/v1', createLlmGatewayRouter())  // OpenAI-compatible LLM gateway on pool accounts (bearer TWENTY_LLM_GATEWAY_KEY, not CC auth; obj 713794)
 app.use('/api/objectives/search', objectivesSearchRouter)  // server-side objective search (keyword+fuzzy + AI); before objectivesRouter so /search isn't captured by GET /:id (obj 702388)
+app.use('/api/secret-upload', secretUploadRouter)  // obj 719065: one-time write-only upload (token is the capability; no login)
+app.use('/api/objectives', needsSecretRouter)  // obj 718944: /:id/needs-secret — before objectivesRouter so a worker's CC_SESSION_TOKEN reaches it (objectivesRouter requires a login)
 app.use('/api/objectives', objectivesRouter)
 app.use('/api/costs', costsRouter)  // /api/costs/summary, /daily, /by-objective, /by-account
 app.use('/api', feedRouter)  // /api/projects/:project/feed, /api/feed/all
 app.use('/api/docs', docsRouter)  // /api/docs/tree, /api/docs/file
-app.use('/api/mentor', mentorRouter)  // /api/mentor/threads, /api/mentor/threads/:id/messages
-app.use('/api/briefing', briefingRouter)  // /api/briefing/briefing
-app.use('/api/assistant', assistantRouter)  // /api/assistant/config — per-user Personal Assistant config (obj 701700)
+app.use('/api/files', filesRouter)  // read-only workspace-scoped search/stat/download of non-markdown files (obj 715485)
+app.use('/api/secrets-broker', secretsBrokerRouter)  // use-without-reveal: list secret names + host-allowlisted HTTPS proxy (obj 715532)
+app.use('/api', agentMcpRouter)  // POST /api/mcp — unified MCP server: knowledge (obj 716490) + board control (obj 714092/718417); tools forward to the REST routes over loopback
+app.use('/api/briefing', briefingRouter)  // /api/briefing/briefing — board briefing for the Agent API/MCP (the assistant chat itself was removed, obj 720115)
 app.use('/api/status', statusRouter)  // /api/status/monitors, /api/status/events
+app.use('/api/system', systemRouter)  // /api/system/disk — host-disk state for the dashboard low-disk banner (auth)
 app.use('/api/webhooks', webhooksRouter)  // /api/webhooks/uptimerobot
 app.use('/api/admin', adminRouter)  // /api/admin/accounts, /system, /agents, /dream-cycle, etc.
 app.use('/api/n8n', n8nRouter)      // n8n watchdog: /health, /refresh, /restart
@@ -184,6 +211,12 @@ app.use('/api/internal', internalRouter)  // /api/internal/deploy, /restart, /ob
 app.use('/api/internal', internalVaultRouter)  // /api/internal/vault/*, /contactbook/history — telegram-contactbook sibling (localhost)
 app.use('/api/alerts', alertsRouter)  // ingest (bearer) + list/ack (JWT) — AlertBell + notify-failure.sh
 app.use('/api/internal/routines', internalRoutinesRouter)  // routines CRUD + run-now (localhost-only)
+app.use('/api/internal/starter-packs', internalStarterPacksRouter)  // starter-pack switch-on for scripts/starter-pack.sh (localhost + secret; obj 719936)
+app.use('/api/internal/kb-ingest', internalKbIngestRouter)  // document-library pack setup hook (localhost + secret; obj 719936)
+app.use('/api/starter-packs', starterPacksRouter)  // admin: list / enable / disable starter packs (obj 719936)
+app.use('/api/kb-ingest', kbIngestRouter)  // knowledge-base file import: upload → read → organized notes, ask (obj 719936)
+app.use('/api/internal/kb-wiki', internalKbWikiRouter)  // board sessions file answers into a KB (localhost; obj 720117)
+app.use('/api/kb-wiki', kbWikiRouter)  // knowledge-base wiki: pages, saved answers, chat/call imports, cleanup (obj 720117)
 app.use('/api/internal/pr-health', prHealthRouter)         // read-only PR-health surface: / (JSON) + /digest (markdown)
 app.use('/api/internal/operationkit', internalOperationkitRouter)  // OperationKit authoring: registry / validate / scaffold (localhost-only)
 app.use('/api/intel', intelligenceRouter)  // /api/intel/blockers, /conflicts, /recent
@@ -192,11 +225,14 @@ app.use('/api/admin/users', adminUsersRouter)            // user CRUD + role + w
 app.use('/api/workspaces', workspacesRouter)              // DB-backed: workspaces visible to caller
 app.use('/api/agents', agentsRouter)                      // DB-backed agent registry: the roster every picker/monogram reads
 app.use('/api/admin/agents-registry', adminAgentsRouter)  // agent registry CRUD (admin); /api/admin/agents lists persona FILES
+app.use('/api/agent-templates', agentTemplatesRouter)      // agent files: gallery, import, export, install template (admin)
+app.use('/api/internal/agent-templates', internalAgentTemplatesRouter)  // same, for scripts/agent-template.sh + installer (localhost + secret)
 app.use('/api/models', modelsRouter)                      // model registry: GET enabled (auth) / all + PATCH toggle (admin)
 app.use('/api/contacts', contactsRouter)                  // Phase 1 Personal CRM: POST /reindex (admin)
 app.use('/api/meeting-queue', meetingQueueRouter)         // Granola action-item review queue → CC objectives
 app.use('/api/loops', loopsRouter)                        // operator loops tracker (Kanban: pending/queued/working/done; admin-only)
 app.use('/api/scratchpad', scratchpadRouter)              // per-user human markdown store (auth; strictly per-account)
+app.use('/api/agent-chat', agentChatRouter)              // built-in agent chat: one chat per person per agent (obj 719987)
 app.use('/api/granola-content', granolaContentRouter)     // per-owner Granola Content surface (drafts/hooks/ideas; content_owners-gated)
 app.use('/api/objectives', reviewsRouter)                 // /api/objectives/:id/reviews — AI Review iteration history
 app.use('/api/objectives', correctionsRouter)             // /api/objectives/:id/corrections — human mistake-labeling (ST5)
@@ -205,6 +241,7 @@ app.use('/api/test-credentials', testCredentialsRouter)   // workspace-admin sco
 app.use('/api/internal/test-credentials', internalTestCredentialsRouter)  // localhost-only plaintext fetch for reviewer spawn
 app.use('/api/user/github-token', userGithubTokenRouter)  // per-user GitHub PAT: link/validate/revoke (auth; encrypted at rest, masked)
 app.use('/api/user/google', userGoogleRouter)              // per-user Google Workspace OAuth: connect/callback/disconnect (auth except callback; encrypted at rest, masked)
+app.use('/api/connectors', connectorsRouter)              // Settings → Connectors: one file per connector in connectors/defs (auth; credentials never returned, obj 720115)
 app.use('/api/secrets', secretsRouter)                    // native scoped secrets store: scoped CRUD + versions + rollback (auth; encrypted at rest, masked summaries only)
 app.use('/api/resource-assignments', resourceAssignmentsRouter)  // scoped agent/skill assignment (obj-2388): global/workspace/user/project CRUD + /resolve (reuses 1731 scope model)
 // Stakeholder "What's Shipping" changelog (obj 937). Public surface (page + JSON feed)
@@ -233,6 +270,9 @@ app.use('/api/public', devIngestCors, publicDevRouter)     // P1-P4: ingest, att
 app.use('/api/dev-items', devItemsRouter)                  // A1-A11: board list/detail/create/patch/triage/promote/rank/attach-pr/notes/delete/bulk
 app.use('/api/dev-changelog', devChangelogRouter)          // A12-A16: internal changelog list/edit/publish/retranslate/notify
 
+// Product name + logo for the sign-in page (no auth; obj 719935)
+app.use('/api/branding', brandingRouter)
+
 // Health check
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -240,6 +280,9 @@ app.get('/api/health', (_req, res) => {
 
 // Agent discovery + OpenAPI (no auth — the spec is not secret; board data is).
 app.use('/api', agentApiRouter)
+// Control layer for orchestrating agents (auth per-route; obj 714091):
+// /api/agent/changes (cursor feed) + /api/agent/attention (compact brief).
+app.use('/api/agent', agentControlRouter)
 
 // Legacy workspaces project-metadata config (projects[], knowledge{}, context).
 // Kept under /api/workspaces-config so the new DB-backed /api/workspaces can own
@@ -345,6 +388,8 @@ startDreamCycleScheduler()
 
 // Start routines scheduler (cron-scheduled recurring objectives, 60s tick)
 startRoutineScheduler()
+try { resumeDocIngest(getWorkspaceSlugs()) } catch (err) { console.warn('[doc-ingest] resume failed:', (err as Error).message) }
+try { resumeKbWiki(getWorkspaceSlugs()) } catch (err) { console.warn('[kb-wiki] resume failed:', (err as Error).message) }
 
 // Start the anti-signal canary harness scheduler (obj-2376). Ticks are a NO-OP
 // until Mike opts in via `canary_harness_enabled=1` — nothing auto-fires on deploy.
@@ -402,9 +447,22 @@ startHostBootDaemons()
 // n8n sibling watchdog (30s): inspect n8n + n8n-db, auto-start if they died,
 // AlertBell-only page on down/recovery. Docker socket is mounted.
 startN8nWatchdog()
+// Probe every Claude subscription slot on a timer so a disabled org / dead OAuth
+// is parked before cards run on it (obj 717767). Subscription login only.
+startSlotHealthCheck()
 // Host disk watermarks (5 min): AlertBell at 85%, cleanup at 90%, POST /message
 // returns 507 under 2 GiB free so a full disk cannot hang the composer.
 startDiskWatchdog()
+// PR preview tier health (10 min, obj 719327): probes the most recently
+// updated open PR's pr-N.cc.example.com host and pages AlertBell on a TLS/
+// reachability outage instead of letting a reviewer silently burn probes into
+// a BLOCKED verdict. Monitoring only — see preview-health-watchdog.ts for why
+// it does not attempt remediation. CC_PREVIEW_HEALTH_WATCHDOG=false disables.
+startPreviewHealthWatchdog()
+// Finished-card worktree sweep (30 min, obj 718070): git worktree remove for
+// done/cancelled cards' clean+pushed worktrees across every repo in PROJECTS_DIR.
+// CC_WORKTREE_REAPER=false disables; CC_WORKTREE_REAPER_DRY_RUN=true logs only.
+startWorktreeReaper()
 // Queue drain: when a rate-limited account recovers (or a new slot is added),
 // auto-start objectives that were queued because all accounts were exhausted.
 // Reuses the internal status endpoint so the full transition logic
@@ -415,7 +473,7 @@ setQueueDrainCallback((objectiveId) => {
   fetch(`http://localhost:${PORT}/api/internal/objectives/${objectiveId}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'working' }),
+    body: JSON.stringify({ status: 'working', reason: 'queue_drain', actor: 'account-queue' }),
   })
     .then(async (r) => {
       if (!r.ok) {
@@ -490,8 +548,35 @@ server.listen(PORT, () => {
   console.log(`Command Center running on port ${PORT}`)
   // Telegram contactbook sibling — no-ops unless TELEGRAM_BOT_TOKEN + OWNER_ID are set.
   startContactbookSibling()
+  // Installer switch (obj 719986): STARTER_AGENT_TEMPLATES=all|slug,slug installs
+  // the shipped starter agents once; never overwrites an existing agent.
+  try { installStarterTemplatesFromEnv() } catch (err) {
+    console.error('[startup] starter agent templates failed:', (err as Error).message)
+  }
   // Re-queue any sessions that completed while summarizer was broken (LiteLLM era)
   requeueParsedSessions()
+  // Periodic backlog drain (obj 713406): a boot-only sweep never revisits a
+  // session once it ages past the 24h window, so a multi-day LLM outage
+  // (Ollama down + ANTHROPIC_API_KEY invalid, 2026-09-23 -> stalled 100% of
+  // enrichment with zero retries) left thousands of sessions stuck at
+  // extraction_status='parsed' until the next restart. Re-run on an interval
+  // with a much wider window (30 days) so the backlog actually drains once
+  // the LLM path is healthy again — capped at 10/run. Gated on Ollama being
+  // reachable: with Ollama down the summarizer falls back to the metered
+  // ANTHROPIC_API_KEY, and this background loop must never be what spends it.
+  setInterval(() => {
+    void (async () => {
+      try {
+        if (!(await isOllamaReachable())) {
+          console.log('[sweep] parsed-backlog drain skipped: Ollama unreachable')
+          return
+        }
+        requeueParsedSessions({ windowHours: 24 * 30, limit: 10 })
+      } catch (err) {
+        console.error('[sweep] requeueParsedSessions failed:', (err as Error).message)
+      }
+    })()
+  }, 15 * 60 * 1000).unref()
 
   // PR-preview auto-deploy health (obj 1452): warn loudly if the spool is
   // unwritable or the host-drain kick is disabled with no systemd fallback, so

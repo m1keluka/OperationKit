@@ -1,0 +1,79 @@
+# ==============================================================================
+# Operation Kit — client install stack (used by ./install.sh, never edited by hand)
+# ------------------------------------------------------------------------------
+# Every host path comes from INSTALL_DIR in the client config (default
+# /opt/operationkit) via install.env, written by install.sh. Nothing here names a
+# person or a specific server. The repo-root docker-compose.yml is the upstream
+# operator's own development layout and is NOT used for client installs.
+#
+#   $OK_STATE/data  -> /app/data        database, uploads, branding, logs
+#   $OK_STATE/home  -> $OK_APP_HOME     the app user's home (projects, notes, memory)
+#   $OK_STATE/tmp   -> /tmp             session worktrees + sandbox homes; mapped
+#                                       back to host paths for the sandbox via
+#                                       SESSION_JAIL_HOST_PATH_MAP
+#
+# Network: the app listens on 127.0.0.1:3002 only (for install/verify.sh on the
+# server). The public way in is the cloudflared connector below, which dials OUT
+# to Cloudflare — the firewall keeps 80/443 closed.
+# ==============================================================================
+name: operationkit
+
+services:
+  command-center:
+    build:
+      context: ../app
+      dockerfile: Dockerfile
+    image: operationkit-app:local
+    # Server code and scripts address the app container by this name.
+    container_name: command-center
+    command: ["bash", "/app/entrypoint.sh"]
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:3002:3002"
+    volumes:
+      - ${OK_STATE:?run ./install.sh}/data:/app/data
+      - ${OK_STATE}/home:${OK_APP_HOME:?run ./install.sh}
+      - ${OK_STATE}/tmp:/tmp
+      # Needed ONLY to start the per-session sandbox containers. Sessions never
+      # see this socket: each sandbox mounts just its own work folder + home.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      NODE_ENV: production
+      PORT: "3002"
+      TZ: ${OK_TIMEZONE:-UTC}
+      JWT_SECRET: ${CC_JWT_SECRET:?missing — run ./install.sh}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?missing — run ./install.sh}
+      SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:?missing — run ./install.sh}
+      TEST_CRED_ENCRYPTION_KEY: ${TEST_CRED_ENCRYPTION_KEY:?missing — run ./install.sh}
+      CORS_ORIGINS: https://${OK_DOMAIN}
+      OK_BRAND_NAME: ${OK_BRAND_NAME:-OperationKit}
+      # Image-based install: no live checkout, so the drift guard has nothing to watch.
+      DRIFT_GUARD: "off"
+      # Per-session sandbox (app/server/src/services/session-jail.ts).
+      SESSION_ISOLATION: ${OK_SESSION_ISOLATION:-docker}
+      SESSION_JAIL_IMAGE: ok-jail:local
+      SESSION_JAIL_HOST_PATH_MAP: /tmp=${OK_STATE}/tmp,/app/data=${OK_STATE}/data,${OK_APP_HOME}=${OK_STATE}/home
+      # How sandboxed sessions sign in to Claude (sandbox-claude-auth.ts). One of
+      # the two is set by install/claude-login.sh; both empty = sessions queue.
+      SESSION_JAIL_CLAUDE_OAUTH_TOKEN: ${SESSION_JAIL_CLAUDE_OAUTH_TOKEN:-}
+      SESSION_JAIL_ANTHROPIC_API_KEY: ${SESSION_JAIL_ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3002/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - command-center
+    # Started only when Cloudflare is set up (install.sh enables the profile).
+    profiles: ["tunnel"]

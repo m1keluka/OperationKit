@@ -57,6 +57,7 @@ afterAll(() => {
 beforeEach(() => {
   const db = getDb()
   db.exec('DELETE FROM external_check_remediations')
+  try { db.exec('DELETE FROM ci_followup_log') } catch { /* shared CI follow-up cap table (lazy) */ }
   db.exec("DELETE FROM objectives WHERE title LIKE 'engage-test%'")
   db.exec("DELETE FROM settings WHERE key LIKE 'pr_health_watchdog%'")
 })

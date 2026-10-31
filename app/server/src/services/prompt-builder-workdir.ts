@@ -9,6 +9,7 @@ import path from 'path'
 import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { resolveAgentWorkdir } from './agent-registry.js'
+import { parseAgentFile, renderAgentInstructions } from './agent-file.js'
 import {
   AGENTS_DIR,
   WORKSPACES_JSON,
@@ -74,7 +75,33 @@ export type ObjectiveTurn = { role: 'user' | 'assistant'; text: string }
 // ── Functions ──
 
 /** Read agent instructions file server-side to inline into prompts (saves setup tool calls) */
+/**
+ * An agent installed from an agent file (obj 719986) lives at
+ * `<AGENT_FILES_DIR|AGENTS_DIR>/<slug>/agent.yaml` (or agent.md). When present
+ * and valid it wins over a legacy flat `<slug>.md` persona.
+ */
+function readAgentFileInstructions(agentName: string): string | null {
+  if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(agentName)) return null
+  const dir = path.join(process.env.AGENT_FILES_DIR || AGENTS_DIR, agentName)
+  for (const name of ['agent.yaml', 'agent.yml', 'agent.md']) {
+    const p = path.join(dir, name)
+    let text: string
+    try {
+      text = fs.readFileSync(p, 'utf-8')
+    } catch {
+      continue
+    }
+    const r = parseAgentFile(text, { filename: p })
+    if (r.ok) return renderAgentInstructions(r.agent)
+    console.warn(`[prompt-builder] agent file ${p} is invalid; falling back to the legacy persona`)
+    return null
+  }
+  return null
+}
+
 export function readAgentInstructions(agentName: string): string | null {
+  const fromFile = readAgentFileInstructions(agentName)
+  if (fromFile) return fromFile
   try {
     const agentPath = path.join(AGENTS_DIR, `${agentName}.md`)
     const content = fs.readFileSync(agentPath, 'utf-8')

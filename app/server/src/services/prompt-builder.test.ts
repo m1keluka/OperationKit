@@ -164,6 +164,15 @@ describe('buildPrompt — sibling artifact guard', () => {
   })
 })
 
+describe('buildPrompt — fan-out graded-artifact exception (distill 2026-10-02 P2)', () => {
+  it('tells workers a brief-named artifact (e.g. parent ARTIFACT-W<N>.md) is the graded file', () => {
+    const prompt = buildPrompt(makeObjective())
+    expect(prompt).toContain('EXCEPTION — fan-out workers')
+    expect(prompt).toContain('ARTIFACT-W<N>.md')
+    expect(prompt).toContain('THAT file is what the reviewer grades')
+  })
+})
+
 describe('buildPrompt — async-gated evidence', () => {
   it('is present for execution sessions and absent for delegators', () => {
     const worker = buildPrompt(makeObjective({ delegate_mode: false }))

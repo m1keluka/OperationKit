@@ -1,0 +1,9 @@
+{
+  "events": [
+    { "id": "e-201", "day_offset": 0, "start": "09:30", "minutes": 30, "title": "Daily stand-up", "with": ["Team Northwind"] },
+    { "id": "e-202", "day_offset": 0, "start": "14:00", "minutes": 60, "title": "Brand workshop — Harbor Coffee", "with": ["Priya Shah"] },
+    { "id": "e-203", "day_offset": 1, "start": "11:00", "minutes": 45, "title": "Contract call", "with": ["Marcus Bell"] },
+    { "id": "e-204", "day_offset": 3, "start": "15:00", "minutes": 60, "title": "Menu-board review", "with": ["Priya Shah"] },
+    { "id": "e-205", "day_offset": 4, "start": "12:30", "minutes": 90, "title": "Team lunch", "with": ["Team Northwind"] }
+  ]
+}

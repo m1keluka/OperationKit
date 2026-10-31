@@ -263,6 +263,21 @@ export function buildReviewerPrompt(
         '- Do NOT base your verdict on the diff. Every PASS/FAIL must cite what you saw in the browser.',
         '- Save the browser console output via `browser_console_messages` to a file and reference its path.',
         '',
+        'PREVIEW UNREACHABLE (infra down — NOT the diff\'s fault):',
+        `- First distinguish the failure. An APP error (the preview answered: a rendered 404/500 page, a JS`,
+        '  exception, a broken feature) IS a legitimate basis for `fail` — grade it. An INFRA failure (the',
+        '  host never answered: connection refused, DNS failure, `TLS alert internal error`, or a bare proxy',
+        '  5xx like Caddy `502 Bad Gateway` with no app body) is NOT the PR\'s fault and must NOT be graded as',
+        '  `fail`.',
+        '- On a confirmed INFRA failure, probe at most 3 times over ~60s to confirm it is persistent, then',
+        '  STOP — do not burn dozens of navigations/curls on a host that will not answer. Emit `<verdict>blocked`',
+        '  and begin your `<findings>` with the exact marker line `PREVIEW-INFRA-UNREACHABLE: <host> <symptom>`',
+        '  (e.g. `PREVIEW-INFRA-UNREACHABLE: pr-583.cc.example.com 502-bad-gateway`) so automation can tell',
+        '  an infra block from a real verification failure.',
+        '- Then DO record a code-level assessment of each locked criterion as SUPPORTING CONTEXT (clearly',
+        '  labelled "not a browser-grounded pass"), so a re-review once the preview recovers is cheap. This',
+        '  does NOT upgrade the verdict to `pass` — a blocked-on-infra PR has not been verified live.',
+        '',
         'In ADDITION to the `<verdict>` and `<findings>` tags, you MUST emit these machine-readable blocks',
         'in your final message:',
         '',
@@ -376,17 +391,32 @@ export function buildReviewerPrompt(
     filesTouched.length > 0 ? filesTouched.map(f => `- ${f}`).join('\n') : '(none captured)',
     '',
     '## Where the worker\'s deliverable lives (READ BEFORE GRADING)',
-    'Your shell starts in the main project checkout, which stays on `main`. The worker almost'
-      + ' never edits `main` directly — it works on its own branch and/or an isolated git'
-      + ' worktree (e.g. `/tmp/cc-worktree-<id>/`). If you grade the main checkout blind you will'
-      + ' falsely FAIL real work as "absent" (this happened to obj 658 and 633).',
+    'Your shell may start in a GENERIC agent dir, NOT the deliverable repo — especially when'
+      + ' this objective has no linked project. The worker almost never edits `main`; it works on'
+      + ' its own branch and/or an isolated git worktree (e.g. `/tmp/cc-worktree-<id>/`), and the'
+      + ' deliverable may live in a DIFFERENT repo than your cwd. If you grade your cwd blind you'
+      + ' will falsely FAIL real work as "absent" (obj 658, 633, and 719640 — a green, MERGED PR'
+      + ' with 44 files failed all 7 criteria because the reviewer read a stale local clone).',
+    objective.pr_url
+      ? `This deliverable's PR is ${objective.pr_url}. If that repo is NOT your cwd, \`cd\` into its`
+        + ' local checkout first (the host clone under `/home/operator/projects/<repo>`, or clone the'
+        + ' PR if absent).'
+      : '',
     objective.branch_name
-      ? `The worker recorded its branch as \`${objective.branch_name}\`. Before grading, make it`
-        + ` visible read-only: \`git fetch --all -q && git checkout ${objective.branch_name}\``
-        + ` (or \`git worktree list\` to find its tree), then read the touched files THERE.`
-      : 'No branch was recorded for this worker. The deliverable may be on an unmerged branch or'
-        + ' an isolated worktree: run `git branch -a` and `git worktree list`, and inspect the'
-        + ' worker transcript for its branch/worktree path before concluding anything is missing.',
+      ? `The worker's branch is \`${objective.branch_name}\`. Sync to the PR HEAD before grading —`
+        + ' a bare `git checkout <branch>` of an existing LOCAL branch stays on a stale tip and is'
+        + ' the #1 cause of false "absent" fails. Run, read-only, IN THE DELIVERABLE REPO:'
+        + ` \`git fetch origin ${objective.branch_name} -q && git checkout ${objective.branch_name}`
+        + ` && git reset --hard origin/${objective.branch_name}\` (or check out the exact PR head`
+        + ' SHA). Then read the touched files THERE.'
+      : 'No branch recorded: run `git branch -a` / `git worktree list` and inspect the worker'
+        + ' transcript for its branch/worktree path before concluding anything is missing.',
+    objective.pr_url
+      ? 'BEFORE you write any criterion as FAIL/absent, PROVE your tree matches the PR head:'
+        + ' `gh pr view <n> --json headRefOid` and confirm `git rev-parse HEAD` equals it. If it'
+        + ' does NOT, your checkout is stale — re-sync; NEVER FAIL off a stale tree. If you still'
+        + ' cannot reach the PR head, emit `blocked`, not `fail`.'
+      : '',
     '',
     '## Your task',
     '',

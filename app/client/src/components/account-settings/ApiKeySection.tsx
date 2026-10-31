@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { useConfirm } from '../ui'
+import { Button } from '../../components/ui/Button'
 import { fmtDate } from './helpers'
 import type { ApiKeyIssued, ApiKeySummary } from '@operationkit/shared'
 
@@ -97,8 +98,8 @@ export function ApiKeySection() {
         <div>
           <h2 className="text-base font-semibold text-fg-0">API key</h2>
           <p className="mt-1 text-xs text-fg-3">
-            For Grok Bot and other agents. Paste as <span className="font-mono">Authorization: Bearer …</span>.
-            We only show the full key once.
+            Full access — acts as you everywhere. Paste as <span className="font-mono">Authorization: Bearer …</span>.
+            We only show the full key once. For a bot, prefer a scoped agent key below.
           </p>
         </div>
         {configured && (
@@ -125,13 +126,9 @@ export function ApiKeySection() {
                   value={plaintext}
                   className="w-full rounded border border-accent/40 bg-surface px-2.5 py-2 font-mono text-sm text-fg-0"
                 />
-                <button
-                  type="button"
-                  onClick={() => void copy()}
-                  className="shrink-0 rounded-md bg-accent px-3 py-2 text-sm text-white hover:opacity-90"
-                >
+                <Button variant="primary" className="shrink-0" onClick={() => void copy()}>
                   {copied ? 'Copied' : 'Copy'}
-                </button>
+                </Button>
               </div>
             </div>
           )}
