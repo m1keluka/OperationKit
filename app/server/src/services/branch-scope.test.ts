@@ -82,8 +82,21 @@ describe('detectBranchBleed', () => {
   })
   it('does NOT flag integration-base refs (db-apply push / -B main reset)', () => {
     const o = 'cc/obj-704824-lead-notes-rls'
+    // Post-718762 the full refspec is captured, so this now judges the DESTINATION
+    // (db-apply/20260807040000), not the source (origin/main) — still null via the
+    // dedicated db-apply exemption, not the INTEGRATION_BASES short-circuit.
     expect(detectBranchBleed('git push origin origin/main:refs/heads/db-apply/20260807040000', o)).toBeNull()
     expect(detectBranchBleed('git checkout -q -B main origin/main', 'cc/obj-704825-r6-version-rename')).toBeNull()
+  })
+  it('judges the DESTINATION of a SRC:DST refspec push, not the local scratch source (obj 718075/718762)', () => {
+    // git push origin SRC:DST lands DST on origin — SRC is a disposable local name.
+    // Before the fix, BRANCH_CHARS (no ':') truncated the capture at SRC, so these
+    // all false-flagged on `fix818` / `r8-integrate`, defeating both the same-id
+    // exemption and the staging-branch exemption below.
+    const o = 'cto/718075-e1-foundation'
+    expect(detectBranchBleed('git push origin fix818:fix/obj718075-e1e3-email-redesign', o)).toBeNull()
+    expect(detectBranchBleed('git push origin local/813:fix/obj718075-a2-a6-approve-race-and-polish', o)).toBeNull()
+    expect(detectBranchBleed('git push origin tmp-merge-a1a7:test/web-quote-flow-integration', o)).toBe('test/web-quote-flow-integration')
   })
   it('STILL flags a genuinely foreign no-id branch', () => {
     expect(detectBranchBleed('git checkout -b obj-loops-kanban', 'cc/obj-994-guardrail-thing')).toBe('obj-loops-kanban')
@@ -95,6 +108,33 @@ describe('detectBranchBleed', () => {
     expect(detectBranchBleed('git push origin --delete cc/705532-WSLOT', o)).toBeNull()
     expect(detectBranchBleed('git push origin --delete cto/704650-w3-topup-max-miles-plumbing', o)).toBeNull()
     expect(detectBranchBleed('git push origin -d cc/705532-WSLOT', o)).toBeNull()
+  })
+  it('exempts a session own branch named feat/obj<id>-… against a cto/<id>- owned branch', () => {
+    const owned = 'cto/716187-browser-dialer-fix'
+    expect(detectBranchBleed('git push -u origin feat/obj716187-newtab-autodial', owned)).toBeNull()
+    expect(detectBranchBleed('git checkout -b fix/obj716187-remote-audio', owned)).toBeNull()
+  })
+  it('exempts own branches when the owned branch itself uses the …-obj<id> form', () => {
+    const owned = 'standalone-valuation-funnel-obj716197'
+    expect(detectBranchBleed('git checkout -b feat/obj716197-sell-intent-column', owned)).toBeNull()
+  })
+  it('still flags a genuinely foreign objective branch', () => {
+    const owned = 'cto/716187-browser-dialer-fix'
+    expect(detectBranchBleed('git push origin feat/obj999999-other-objective', owned)).toBe('feat/obj999999-other-objective')
+  })
+  it('does NOT flag a phantom branch from git verbs inside a heredoc BODY (obj 719640)', () => {
+    // The worker wrote a CI workflow via `cat > weekly.yml <<'EOF' … EOF` whose
+    // FILE CONTENT mentions `git push`. pushRe matched across the heredoc boundary
+    // with remote=`EOF` (the terminator) and branch=`python3` (the next command).
+    const owned = 'feat/weekly-tracker'
+    const command = [
+      `cat > weekly.yml <<'EOF'`,
+      `      git commit -m "data: weekly AI visibility \${{ steps.run.outputs.week }}"`,
+      `      git push`,
+      `EOF`,
+      `python3 -c "import yaml" weekly.yml`,
+    ].join('\n')
+    expect(detectBranchBleed(command, owned)).toBeNull()
   })
 })
 

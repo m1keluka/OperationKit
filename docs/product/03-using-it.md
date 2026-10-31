@@ -10,15 +10,17 @@ Create a card: **title** + **description** are required. The create form also of
 
 Column order on desktop: Queue → Working → Needs You → Done. On mobile the columns stack vertically as Needs You → Working → Queue → Done so the human gate is always visible first.
 
+A thin banner appears above the board when the host is low on disk (orange) or critically full (red, new messages refused until cleanup frees space). It polls every 5 minutes and shows nothing the rest of the time.
+
 Manual cards in queue still wait for Start. Approving a project plan starts the worker. A passing AI review on a task or bug marks it done. Green lightweight PRs merge themselves. Projects still sit in Needs You for a look.
 
 ## How it talks to you
 
 Sessions write like a colleague. They do the work (APIs, Playwright, Google, GitHub, the filesystem) and only stop you for a decision, a missing secret, or a click they cannot reach. They do not ask “want me to?” for a commit, a PR, or a shell command. Worker-finished pings collapse into one line in the thread so a busy parent card stays readable. Ask in the composer if you want the technical dump.
 
-## Assistant
+## Chat
 
-Chat. It can brief you, spawn board work, and use your Google/GitHub if those are connected. Configure its name and autonomy under Settings → You.
+When the agent chat page is installed, **Chat** is the first item in the top bar. It is where most people talk to their agents day to day; the board is where the work shows up. The older built-in assistant ("Assistant") has been removed. Its old links (`/assistant`, `/mentor`, `/assistant`) open Chat, or the board if Chat is not installed.
 
 ## Another assistant (Claude / Grok / ChatGPT)
 
@@ -26,17 +28,15 @@ OperationKit has a remote HTTP API so a Project, custom GPT, or any bot can sit 
 
 Paste [the portable prompt](../api/AGENT-PROMPT.md), give it an API key from **Settings → You** as `Authorization: Bearer cc_live_…`. The same key unlocks board management plus vault docs search (`GET /api/docs/search`, `GET/PUT /api/docs/file`). Spec: `GET /api/openapi.json`. Human doc: [API](../api/README.md).
 
+Not to be confused with the **LLM gateway** (`/api/llm/v1`), which lets other apps such as Twenty CRM borrow a Claude seat for plain chat completions and never touches cards — see [How it works](./02-how-it-works.md#llm-gateway-for-other-apps-not-for-cards).
+
 ## Jobs
 
 Routines on a cron. Each fire is a board card. Lanes: running, needs review, complete. This is the scheduler, not a second to-do list.
 
-## Content
+## Knowledge base
 
-Meeting hooks, social drafts, video. Use it when you are publishing, not when you are coding.
-
-## Docs
-
-Markdown over the vault and (for admins) `/home/operator/projects`. Product docs for OperationKit live in this repo at `docs/product/`. Linked repos keep the same folder (see [Living docs](./LIVING.md)).
+Your business's shared memory: plain markdown files on your own server that you and every agent read and edit. Open it from **Knowledge base** in the top bar (`/knowledge`; old `/docs` links still work). Pick a folder under **Source**, then a page to read or edit it. Agents reach the same files over the API and MCP (`GET /api/docs/search`, `GET/PUT /api/docs/file`), so what you write here is what they know. Product docs for OperationKit live in this repo at `docs/product/`. Linked repos keep the same folder (see [Living docs](./LIVING.md)).
 
 ## Dashboard
 
@@ -46,7 +46,8 @@ Operator view: how many Claude seats are free, Grok/Codex connected, models on/o
 
 | Tab | Who | What |
 | --- | --- | --- |
-| You | everyone | API key (`cc_live_`), GitHub PAT, Google Workspace, assistant, personal secrets |
+| You | everyone | API key (`cc_live_`), agent keys, personal secrets |
+| Connectors | everyone | your GitHub and Google Workspace (Gmail, Calendar, Drive) accounts, and which agents and workspaces may use them — see [Connectors](./04-you.md#connectors) |
 | Secrets | workspace/global admin | org/global keys, reviewer test logins |
 | Org | global admin | organizations, users, **linked repos** |
 | Agents | global admin | agent roster, assignments, skill graph |

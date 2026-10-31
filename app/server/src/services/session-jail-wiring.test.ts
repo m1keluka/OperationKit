@@ -184,3 +184,43 @@ describe('SESSION_ISOLATION=docker → createSessionJail path', () => {
     expect(execFileSyncCalls.some((c) => c.argv[0] === 'run')).toBe(false)
   })
 })
+
+describe('transcript redaction pipe (obj 715532)', () => {
+  const scriptPath = () => path.join(tmp, 'cc-scripts', 'cc-709080-1756400000000.sh')
+
+  it('tmux mode: stdout is piped through the redaction filter before the jsonl, exit code from the CLI', async () => {
+    const spawnInTmux = await loadSpawn()
+    spawnInTmux({ ...spawnOpts(tmp), env: { CC_ACTING_USER_ID: '1', SUPABASE_SERVICE_ROLE_KEY: "sbsr_value_long_enough_1234" } })
+    const script = fs.readFileSync(scriptPath(), 'utf8')
+    const filter = path.join(tmp, 'cc-scripts', 'cc-redact-stream.mjs')
+    expect(fs.existsSync(filter)).toBe(true)
+    expect(script).toContain(`2>> "${path.join(tmp, 'transcripts', 'session.log')}" | CC_REDACT_ENV_KEYS="SUPABASE_SERVICE_ROLE_KEY" "${process.execPath}" "${filter}" >> "${path.join(tmp, 'transcripts', 'session.jsonl')}"`)
+    expect(script).toContain('EXIT_CODE=${PIPESTATUS[0]}')
+    // Names only on the command line — the value stays in the exported env.
+    expect(script.split('\n').filter(l => l.includes('cc-redact-stream')).join('\n')).not.toContain('sbsr_value_long_enough_1234')
+  })
+
+  it('CC_TRANSCRIPT_REDACT=0 restores the direct append', async () => {
+    process.env.CC_TRANSCRIPT_REDACT = '0'
+    try {
+      const spawnInTmux = await loadSpawn()
+      spawnInTmux(spawnOpts(tmp))
+      const script = fs.readFileSync(scriptPath(), 'utf8')
+      expect(script).not.toContain('cc-redact-stream')
+      expect(script).toContain('EXIT_CODE=$?')
+    } finally {
+      delete process.env.CC_TRANSCRIPT_REDACT
+    }
+  })
+
+  it('jail mode: no filter (not mounted there); the read path covers it', async () => {
+    process.env.SESSION_ISOLATION = 'docker'
+    const spawnInTmux = await loadSpawn()
+    spawnInTmux(spawnOpts(tmp))
+    const script = fs.readFileSync(
+      path.join(tmp, 'jail-homes', 'cc-709080-1756400000000', '.cc', 'cc-709080-1756400000000.sh'),
+      'utf8',
+    )
+    expect(script).not.toContain('cc-redact-stream')
+  })
+})

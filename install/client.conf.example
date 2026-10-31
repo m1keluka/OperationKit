@@ -1,0 +1,95 @@
+# ==============================================================================
+# Operation Kit — client settings
+# ------------------------------------------------------------------------------
+# ONE file per client install. Copy it, fill it in, then run the installer:
+#
+#   cp install/client.conf.example client.conf
+#   sudo ./install.sh --config client.conf
+#
+# Rules for this file:
+#   * Plain KEY="value" lines. Nothing else is run — the installer READS this
+#     file, it does not execute it.
+#   * NO passwords, API keys or tokens go in here. Every secret is generated on
+#     the server (or handed over in a separate file that is deleted after use —
+#     see INSTALL.md, "Handing over the Cloudflare token").
+#   * Lines starting with # are comments.
+# ==============================================================================
+
+# ── Who the install is for ────────────────────────────────────────────────────
+# Shown in the browser tab, the sign-in page and the top-left of the app.
+CLIENT_NAME="Example Capital Partners"
+
+# Short id, lowercase letters / digits / dashes. Used for the first workspace,
+# the Cloudflare tunnel name and the Access application name.
+CLIENT_SLUG="example-capital"
+
+# ── Web address ───────────────────────────────────────────────────────────────
+# The full address people will type. Must be a sub-domain of a domain that is
+# already on the client's Cloudflare account (ZONE below).
+DOMAIN="ops.example-capital.com"
+
+# The Cloudflare zone (the bare domain) that DOMAIN lives under.
+ZONE="example-capital.com"
+
+# ── Branding ──────────────────────────────────────────────────────────────────
+# Product name shown in the app. Leave as-is to keep "Operation Kit".
+BRAND_NAME="Operation Kit"
+
+# Optional logo: a path on the SERVER (copied in by the installer) to a square
+# PNG or SVG, at most 512 KB. Leave empty for the default mark.
+BRAND_LOGO=""
+
+# ── First administrator ───────────────────────────────────────────────────────
+# Username for the first admin account. The installer creates it with a
+# one-time setup password; the first sign-in is forced to choose a new one.
+ADMIN_USERNAME="admin"
+
+# ── Who may open the site (Cloudflare Access) ─────────────────────────────────
+# Nobody reaches the sign-in page unless Cloudflare Access lets them through.
+# Comma-separated list of exact email addresses …
+ACCESS_ALLOWED_EMAILS="alex.partner@example-capital.com"
+# … and/or a whole email domain (everyone @example-capital.com). Optional.
+ACCESS_ALLOWED_EMAIL_DOMAIN=""
+
+# How people prove who they are at the Cloudflare door:
+#   otp        — a one-time code is emailed to them (works everywhere, no setup)
+#   google     — "Sign in with Google" (needs GOOGLE_* values in the secrets file)
+#   microsoft  — "Sign in with Microsoft" (needs AZURE_* values in the secrets file)
+ACCESS_LOGIN_METHOD="otp"
+
+# How long one Cloudflare sign-in lasts before asking again.
+ACCESS_SESSION_DURATION="24h"
+
+# ── AI accounts ───────────────────────────────────────────────────────────────
+# How the server's worker sessions sign in to Claude:
+#   login    — a Claude subscription (Pro / Max / Team). Someone signs in once in
+#              a browser during setup (INSTALL.md step 7). Recommended.
+#   api-key  — an Anthropic API key, billed per use. Handed over in the secrets
+#              file as ANTHROPIC_API_KEY; never typed into this file.
+CLAUDE_AUTH="login"
+
+# Optional extra model providers, comma-separated: openai, gemini.
+# Their keys go in the secrets file (OPENAI_API_KEY / GEMINI_API_KEY).
+EXTRA_PROVIDERS=""
+
+# ── Agents ────────────────────────────────────────────────────────────────────
+# Which agents appear on the board. Comma-separated, from:
+#   general, cto, cmo, coo, cfo
+AGENTS_ENABLED="general,coo,cfo"
+
+# ── Starter packs ─────────────────────────────────────────────────────────────
+# Ready-made bundles of agents + sample data, switched on after the first boot.
+# Comma-separated pack ids (folders under app/server/src/starter-packs/). Packs
+# not present in this copy of the code are skipped with a warning.
+STARTER_PACKS="knowledge-import"
+
+# ── Server ────────────────────────────────────────────────────────────────────
+# Where everything is stored on the server. Change only if the client asks.
+INSTALL_DIR="/opt/operationkit"
+
+# Wall-clock time zone for schedules (e.g. America/New_York, Europe/London).
+TIMEZONE="America/New_York"
+
+# Per-session sandbox. Leave on "docker" for client installs: every AI session
+# runs in its own locked-down container that can only see its own work folder.
+SESSION_ISOLATION="docker"

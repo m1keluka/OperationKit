@@ -168,7 +168,18 @@ export interface PatchResult {
 
 // Rewrite ONLY the `status:` value inside the frontmatter block, preserving the
 // rest of the file byte-for-byte (CONTRACT §2b). Returns the re-parsed draft.
-export function patchDraftStatus(owner: ContentOwner, file: string, newStatus: string): PatchResult {
+// Optional `pillar` also moves the draft into that category tab (e.g. "Posted"). The prior
+// pillar is kept once as `pillar_before` so the move is reversible by hand.
+export function patchDraftStatus(
+  owner: ContentOwner,
+  file: string,
+  newStatus: string,
+  opts: { pillar?: string } = {},
+): PatchResult {
+  const pillar = opts.pillar?.trim()
+  if (pillar !== undefined && (!pillar || pillar.length > 40 || /["\r\n]/.test(pillar))) {
+    return { ok: false, error: 'invalid pillar' }
+  }
   if (!(DRAFT_STATUSES as readonly string[]).includes(newStatus)) {
     return { ok: false, error: `invalid status '${newStatus}' (allowed: ${DRAFT_STATUSES.join(', ')})` }
   }
@@ -183,7 +194,16 @@ export function patchDraftStatus(owner: ContentOwner, file: string, newStatus: s
     return { ok: false, error: 'draft frontmatter has no status field' }
   }
   // Replace only the first status line within the frontmatter body.
-  const newFmBody = fmBody.replace(/^(status:\s*).*$/m, `$1${newStatus}`)
+  let newFmBody = fmBody.replace(/^(status:\s*).*$/m, `$1${newStatus}`)
+  if (pillar) {
+    const current = /^pillar:\s*(.*)$/m.exec(newFmBody)
+    const prev = current ? current[1].trim() : ''
+    if (stripQuotes(prev) !== pillar) {
+      if (current) newFmBody = newFmBody.replace(/^pillar:\s*.*$/m, `pillar: "${pillar}"`)
+      else newFmBody += `\npillar: "${pillar}"`
+      if (prev && !/^pillar_before:/m.test(newFmBody)) newFmBody += `\npillar_before: ${prev}`
+    }
+  }
   const newRaw = raw.replace(fmMatch[0], `${open}${newFmBody}${close}`)
   if (newRaw === raw && fmBody !== newFmBody) {
     return { ok: false, error: 'status rewrite produced no change' }

@@ -84,6 +84,21 @@ describe('buildReviewerPrompt — adversarial framing (QW3)', () => {
     expect(p).toMatch(/TEST-AGENT MODE/)
   })
 
+  it('tells test-agent mode to distinguish infra-down from an app error and cap probes', () => {
+    const p = buildReviewerPrompt(
+      makeObjective({
+        pr_number: 404,
+        pr_url: 'https://github.com/your-org/operationkit/pull/404',
+      } as Partial<Objective>),
+      ['app/client/src/components/KanbanBoard.tsx'],
+      null,
+    )
+    expect(p).toMatch(/PREVIEW UNREACHABLE/)
+    expect(p).toMatch(/PREVIEW-INFRA-UNREACHABLE:/)
+    expect(p).toMatch(/probe at most 3 times/i)
+    expect(p).toMatch(/not the PR's fault|NOT the PR's fault/i)
+  })
+
   it('first-pass (iteration 1, no locked rubric) is still adversarial', () => {
     const firstPass = buildReviewerPrompt(
       makeObjective({ ai_review_iteration: 1, acceptance_criteria: undefined }),

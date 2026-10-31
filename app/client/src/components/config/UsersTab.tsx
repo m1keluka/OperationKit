@@ -247,12 +247,6 @@ export function UsersTab() {
                             </select>
                           </label>
                           <label className="flex items-center gap-2">
-                            <input type="checkbox" checked={!!m.can_use_assistant}
-                                   onChange={e => updateMembership(user, m.workspace, { can_use_assistant: e.target.checked })}
-                                   className="rounded border-line bg-surface-1 accent-[var(--accent)]" />
-                            <span className="text-fg-1">Assistant chat</span>
-                          </label>
-                          <label className="flex items-center gap-2">
                             <span className="text-fg-3">Sees:</span>
                             <select value={m.objective_visibility}
                                     onChange={e => updateMembership(user, m.workspace, { objective_visibility: e.target.value as ObjectiveVisibility })}

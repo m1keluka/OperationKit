@@ -16,6 +16,7 @@ import {
   sendFollowUp,
   computeObjectiveSpend,
   resolveWorkdir,
+  startSession,
 } from './session-manager.js'
 import { sendTelegram, insertAlert } from './notifier.js'
 import { runCompletionGate, applyGateHandback } from './ci-green-gate.js'
@@ -37,6 +38,7 @@ import {
   EARNED_STATUS_BACKSTOP_INTERVAL_MS,
   type GhExec,
 } from './pr-linkage.js'
+import { isPreviewInfraBlockedFindings } from './preview-infra-resurrect.js'
 import { discoverPosthogBotPrs } from './posthog-bot-prs.js'
 import {
   runPosthogSignalsSweep,
@@ -60,6 +62,7 @@ import {
   budgetCeilingForEffort,
 } from './poller-decisions.js'
 import { delegatorParentOf } from './poller-delegator.js'
+import { noteStartReason } from './session-start-reasons.js'
 
 /** A single parsed test-agent criterion result (PR-gated harness loop). */
 interface CriterionResult {
@@ -822,14 +825,21 @@ export async function pollAIReviewSessions(): Promise<void> {
       let nextStatus: ObjectiveStatus = (obj.type === 'task' && delegatorParent == null) ? 'done' : 'review'
       if (mustRouteToHumanReview(obj) && nextStatus === 'done') nextStatus = 'review'
       if (await ciGateBlocks(nextStatus)) continue
+      // obj 719328 — P1 (session-reviewer-prompt.ts) teaches the reviewer to open its
+      // <findings> with the exact marker line `PREVIEW-INFRA-UNREACHABLE: <host> <symptom>`
+      // when the block is a dead preview HOST, not an app bug. Tag that distinctly so the
+      // preview-infra-resurrect sweep can find it later without re-parsing findings prose.
+      // Any other blocked reason (findings don't start with the marker) stays NULL.
+      const blockedReason = isPreviewInfraBlockedFindings(findings) ? 'preview-infra' : null
       runMachineStatusUpdate(
         db,
-        "UPDATE objectives SET status = ?, ai_review_verdict = 'blocked', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE objectives SET status = ?, ai_review_verdict = 'blocked', ai_review_findings = ?, blocked_reason = ?, updated_at = datetime('now') WHERE id = ?",
         nextStatus,
         findings,
+        blockedReason,
         obj.id,
       )
-      console.log(`[state-poller] Reviewer BLOCKED on objective ${obj.id} → ${nextStatus}`)
+      console.log(`[state-poller] Reviewer BLOCKED on objective ${obj.id} → ${nextStatus}${blockedReason ? ` (blocked_reason=${blockedReason})` : ''}`)
       postHarnessStatus(obj, 'failure', 'Test-agent could not verify the PR preview (blocked).')
     } else {
       // unless a cap-out condition fires: iteration cap (backstop), CUMULATIVE
@@ -883,6 +893,59 @@ export async function pollAIReviewSessions(): Promise<void> {
         })
         // Preserve main's harness-status post on cap-out (#840 PR-gated loop).
         postHarnessStatus(obj, 'failure', `Test-agent FAIL — capped out (${decision.reason}).`)
+      } else if (decision.action === 'respawn') {
+        // Completeness-type iteration-1 FAIL (obj 714137): the findings are
+        // about missing/uncommitted/in-flight EVIDENCE (zero commits, untracked
+        // files, an apply still pending, a PR not yet merged) rather than a
+        // defect in the diff. Bouncing a follow-up into the SAME worker session
+        // just re-confirms the identical FAIL on iteration 2 — the session that
+        // would produce the missing evidence already ended — which is exactly
+        // how 713954/713962/713979/714006/714114 each burned a full, guaranteed-
+        // to-fail second review (~$80 total) before hitting the iteration cap.
+        // Respawn a FRESH worker session instead; `startSession` reads
+        // `ai_review_findings`/`ai_review_verdict` straight off the objective row
+        // via `buildPrompt`'s "Prior AI Review Findings" section, so the new
+        // session gets the same context a bounce would have carried.
+        const rejectedTreeSha = isGateRejectionMemoryEnabled(db) ? currentTreeShaForObjective(obj) : null
+        db.prepare(
+          "UPDATE objectives SET ai_review_verdict = 'fail', ai_review_findings = ?, rejected_tree_sha = ?, not_mergeable = 0, updated_at = datetime('now') WHERE id = ?"
+        ).run(findings, rejectedTreeSha, obj.id)
+        try {
+          db.prepare(
+            "INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail) VALUES (?, ?, ?, ?, 'milestone', 'completeness_fail_respawned', ?)"
+          ).run(
+            obj.project || 'unknown',
+            obj.workspace,
+            obj.id,
+            obj.ai_review_session_id,
+            'Iteration 1 AI review FAIL classified completeness-type (missing/uncommitted/in-flight evidence) — respawning a fresh worker session with the findings as context instead of bouncing into the exited session, to skip a guaranteed-repeat iteration 2.',
+          )
+        } catch (err) {
+          console.error(`[state-poller] Failed to log completeness-respawn for obj ${obj.id}:`, err)
+        }
+        const freshObj: Objective = { ...obj, ai_review_verdict: 'fail', ai_review_findings: findings || null }
+        try {
+          const newSessionId = await startSession(freshObj)
+          runMachineStatusUpdate(
+            db,
+            "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
+            newSessionId,
+            obj.id,
+          )
+          console.log(`[state-poller] Reviewer FAIL (completeness) on objective ${obj.id} (iter ${obj.ai_review_iteration}) → respawned fresh worker session ${newSessionId}`)
+        } catch (err) {
+          // Account slots exhausted or a lease conflict — don't strand the
+          // objective silently; park it in review for a human (mirrors the
+          // no-op-respawn deferred path's queue-park for the account-busy case,
+          // but a lease conflict here means a DIFFERENT live session already
+          // owns this identity, which only a human should untangle).
+          console.warn(`[state-poller] Completeness-respawn for objective ${obj.id} failed (${(err as Error).message}) — routing to review for human.`)
+          runMachineStatusUpdate(
+            db,
+            "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+            obj.id,
+          )
+        }
       } else {
         // KL-21 (obj-2509): record the head tree SHA this rejection was graded on,
         // so a later re-review of a byte-identical tree can skip the auditor. Inert
@@ -895,6 +958,7 @@ export async function pollAIReviewSessions(): Promise<void> {
         if (obj.session_id) {
           try {
             const followUp = `## AI Review Findings\n\n${findings || '(no findings text)'}\n\nPlease address these and continue.`
+            noteStartReason(obj.id, 'ai_review_fail', 'ai-reviewer')
             const newSessionId = sendFollowUp(obj.session_id, followUp, obj)
             runMachineStatusUpdate(
               db,

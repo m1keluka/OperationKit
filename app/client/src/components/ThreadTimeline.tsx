@@ -4,6 +4,7 @@ import { renderMarkdown } from '../lib/markdown'
 import { api } from '../lib/api'
 import { echoLandedInSegments } from '../lib/followup-echo'
 import { GroupedMessages, ResultCard, ErrorCard } from './SessionMessages'
+import { SenderTag } from './design/primitives'
 import type { ConnState } from './ConnStatusPill'
 
 // Collapsed session thread. Renders the `?view=timeline` segments — visible
@@ -104,11 +105,16 @@ function Divider({ seg }: { seg: Extract<ThreadSegment, { type: 'divider' }> }) 
     )
   }
   // A user message Mike typed into the thread — render it visibly (right-aligned,
-  // matching the followup bubble in GroupedMessages).
+  // matching the followup bubble in GroupedMessages). obj 718944: the
+  // server-stamped sender rides on top; relays get the quiet surface bubble.
+  const relayed = !!seg.sender && seg.sender.kind !== 'owner' && seg.sender.kind !== 'member'
   return (
-    <div className="my-1 flex justify-end">
+    <div className="my-1 flex flex-col items-end gap-1">
+      {seg.sender && <SenderTag sender={seg.sender} />}
       <div
-        className="overflow-hidden break-words rounded-lg bg-accent px-4 py-3 text-[14px] leading-relaxed text-accent-fg"
+        className={relayed
+          ? 'overflow-hidden break-words rounded-lg border border-line bg-surface-2 px-4 py-3 text-[14px] leading-relaxed text-fg-1'
+          : 'overflow-hidden break-words rounded-lg bg-accent px-4 py-3 text-[14px] leading-relaxed text-accent-fg'}
         style={{ maxWidth: 'min(85%, 64ch)' }}
       >
         {seg.text}

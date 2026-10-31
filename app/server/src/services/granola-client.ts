@@ -85,10 +85,14 @@ async function granolaGet<T>(path: string, apiKey?: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
-// Granola labels the note owner's own audio track 'me' (`speaker.source`); other
-// participants carry a diarization label ('Speaker 1', a name, ...). Anything we
-// cannot attribute is treated as NOT the owner, so a voice profile is never
-// polluted with someone else's phrasing.
+// Granola attributes each line by AUDIO TRACK, not by name: `speaker.source` is
+// 'microphone' for the note owner's own mic and 'speaker' for system audio (everyone
+// else on the call). Verified against 24 live transcripts / 6,296 segments — those are
+// the only two values the API emits; 'me' is kept only as a defensive alias.
+// Anything we cannot attribute is treated as NOT the owner, so a voice profile is
+// never polluted with someone else's phrasing.
+const OWNER_SOURCES = new Set(['microphone', 'me'])
+
 function toSegments(raw: RawTranscriptSegment[] | undefined): GranolaSegment[] {
   if (!raw || raw.length === 0) return []
   return raw
@@ -96,7 +100,7 @@ function toSegments(raw: RawTranscriptSegment[] | undefined): GranolaSegment[] {
     .map(s => {
       const source = (s.speaker?.source || '').toLowerCase()
       const label = s.speaker?.diarization_label || s.speaker?.source || ''
-      return { speaker: label || 'unknown', is_owner: source === 'me', text: s.text.trim() }
+      return { speaker: label || 'unknown', is_owner: OWNER_SOURCES.has(source), text: s.text.trim() }
     })
 }
 

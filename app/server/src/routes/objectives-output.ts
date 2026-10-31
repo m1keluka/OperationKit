@@ -8,6 +8,9 @@ import { getDb } from '../db/index.js'
 import { type AuthRequest } from '../middleware/auth.js'
 import type { Objective, SessionMessage, ThreadTimeline } from '@operationkit/shared'
 import { buildThreadTimelineCached } from '../services/thread-timeline.js'
+import { isVerifiedOwner, senderFromRequest } from '../lib/message-provenance.js'
+import { SESSION_SECRET_ACCESS_FLAG, readSettingFlag } from '../lib/session-trust.js'
+import { captureOwnerPastedSecrets } from '../services/chat-secret-capture.js'
 import { getSessionOutput, getSessionJsonlPath, sendFollowUp, recordFollowUpInJsonl } from '../services/session-manager.js'
 import { checkHumanTerminalReactivation } from '../services/objective-audit.js'
 import { broadcast } from '../ws/index.js'
@@ -15,6 +18,8 @@ import { mapObjective, requireOwnership } from './objectives-helpers.js'
 import { listObjectiveThreadSessionIds, resolveFollowUpSessionId } from '../services/objective-sessions.js'
 import { isLockedStatus, runMachineStatusUpdate } from '../lib/status-lock.js'
 import { diskAction, diskBlockReason, readHostDisk } from '../lib/host-disk.js'
+import { noteStartReason } from '../services/session-start-reasons.js'
+import { beginIdempotent } from '../lib/idempotency.js'
 
 // Default cap on the non-incremental first-open payload: the most recent N
 // messages. Older history loads on demand via ?from&to; the live tail via
@@ -323,6 +328,7 @@ router.get('/:id/stream', (req: AuthRequest, res) => {
 
 // POST /api/objectives/:id/message
 router.post('/:id/message', async (req: AuthRequest, res) => {
+  if (beginIdempotent(req, res, `POST /api/objectives/${req.params.id}/message`)) return
   const { message, filePaths } = req.body
   if (!message?.trim()) {
     res.status(400).json({ error: 'Message is required' })
@@ -353,6 +359,9 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
   // both hides the message and resumes the adversarial reviewer's Claude context
   // instead of the worker's (obj 712524).
   const existingSessionId = resolveFollowUpSessionId(db, objective)
+  // obj 718944: provenance comes from how THIS request authenticated (cookie =
+  // typed in the UI), never from the message text.
+  const sender = senderFromRequest(req)
 
   // Respond BEFORE the (re)spawn so the client isn't blocked for 3-5s (obj 700253).
   // For the current tmux architecture sessions hold no live stdin, so every
@@ -393,6 +402,11 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
     })
     return
   }
+  // obj 718944: the verified owner pasted a credential → move it into the
+  // workspace store, send/store only [REDACTED:NAME], flag it to rotate later.
+  if (isVerifiedOwner(sender) && readSettingFlag(SESSION_SECRET_ACCESS_FLAG)) {
+    fullMessage = captureOwnerPastedSecrets(objective, fullMessage, { id: req.user!.id, username: req.user!.username }).text
+  }
   runMachineStatusUpdate(
     db,
     "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -406,7 +420,7 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
   // Write the follow-up into jsonl BEFORE 200 so the next timeline poll can
   // show the bubble even if spawn is still in flight (or later throws).
   try {
-    recordFollowUpInJsonl(existingSessionId, fullMessage)
+    recordFollowUpInJsonl(existingSessionId, fullMessage, undefined, sender)
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code
     console.error(`[objectives] message → jsonl write failed for ${req.params.id}:`, err)
@@ -424,7 +438,8 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
   // status and broadcast, rather than leaving the card stuck on "working".
   setImmediate(() => {
     try {
-      sendFollowUp(existingSessionId, fullMessage, objective, { skipJsonl: true })
+      noteStartReason(objective.id, 'follow_up', req.user?.username ?? null, (req.headers.authorization || '').startsWith('Bearer cc_live_') ? 'agent' : 'board')
+      sendFollowUp(existingSessionId, fullMessage, objective, { skipJsonl: true, sender })
     } catch (err) {
       console.error(`[objectives] message → deferred sendFollowUp failed for ${req.params.id}:`, err)
       try {

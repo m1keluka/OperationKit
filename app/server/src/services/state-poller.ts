@@ -112,6 +112,8 @@ export {
   AI_REVIEW_BUDGET_CEILING_USD,
   budgetCeilingForEffort,
   decideRespawnAction,
+  classifyFailType,
+  type FailType,
   failingCriterionIds,
   watchdogDecision,
 } from './poller-decisions.js'

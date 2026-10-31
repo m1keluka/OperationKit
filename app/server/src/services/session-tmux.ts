@@ -11,6 +11,8 @@ import { getModelEngine } from './model-registry.js'
 import { buildClaudeCommand, CODEX_HOME_DIR, codexConfigHome } from './session-spawn-command.js'
 import { writeGrokMcpConfig, writeCodexMcpProfile, writeGrokVocabShim } from './session-harness-mcp.js'
 import { spawnSegmentOffset } from './session-registry.js'
+import { redactPromptForWorker } from './secret-redaction.js'
+import { installTranscriptFilter, redactEnvKeysFor, transcriptFilterEnabled } from './transcript-redact-filter.js'
 import {
   JAIL_HOME_PATH,
   jailName,
@@ -19,10 +21,12 @@ import {
   jailEnabled,
   jailImage,
 } from './session-jail.js'
+import { sandboxClaudeAuthEnv } from './sandbox-claude-auth.js'
+import type { SeatMount } from './seat-credentials.js'
 
 // ── `~`-home false-negative fix (obj 532 / 553) ──
 // Spawned sessions run as OS user `ccuser` with HOME pointed at a per-account
-// scratch dir (/home/ccuser-{a..e}). So a session that types `~/second-brain/...`
+// scratch dir (its seat's HOME). So a session that types `~/second-brain/...`
 // expands `~` to that scratch home — NOT /home/operator — and the path "does not
 // exist", producing false-negative reviews (obj 532's first ai_review failed this
 // way). We cannot set HOME=/home/operator (each account needs its own Claude OAuth
@@ -183,8 +187,10 @@ export function spawnInTmux(opts: {
   settingsPath?: string               // extra --settings file (obj 1059 PreToolUse worktree guard)
   worktreeRoot?: string               // isolated session's worktree root → exported as CC_WORKTREE_ROOT for the guard
   objectiveId?: number | string       // required when SESSION_ISOLATION=docker — names the jail `ok-jail-<id>`
+  seatEnv?: Record<string, string>    // seat pool v2: the assigned seat's sign-in env (a pasted token)
+  seatMount?: SeatMount | null        // seat pool v2: sandboxed Codex/Grok seat login dir to bind into the jail
 }): string {
-  const { sessionId, homeDir, workdir, prompt, jsonlPath, logPath, env, effort, model, resumeSessionId, mcpConfigPath, settingsPath, worktreeRoot, objectiveId } = opts
+  const { sessionId, homeDir, workdir, prompt, jsonlPath, logPath, env, effort, model, resumeSessionId, mcpConfigPath, settingsPath, worktreeRoot, objectiveId, seatEnv, seatMount } = opts
   // SESSION_ISOLATION=docker → sibling-container jail. Unset/`tmux` (Mike's live
   // droplet default) keeps every line below byte-identical to the pre-flag path.
   const useJail = jailEnabled()
@@ -220,7 +226,9 @@ export function spawnInTmux(opts: {
   // Write prompt as plain text file — piped to claude via stdin (no stream-json input needed)
   const promptFile = path.join(scriptDirHost, `${sessionId}.prompt.txt`)
   const promptFileGuest = useJail ? `${scriptDirGuest}/${sessionId}.prompt.txt` : promptFile
-  fs.writeFileSync(promptFile, prompt)
+  // obj 715532: never hand a worker a credential in its prompt. Known values
+  // become [REDACTED:<NAME>] — the worker already has <NAME> in its env.
+  fs.writeFileSync(promptFile, redactPromptForWorker(prompt))
   fs.chmodSync(promptFile, 0o666)
 
   // Build env exports for the wrapper script. Canonical /home/operator roots are
@@ -232,9 +240,18 @@ export function spawnInTmux(opts: {
   // AI_WORKSPACE_DIR would be dangling pointers inside the jail and reproduce
   // exactly the "path does not exist" false negative they were added to fix
   // (obj 532/553). CC_WORKTREE_ROOT becomes the container-side /workspace.
+  // Seat pool v2: the assigned seat's sign-in (seatEnv) replaces the single
+  // shared server token; callers that do not assign a seat keep the legacy
+  // token. A seat token never travels with an API key, so the CLI cannot fall
+  // back to metered billing.
+  const signIn = seatEnv ?? (useJail ? sandboxClaudeAuthEnv() : {})
   const fullEnv: Record<string, string> = useJail
-    ? { ...env, HOME: JAIL_HOME_PATH, CC_WORKTREE_ROOT: JAIL_WORKSPACE_PATH }
-    : { ...canonicalRootEnv(), ...env, ...(worktreeRoot ? { CC_WORKTREE_ROOT: worktreeRoot } : {}) }
+    ? { ...env, HOME: JAIL_HOME_PATH, CC_WORKTREE_ROOT: JAIL_WORKSPACE_PATH, ...signIn }
+    : { ...canonicalRootEnv(), ...env, ...(worktreeRoot ? { CC_WORKTREE_ROOT: worktreeRoot } : {}), ...signIn }
+  if (seatEnv?.CLAUDE_CODE_OAUTH_TOKEN) {
+    delete fullEnv.ANTHROPIC_API_KEY
+    delete fullEnv.ANTHROPIC_AUTH_TOKEN
+  }
   const engine = getModelEngine(model)
   const envExports = Object.entries(fullEnv)
     .map(([k, v]) => `export ${k}=${JSON.stringify(v)}`)
@@ -280,7 +297,7 @@ export function spawnInTmux(opts: {
     writeGrokMcpConfig(workdirGuest, effectiveMcpPath)
   }
   const codexProfileName = (!useJail && engine === 'codex')
-    ? writeCodexMcpProfile(codexConfigHome(CODEX_HOME_DIR), sessionId, effectiveMcpPath)
+    ? writeCodexMcpProfile(codexConfigHome(homeDir || CODEX_HOME_DIR), sessionId, effectiveMcpPath)
     : undefined
   const claudeCmd = buildClaudeCommand({
     engine,
@@ -293,15 +310,35 @@ export function spawnInTmux(opts: {
     codexProfileName,
     grokRulesPath,
   })
+  // obj 715532: stdout goes through the redaction filter before it reaches the
+  // jsonl, so a secret the model echoes is stored as [REDACTED:<NAME>]. Skipped
+  // in jail mode (the filter lives in /tmp/cc-scripts, not mounted there) and
+  // with CC_TRANSCRIPT_REDACT=0; the /output read path still redacts both.
+  let sink = `>> ${JSON.stringify(jsonlGuest)}`
+  if (!useJail && transcriptFilterEnabled()) {
+    try {
+      const filterPath = installTranscriptFilter(TMUX_SCRIPT_DIR)
+      const keys = redactEnvKeysFor(fullEnv).join(',')
+      sink = `2>> ${JSON.stringify(logGuest)} | CC_REDACT_ENV_KEYS=${JSON.stringify(keys)} ${JSON.stringify(process.execPath)} ${JSON.stringify(filterPath)} >> ${JSON.stringify(jsonlGuest)}`
+    } catch (err) {
+      console.warn(`[session-manager] transcript redaction filter unavailable for ${sessionId}:`, (err as Error).message)
+    }
+  }
+  const piped = sink.startsWith('2>>')
+  const stderrSink = piped ? '' : ` 2>> ${JSON.stringify(logGuest)}`
   // Official grok CLI takes the prompt as `-p` (not stdin / --prompt-file).
   const runLine = engine === 'grok'
-    ? `${claudeCmd} -p "$(cat ${JSON.stringify(promptFileGuest)})" >> ${JSON.stringify(jsonlGuest)} 2>> ${JSON.stringify(logGuest)}`
-    : `${claudeCmd} < ${JSON.stringify(promptFileGuest)} >> ${JSON.stringify(jsonlGuest)} 2>> ${JSON.stringify(logGuest)}`
+    ? `${claudeCmd} -p "$(cat ${JSON.stringify(promptFileGuest)})" ${sink}${stderrSink}`
+    : `${claudeCmd} < ${JSON.stringify(promptFileGuest)} ${sink}${stderrSink}`
   if (resumeSessionId) {
     console.log(`[session-manager] Resume spawn for ${sessionId}: ${claudeCmd}`)
   }
+  // obj 718944: with a session-trust flag on, the worker must not inherit the
+  // server's JWT signing key from the tmux server env (it could mint an owner
+  // cookie and forge the VERIFIED sender stamp). buildSpawnEnv sets the marker.
+  const unsetSigning = env.CC_STRIP_SIGNING_SECRETS === '1' ? '\nunset JWT_SECRET CC_JWT_SECRET' : ''
   fs.writeFileSync(scriptFile, `#!/bin/bash
-unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY XAI_API_KEY GROK_CODE_XAI_API_KEY
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY XAI_API_KEY GROK_CODE_XAI_API_KEY${unsetSigning}
 # Run session work at lower CPU priority so heavy concurrent sessions don't
 # starve the control plane — the Node web server + state-poller stay at nice 0
 # and the UI keeps responding. Self-renice (raising OWN niceness) needs no
@@ -323,7 +360,7 @@ cd ${JSON.stringify(workdirGuest)} || exit 1
 echo "[wrapper] Starting at $(date)" >> ${JSON.stringify(logGuest)}
 echo "[wrapper] Prompt file size: $(wc -c < ${JSON.stringify(promptFileGuest)})" >> ${JSON.stringify(logGuest)}
 ${runLine}
-EXIT_CODE=$?
+EXIT_CODE=${piped ? '${PIPESTATUS[0]}' : '$?'}
 rm -f ${JSON.stringify(promptFileGuest)} ${JSON.stringify(scriptFileGuest)} 2>/dev/null || true
 exit $EXIT_CODE
 `)
@@ -351,6 +388,7 @@ exit $EXIT_CODE
       env: fullEnv,
       envFilePath: path.join(scriptDirHost, `${sessionId}.env`),
       image: jailImage(),
+      seatMount: seatMount || undefined,
       command: [
         'bash', '-lc',
         `tmux new-session -d -s ${JSON.stringify(tmuxName)} ${JSON.stringify(`bash ${scriptFileGuest}`)}; ` +

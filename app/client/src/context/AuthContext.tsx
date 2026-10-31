@@ -7,6 +7,8 @@ interface AuthContextType {
   loading: boolean
   login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  /** Replace the password; clears a forced one-time-password state (obj 719935). */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -32,8 +34,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const { user } = await api.post<{ user: User }>('/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    })
+    setUser(user)
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, changePassword }}>
       {children}
     </AuthContext.Provider>
   )

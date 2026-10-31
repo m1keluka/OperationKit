@@ -101,6 +101,55 @@ export interface CreateJailOpts {
   user?: string
   /** Command + args run as PID 1 inside the jail. Defaults to the image entrypoint. */
   command?: string[]
+  /**
+   * Container-path → host-path prefixes for the two bind sources. The control
+   * plane itself runs in a container and asks the HOST daemon to bind-mount, so
+   * a path like `/tmp/cc-worktree-7` must be rewritten to where that directory
+   * really lives on the host. Defaults to `SESSION_JAIL_HOST_PATH_MAP`; empty =
+   * identity (the paths are already host paths).
+   */
+  hostPathMap?: HostPathMap
+  /**
+   * Seat pool v2: the ONE extra bind a sandboxed Codex / Grok session gets — its
+   * assigned seat's CLI login dir, mounted at `~/.codex` or `~/.grok` inside the
+   * jail HOME. Absent for every other session, so the default mount set stays
+   * exactly two binds.
+   */
+  seatMount?: { source: string; target: string }
+}
+
+/** Ordered `[containerPrefix, hostPrefix]` pairs; first (longest) match wins. */
+export type HostPathMap = Array<[string, string]>
+
+/**
+ * Parse `SESSION_JAIL_HOST_PATH_MAP` — comma-separated `containerPrefix=hostPrefix`
+ * pairs, e.g. `/tmp=/srv/ok/state/tmp,/app/data=/srv/ok/state/data`. The client
+ * installer (install.sh) writes it; an unset value keeps today's identity mapping.
+ * Malformed or relative entries throw: a wrong bind source must fail closed, never
+ * silently mount something else.
+ */
+export function resolveHostPathMap(env: NodeJS.ProcessEnv = process.env): HostPathMap {
+  const raw = (env.SESSION_JAIL_HOST_PATH_MAP || '').trim()
+  if (!raw) return []
+  const pairs: HostPathMap = raw.split(',').map(s => s.trim()).filter(Boolean).map(entry => {
+    const eq = entry.indexOf('=')
+    const from = eq > 0 ? entry.slice(0, eq).replace(/\/+$/, '') : ''
+    const to = eq > 0 ? entry.slice(eq + 1).replace(/\/+$/, '') : ''
+    if (!from.startsWith('/') || !to.startsWith('/')) {
+      throw new Error(`SESSION_JAIL_HOST_PATH_MAP entry must be /container=/host, got ${JSON.stringify(entry)}`)
+    }
+    return [from, to] as [string, string]
+  })
+  return pairs.sort((a, b) => b[0].length - a[0].length)
+}
+
+/** Rewrite a container path to its host path using the first matching prefix. */
+export function toHostPath(p: string, map: HostPathMap): string {
+  for (const [from, to] of map) {
+    if (p === from) return to
+    if (p.startsWith(from + '/')) return to + p.slice(from.length)
+  }
+  return p
 }
 
 export interface JailHandle {
@@ -149,6 +198,8 @@ export function buildJailRunArgv(opts: CreateJailOpts): string[] {
     image = DEFAULT_JAIL_IMAGE,
     user = '1000:1000',
     command,
+    hostPathMap = [],
+    seatMount,
   } = opts
   const name = jailName(objectiveId)
   assertJailId(sessionId)
@@ -172,9 +223,19 @@ export function buildJailRunArgv(opts: CreateJailOpts): string[] {
     '--security-opt', 'no-new-privileges',
     '--read-only',
     '--tmpfs', '/tmp:rw,nosuid,nodev,size=256m',
-    '--mount', `type=bind,source=${worktreePath},target=${JAIL_WORKSPACE_PATH},bind-propagation=rprivate`,
-    '--mount', `type=bind,source=${homePath},target=${JAIL_HOME_PATH},bind-propagation=rprivate`,
+    '--mount', `type=bind,source=${toHostPath(worktreePath, hostPathMap)},target=${JAIL_WORKSPACE_PATH},bind-propagation=rprivate`,
+    '--mount', `type=bind,source=${toHostPath(homePath, hostPathMap)},target=${JAIL_HOME_PATH},bind-propagation=rprivate`,
   ]
+  if (seatMount) {
+    assertAbsolute('seatMount.source', seatMount.source)
+    // Only a login dir directly under the jail HOME; never the socket, never a
+    // path outside the session's own HOME.
+    if (!/^\/home\/jailuser\/\.(codex|grok)$/.test(seatMount.target)) {
+      throw new Error(`seatMount.target must be ${JAIL_HOME_PATH}/.codex or ${JAIL_HOME_PATH}/.grok`)
+    }
+    if (seatMount.source.includes('docker.sock')) throw new Error('seatMount.source may not be the docker socket')
+    argv.push('--mount', `type=bind,source=${toHostPath(seatMount.source, hostPathMap)},target=${seatMount.target},bind-propagation=rprivate`)
+  }
   if (envFilePath) argv.push('--env-file', envFilePath)
   argv.push('-w', JAIL_WORKSPACE_PATH, image)
   if (command?.length) argv.push(...command)
@@ -223,7 +284,7 @@ export function createSessionJailSync(
   runner: SyncDockerRunner = defaultSyncRunner,
 ): JailHandle {
   const image = opts.image || jailImage()
-  const argv = buildJailRunArgv({ ...opts, image })
+  const argv = buildJailRunArgv({ ...opts, image, hostPathMap: opts.hostPathMap ?? resolveHostPathMap() })
 
   if (opts.env && opts.envFilePath) {
     fs.mkdirSync(path.dirname(opts.envFilePath), { recursive: true })

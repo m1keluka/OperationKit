@@ -19,6 +19,13 @@ import os from 'node:os'
 // hard-refuses the production path under a test runner as a second layer (db/index.ts).
 process.env.DB_PATH = path.join(os.tmpdir(), `cc-test-suite-${process.pid}.db`)
 
+// Same class of hazard for the account router: importing account-router.ts runs
+// loadState()/saveState() at module init against the LIVE router state file
+// (/home/operator/transcripts/account-router-state.json) and clears its
+// activeSessions. Point it, and the rate-limit history, at per-run temp files.
+process.env.CC_ACCOUNT_ROUTER_STATE_FILE = path.join(os.tmpdir(), `cc-test-account-router-${process.pid}.json`)
+process.env.CC_RATE_LIMIT_LOG = path.join(os.tmpdir(), `cc-test-rate-limit-${process.pid}.jsonl`)
+
 // JWT_SECRET has no git-committed fallback. Specs that sign cookies set their
 // own value; this default keeps imports of middleware/auth.ts from throwing.
 if (!process.env.JWT_SECRET) {

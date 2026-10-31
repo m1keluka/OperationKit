@@ -50,7 +50,7 @@ function settingsUrl(status: string, detail?: string): string {
   const base = process.env.APP_BASE_URL || ''
   const q = new URLSearchParams({ google: status })
   if (detail) q.set('google_error', detail)
-  return `${base}/settings/you?${q.toString()}`
+  return `${base}/settings/connectors?${q.toString()}`
 }
 
 // ── Callback (public: Google redirect target, CSRF-bound by signed state) ───

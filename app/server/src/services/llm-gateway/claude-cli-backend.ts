@@ -64,10 +64,17 @@ export class BackendError extends Error {
   }
 }
 
-/** Slots the gateway may use. Default: every rotation slot except 'a' (Mike's personal account). */
+/** Priority at or above which a seat is a "reserve" seat, kept for sessions only. */
+export const GATEWAY_RESERVE_PRIORITY = 10
+
+/**
+ * Seats the gateway may use. Default: every Claude seat except reserve seats
+ * (priority ≥ 10 — the ones an operator marked "use last"). LLM_GATEWAY_SLOTS
+ * (comma-separated seat ids) overrides.
+ */
 export function gatewaySlotFilter(env: NodeJS.ProcessEnv = process.env): (a: AccountSlot) => boolean {
   const raw = (env.LLM_GATEWAY_SLOTS ?? '').trim()
-  if (!raw) return a => a.id !== 'a'
+  if (!raw) return a => (a.priority ?? 0) < GATEWAY_RESERVE_PRIORITY
   const allow = new Set(raw.split(',').map(s => s.trim()).filter(Boolean))
   return a => allow.has(a.id)
 }
@@ -214,10 +221,17 @@ function newState(): StreamState {
 }
 
 /** Run one turn on a specific account. */
-export function runClaudeTurn(account: AccountSlot, req: BackendRequest, timeoutMs: number): Promise<Omit<BackendResult, 'attempts'>> {
+// extraEnv: a credential passed as env instead of a slot's credential file —
+// e.g. CLAUDE_CODE_OAUTH_TOKEN on a client install (obj 719987, agent chat).
+export function runClaudeTurn(
+  account: AccountSlot,
+  req: BackendRequest,
+  timeoutMs: number,
+  extraEnv: Record<string, string> = {},
+): Promise<Omit<BackendResult, 'attempts'>> {
   const startedAt = Date.now()
   const args = buildClaudeArgs(req.model, req.systemPrompt)
-  const env = buildClaudeEnv(account.homeDir)
+  const env = { ...buildClaudeEnv(account.homeDir), ...extraEnv }
   const asRoot = typeof process.getuid === 'function' && process.getuid() === 0
   const [cmd, argv] = buildSpawnCommand(env, args, asRoot)
 

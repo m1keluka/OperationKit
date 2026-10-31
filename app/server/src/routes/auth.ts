@@ -1,8 +1,10 @@
-import { Router } from 'express'
+import { Router, type Response } from 'express'
 import bcrypt from 'bcrypt'
 import { getDb } from '../db/index.js'
-import { generateToken, requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { generateToken, isSetupExpired, requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { getApiKeySummary, issueApiKey, revokeApiKey } from '../lib/api-keys.js'
+import { createAgentKey, listAgentKeys, revokeAgentKey } from '../lib/agent-keys.js'
+import { AGENT_SCOPES, type ApiKeyIdentity } from '@operationkit/shared'
 import {
   inspectLoginRateLimit,
   recordLoginFailure,
@@ -42,8 +44,8 @@ async function authenticatePassword(
 
   const db = getDb()
   const row = db
-    .prepare('SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?')
-    .get(username) as (User & { password_hash: string }) | undefined
+    .prepare('SELECT id, username, password_hash, role, created_at, must_change_password, password_setup_expires_at FROM users WHERE username = ?')
+    .get(username) as (Omit<User, 'must_change_password'> & { password_hash: string; must_change_password: number; password_setup_expires_at: string | null }) | undefined
 
   if (!row) {
     await bcrypt.compare(password, DUMMY_HASH)
@@ -55,6 +57,14 @@ async function authenticatePassword(
   if (!valid) {
     recordLoginFailure(ip, username)
     return { ok: false, status: 401, error: 'Invalid credentials' }
+  }
+
+  // obj 719935: a one-time setup password stops working at its expiry, even if
+  // nobody used it. The installer re-issues one: install/admin-password.sh.
+  const mustChange = Number(row.must_change_password) > 0
+  if (mustChange && isSetupExpired(row.password_setup_expires_at)) {
+    recordLoginFailure(ip, username)
+    return { ok: false, status: 401, error: 'This setup password has expired. Ask your installer for a new one.' }
   }
 
   clearLoginFailures(ip, username)
@@ -69,6 +79,7 @@ async function authenticatePassword(
       // Must match GET /me: the client uses the login response as the user until the next reload,
       // so omitting this hid Content from owners right after sign-in (obj 712749).
       has_content: isContentOwner(row.id),
+      ...(mustChange ? { must_change_password: true } : {}),
     },
   }
 }
@@ -106,6 +117,11 @@ router.post('/token', async (req, res) => {
     return
   }
 
+  if (result.user.must_change_password) {
+    res.status(403).json({ error: 'Sign in through the website and choose a new password first.', code: 'password_change_required' })
+    return
+  }
+
   const token = generateToken(result.user)
   const body: TokenResponse = {
     token,
@@ -116,10 +132,81 @@ router.post('/token', async (req, res) => {
   res.json(body)
 })
 
+// POST /api/auth/change-password { current_password, new_password } (obj 719935).
+// The only way out of a one-time setup password; also usable any time after.
+// Re-issues the session cookie so the `pwc` restriction drops immediately.
+router.post('/change-password', requireAuth, async (req: AuthRequest, res) => {
+  if (req.authVia !== 'session') {
+    res.status(403).json({ error: 'Change your password from the website.' })
+    return
+  }
+  const { current_password, new_password } = (req.body || {}) as { current_password?: unknown; new_password?: unknown }
+  const db = getDb()
+  const row = db
+    .prepare('SELECT id, username, password_hash, role, created_at FROM users WHERE id = ?')
+    .get(req.user!.id) as (User & { password_hash: string }) | undefined
+  if (!row) {
+    res.status(404).json({ error: 'User not found' })
+    return
+  }
+  const ip = clientIp(req)
+  const limited = inspectLoginRateLimit(ip, row.username)
+  if (!limited.ok) {
+    res.setHeader('Retry-After', String(limited.retryAfterSec))
+    res.status(429).json({ error: 'Too many attempts. Try again later.' })
+    return
+  }
+  if (typeof current_password !== 'string' || !(await bcrypt.compare(current_password, row.password_hash))) {
+    recordLoginFailure(ip, row.username)
+    res.status(400).json({ error: 'Your current password is not right.', field: 'current_password' })
+    return
+  }
+  const problem = newPasswordProblem(new_password, row.username)
+  if (problem) {
+    res.status(400).json({ error: problem, field: 'new_password' })
+    return
+  }
+  if (await bcrypt.compare(new_password as string, row.password_hash)) {
+    res.status(400).json({ error: 'Pick a password different from the current one.', field: 'new_password' })
+    return
+  }
+  const hash = await bcrypt.hash(new_password as string, 12)
+  db.prepare(
+    'UPDATE users SET password_hash = ?, must_change_password = 0, password_setup_expires_at = NULL WHERE id = ?',
+  ).run(hash, row.id)
+  clearLoginFailures(ip, row.username)
+
+  const user: User = {
+    id: row.id, username: row.username, role: row.role, created_at: row.created_at,
+    workspaces: getUserWorkspaces(row.id), has_content: isContentOwner(row.id),
+  }
+  res.cookie('token', generateToken(user), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+    maxAge: TOKEN_EXPIRES_IN_SEC * 1000,
+  })
+  res.json({ user })
+})
+
 router.post('/logout', (_req, res) => {
   res.clearCookie('token', { path: '/' })
   res.json({ ok: true })
 })
+
+export const MIN_PASSWORD_LENGTH = 12
+
+/** Plain-language reason a new password is refused, or null when it is acceptable. */
+export function newPasswordProblem(newPassword: unknown, username: string): string | null {
+  if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) {
+    return `Use at least ${MIN_PASSWORD_LENGTH} characters.`
+  }
+  if (newPassword.length > 200) return 'Use at most 200 characters.'
+  if (newPassword.toLowerCase().includes(username.toLowerCase())) return 'The new password must not contain your username.'
+  if (/^(.)\1+$/.test(newPassword)) return 'The new password cannot be one repeated character.'
+  return null
+}
 
 // Settings → You API key. Cookie/JWT required to mint. The plaintext is only
 // in the POST response. Agents send it as Authorization: Bearer cc_live_…
@@ -137,21 +224,68 @@ router.delete('/api-key', requireAuth, (req: AuthRequest, res) => {
   res.json({ ok: true })
 })
 
+// Settings → You agent keys (obj 714090): many named, scoped keys per user so
+// each Grok Bot is its own least-privilege principal. Managing keys needs a
+// human session (cookie/JWT) or the legacy full key — an agent key can never
+// mint or revoke keys (the agent-key guard also blocks /api/auth/* for them).
+function rejectAgentKey(req: AuthRequest, res: Response): boolean {
+  if (!req.agentKey) return false
+  res.status(403).json({ error: 'Agent keys cannot manage API keys', missing_scope: null })
+  return true
+}
+
+router.get('/agent-keys', requireAuth, (req: AuthRequest, res) => {
+  if (rejectAgentKey(req, res)) return
+  res.json({ keys: listAgentKeys(req.user!.id), scopes: AGENT_SCOPES })
+})
+
+router.post('/agent-keys', requireAuth, (req: AuthRequest, res) => {
+  if (rejectAgentKey(req, res)) return
+  const result = createAgentKey(req.user!, req.body ?? {})
+  if (!result.ok) {
+    res.status(result.status).json({ error: result.error })
+    return
+  }
+  res.status(201).json(result.key)
+})
+
+router.delete('/agent-keys/:id', requireAuth, (req: AuthRequest, res) => {
+  if (rejectAgentKey(req, res)) return
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0 || !revokeAgentKey(req.user!.id, id)) {
+    res.status(404).json({ error: 'Agent key not found' })
+    return
+  }
+  res.json({ ok: true })
+})
+
 router.get('/me', requireAuth, (req: AuthRequest, res) => {
   const db = getDb()
   const user = db
-    .prepare('SELECT id, username, role, created_at FROM users WHERE id = ?')
-    .get(req.user!.id) as User | undefined
+    .prepare('SELECT id, username, role, created_at, must_change_password FROM users WHERE id = ?')
+    .get(req.user!.id) as (User & { must_change_password?: number | boolean }) | undefined
 
   if (!user) {
     res.status(404).json({ error: 'User not found' })
     return
   }
+  // Report the session's state, not just the row's: a pre-change cookie still
+  // carries `pwc` and is still gated, so the client must keep showing the form.
+  if (Number(user.must_change_password) > 0 || req.user!.must_change_password) user.must_change_password = true
+  else delete user.must_change_password
 
   user.workspaces = getUserWorkspaces(user.id)
   // Content surface access (obj 710856) — a `content_owners` row, not a role.
   user.has_content = isContentOwner(user.id)
-  res.json(user)
+  // obj 714090: when called with an API key, say WHICH key and what it may do.
+  // Absent for browser sessions / JWTs, so the UI payload is unchanged.
+  let api_key: ApiKeyIdentity | undefined
+  if (req.agentKey) {
+    api_key = { kind: 'agent', ...req.agentKey }
+  } else if (req.authVia === 'legacy_api_key') {
+    api_key = { kind: 'legacy', id: null, label: 'Legacy API key (full access)', scopes: [...AGENT_SCOPES], workspaces: null }
+  }
+  res.json(api_key ? { ...user, api_key } : user)
 })
 
 // GET /api/auth/users?workspace=<slug> — list users the current user can

@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
-import { getDocRoots } from '../services/workspaces.js'
+import { getDocRoots, getWorkspaceSlugs } from '../services/workspaces.js'
 import { searchKnowledge } from '../services/knowledge-search.js'
 
 const router = Router()
@@ -22,8 +22,25 @@ const ADMIN_WRITE_ROOTS = [
   '/home/operator/projects',
 ]
 
+/**
+ * Admins also see every workspace's own doc roots that sit outside the fixed
+ * list — on a client install that is where imported knowledge-base notes live
+ * (/app/data/knowledge-base/<ws>, obj 719936). The fixed list is kept as-is
+ * (auth must not depend on which folders exist on this host); only the extra
+ * workspace roots are existence-gated.
+ */
+function adminRoots(fixed: string[], kind: 'read' | 'write'): string[] {
+  const roots = [...fixed]
+  for (const slug of getWorkspaceSlugs()) {
+    for (const r of getDocRoots(slug)[kind]) {
+      if (!resolveUnder(roots, r) && fs.existsSync(r)) roots.push(r)
+    }
+  }
+  return roots
+}
+
 function getReadRoots(req: AuthRequest): string[] {
-  if (req.user!.role === 'admin') return ADMIN_READ_ROOTS
+  if (req.user!.role === 'admin') return adminRoots(ADMIN_READ_ROOTS, 'read')
   const userWs = getUserWorkspaces(req.user!.id)
   const roots: string[] = []
   for (const uw of userWs) {
@@ -33,7 +50,7 @@ function getReadRoots(req: AuthRequest): string[] {
 }
 
 function getWriteRoots(req: AuthRequest): string[] {
-  if (req.user!.role === 'admin') return ADMIN_WRITE_ROOTS
+  if (req.user!.role === 'admin') return adminRoots(ADMIN_WRITE_ROOTS, 'write')
   const userWs = getUserWorkspaces(req.user!.id)
   const roots: string[] = []
   for (const uw of userWs) {

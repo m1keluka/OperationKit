@@ -26,6 +26,8 @@ import { isLocalhost } from '../lib/is-localhost.js'
 import { startSession } from '../services/session-manager.js'
 import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { childCapPerParent } from '../lib/hygiene-config.js'
+import { noteStartReason } from '../services/session-start-reasons.js'
+import { livingDocsName, findOpenLivingDocsCard, noteStillPending } from '../lib/living-docs-dedupe.js'
 
 // Strategy Layer (P0) — bounded delegation-nesting controls.
 //   Canonical hierarchy (see docs/terminology-glossary.md):
@@ -372,10 +374,29 @@ router.post('/objectives', async (req, res) => {
   const blockRegistryOn = isBlockedRegistryEnabled(db) && !isBlockedRegistryKilled(db)
   const blocked: Array<{ title: string; reason: string; pattern: string; unblock_ticket: string | null }> = []
 
+  // obj 712948 — living-docs twin guard. While a "Living docs — {name}" card is open in
+  // the workspace, a second one (any title variant) is refused and the open card's id is
+  // returned. Applies to every computed origin except 'retro': the docs-breathe routine
+  // usually posts with source_job_id (→ job_reply), but a drifting model can drop it, and
+  // the twin is just as redundant either way. Checked inside the transaction, so two
+  // twins in ONE batch collapse too.
+  const deduped: Array<{ title: string; id: number; status: string; deduped: true }> = []
+  const dedupedTouched = new Set<number>()
+
   const created: Array<{ id: number; title: string }> = []
   const insertAll = db.transaction(() => {
     for (const item of items) {
       if (!item.title?.trim()) continue
+      const docsName = item.origin === 'retro' ? null : livingDocsName(item.title)
+      if (docsName) {
+        const open = findOpenLivingDocsCard(db, item.workspace || 'example', docsName)
+        if (open) {
+          deduped.push({ title: item.title.trim(), id: open.id, status: open.status, deduped: true })
+          if (noteStillPending(db, open)) dedupedTouched.add(open.id)
+          console.log(`[internal] living-docs twin refused: "${item.title.trim()}" → open card #${open.id} (${open.status})`)
+          continue
+        }
+      }
       if (blockRegistryOn) {
         const rule = findBlockingRule(db, item.title)
         if (rule) {
@@ -499,7 +520,7 @@ router.post('/objectives', async (req, res) => {
   }
 
   // Broadcast updates so the board refreshes live
-  for (const { id } of created) {
+  for (const id of [...created.map((c) => c.id), ...dedupedTouched]) {
     const obj = db.prepare('SELECT * FROM objectives WHERE id = ?').get(id) as Objective
     if (obj) broadcast({ type: 'objective_updated', payload: obj })
   }
@@ -523,6 +544,7 @@ router.post('/objectives', async (req, res) => {
     ).n
     if (inFlight >= cap) continue
     try {
+      noteStartReason(obj.id, 'agent', 'internal-create')
       const sessionId = await startSession(obj)
       db.prepare(
         "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -535,8 +557,18 @@ router.post('/objectives', async (req, res) => {
     }
   }
 
-  console.log(`[internal] Created ${created.length} objectives from session` + (blocked.length ? `; ${blocked.length} skipped by blocked-registry` : '') + (started.length ? `; auto-started ${started.length}` : ''))
-  res.status(201).json({ created: created.length, objectives: created, blocked: blocked.length, blocked_details: blocked, started: started.length })
+  console.log(`[internal] Created ${created.length} objectives from session` + (blocked.length ? `; ${blocked.length} skipped by blocked-registry` : '') + (deduped.length ? `; ${deduped.length} living-docs twin(s) refused` : '') + (started.length ? `; auto-started ${started.length}` : ''))
+  // 200 (not 201) when nothing was inserted because every item hit an open card.
+  const status = created.length === 0 && deduped.length > 0 ? 200 : 201
+  res.status(status).json({
+    created: created.length,
+    objectives: created,
+    blocked: blocked.length,
+    blocked_details: blocked,
+    started: started.length,
+    deduped: deduped.length,
+    deduped_details: deduped,
+  })
 })
 
 

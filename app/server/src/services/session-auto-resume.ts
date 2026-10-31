@@ -15,6 +15,7 @@ import {
   turnsContinueCounts,
 } from './session-death.js'
 import { sendFollowUp } from './session-followup.js'
+import { noteStartReason } from './session-start-reasons.js'
 
 // ── Auto-resume on account limit (objective 337) ──
 //
@@ -73,6 +74,7 @@ export function autoResumeOnLimit(sessionId: string, objective: Objective): Auto
 
   autoResumeCounts.set(sessionId, count + 1)
   console.log(`[session-manager] Auto-rotating objective ${objective.id} (session ${sessionId}) to a fresh account after limit (attempt ${count + 1}/${MAX_AUTO_RESUMES})`)
+  noteStartReason(objective.id, 'resume_after_limit', 'auto-resume')
   sendFollowUp(sessionId, AUTO_RESUME_MESSAGE, objective)
   return 'rotated'
 }
@@ -136,6 +138,7 @@ export function autoResumeOnOverload(sessionId: string, objective: Objective): O
         console.log(`[session-manager] Overload retry for ${sessionId} aborted — objective ${objective.id} no longer working (status=${obj.status})`)
         return
       }
+      noteStartReason(obj.id, 'resume_after_overload', 'auto-resume')
       sendFollowUp(sessionId, OVERLOAD_RESUME_MESSAGE, obj)
     } catch (err) {
       console.error(`[session-manager] Overload retry respawn failed for ${sessionId}:`, err)
@@ -193,6 +196,7 @@ export function autoResumeOnTurns(sessionId: string, objective: Objective): Turn
 
   turnsContinueCounts.set(sessionId, count + 1)
   console.log(`[session-manager] Auto-continuing objective ${objective.id} (session ${sessionId}) after max_turns (attempt ${count + 1}/${MAX_TURNS_AUTO_CONTINUE})`)
+  noteStartReason(objective.id, 'turns_continue', 'auto-resume')
   sendFollowUp(sessionId, TURNS_RESUME_MESSAGE, objective)
   return 'continued'
 }

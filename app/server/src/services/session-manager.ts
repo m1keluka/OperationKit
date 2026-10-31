@@ -2,6 +2,8 @@ import { execSync } from 'child_process'
 import fs from 'fs'
 import { TRANSCRIPT_DIR } from '../config.js'
 import { getDb } from '../db/index.js'
+import { transcriptHasPendingWork } from './session-control.js'
+import { listSeatRecords } from './account-router.js'
 
 // Re-export moved functions so existing consumers don't break
 export { buildPrompt, resolveWorkdir, refreshObjectiveSummary } from './prompt-builder.js'
@@ -81,6 +83,7 @@ export {
   getSessionState,
   listSessions,
   isSessionActive,
+  transcriptHasPendingWork,
 } from './session-control.js'
 export { getAccountRouterStatus, setQueueDrainCallback } from './session-account-status.js'
 
@@ -101,7 +104,11 @@ export function ensureUser() {
     // Give ccuser access to project dirs and transcripts
     execSync(`mkdir -p ${TRANSCRIPT_DIR} && chmod -R a+rw ${TRANSCRIPT_DIR} 2>/dev/null`, { timeout: 5000 })
     // Ensure account home dirs are accessible
-    execSync('for d in /home/ccuser-a /home/ccuser-b /home/ccuser-c /home/ccuser-d /home/ccuser-e /home/ccuser-codex /app/data/cc-accounts/*; do [ -d "$d" ] && chown -R ccuser:ccuser "$d" 2>/dev/null; done', { timeout: 5000 })
+    // (every seat's HOME, taken from the seat pool rather than a fixed list)
+    const seatHomes = listSeatRecords().map(s => s.homeDir).filter(h => /^[A-Za-z0-9/_.-]+$/.test(h))
+    if (seatHomes.length) {
+      execSync(`for d in ${seatHomes.map(h => JSON.stringify(h)).join(' ')}; do [ -d "$d" ] && chown -R ccuser:ccuser "$d" 2>/dev/null; done; true`, { timeout: 5000 })
+    }
 
     // Grant ccuser access to /var/run/docker.sock by adding it to a group that
     // matches the host socket's GID. Docker on the host exposes the socket as
@@ -215,9 +222,26 @@ const ORPHAN_WORKER_TMUX_RE = /^cc-\d+-\d+$/
 export function selectOrphanWorkerSessions(
   sessionNames: string[],
   liveSessionIds: Iterable<string>,
+  hasPendingWork?: (sessionName: string) => boolean,
 ): string[] {
   const live = new Set(liveSessionIds)
-  return sessionNames.filter((name) => ORPHAN_WORKER_TMUX_RE.test(name) && !live.has(name))
+  const liveObjectives = new Set<string>()
+  for (const id of live) {
+    const m = /^cc-(\d+)-\d+$/.exec(id)
+    if (m) liveObjectives.add(m[1])
+  }
+  return sessionNames.filter((name) => {
+    if (!ORPHAN_WORKER_TMUX_RE.test(name) || live.has(name)) return false
+    // obj 712954 — a worker parked between turns with a pending ScheduleWakeup /
+    // async Agent / Monitor (inside the horizon) is not an orphan: killing it is
+    // what stopped obj 712937's 19:45 wakeup from ever firing. Only spare it when no
+    // newer session owns the objective — a superseded predecessor is still reaped
+    // (the obj-1114 single-worker invariant wins).
+    if (hasPendingWork && !liveObjectives.has(/^cc-(\d+)-/.exec(name)![1])) {
+      try { if (hasPendingWork(name)) return false } catch { /* fail-safe: reap as before */ }
+    }
+    return true
+  })
 }
 
 /**
@@ -252,7 +276,7 @@ export function sweepOrphanWorkerTmux(): void {
     return
   }
 
-  for (const name of selectOrphanWorkerSessions(sessionNames, live)) {
+  for (const name of selectOrphanWorkerSessions(sessionNames, live, (n) => transcriptHasPendingWork(n).pending)) {
     try {
       execSync(`tmux kill-session -t ${JSON.stringify(name)} 2>/dev/null`, { timeout: 5000 })
       console.warn(`[session-reaper] killed orphan worker tmux '${name}' (not a live working/ai_review session_id)`)

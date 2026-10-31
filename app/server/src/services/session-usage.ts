@@ -1,23 +1,28 @@
 /**
- * Transcript usage math — extracted from session-manager.ts (behavior frozen).
+ * Transcript usage math — extracted from session-manager.ts.
  *
- * Stream-json emits one `result` per Claude turn (per-turn usage, not
- * cumulative). Codex emits `turn.completed`. Reading only the last event
- * undercounts a multi-turn session (dashboard $5.38-instead-of-$112).
+ * Stream-json emits one `result` per Claude turn. Its `usage` block is that
+ * turn's own tokens, but `total_cost_usd` and `modelUsage` are CUMULATIVE for
+ * the Claude session (obj 712954): a process that runs several turns (background
+ * agents / monitors / wakeups) repeats a growing total on every result, and the
+ * current CLI restores the total on `--resume`. Older CLIs restarted it at 0 per
+ * process, which is why summing every result once looked right. Summing
+ * cumulative totals is what put obj 712937 at $97 for ~$26 of spend.
+ * Codex emits `turn.completed` with per-turn usage.
  */
 import fs from 'fs'
 import path from 'path'
 import { getDb } from '../db/index.js'
 import { TRANSCRIPT_DIR } from '../config.js'
+import { ResultCostTracker } from './result-cost.js'
 
 /**
  * Sum token count and cost across every `result` event in a jsonl file.
  *
- * Stream-json emits one `result` per agent turn; each carries that turn's own
- * `usage.{input,output,cache_read_input,cache_creation_input}_tokens` and
- * `total_cost_usd` (per-turn, not cumulative). Reading only the last event
- * undercounts a 32-turn session by ~32×, which is what produced the
- * dashboard's $5.38-instead-of-$112 symptom.
+ * Tokens come from each result's per-turn `usage`; cost is each result's own
+ * share of the cumulative `total_cost_usd` (see {@link ResultCostTracker}).
+ * Reading only the last event undercounts a multi-process transcript, and
+ * summing every total overcounts a multi-turn process.
  */
 export function extractFinalUsage(jsonlPath: string): { tokens: number; cost: number } {
   try {
@@ -30,15 +35,17 @@ export function extractFinalUsage(jsonlPath: string): { tokens: number; cost: nu
 export function sumResultEventsFromContent(content: string): { tokens: number; cost: number } {
   let tokens = 0
   let cost = 0
+  const tracker = new ResultCostTracker()
   for (const line of content.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
     try {
       const event = JSON.parse(trimmed)
       if (event.type === 'result') {
-        const u = extractUsageFromResultEvent(event)
-        tokens += u.tokens
-        cost += u.cost
+        const share = tracker.take(event)
+        if (!share) continue
+        tokens += extractUsageFromResultEvent(event).tokens
+        cost += share.cost
       } else if (event.type === 'turn.completed' && event.usage) {
         // Codex engine: one `turn.completed` per turn with per-turn usage.
         // cached_input_tokens / reasoning_output_tokens are subsets of

@@ -1,4 +1,4 @@
-import type { ObjectiveStatus, AgentRow } from '@operationkit/shared'
+import type { ObjectiveStatus, AgentRow, MessageSender } from '@operationkit/shared'
 
 /* ─────────────────────────────────────────────────────────
    Command Center — design primitives (§04, §05, §06, §07)
@@ -38,17 +38,17 @@ export function StatusDot({ status, size = 8 }: { status: ObjectiveStatus; size?
  * (audit risk #5) — the registry merely overlays it once it arrives.
  */
 const DEFAULT_AGENT_META: Record<string, AgentAvatarMeta> = {
-  cto:     { mono: 'CT', hex: '#6F9AD8', tw: 'bg-agent-cto' },
-  cmo:     { mono: 'CM', hex: '#D389B0', tw: 'bg-agent-cmo' },
-  coo:     { mono: 'CO', hex: '#6FB58C', tw: 'bg-agent-coo' },
-  cfo:     { mono: 'CF', hex: '#D6A24E', tw: 'bg-agent-cfo' },
-  general: { mono: 'GN', hex: '#8C8A92', tw: 'bg-agent-general' },
+  cto:     { mono: 'CT', hex: '#6F9AD8', tw: 'bg-agent-cto' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
+  cmo:     { mono: 'CM', hex: '#D389B0', tw: 'bg-agent-cmo' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
+  coo:     { mono: 'CO', hex: '#6FB58C', tw: 'bg-agent-coo' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
+  cfo:     { mono: 'CF', hex: '#D6A24E', tw: 'bg-agent-cfo' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
+  general: { mono: 'GN', hex: '#8C8A92', tw: 'bg-agent-general' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
 }
 
 export interface AgentAvatarMeta { mono: string; hex: string; tw: string }
 
 /** Neutral grey used for any slug the registry hasn't styled. Never blank. */
-const NEUTRAL_AGENT_META: AgentAvatarMeta = { mono: '··', hex: '#8C8A92', tw: 'bg-agent-general' }
+const NEUTRAL_AGENT_META: AgentAvatarMeta = { mono: '··', hex: '#8C8A92', tw: 'bg-agent-general' }  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
 
 let registryMeta: Record<string, AgentAvatarMeta> = {}
 
@@ -95,7 +95,7 @@ export function AgentMonogram({ agent, size = 'sm' }: { agent: string | null | u
 }
 
 // ── Thinking (§06.1) ─────────────────────────────────────
-// One language, reused on running cards, session stream, Assistant composing.
+// One language, reused on running cards, session stream.
 
 interface ThinkingIndicatorProps {
   variant?: 'dots' | 'caret'
@@ -185,6 +185,51 @@ export function BlockedFlag({ label = 'blocked' }: { label?: string }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-sm border border-flag-blocked/30 bg-flag-blocked/10 px-1.5 py-0.5 text-[10px] font-medium text-flag-blocked">
       {label}
+    </span>
+  )
+}
+
+// ── Needs-secret flag (obj 718944) ───────────────────────
+// Human tone (needs-you), not red: nothing is broken, the worker is waiting on
+// one named credential only the owner can provide.
+
+export function NeedsSecretFlag({ names }: { names: string[] }) {
+  if (names.length === 0) return null
+  const label = names.length === 1 ? names[0] : `${names[0]} +${names.length - 1}`
+  return (
+    <span
+      className="inline-flex max-w-full items-center gap-1 rounded-sm border border-status-human/40 bg-status-human/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-status-human"
+      title={`Needs a secret from the owner: ${names.join(', ')}`}
+    >
+      <span aria-hidden="true">⚿</span>
+      <span className="sr-only">Needs secret: </span>
+      <span className="truncate">{label}</span>
+    </span>
+  )
+}
+
+// ── Message sender (obj 718944) ──────────────────────────
+// Server-stamped provenance of a chat message. Only a VERIFIED owner gets the
+// green check; agent/API/system relays read as plainly unverified.
+
+export function SenderTag({ sender }: { sender: MessageSender }) {
+  const verifiedOwner = sender.kind === 'owner' && sender.verified
+  const text =
+    sender.kind === 'owner' ? `${sender.verified ? 'Verified' : 'Unverified'} · ${sender.label} (owner)`
+    : sender.kind === 'member' ? `${sender.verified ? 'Verified' : 'Unverified'} · ${sender.label}`
+    : sender.kind === 'agent' ? `Agent · ${sender.label} · not verified`
+    : sender.kind === 'api' ? `API · ${sender.label} · not verified`
+    : `System · ${sender.label}`
+  return (
+    <span
+      className={
+        verifiedOwner
+          ? 'inline-flex items-center gap-1 font-mono text-[10.5px] text-signal-verify'
+          : 'inline-flex items-center gap-1 font-mono text-[10.5px] text-fg-2'
+      }
+    >
+      {verifiedOwner && <span aria-hidden="true">✓</span>}
+      {text}
     </span>
   )
 }

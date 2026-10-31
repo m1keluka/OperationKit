@@ -8,6 +8,7 @@ import type { Workspace } from '@operationkit/shared'
 import { CommandPalette } from './CommandPalette'
 import { AlertBell } from './AlertBell'
 import { NavIcon, type NavIconName } from './nav-icons'
+import { HAS_CHAT_PAGE } from '../lib/optional-pages'
 
 interface LayoutProps {
   children: ReactNode
@@ -22,8 +23,9 @@ interface LayoutProps {
    ONE source of truth: NAV_GROUPS. Sections are grouped by *kind* so the
    structure stays coherent as sections are added:
 
-     • primary — Board, Assistant, Jobs, Content
-     • more    — Archive, Docs, Agents, Dashboard. Settings lives in the user menu.
+     • primary — Chat (when the agent chat page is in the build), Board,
+                 Knowledge base, Jobs
+     • more    — Archive, Agents, Dashboard. Settings lives in the user menu.
        Unfinished surfaces (Contacts, Strategies, Development, Notes, Status,
        Feed) stay routed + ⌘K-able but are not in the chrome.
 
@@ -31,7 +33,7 @@ interface LayoutProps {
    nav) and a `mobile` placement. Both viewports render from this same model:
 
      • Mobile bottom bar — at most 5 hits: the four `mobile:'tab'` items
-       (Board, Assistant, Jobs, Content) + a grouped "More" overflow holding
+       (Chat, Board, Knowledge base, Jobs) + a grouped "More" overflow holding
        every `mobile:'more'` item. ≤5 tabs is a hard constraint (390px).
      • Desktop top bar — has more room, so the Work / Automation / Directory
        groups render inline (hairline-separated) and the System group collapses
@@ -40,11 +42,13 @@ interface LayoutProps {
    Same grouping, different overflow threshold per viewport = responsive IA.
    ───────────────────────────────────────────────────────────────────────── */
 
-type NavGate = 'assistant' | 'admin' | 'content'
+type NavGate = 'admin' | 'chat'
 
 interface NavItem {
   href: string
   label: string
+  /** Shorter label for the 390px bottom bar, where five tabs share the width. */
+  shortLabel?: string
   icon: NavIconName
   aliases: string[]
   gate?: NavGate
@@ -62,12 +66,12 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'primary',
     label: 'Work',
     items: [
-      { href: '/',       label: 'Board',  icon: 'board',  aliases: [],                    mobile: 'tab' },
-      { href: '/assistant', label: 'Assistant', icon: 'assistant', aliases: ['/mentor', '/assistant'], gate: 'assistant', mobile: 'tab' },
-      { href: '/jobs',   label: 'Jobs',   icon: 'jobs',   aliases: [],                    gate: 'admin', mobile: 'tab' },
-      // Top-level on BOTH viewports: owners (e.g. Ava, a member) read an overflow as "the tab is gone".
-      // Worst case (admin + content owner) is Board, Assistant, Jobs, Content + More = 5 — fits the ≤5 cap.
-      { href: '/granola', label: 'Content', icon: 'content', aliases: [],                    gate: 'content', mobile: 'tab' },
+      // Chat is how most people use the product, so it leads. Gated on the page being in the build.
+      { href: '/chat',      label: 'Chat',           icon: 'chat',  aliases: [],        gate: 'chat',  mobile: 'tab' },
+      { href: '/',          label: 'Board',          icon: 'board', aliases: [],                       mobile: 'tab' },
+      { href: '/knowledge', label: 'Knowledge base', shortLabel: 'Knowledge', icon: 'docs', aliases: ['/docs'], mobile: 'tab' },
+      // Worst case (admin) is Chat, Board, Knowledge base, Jobs + More = 5 — fits the ≤5 cap.
+      { href: '/jobs',      label: 'Jobs',           icon: 'jobs',  aliases: [],        gate: 'admin', mobile: 'tab' },
     ],
   },
   {
@@ -75,8 +79,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'More',
     items: [
       { href: '/archive',   label: 'Archive',   icon: 'archive',   aliases: [],                        mobile: 'more' },
-      { href: '/docs',      label: 'Docs',      icon: 'docs',      aliases: [],                        mobile: 'more' },
       { href: '/agents',    label: 'Agents',    icon: 'system',    aliases: [],       gate: 'admin',   mobile: 'more' },
+      { href: '/agent-templates', label: 'Templates', icon: 'config', aliases: [], gate: 'admin', mobile: 'more' },
       { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', aliases: ['/costs'], gate: 'admin', mobile: 'more' },
     ],
   },
@@ -120,18 +124,11 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     setUserMenuOpen(false)
   }
   const isAdmin = user?.role === 'admin'
-  // Content surface access — set by GET /api/auth/me from the `content_owners` table.
-  const hasContent = user?.has_content === true
   const { theme, toggleTheme } = useBoardTheme()
   const showWorkspace =
     currentPath === '/' || currentPath === '/feed' || currentPath === '/archive'
     || /^\/w\/[\w-]+\/?$/.test(currentPath)
     || /^\/o\/\d+\/?$/.test(currentPath)
-
-  const canUseAssistant = useMemo(() => {
-    if (isAdmin) return true
-    return user?.workspaces?.some(w => w.can_use_assistant) ?? false
-  }, [isAdmin, user?.workspaces])
 
   const canSeeSettings = useMemo(() => {
     if (isAdmin) return true
@@ -149,10 +146,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   // Apply permission gating once, against the single nav model.
   const gatePass = (item: NavItem) => {
     if (item.gate === 'admin') return isAdmin
-    if (item.gate === 'assistant') return canUseAssistant
-    // Content is per-person provisioning (a `content_owners` row), not a role —
-    // Mike being admin is incidental; Ava is a member and still gets it.
-    if (item.gate === 'content') return hasContent
+    if (item.gate === 'chat') return HAS_CHAT_PAGE
     return true
   }
 
@@ -162,7 +156,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       NAV_GROUPS
         .map(g => ({ ...g, items: g.items.filter(gatePass) }))
         .filter(g => g.items.length > 0),
-    [isAdmin, canUseAssistant, hasContent]
+    [isAdmin]
   )
 
   const allItems = useMemo(() => groups.flatMap(g => g.items), [groups])
@@ -269,6 +263,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       onSelect: () => { navigate(n.href) },
     }))
     items.push({ label: 'Settings', hint: '/settings', onSelect: () => { navigate('/settings') } })
+    items.push({ label: 'Connectors', hint: '/settings/connectors', onSelect: () => { navigate('/settings/connectors') } })
     if (canSeeSettings) {
       items.push({ label: 'Secrets', hint: '/settings/secrets', onSelect: () => { navigate('/settings/secrets') } })
     }
@@ -280,12 +275,10 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     }
     for (const extra of PALETTE_ONLY) {
       if (extra.gate === 'admin' && !isAdmin) continue
-      if (extra.gate === 'assistant' && !canUseAssistant) continue
-      if (extra.gate === 'content' && !hasContent) continue
       items.push({ label: extra.label, hint: extra.href, onSelect: () => { navigate(extra.href) } })
     }
     return items
-  }, [allItems, canSeeSettings, isAdmin, canUseAssistant, hasContent, navigate])
+  }, [allItems, canSeeSettings, isAdmin, navigate])
 
   const systemActive = systemGroup?.items.some(isActive) ?? false
 
@@ -590,13 +583,14 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
                 href={item.href}
                 onClick={onNavClick(item.href)}
                 aria-current={active ? 'page' : undefined}
+                aria-label={item.shortLabel ? item.label : undefined}
                 className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 transition-colors duration-fast ease-out ${
                   active ? 'text-accent' : 'text-fg-2'
                 }`}
                 style={{ minHeight: 44 }}
               >
                 <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-5 w-5" />
-                <span className="text-[11px] font-medium">{item.label}</span>
+                <span className="text-[11px] font-medium">{item.shortLabel ?? item.label}</span>
               </a>
             )
           })}

@@ -19,6 +19,12 @@ export type AuditEventType =
   | 'delete_soft'
   | 'delete_hard'
   | 'create'
+  /** PR link/relink of pr_url/pr_number/branch_name (obj 712954). */
+  | 'pr_link'
+  // obj 714090: agent-key mutations audited by middleware/agent-key-guard.ts
+  | 'message'
+  | 'edit'
+  | 'agent_action'
 
 export interface AuditEntry {
   objectiveId: number

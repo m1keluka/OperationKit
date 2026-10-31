@@ -54,7 +54,8 @@ export function initWebSocket(server: Server): void {
     const cookies = parseCookie(req.headers.cookie || '')
     const user = verifyToken(cookies.token || '')
 
-    if (!user) {
+    // A one-time-setup-password session (obj 719935) gets no live board or shell.
+    if (!user || user.must_change_password) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
       socket.destroy()
       return

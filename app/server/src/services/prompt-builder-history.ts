@@ -9,6 +9,9 @@ import path from 'path'
 import { getDb } from '../db/index.js'
 import { callHaikuSummarizer } from './mentor-context.js'
 import { TRANSCRIPT_DIR } from '../config.js'
+import type { MessageSender } from '@operationkit/shared'
+import { stampForSession, systemSender } from '../lib/message-provenance.js'
+import { VERIFIED_SENDER_FLAG, readSettingFlag } from '../lib/session-trust.js'
 import {
   COMPACTION_SESSION_SENTINEL,
   MAX_OBJECTIVE_HISTORY_CHARS,
@@ -23,6 +26,7 @@ export function extractObjectiveTurns(objectiveId: number): ObjectiveTurn[] {
       .filter(f => f.startsWith(`cc-${objectiveId}-`) && f.endsWith('.jsonl'))
       .sort()
     const turns: ObjectiveTurn[] = []
+    const stampHistory = readSettingFlag(VERIFIED_SENDER_FLAG)
     for (const file of files) {
       const content = fs.readFileSync(path.join(TRANSCRIPT_DIR, file), 'utf-8')
       for (const line of content.split('\n')) {
@@ -42,7 +46,13 @@ export function extractObjectiveTurns(objectiveId: number): ObjectiveTurn[] {
         try {
           const event = JSON.parse(trimmed)
           if (event.type === 'followup' && event.text) {
-            turns.push({ role: 'user', text: event.text })
+            // obj 718944: replay the server stamp, never trust the stored text's own claims.
+            turns.push({
+              role: 'user',
+              text: stampHistory
+                ? stampForSession((event.sender as MessageSender | undefined) ?? systemSender('sender not recorded (pre-stamp message)'), event.text)
+                : event.text,
+            })
           } else if (event.type === 'assistant' && event.message?.content) {
             const text = (event.message.content as Array<{ type: string; text?: string }>)
               .filter(b => b.type === 'text' && b.text)

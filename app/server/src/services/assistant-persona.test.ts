@@ -97,7 +97,7 @@ describe('resolveAssistantPersona — registry-driven, degrades gracefully', () 
   })
 })
 
-describe('mentor paths on a blank-slate DB do not crash', () => {
+describe('assistant persona seed on a blank-slate DB', () => {
   it('no assistant_configs row is seeded when no persona slug is configured', () => {
     // initDb() ran in beforeAll with ASSISTANT_AGENT_SLUG unset.
     const db = getDb()
@@ -105,14 +105,5 @@ describe('mentor paths on a blank-slate DB do not crash', () => {
     initDb() // re-run: the opt-in owner seed must stay a no-op
     const n = (db.prepare('SELECT COUNT(*) AS n FROM assistant_configs').get() as { n: number }).n
     expect(n).toBe(0)
-  })
-
-  it('the generic create-on-read config still works with no persona registered', async () => {
-    const { resolveAssistantConfig } = await import('./assistant-config.js')
-    const row = getDb().prepare("SELECT id FROM users WHERE username = 'operator'").get() as { id: number }
-    const cfg = resolveAssistantConfig(row.id, 'default')
-    expect(cfg).not.toBeNull()
-    expect(cfg!.persona.displayName).toBe('Assistant')
-    expect(cfg!.persona.manualSource).toBeNull()
   })
 })

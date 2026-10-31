@@ -8,6 +8,8 @@ import { type AuthRequest } from '../middleware/auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { resolveObjectiveModel } from '../services/model-registry.js'
 import { depthForParent, recomputeSubtreeDepth } from '../lib/objective-depth.js'
+import { parsePrLinkPatch } from '../lib/pr-link-patch.js'
+import { upsertObjectivePR } from '../services/objective-prs.js'
 import {
   getInitialStatus,
   DEFAULT_EFFORT_BY_TYPE,
@@ -36,6 +38,11 @@ import {
   defaultAgentForWorkspace,
   requireOwnership,
 } from './objectives-helpers.js'
+import { beginIdempotent } from '../lib/idempotency.js'
+import { startCreatedObjective } from './objectives-create-start.js'
+
+/** Page size applied to an agent caller's board list when it sends no ?limit. */
+export const AGENT_DEFAULT_LIST_LIMIT = 50
 
 export function registerObjectiveCrudRoutes(router: Router): void {
 // GET /api/objectives?workspace=example[&status=done&limit=50&offset=0]
@@ -102,7 +109,14 @@ router.get('/', (req: AuthRequest, res) => {
   // caller can't request the whole done backlog at once.
   const rawLimit = parseInt(req.query.limit as string, 10)
   const rawOffset = parseInt(req.query.offset as string, 10)
-  const limit = !isNaN(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : null
+  let limit = !isNaN(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : null
+  // Agent callers (named agent key or the legacy cc_live_ key) get a default
+  // page instead of the whole board (~104k tokens unpaged; obj 714100). Browser
+  // and session callers are unchanged. X-Default-Limit tells the caller to page.
+  if (limit == null && (req.agentKey || req.authVia === 'legacy_api_key')) {
+    limit = AGENT_DEFAULT_LIST_LIMIT
+    res.set('X-Default-Limit', String(AGENT_DEFAULT_LIST_LIMIT))
+  }
   const offset = !isNaN(rawOffset) && rawOffset >= 0 ? rawOffset : 0
   const pageClause = limit != null ? ` LIMIT ${limit} OFFSET ${offset}` : ''
 
@@ -255,7 +269,8 @@ router.get('/:id', (req: AuthRequest, res) => {
 })
 
 // POST /api/objectives
-router.post('/', (req: AuthRequest, res) => {
+router.post('/', async (req: AuthRequest, res) => {
+  if (beginIdempotent(req, res, 'POST /api/objectives')) return
   const { title, description, agent_context, workspace, project, project_id, category, parent_id, assigned_user_id, assigned_user_ids, create_pr, delegate_mode, completion_goal, workflow_hint, effort, model, type, skip_ai_review, strategy_id, is_strategy } = req.body as CreateObjectiveRequest
   const user = req.user!
 
@@ -264,8 +279,11 @@ router.post('/', (req: AuthRequest, res) => {
     return
   }
 
-  // Members can only create in their allowed workspaces
-  const effectiveWorkspace = workspace || 'example'
+  // Members can only create in their allowed workspaces. ?workspace= is honoured
+  // when the body has none (obj 718417) — it used to be ignored, so a bot that
+  // put the workspace in the query silently filed the card under example.
+  const queryWorkspace = typeof req.query.workspace === 'string' ? req.query.workspace.trim() : ''
+  const effectiveWorkspace = workspace || queryWorkspace || 'example'
   if (user.role !== 'admin') {
     const userWs = getUserWorkspaces(user.id).map(w => w.workspace)
     if (!userWs.includes(effectiveWorkspace)) {
@@ -344,8 +362,8 @@ router.post('/', (req: AuthRequest, res) => {
     effectiveProjectId = parentRow?.project_id ?? null
   }
 
-  // Provenance (obj 2386): this route is human-driven, so origin is always
-  // 'manual'. strategy_id resolves an explicit association (a manual objective
+  // Provenance (obj 2386): this route is human-driven, so origin is 'manual'
+  // (or 'agent_api' when an agent key made the call, obj 714090). strategy_id resolves an explicit association (a manual objective
   // linked to a Strategy, even with no parent) first, then parent-chain
   // inheritance, then NULL. A Strategy created here points strategy_id at itself
   // is intentionally NOT done — is_strategy already marks it as a Strategy.
@@ -356,10 +374,12 @@ router.post('/', (req: AuthRequest, res) => {
       // the column entirely, so a human-created child inherited the NOT NULL
       // DEFAULT 0 and stayed mislabelled until the next boot backfill guessed 1
       // for it — which was itself wrong for anything below the first level.
-      `INSERT INTO objectives (title, description, agent_context, workspace, project, project_id, category, parent_id, depth, assigned_user_id, created_by, create_pr, delegate_mode, is_strategy, completion_goal, workflow_hint, effort, model, type, status, skip_ai_review, origin, strategy_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)`
+      // obj 714090: a named agent API key (a Grok Bot) stamps origin='agent_api'
+      // plus the key id + label snapshot, so the card reads "created by Grok: Example".
+      `INSERT INTO objectives (title, description, agent_context, workspace, project, project_id, category, parent_id, depth, assigned_user_id, created_by, create_pr, delegate_mode, is_strategy, completion_goal, workflow_hint, effort, model, type, status, skip_ai_review, origin, strategy_id, agent_key_id, agent_key_label)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(title.trim(), description || '', effectiveAgent, effectiveWorkspace, project || null, effectiveProjectId, category || 'general', parent_id || null, depthForParent(db, parent_id || null), effectiveAssignedUserId, user.id, create_pr ? 1 : 0, delegate_mode ? 1 : 0, isStrategy ? 1 : 0, completion_goal || null, workflow_hint || null, effectiveEffort, resolveObjectiveModel({ model, type: effectiveType, create_pr, delegate_mode }), effectiveType, initialStatus, skip_ai_review ? 1 : 0, resolvedStrategyId)
+    .run(title.trim(), description || '', effectiveAgent, effectiveWorkspace, project || null, effectiveProjectId, category || 'general', parent_id || null, depthForParent(db, parent_id || null), effectiveAssignedUserId, user.id, create_pr ? 1 : 0, delegate_mode ? 1 : 0, isStrategy ? 1 : 0, completion_goal || null, workflow_hint || null, effectiveEffort, resolveObjectiveModel({ model, type: effectiveType, create_pr, delegate_mode }), effectiveType, initialStatus, skip_ai_review ? 1 : 0, req.agentKey ? 'agent_api' : 'manual', resolvedStrategyId, req.agentKey?.id ?? null, req.agentKey?.label ?? null)
 
   setAssignees(Number(result.lastInsertRowid), assigneeIds)
 
@@ -368,6 +388,14 @@ router.post('/', (req: AuthRequest, res) => {
   )
 
   broadcast({ type: 'objective_updated', payload: objective })
+
+  // Create-and-start (obj 714091): `start: true` folds the follow-up
+  // PATCH status=working into this call so an orchestrator needs one round-trip.
+  if ((req.body as { start?: unknown }).start === true) {
+    const outcome = await startCreatedObjective(db, Number(result.lastInsertRowid))
+    res.status(outcome.httpStatus).json(outcome.body)
+    return
+  }
   res.status(201).json(objective)
 })
 // PUT /api/objectives/:id
@@ -390,6 +418,21 @@ router.put('/:id', (req: AuthRequest, res) => {
   if (ownershipError) {
     res.status(403).json({ error: ownershipError })
     return
+  }
+
+  // obj 712954 — pr_url / pr_number / branch_name used to be dropped silently
+  // (200, nothing written). They are now an admin-only, validated override; a
+  // non-admin or an invalid value rejects the WHOLE request before any write.
+  const prLink = parsePrLinkPatch(req.body as Record<string, unknown>)
+  if (prLink.touched) {
+    if (req.user!.role !== 'admin') {
+      res.status(403).json({ error: 'Only admins can set pr_url / pr_number / branch_name' })
+      return
+    }
+    if (!prLink.ok) {
+      res.status(400).json({ error: prLink.error })
+      return
+    }
   }
 
   // QW5 / audit B#9: only admins may ENABLE the AI-review bypass. A non-admin
@@ -517,6 +560,45 @@ router.put('/:id', (req: AuthRequest, res) => {
     effectiveStrategyId,
     req.params.id
   )
+
+  if (prLink.touched && prLink.ok) {
+    const p = prLink.patch
+    const linkChanged = p.pr_url !== undefined
+    db.prepare(
+      `UPDATE objectives SET
+         pr_url = CASE WHEN ? THEN ? ELSE pr_url END,
+         pr_number = CASE WHEN ? THEN ? ELSE pr_number END,
+         branch_name = CASE WHEN ? THEN ? ELSE branch_name END,
+         updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(
+      linkChanged ? 1 : 0, p.pr_url ?? null,
+      linkChanged ? 1 : 0, p.pr_number ?? null,
+      p.branch_name !== undefined ? 1 : 0, p.branch_name ?? null,
+      req.params.id,
+    )
+    if (p.pr_url && p.pr_number) {
+      upsertObjectivePR({
+        objective_id: existing.id,
+        pr_number: p.pr_number,
+        pr_url: p.pr_url,
+        branch_name: p.branch_name ?? existing.branch_name ?? null,
+      })
+    }
+    const describe = (url: unknown, branch: unknown) => `${url ?? 'none'} [${branch ?? 'none'}]`
+    logObjectiveAudit(db, {
+      objectiveId: existing.id,
+      eventType: 'pr_link',
+      actor: `user:${req.user!.username ?? req.user!.id}`,
+      pathway: `admin-put: ${describe(existing.pr_url, existing.branch_name)} -> ${describe(
+        linkChanged ? p.pr_url : existing.pr_url,
+        p.branch_name !== undefined ? p.branch_name : existing.branch_name,
+      )}`,
+      sessionId: existing.session_id ?? null,
+      titleSnapshot: existing.title,
+      workspace: existing.workspace,
+    })
+  }
 
   // REPARENT (obj 707003) — the one operation that invalidates depths it does
   // not itself write. Moving a node shifts its ENTIRE subtree, so recompute from

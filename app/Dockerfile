@@ -1,6 +1,8 @@
 FROM node:22-bookworm-slim AS base
 
 # Install system deps: tmux for session management, build tools for node-pty
+# poppler-utils = pdftotext, for better PDF text in knowledge-base file import
+# (obj 719936). Optional: the built-in PDF reader is used when it is missing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux \
     python3 \
@@ -10,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     openssh-client \
+    poppler-utils \
   && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI for PR creation from sessions

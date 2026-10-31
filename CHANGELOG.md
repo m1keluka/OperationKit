@@ -8,6 +8,19 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Built-in agent chat — one chat per person per agent (obj 719987)
+
+**What changed.** A new **Chat** tab (`/chat`): pick an agent (one file, `agents/<slug>/agent.yaml`) and talk to it in
+one ongoing chat stored in this install's own database. Agents read/write only their `knowledge_folders`, prepare
+email/calendar **drafts only** (a signed-in person presses Send), and hand bigger jobs to the board as cards whose
+status shows back in the chat. Every reply records which provider + model answered. Two new MCP tools,
+`list_chat_agents` / `get_chat_agent` (scope `vault:read`), expose the same agents to Claude, ChatGPT or Grok.
+
+**What to know.** Providers are picked by name from the secret store: Claude (subscription / installer token),
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, or a custom OpenAI-style endpoint; with none, a scripted demo
+answers. Admins switch on a fake-data demo assistant from the Chat page (or `AGENT_CHAT_DEMO=1`). On mobile, Jobs moved
+into More so the bottom bar stays at five. Guides: `docs/product/09-agent-chat.md`, `docs/product/10-agents-from-other-ai.md`.
+
 ### Board-level Agents tab — the layer a project's sessions actually run on (obj 712044)
 
 **What changed.** A new top-level **Agents** tab (`/agents`) renders the live

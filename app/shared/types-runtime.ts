@@ -4,7 +4,7 @@
  *
  * `@operationkit/shared` still resolves to types.ts, which re-exports this.
  */
-import type { Objective, ObjectiveStatus, SessionMessage } from './types-core.js'
+import type { MessageSender, Objective, ObjectiveStatus, SessionMessage } from './types-core.js'
 import type { Alert } from './types-surfaces.js'
 
 // ── WebSocket Messages ──
@@ -39,7 +39,7 @@ export type ClientMessage =
 export type ThreadSegment =
   | { type: 'summary';  index: number; text: string; cost?: number; duration?: number; timestamp: string }
   | { type: 'question'; index: number; text: string; timestamp: string }   // trailing agent msg in an unfinished turn (question/feedback/status)
-  | { type: 'divider';  index: number; text: string; timestamp: string }   // a followup message: child-complete nudge OR user message
+  | { type: 'divider';  index: number; text: string; timestamp: string; sender?: MessageSender }   // a followup message: child-complete nudge OR user message (sender: obj 718944)
   | { type: 'error';    index: number; text: string; timestamp: string }
   | { type: 'actions';  startIndex: number; endIndex: number; count: number; toolCount: number } // collapsed gap [startIndex,endIndex)
 export interface ThreadTimeline { total: number; status: string; session_id: string; segments: ThreadSegment[] }

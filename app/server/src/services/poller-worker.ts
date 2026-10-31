@@ -22,6 +22,8 @@ import {
 } from './deterministic-floor.js'
 import { deriveBranchName, detectBranchBleed, detectProjectBleed } from './branch-scope.js'
 import { getRouterStatus } from './account-router.js'
+import { decideAuthDeath, blockObjectiveForAccountAuth } from './account-auth-park.js'
+import type { SessionDeathResult } from './session-death.js'
 import { sendTelegram } from './notifier.js'
 import { hasArenaCohort, getArenaCohort, evaluateAndPromoteArena } from './arena-lifecycle.js'
 import { broadcast } from '../ws/index.js'
@@ -339,6 +341,25 @@ export function handleLimitDeath(objective: Objective, spendCapHit = false): boo
   }
 
   return false // 'skipped' → caller does normal review parking
+}
+
+/**
+ * A session died on an auth failure (401, or 403 "organization has disabled
+ * Claude subscription access"). With 0 tool calls the card is blocked and an
+ * alert raised — no respawn, no review (the seat is already parked by
+ * recordAuthFailure). Returns true when handled; false lets the caller fall
+ * through to handleLimitDeath, which rotates a mid-run death onto a healthy
+ * seat. Fail-safe: an error degrades to the normal path. (obj 717767)
+ */
+export function handleAuthDeath(objective: Objective, death: SessionDeathResult): boolean {
+  if (decideAuthDeath(death) !== 'block') return false
+  try {
+    blockObjectiveForAccountAuth(objective, death.accountId || 'unknown', death.authReason || 'needs_reconnect')
+    return true
+  } catch (err) {
+    console.error(`[state-poller] handleAuthDeath failed for obj ${objective.id}:`, err)
+    return false
+  }
 }
 
 /**

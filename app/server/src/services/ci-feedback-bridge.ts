@@ -38,6 +38,7 @@ import { execFile } from 'child_process'
 import { getDb } from '../db/index.js'
 import type { Database } from 'better-sqlite3'
 import { classifyCheckFixability } from './external-remediation-classify.js'
+import { checkCiFollowupCap, recordCiFollowup, noteCiFollowupCapExhausted } from './ci-followup-cap.js'
 
 // ── Config ──────────────────────────────────────────────────────────────────────
 /** Repo to poll. Overridable for tests / other repos. */
@@ -315,6 +316,22 @@ export async function runCiFeedbackBridgeOnce(deps: CiBridgeDeps = {}): Promise<
         continue
       }
 
+      // ── Shared cross-source cap (ci-followup-cap.ts): an ADDITIONAL per-PR ceiling
+      // across every automatic CI-failure follow-up engine, on top of the bridge cap. ──
+      const capKey = { repo, prNumber: pr.number, objectiveId, source: 'ci-feedback-bridge' as const }
+      const shared = checkCiFollowupCap(db, capKey)
+      if (!shared.allowed) {
+        if (enabled) {
+          noteCiFollowupCapExhausted(db, capKey, shared)
+        } else {
+          console.log(`[ci-feedback-bridge] DARK — WOULD block obj ${objectiveId} (PR #${pr.number}): shared CI follow-up cap ${shared.count}/${shared.cap}`)
+          db.prepare(`DELETE FROM external_check_remediations WHERE repo = ? AND pr_number = ? AND check_name = ? AND head_sha = ?`)
+            .run(repo, pr.number, vitest.name, pr.headRefOid)
+        }
+        outcomes.push({ pr: pr.number, objectiveId, action: 'cap-exhausted', detail: `shared cap ${shared.count}/${shared.cap}` })
+        continue
+      }
+
       // ── Fetch ONLY failing lines and summarize. ──
       let summary = ''
       const runId = extractRunId(vitest.link)
@@ -345,6 +362,7 @@ export async function runCiFeedbackBridgeOnce(deps: CiBridgeDeps = {}): Promise<
         outcomes.push({ pr: pr.number, objectiveId, action: 'post-failed', detail: `${resp.status}` })
         continue
       }
+      recordCiFollowup(db, capKey)
       console.log(`[ci-feedback-bridge] nudged obj ${objectiveId} — PR #${pr.number} ${vitest.name} FAIL (attempt ${attempt}/${cap})`)
       outcomes.push({ pr: pr.number, objectiveId, action: 'nudged', detail: `attempt ${attempt}/${cap}` })
     } catch (err) {

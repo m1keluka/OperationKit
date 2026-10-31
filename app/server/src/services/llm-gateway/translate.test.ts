@@ -123,6 +123,52 @@ describe('parseAssistantOutput', () => {
   })
 })
 
+// Verbatim glitch payloads from obj 713960's evidence captures (threads 74e9d30e,
+// 4a2e3290) — see /home/operator/ai-workspace/objective-memory/713960/evidence/
+// glitch-toolcall-as-text-*.txt. The evidence files are full page-text scrapes
+// (nav chrome, timestamps) of the bd.hq chat UI; these constants are the exact
+// substrings of the model's own output within them (the UI chrome around them
+// is not model-generated text and is excluded).
+const GLITCH_BARE_JSON = '{"name": "load_skills", "arguments": {"skillNames": ["lead-qualification"]}}'
+const GLITCH_MANGLED_TAG =
+  'Found 1 person records\nSam\n_calls>[{"name":"execute_tool","arguments":{"toolName":"find_one_company","arguments":{"id":"612a6906-515c-4500-8979-3b6a7bea0c3c","select":["name","domainName","segment","firmType","aumBand","clientCampaignId"]}}}]'
+
+describe('parseAssistantOutput: malformed envelope recovery (obj 713966)', () => {
+  it('recovers a bare JSON tool call with no envelope at all (thread 74e9d30e)', () => {
+    const out = parseAssistantOutput(GLITCH_BARE_JSON, ['load_skills'])
+    expect(out.toolCalls).toHaveLength(1)
+    expect(out.toolCalls[0].function.name).toBe('load_skills')
+    expect(JSON.parse(out.toolCalls[0].function.arguments)).toEqual({ skillNames: ['lead-qualification'] })
+  })
+
+  it('recovers a mangled/partial opening tag with no closing tag (thread 4a2e3290)', () => {
+    const out = parseAssistantOutput(GLITCH_MANGLED_TAG, ['execute_tool'])
+    expect(out.toolCalls).toHaveLength(1)
+    expect(out.toolCalls[0].function.name).toBe('execute_tool')
+    expect(JSON.parse(out.toolCalls[0].function.arguments)).toEqual({
+      toolName: 'find_one_company',
+      arguments: {
+        id: '612a6906-515c-4500-8979-3b6a7bea0c3c',
+        select: ['name', 'domainName', 'segment', 'firmType', 'aumBand', 'clientCampaignId'],
+      },
+    })
+    expect(out.content).toBe('Found 1 person records\nSam')
+  })
+
+  it('does not treat ordinary prose as a tool call', () => {
+    const out = parseAssistantOutput('The weather in Paris is sunny and 21C today.', ['get_weather'])
+    expect(out.toolCalls).toEqual([])
+    expect(out.content).toBe('The weather in Paris is sunny and 21C today.')
+  })
+
+  it('does not treat bare JSON naming an undeclared function as a tool call', () => {
+    const text = '{"name": "delete_everything", "arguments": {}}'
+    const out = parseAssistantOutput(text, ['get_weather'])
+    expect(out.toolCalls).toEqual([])
+    expect(out.content).toBe(text)
+  })
+})
+
 describe('ToolEnvelopeStreamer', () => {
   const feed = (s: ToolEnvelopeStreamer, parts: string[]) => parts.map(p => s.push(p)).join('')
 
@@ -147,5 +193,41 @@ describe('ToolEnvelopeStreamer', () => {
   it('passes everything through untouched when tools are off', () => {
     const s = new ToolEnvelopeStreamer([])
     expect(s.push('<tool_calls>')).toBe('<tool_calls>')
+  })
+
+  it('recovers a bare JSON tool call streamed in chunks without leaking JSON as content (thread 74e9d30e)', () => {
+    const s = new ToolEnvelopeStreamer(['load_skills'])
+    const chunks = ['{"name": "load_', 'skills", "argum', 'ents": {"skillNames": ["lead-qualification"]}}']
+    const emitted = feed(s, chunks)
+    const tail = s.finish()
+    expect(emitted).toBe('')
+    expect(tail.toolCalls).toHaveLength(1)
+    expect(tail.toolCalls[0].function.name).toBe('load_skills')
+    expect(JSON.parse(tail.toolCalls[0].function.arguments)).toEqual({ skillNames: ['lead-qualification'] })
+  })
+
+  it('recovers a mangled opening tag streamed in chunks without leaking the envelope JSON as content (thread 4a2e3290)', () => {
+    const s = new ToolEnvelopeStreamer(['execute_tool'])
+    const chunks = [
+      'Found 1 person records\nSam\n',
+      '_ca',
+      'lls>[{"name":"execute_tool","arguments":{"toolName":"find_one_company",',
+      '"arguments":{"id":"612a6906-515c-4500-8979-3b6a7bea0c3c","select":["name","domainName","segment","firmType","aumBand","clientCampaignId"]}}}]',
+    ]
+    const emitted = feed(s, chunks)
+    const tail = s.finish()
+    // No fragment of the mangled tag or the JSON envelope ever reached a content delta.
+    expect(emitted).not.toContain('calls>')
+    expect(emitted).not.toContain('execute_tool')
+    expect(emitted + tail.text).toBe('Found 1 person records\nSam\n')
+    expect(tail.toolCalls).toHaveLength(1)
+    expect(tail.toolCalls[0].function.name).toBe('execute_tool')
+    expect(JSON.parse(tail.toolCalls[0].function.arguments)).toEqual({
+      toolName: 'find_one_company',
+      arguments: {
+        id: '612a6906-515c-4500-8979-3b6a7bea0c3c',
+        select: ['name', 'domainName', 'segment', 'firmType', 'aumBand', 'clientCampaignId'],
+      },
+    })
   })
 })

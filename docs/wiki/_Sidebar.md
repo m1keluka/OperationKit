@@ -1,5 +1,7 @@
 **[Home](./Home)**
 
+**[Project Status](./Project-Status)**
+
 **Why OperationKit**
 - [Why Own Your AI Infrastructure](./Why-Own-Your-AI-Infrastructure)
 - [Model Portability](./Model-Portability)
@@ -11,6 +13,8 @@
   - [Board & Objectives Lifecycle](./Board-and-Objectives-Lifecycle)
   - [Skills, Tools & Agents](./Skills-Tools-Agents)
   - [Knowledge Base & Context Loading](./Knowledge-Base-and-Context-Loading)
+  - [Accounts, Subscriptions & Seats](./Accounts-Subscriptions-and-Seats)
+  - [MCP Connector & Tools](./MCP-Connector-and-Tools)
   - [Review Gate](./Review-Gate)
   - [External Agents](./External-Agents)
   - [Delegator Mode](./Delegator-Mode)

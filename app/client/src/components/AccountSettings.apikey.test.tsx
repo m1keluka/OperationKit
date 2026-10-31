@@ -32,10 +32,6 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
-vi.mock('../hooks/useAssistantConfig', () => ({
-  useAssistantConfig: () => ({ config: null, loading: false, error: '', save: vi.fn() }),
-}))
-
 vi.mock('./ui', () => ({
   useConfirm: () => ({
     confirm: vi.fn(async () => true),
@@ -62,20 +58,6 @@ describe('AccountSettings API key card', () => {
       }
       if (url === '/user/github-token') return Promise.resolve(null)
       if (url === '/user/google') return Promise.resolve({ connection: null, configured: true })
-      if (url === '/assistant/config') {
-        return Promise.resolve({
-          userId: 1,
-          workspace: 'example',
-          persona: { displayName: 'Assistant', tagline: null, systemPrompt: '', manualSource: null },
-          model: null,
-          autonomy: { level: 'confirm_external', overrides: null },
-          enabledCapabilities: [],
-          enabledConnectors: [],
-          enabled: true,
-          createdAt: '2026-07-11T00:00:00Z',
-          updatedAt: '2026-07-11T00:00:00Z',
-        })
-      }
       if (url.startsWith('/secrets')) return Promise.resolve([])
       return Promise.resolve(null)
     })

@@ -43,6 +43,39 @@ export function isCaptureGap(
   return !filesTouched.some(f => /(?:^|\/)second-brain\/.*\/decisions\/[^/]+\.md$/.test(f))
 }
 
+/**
+ * Pure: what one extraction adds to `objectives.total_cost_usd` / `total_tokens`
+ * (obj 712954). First extraction of a session → its full totals. Re-extraction
+ * of the same session_id (follow-up appended to the same JSONL) → only the
+ * growth since the previous extraction; never negative.
+ */
+export function extractionAggregateDelta(
+  intel: { totalCost: number; totalTokens: number },
+  prior: { total_cost_usd: number | null; total_tokens: number | null } | undefined,
+): { cost: number; tokens: number } {
+  if (!prior) return { cost: intel.totalCost, tokens: intel.totalTokens }
+  return {
+    cost: Math.max(0, intel.totalCost - (prior.total_cost_usd || 0)),
+    tokens: Math.max(0, intel.totalTokens - (prior.total_tokens || 0)),
+  }
+}
+
+/** Cap for the fallback summary — the card field, not a transcript dump. */
+export const FALLBACK_SUMMARY_MAX_CHARS = 2000
+
+/**
+ * Pure: the fallback last_session_summary built from the final `result` text
+ * (obj 712954). Trimmed, whitespace-collapsed runs of blank lines, capped at
+ * FALLBACK_SUMMARY_MAX_CHARS with an ellipsis. Empty/absent text → null.
+ */
+export function fallbackSummaryFromResult(text: string | null | undefined): string | null {
+  if (typeof text !== 'string') return null
+  const t = text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  if (!t) return null
+  if (t.length <= FALLBACK_SUMMARY_MAX_CHARS) return t
+  return `${t.slice(0, FALLBACK_SUMMARY_MAX_CHARS - 1).trimEnd()}…`
+}
+
 export function queueExtraction(
   objectiveId: number,
   sessionId: string,
@@ -83,6 +116,16 @@ async function processExtraction(item: QueueItem): Promise<void> {
   const intel = await extractDeterministic(jsonlPath)
 
   const endedAt = intel.endedAt || new Date().toISOString()
+
+  // A follow-up into the same session_id appends to the same JSONL, and every
+  // session end re-extracts the whole file. Read what this session already
+  // contributed BEFORE the INSERT OR REPLACE below overwrites it, so the
+  // objective aggregate only gains the delta (obj 712954 — obj 712923's round-1
+  // results were re-added when its CI follow-up was extracted).
+  const prior = db
+    .prepare('SELECT total_cost_usd, total_tokens FROM session_intel WHERE session_id = ?')
+    .get(sessionId) as { total_cost_usd: number | null; total_tokens: number | null } | undefined
+  const aggregate = extractionAggregateDelta(intel, prior)
 
   // Insert initial session_intel row
   db.prepare(`
@@ -156,7 +199,7 @@ async function processExtraction(item: QueueItem): Promise<void> {
       total_tokens = total_tokens + ?,
       updated_at = datetime('now')
     WHERE id = ?
-  `).run(intel.totalCost, intel.totalTokens, objectiveId)
+  `).run(aggregate.cost, aggregate.tokens, objectiveId)
 
   console.log(`[session-intel] Parsed ${sessionId}: ${intel.toolCalls} tools, ${intel.filesCreated.length} created, ${intel.filesModified.length} modified, ${intel.errors.length} errors`)
 
@@ -294,8 +337,22 @@ async function processExtraction(item: QueueItem): Promise<void> {
 
     console.log(`[session-intel] Summarized ${sessionId}: "${summary.summary.slice(0, 80)}..."`)
   } else {
-    // Mark as parsed-only (no summary available)
-    console.log(`[session-intel] No LLM summary for ${sessionId} (Anthropic API unavailable or failed)`)
+    // No LLM summary (Ollama down and the Anthropic fallback failed — see the
+    // warning logged by generateSummary). Fall back to the worker's own closing
+    // message so the card is never left with a null last_session_summary
+    // (obj 712954: null board-wide since 2026-09-18). extraction_status stays
+    // 'parsed' — this is not an LLM summary, and a later re-extract can upgrade it.
+    const fallback = fallbackSummaryFromResult(intel.finalResultText)
+    if (fallback) {
+      db.prepare('UPDATE session_intel SET summary = ? WHERE session_id = ?').run(fallback, sessionId)
+      db.prepare(`
+        UPDATE objectives SET last_session_summary = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(fallback, objectiveId)
+      console.log(`[session-intel] No LLM summary for ${sessionId} — stored the final result text as the summary`)
+    } else {
+      console.log(`[session-intel] No LLM summary for ${sessionId} (Ollama and Anthropic both unavailable or failed; no final result text)`)
+    }
   }
 
   // Broadcast intel ready
@@ -579,23 +636,44 @@ export async function backfillDailyUsage(opts: { sinceMs?: number } = {}): Promi
   return { sessions: done, rows }
 }
 
-export function requeueParsedSessions(): void {
-  const TRANSCRIPT_DIR = '/home/operator/transcripts'
+/**
+ * Re-queue sessions stuck at extraction_status='parsed' (Phase B — the LLM
+ * summary — never landed). Historically this only ran once at server boot
+ * with a 24h window, so a backend that stays up for days never retried a
+ * backlog caused by a sustained LLM outage (obj 713406: Ollama refusing
+ * connections since ~2026-09-18 + the ANTHROPIC_API_KEY fallback going
+ * invalid ~2026-09-23 silently stalled 100% of enrichment — the boot-only
+ * 24h-window sweep could never see sessions that aged past 24h before the
+ * next restart). Now also invoked on an interval (see index.ts) with a wider
+ * window so the backlog actually drains once the LLM path is healthy again,
+ * instead of requiring a manual restart.
+ *
+ * selectStuckParsedSessions is the pure selection query, split out from requeueParsedSessions so the
+ * windowHours/limit behavior can be regression-tested against a seeded DB
+ * without needing real transcript files on disk (session-intel-requeue.test.ts).
+ */
+export function selectStuckParsedSessions(windowHours: number, limit: number): Array<Record<string, unknown>> {
   const db = getDb()
-
-  // Only re-queue recent sessions (last 24h) and cap at 10 to avoid API cost spikes on restart
-  const stuckSessions = db.prepare(`
+  return db.prepare(`
     SELECT si.objective_id, si.session_id, si.account_id, si.tool_calls,
            o.id, o.title, o.description, o.agent_context, o.workspace, o.project,
            o.status, o.create_pr
     FROM session_intel si
     JOIN objectives o ON si.objective_id = o.id
     WHERE si.extraction_status = 'parsed'
-      AND si.ended_at > datetime('now', '-24 hours')
+      AND si.ended_at > datetime('now', ?)
       AND si.tool_calls > 0
     ORDER BY si.ended_at DESC
-    LIMIT 10
-  `).all() as Array<Record<string, unknown>>
+    LIMIT ?
+  `).all(`-${windowHours} hours`, limit) as Array<Record<string, unknown>>
+}
+
+export function requeueParsedSessions(opts: { windowHours?: number; limit?: number } = {}): void {
+  const { windowHours = 24, limit = 10 } = opts
+  const TRANSCRIPT_DIR = '/home/operator/transcripts'
+
+  // Cap per call to avoid API cost spikes; windowHours bounds how far back to look.
+  const stuckSessions = selectStuckParsedSessions(windowHours, limit)
 
   if (stuckSessions.length === 0) {
     console.log('[session-intel] No stuck parsed sessions to re-queue')

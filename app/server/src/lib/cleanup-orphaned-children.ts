@@ -22,6 +22,7 @@
 import type { Database } from 'better-sqlite3'
 import type { Objective } from '@operationkit/shared'
 import { logObjectiveAudit } from '../services/objective-audit.js'
+import { scheduleObjectiveWorktreeReap } from '../services/worktree-reaper.js'
 
 export interface CleanupResult {
   cancelledIds: number[]
@@ -85,6 +86,8 @@ export function cleanupOrphanedChildrenOnParentTerminal(
         workspace: child.workspace ?? null,
       })
       cancelledIds.push(child.id)
+      // Never-ran children rarely own a worktree; the reaper is a cheap no-op then.
+      scheduleObjectiveWorktreeReap(child.id, { db })
 
       if (broadcast) {
         const updated = db

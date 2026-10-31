@@ -3,6 +3,7 @@ import path from 'path'
 import type { SessionMessage } from '@operationkit/shared'
 import { TRANSCRIPT_DIR } from '../config.js'
 import { evictTimelineCache } from './thread-timeline.js'
+import { redactForStorage } from './secret-redaction.js'
 
 // ── Helpers ──
 
@@ -297,7 +298,7 @@ function parseNewLines(lines: string[], messages: SessionMessage[], startToolIdx
         continue
       }
       if (parsed.type === 'followup') {
-        messages.push({ type: 'followup', text: parsed.text, timestamp: parsed.timestamp })
+        messages.push({ type: 'followup', text: parsed.text, timestamp: parsed.timestamp, ...(parsed.sender ? { sender: parsed.sender } : {}) })
         continue
       }
       // Warning events (worktree violations, telemetry) — render via the error
@@ -402,7 +403,33 @@ export function getSessionJsonlPath(sessionId: string): string {
   return path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
 }
 
+// ── Read-path redaction (obj 715532) ──
+// New transcripts are already redacted at write time by the wrapper's stream
+// filter; this covers transcripts written before it existed, jail-mode sessions
+// (no filter), and token deltas that only form a value once coalesced. Memoized
+// per message object so the cached parse is redacted once, not on every poll.
+const redactMemo = new WeakMap<SessionMessage, { text?: string; toolInput?: string; toolResult?: string; out: SessionMessage }>()
+
+function redactMessage(m: SessionMessage): SessionMessage {
+  const memo = redactMemo.get(m)
+  if (memo && memo.text === m.text && memo.toolInput === m.toolInput && memo.toolResult === m.toolResult) return memo.out
+  const r = (s: string | undefined) => (s ? redactForStorage(s).text : s)
+  const text = r(m.text)
+  const toolInput = r(m.toolInput)
+  const toolResult = r(m.toolResult)
+  const out = text === m.text && toolInput === m.toolInput && toolResult === m.toolResult
+    ? m
+    : { ...m, text, toolInput, toolResult }
+  redactMemo.set(m, { text: m.text, toolInput: m.toolInput, toolResult: m.toolResult, out })
+  return out
+}
+
 export function getSessionOutput(sessionId: string, jsonlPathOverride?: string): SessionMessage[] {
+  if (process.env.CC_TRANSCRIPT_REDACT === '0') return getSessionOutputUnredacted(sessionId, jsonlPathOverride)
+  return getSessionOutputUnredacted(sessionId, jsonlPathOverride).map(redactMessage)
+}
+
+function getSessionOutputUnredacted(sessionId: string, jsonlPathOverride?: string): SessionMessage[] {
   const jsonlPath = jsonlPathOverride || getSessionJsonlPath(sessionId)
 
   try {

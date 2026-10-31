@@ -32,7 +32,7 @@ export type ObjectiveType = 'project' | 'bug' | 'task'
  *  - 'routine'   — a routine spawned it (a recurring job).
  *  - 'job_reply' — spawned from a job's in-thread "create an objective" reply.
  */
-export type ObjectiveOrigin = 'manual' | 'strategy' | 'routine' | 'job_reply'
+export type ObjectiveOrigin = 'manual' | 'strategy' | 'routine' | 'job_reply' | 'agent_api' | 'agent_chat'
 /**
  * Disposition of a job (routine-spawned objective) once its run is done.
  * - `complete`     — clean run, nothing for Mike to do. Default.
@@ -203,6 +203,12 @@ export interface User {
    * is per-person provisioning, not a privilege level.
    */
   has_content?: boolean
+  /**
+   * True while the user still holds a one-time setup password (obj 719935). The
+   * API answers every route except /auth/me, /auth/change-password and
+   * /auth/logout with 403 `password_change_required` until it is replaced.
+   */
+  must_change_password?: boolean
   created_at: string
 }
 
@@ -347,6 +353,14 @@ export interface Objective {
    *  delegator-decomposed sub-objective; 'routine' = routine-spawned job;
    *  'job_reply' = spawned from a job's in-thread reply. Defaults to 'manual'. */
   origin: ObjectiveOrigin
+  /** Agent API key that created this card (origin='agent_api', obj 714090).
+   *  The label is a snapshot so the board can say "created by Grok: Example" even
+   *  after the key is revoked. NULL for every other origin. */
+  agent_key_id?: number | null
+  agent_key_label?: string | null
+  /** Secrets the worker is blocked on (obj 718944). Names + reasons only —
+   *  never values. Empty/absent = not waiting on a secret. */
+  needs_secret?: NeedsSecretItem[]
   /** The Strategy (is_strategy=1 objective) this objective belongs to or is
    *  associated with (obj 2386). Inherited from the parent chain at insert, or
    *  set explicitly on a manual objective (even when parent_id IS NULL) so it
@@ -400,6 +414,9 @@ export interface Objective {
    *  model ids that actually ran across this objective's sessions (sub-agent /
    *  helper models excluded), e.g. 'claude-fable-5'. Null until first scan. */
   ran_model: string | null
+  /** Seat pool v2: per-card cross-engine failover override. null = inherit the
+   *  workspace setting, 'pinned' = never fail over, else a JSON array of engines. */
+  engine_failover?: string | null
   type: ObjectiveType
   approved_plan: string | null
   plan_approved_at: string | null
@@ -407,6 +424,12 @@ export interface Objective {
   ai_review_verdict: AIReviewVerdict | null
   ai_review_findings: string | null
   ai_review_session_id: string | null
+  /** WHY a `blocked` ai_review_verdict happened (obj 719328). Currently only
+   *  `'preview-infra'` is populated — the reviewer's findings began with the P1
+   *  marker `PREVIEW-INFRA-UNREACHABLE:`, meaning the preview HOST was down, not the
+   *  diff. NULL for every other blocked verdict and for pass/fail. The signal the
+   *  preview-infra-resurrect sweep keys on. */
+  blocked_reason: string | null
   /** Per-objective opt-out from the AI Review stage. SQLite stores 0/1; the
    *  server casts to boolean before serializing. */
   skip_ai_review: boolean
@@ -498,5 +521,45 @@ export interface SessionMessage {
   // is still coalescing partial text deltas; cleared/false once the final
   // complete assistant event finalizes the text.
   streaming?: boolean
+  /** Who sent a `followup` — stamped server-side from the request's auth,
+   *  never from the message text (obj 718944). Absent on legacy events. */
+  sender?: MessageSender
+}
+
+/** Server-derived chat-message provenance (obj 718944). */
+export interface MessageSender {
+  kind: 'owner' | 'member' | 'agent' | 'api' | 'system'
+  /** True only for a human typing in the web UI (cookie-authenticated). */
+  verified: boolean
+  /** Display label: user display name, agent key label, or system source. */
+  label: string
+  username: string | null
+}
+
+/** One secret a worker asked the owner for (obj 718944). */
+export interface NeedsSecretItem {
+  name: string
+  reason: string
+  requested_at: string
+  /**
+   * obj 719065: where the worker suggests storing it. The owner (or a relaying
+   * agent) may pick another. Absent on rows written before 719065 → 'workspace'.
+   */
+  scope?: SecretRequestScope
+}
+
+/** obj 719065: scopes a chat secret request may write to (a subset of the store's four). */
+export type SecretRequestScope = 'global' | 'workspace' | 'workspace_user'
+export const SECRET_REQUEST_SCOPES: SecretRequestScope[] = ['workspace', 'global', 'workspace_user']
+
+/** obj 719065: a pending secret request as the agent surface (MCP / REST) sees it. Never a value. */
+export interface SecretRequestView {
+  request_id: string
+  objective_id: number
+  workspace: string
+  name: string
+  reason: string
+  scope: SecretRequestScope
+  requested_at: string
 }
 

@@ -64,6 +64,7 @@ function insertObjective(fields: Partial<Objective> & { title?: string }): numbe
 beforeEach(() => {
   const db = getDb()
   db.exec('DELETE FROM external_check_remediations')
+  try { db.exec('DELETE FROM ci_followup_log') } catch { /* shared CI follow-up cap table (lazy) */ }
   db.exec("DELETE FROM objectives WHERE title LIKE 'test%' OR title LIKE 'obj%'")
   // Auto-created owners (obj 704698: inherited/maintenance cards) carry '[Auto] …'
   // titles, so clear them by origin or they leak their PR linkage into the next test.

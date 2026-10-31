@@ -94,6 +94,12 @@ export const ORIGIN_BADGES: Record<string, { label: string; cls: string; descrip
   strategy:  { label: 'STRATEGY-INVOKED', cls: 'bg-amber-500/15 text-amber-200 border-amber-500/25', description: 'Decomposed/spawned by a Strategy (delegator), not created by hand' },
   routine:   { label: 'ROUTINE',          cls: 'bg-sky-500/15 text-sky-200 border-sky-500/25',       description: 'Spawned automatically by a recurring routine (a job)' },
   job_reply: { label: 'FROM JOB',         cls: 'bg-teal-500/15 text-teal-200 border-teal-500/25',     description: "Spawned from a job's in-thread reply" },
+  // obj 714090: created through a named agent API key (a Grok Bot). The card
+  // shows the key label instead of this generic label when agent_key_label is set.
+  // Classes match PlanningPanel's chip: tailwind does not scan shared/.
+  agent_api: { label: 'VIA AGENT',       cls: 'bg-status-planning/20 text-status-planning border-status-planning/30', description: 'Created by an external agent through a named API key' },
+  // obj 719987: handed to the board by a built-in chat agent.
+  agent_chat: { label: 'FROM CHAT',      cls: 'bg-status-planning/20 text-status-planning border-status-planning/30', description: 'Handed to the board by a built-in chat agent' },
 } as const
 
 /** Machine still owns this row. `review` is the human gate and is not in-flight. */

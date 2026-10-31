@@ -30,6 +30,7 @@ import {
   requireOwnership,
 } from './objectives-helpers.js'
 import { resolveFollowUpSessionId } from '../services/objective-sessions.js'
+import { noteStartReason } from '../services/session-start-reasons.js'
 
 export function registerObjectiveGoalDraftRoutes(router: Router): void {
 // POST /api/objectives/goal/draft
@@ -247,6 +248,7 @@ router.post('/:id/decisions/:reviewId/resolve', async (req: AuthRequest, res) =>
   const existingSessionId = resolveFollowUpSessionId(db, objective)
 
   try {
+    noteStartReason(objective.id, 'decision_resolved', 'board')
     const newSessionId = sendFollowUp(existingSessionId, resolved.followUp, objective)
     db.prepare("UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?").run(newSessionId, objective.id)
     const updated = mapObjective(db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective)

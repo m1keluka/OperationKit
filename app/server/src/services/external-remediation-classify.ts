@@ -404,6 +404,34 @@ export function parseRunIdFromUrl(url: string | null | undefined): number | null
   return Number.isInteger(n) && n > 0 ? n : null
 }
 
+// ── Account-level infra blocks (obj 712948) ─────────────────────────────────────
+/** GitHub's wording when Actions refuses to run a job for an account reason (billing,
+ *  spending limit, quota, no runner). None of these is fixable by a code push, and each
+ *  one fails EVERY commit until someone fixes the account, so filing a card per red sha
+ *  is pure spam. Kept broad on purpose: a false positive only suppresses a card for a
+ *  run that never got a runner. Shared idea with EXAMPLE2's red-path (#712942). */
+export const INFRA_BLOCK_RE =
+  /recent account payments have failed|spending limit|billing (?:issue|problem)|payment (?:method|required)|(?:actions|minutes|storage) quota|exceeded .*quota|no (?:hosted )?runners? (?:available|matching)|job was not started|unable to (?:assign|find) (?:a )?runner/i
+
+export interface InfraBlockJob {
+  conclusion?: string | null
+  /** Number of steps that actually ran (0 = the job never got a runner). */
+  steps?: number | null
+}
+
+/**
+ * True when a failure is an account-level outage rather than a code problem:
+ *  - any annotation / status text matches INFRA_BLOCK_RE, or
+ *  - every job concluded `failure` with ZERO steps executed (the billing-block shape:
+ *    GitHub fails the job before a runner is ever assigned).
+ * Pure; the act-path fetches the inputs. Empty inputs → false (fall through).
+ */
+export function detectInfraBlock(annotations: Array<string | null | undefined>, jobs: InfraBlockJob[]): boolean {
+  if (annotations.some((a) => !!a && INFRA_BLOCK_RE.test(a))) return true
+  if (jobs.length === 0) return false
+  return jobs.every((j) => j.conclusion === 'failure' && Number(j.steps ?? 0) === 0)
+}
+
 /** Trunk branches (obj 702632, gap D): a failure here has no owning PR objective —
  *  it belongs to whatever merged last. Config list, not a pattern: `redesign` is
  *  example-platform's long-lived second trunk. */

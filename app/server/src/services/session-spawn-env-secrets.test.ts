@@ -113,6 +113,31 @@ describe('buildSpawnEnv — USE_SCOPED_SECRETS ON: scoped set merged', () => {
     expect(env.USER).toBe('ccuser')
   })
 
+  it('a global GOOGLE_OAUTH_CLIENT_* secret does not clobber the per-user grant client (obj-716719)', async () => {
+    process.env.TEST_CRED_ENCRYPTION_KEY = Buffer.alloc(32, 5).toString('base64')
+    process.env.GMAIL_CLIENT_ID = 'legacy-client.apps.googleusercontent.com'
+    process.env.GMAIL_CLIENT_SECRET = 'legacy-secret'
+    store.setSecret({ scope: { scopeType: 'global' }, key: 'GOOGLE_OAUTH_CLIENT_ID', value: 'primary-client', actorUserId: 1 })
+    store.setSecret({ scope: { scopeType: 'global' }, key: 'GOOGLE_OAUTH_CLIENT_SECRET', value: 'primary-secret', actorUserId: 1 })
+
+    vi.resetModules()
+    const freshDb = await import('../db/index.js')
+    freshDb.initDb()
+    const google = await import('./user-google-connections.js')
+    google.upsert(7, {
+      googleEmail: 'eva@example.com', googleSub: null, refreshToken: 'rt-legacy',
+      scopes: 'openid', clientId: 'legacy-client.apps.googleusercontent.com',
+    })
+    const sm = await import('./session-manager.js')
+    const env = sm.buildSpawnEnv({ objective: fakeObjective(), homeDir: '/home/ccuser-a', sessionKind: 'worker' })
+
+    expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('user')
+    expect(env.GOOGLE_REFRESH_TOKEN).toBe('rt-legacy')
+    expect(env.GOOGLE_OAUTH_CLIENT_ID).toBe('legacy-client.apps.googleusercontent.com')
+    expect(env.GOOGLE_OAUTH_CLIENT_SECRET).toBe('legacy-secret')
+    freshDb.getDb().exec('DELETE FROM user_google_connections')
+  })
+
   it('writes one inject audit row per resolved key', async () => {
     store.setSecret({ scope: { scopeType: 'global' }, key: 'A_KEY', value: 'a', actorUserId: 1 })
     store.setSecret({ scope: { scopeType: 'global' }, key: 'B_KEY', value: 'b', actorUserId: 1 })

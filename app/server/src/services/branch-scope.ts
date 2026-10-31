@@ -57,12 +57,14 @@ const BRANCH_CHARS = '[A-Za-z0-9._\\/-]+'
 
 /**
  * The objective id embedded in a branch name (`cc/obj-<id>-…`, `cto/<id>-…`,
- * `fix/<id>-…`, `ci/<id>-…`), or null when the branch carries no id. Used to
- * recognise a session's OWN second branch (same id, different slug) so it is
- * not misclassified as a foreign-objective scope-split.
+ * `fix/<id>-…`, `ci/<id>-…`), INCLUDING the `obj<id>` form workers use in
+ * practice (`feat/obj<id>-…`, `fix/obj<id>-…`, `…-obj<id>`), or null when the
+ * branch carries no id. Used to recognise a session's OWN second branch (same
+ * id, different slug) so it is not misclassified as a foreign-objective
+ * scope-split. The id may be delimited by `/ _ -` OR glued to a literal `obj`.
  */
 function objectiveIdOf(branch: string): string | null {
-  const m = branch.match(/(?:^|[/-])(\d{6,})(?:[/-]|$)/)
+  const m = branch.match(/(?:^|[/_-]|obj)(\d{6,})(?:[/_-]|$)/)
   return m ? m[1] : null
 }
 
@@ -84,6 +86,17 @@ export function detectBranchBleed(command: string, ownedBranch: string): string 
   const owned = ownedBranch.trim()
   const candidates: string[] = []
 
+  // Strip heredoc BODIES before scanning. A session writing a file via
+  // `cat > x <<'EOF' … EOF` (a CI workflow, a deploy script, a README) routinely
+  // embeds the WORDS "git push" / "git checkout -b" as FILE CONTENT, not as an op it
+  // runs. Without this, `… git push\nEOF\npython3 …` matches pushRe with remote=`EOF`
+  // and branch=`python3`, flagging a phantom "foreign branch 'python3'" (obj 719640).
+  // Only strips when a matching terminator line exists, so it is conservative.
+  const scan = command.replace(
+    /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[\s\S]*?^[ \t]*\2[ \t]*$/gm,
+    '',
+  )
+
   // git checkout -b / -B NAME   |   git switch -c / -C NAME
   const createRe = new RegExp(`git\\s+(?:checkout|switch)\\s+(?:-[A-Za-z]+\\s+)*-(?:b|B|c|C)\\s+(${BRANCH_CHARS})`, 'g')
   // gh pr create --head NAME  (PR off an explicit head branch)
@@ -95,11 +108,16 @@ export function detectBranchBleed(command: string, ownedBranch: string): string 
   // a refspec-less push of the session's OWN branch (obj 704417/704512/704556). The
   // trailing (?!>) rejects a captured redirect target too (`git push origin 2>&1`).
   const REMOTE_CHARS = '[A-Za-z0-9._/][A-Za-z0-9._\\/-]*'
-  const pushRe = new RegExp(`git\\s+push\\s+(?:-[A-Za-z-]+\\s+)*${REMOTE_CHARS}\\s+(${BRANCH_CHARS})(?![>])`, 'g')
+  // Capture the WHOLE refspec, SRC:DST included, so the destination (what actually
+  // lands on origin) is what gets judged — not the local source scratch branch.
+  // BRANCH_CHARS has no ':', so without this an `SRC:DST` push captured only SRC and
+  // the destination-strip below was dead code (obj 718075: 50+ false positives on
+  // `git push origin fix818:fix/obj718075-…` and `… r8-integrate:test/…-integration`).
+  const pushRe = new RegExp(`git\\s+push\\s+(?:-[A-Za-z-]+\\s+)*${REMOTE_CHARS}\\s+(${BRANCH_CHARS}(?::${BRANCH_CHARS})?)(?![>])`, 'g')
 
   for (const re of [createRe, ghHeadRe, pushRe]) {
     let m: RegExpExecArray | null
-    while ((m = re.exec(command)) !== null) {
+    while ((m = re.exec(scan)) !== null) {
       const raw = m[1]
       // Strip a leading remote:  origin/feature → feature ; HEAD:refs/heads/x → x
       const name = raw.replace(/^[^:]+:/, '').replace(/^refs\/heads\//, '')
@@ -122,6 +140,9 @@ export function detectBranchBleed(command: string, ownedBranch: string): string 
     // foreign-objective takeover. Direct-to-main is a separate guard's job.
     const bare = name.replace(/^[^/]+\//, '') // origin/main -> main
     if (INTEGRATION_BASES.has(name) || INTEGRATION_BASES.has(bare)) continue
+    // Migration-apply push off a base ref (`… origin/main:refs/heads/db-apply/<ts>`):
+    // the destination is a sanctioned apply ref, not a foreign-objective takeover.
+    if (bare.startsWith('db-apply') || name.startsWith('db-apply/')) continue
     // A branch embedding the SAME objective id as the owned branch is this
     // objective's own second branch (hotfix / delta / convergence lane), not a
     // scope-split. A DIFFERENT embedded id (or none) still gets flagged.

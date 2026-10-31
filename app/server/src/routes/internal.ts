@@ -5,7 +5,6 @@ import { registerInternalHermesRoutes } from './internal-hermes.js'
 import { registerInternalCreateRoutes } from './internal-create.js'
 import { registerInternalPreviewRoutes } from './internal-preview.js'
 import { registerInternalGmailRoutes } from './internal-gmail.js'
-import { registerInternalMentorRoutes } from './internal-mentor.js'
 import { registerInternalReposRoutes } from './internal-repos.js'
 import { requireInternalSecret } from '../middleware/internal-secret.js'
 import { runDevFeedbackBridge, DEV_FEEDBACK_INSTANCES } from '../services/dev-feedback-bridge.js'
@@ -18,7 +17,6 @@ registerInternalPreviewRoutes(router)
 registerInternalProgressRoutes(router)
 registerInternalGmailRoutes(router)
 registerInternalHermesRoutes(router)
-registerInternalMentorRoutes(router)
 registerInternalReposRoutes(router)
 
 // Manual trigger for the dev_feedback ↔ CC-objective bridge (obj 711117 W4;

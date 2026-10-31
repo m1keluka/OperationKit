@@ -2,6 +2,7 @@
  * Planning-stage routes — extracted from objectives.ts (behavior frozen).
  * Registered on the same /api/objectives router. SQL and HTTP paths unchanged.
  */
+import { senderFromRequest } from '../lib/message-provenance.js'
 import { Router } from 'express'
 import { getDb } from '../db/index.js'
 import { type AuthRequest } from '../middleware/auth.js'
@@ -10,6 +11,7 @@ import { getSessionOutput, sendFollowUp, spawnPlannerSession, stopPlannerSession
 import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { broadcast } from '../ws/index.js'
 import { mapObjective, requireOwnership } from './objectives-helpers.js'
+import { noteStartReason } from '../services/session-start-reasons.js'
 
 // ── Planning Stage ───────────────────────────────────────────────────────────
 // Project-type objectives start in `planning` status. The planner is a separate
@@ -208,7 +210,7 @@ router.post('/:id/planning/message', (req: AuthRequest, res) => {
   // into the planner JSONL as a `followup` event, so persistPlannerMessages
   // (called on the next /messages poll) will mirror it into the DB without
   // needing a second insert here. sendFollowUp returns the active session id.
-  const newSessionId = sendFollowUp(objective.planning_session_id, fullMessage, objective)
+  const newSessionId = sendFollowUp(objective.planning_session_id, fullMessage, objective, { sender: senderFromRequest(req) })
   if (newSessionId !== objective.planning_session_id) {
     db.prepare(
       "UPDATE objectives SET planning_session_id = ?, updated_at = datetime('now') WHERE id = ?"
@@ -319,6 +321,7 @@ router.post('/:id/planning/approve', async (req: AuthRequest, res) => {
   if (nextStatus === 'working') {
     try {
       const row = db.prepare('SELECT * FROM objectives WHERE id = ?').get(req.params.id) as Objective
+      noteStartReason(row.id, 'plan_approved', 'planning')
       const sessionId = await startSession(row)
       db.prepare("UPDATE objectives SET session_id = ?, updated_at = datetime('now') WHERE id = ?").run(sessionId, req.params.id)
     } catch (err) {

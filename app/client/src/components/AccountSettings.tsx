@@ -1,162 +1,60 @@
 /**
- * Settings → Account (obj-2200 / W1).
+ * Settings → You (obj-2200 / W1).
  *
  * Per-user surface — renders for EVERY authenticated user (not admin-gated).
- * Cards: "GitHub Account" (link a personal PAT so PRs are attributed to you),
- * "Google Workspace" (obj-706070 — connect your own Google account via OAuth),
- * "Your Assistant", and "My Secrets".
- *
- * Security posture mirrored from the server:
- *   - The raw PAT is sent once over TLS on Link and is NEVER echoed back. The
- *     paste field is cleared the moment the link succeeds.
- *   - The server only ever returns the masked summary (resolved login/email +
- *     last-4), which is all this UI displays.
- *   - The Google contract returns NO token material at all (no access token,
- *     refresh token, or client secret) and this UI renders none.
+ * Cards: "API key", "Agent keys" and "My Secrets". GitHub and Google Workspace
+ * moved to Settings → Connectors (obj 720115); a pointer card links there.
  */
-import { useEffect, useState } from 'react'
-import { api, ApiError } from '../lib/api'
-import { useConfirm } from './ui'
-import type { UserGithubTokenSummary } from '@operationkit/shared'
+import { useNavigate } from '../context/nav'
 import { ApiKeySection } from './account-settings/ApiKeySection'
-import { GithubSection } from './account-settings/GithubSection'
-import { GoogleWorkspaceSection } from './account-settings/GoogleWorkspaceSection'
-import { YourAssistantSection } from './account-settings/YourAssistantSection'
+import { AgentKeysSection } from './account-settings/AgentKeysSection'
 import { MySecretsSection } from './account-settings/MySecretsSection'
 
-export { summarizeGoogleScopes } from './account-settings/GoogleWorkspaceSection'
+function ConnectorsPointer() {
+  const navigate = useNavigate()
+  return (
+    <section className="mt-6 rounded-lg border border-line bg-surface-2 p-5">
+      <h2 className="text-base font-semibold text-fg-0">GitHub and Google Workspace</h2>
+      <p className="mt-1 text-xs text-fg-3">
+        Linking your GitHub and Google accounts now lives in Connectors, together with who can use them.
+      </p>
+      <a
+        href="/settings/connectors"
+        onClick={e => {
+          if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+          e.preventDefault()
+          navigate('/settings/connectors')
+        }}
+        className="mt-3 inline-flex min-h-[44px] items-center rounded-md border border-line bg-surface-1 px-4 text-[13px] font-medium text-fg-1 transition-colors duration-fast ease-out hover:border-line-strong hover:bg-surface-3 hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[36px]"
+      >
+        Open Connectors
+      </a>
+    </section>
+  )
+}
 
 export function AccountSettings({ embedded = false }: { embedded?: boolean }) {
-  const [summary, setSummary] = useState<UserGithubTokenSummary | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-
-  // Paste flow
-  const [tokenInput, setTokenInput] = useState('')
-  const [linking, setLinking] = useState(false)
-  const [validating, setValidating] = useState(false)
-  const { confirm, confirmDialog } = useConfirm()
-
-  async function reload() {
-    setLoading(true)
-    setError('')
-    try {
-      const data = await api.get<UserGithubTokenSummary | null>('/user/github-token')
-      setSummary(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { void reload() }, [])
-
-  async function handleLink() {
-    const token = tokenInput.trim()
-    if (!token) return
-    setLinking(true)
-    setError('')
-    setNotice('')
-    try {
-      const data = await api.post<UserGithubTokenSummary>('/user/github-token', { token })
-      setSummary(data)
-      setTokenInput('') // never keep the raw token around after a successful link
-      setNotice(`Linked as ${data.github_login}.`)
-    } catch (err) {
-      const msg = err instanceof ApiError ? (err.body as { error?: string })?.error || err.message
-        : err instanceof Error ? err.message : 'Link failed'
-      setError(msg)
-    } finally {
-      setLinking(false)
-    }
-  }
-
-  async function handleRevalidate() {
-    setValidating(true)
-    setError('')
-    setNotice('')
-    try {
-      const data = await api.post<UserGithubTokenSummary>('/user/github-token/validate')
-      setSummary(data)
-      setNotice('Token re-validated.')
-    } catch (err) {
-      const msg = err instanceof ApiError ? (err.body as { error?: string })?.error || err.message
-        : err instanceof Error ? err.message : 'Re-validation failed'
-      setError(msg)
-    } finally {
-      setValidating(false)
-    }
-  }
-
-  async function handleRevoke() {
-    const ok = await confirm({
-      title: 'Revoke GitHub token?',
-      message: 'Command Center will stop using this token to attribute your PRs. This does not revoke the token on GitHub — do that in your GitHub settings too.',
-      confirmLabel: 'Revoke',
-      danger: true,
-    })
-    if (!ok) return
-    setError('')
-    setNotice('')
-    try {
-      await api.del('/user/github-token')
-      setSummary(null)
-      setNotice('Token revoked.')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Revoke failed')
-    }
-  }
-
-  const linked = summary !== null
-
   const body = (
     <>
         {!embedded && (
         <div className="mb-5">
           <h1 className="text-xl font-semibold text-fg-0">Account</h1>
-          <p className="mt-1 text-xs text-fg-3">Your personal Command Center settings.</p>
+          <p className="mt-1 text-xs text-fg-3">Your personal settings.</p>
         </div>
-        )}
-
-        {error && (
-          <div className="mb-4 rounded bg-signal-alarm/10 px-3 py-2 text-sm text-signal-alarm">{error}</div>
-        )}
-        {notice && (
-          <div className="mb-4 rounded bg-accent/10 px-3 py-2 text-sm text-accent">{notice}</div>
         )}
 
         <ApiKeySection />
 
-        <GithubSection
-          loading={loading}
-          linked={linked}
-          summary={summary}
-          tokenInput={tokenInput}
-          setTokenInput={setTokenInput}
-          linking={linking}
-          validating={validating}
-          handleLink={handleLink}
-          handleRevalidate={handleRevalidate}
-          handleRevoke={handleRevoke}
-        />
+        <AgentKeysSection />
 
-        <GoogleWorkspaceSection />
-
-        <YourAssistantSection />
+        <ConnectorsPointer />
 
         <MySecretsSection />
     </>
   )
 
   if (embedded) {
-    return (
-      <div className="max-w-3xl">
-        {body}
-        {confirmDialog}
-      </div>
-    )
+    return <div className="max-w-3xl">{body}</div>
   }
 
   return (
@@ -164,7 +62,6 @@ export function AccountSettings({ embedded = false }: { embedded?: boolean }) {
       <div className="max-w-3xl mx-auto">
         {body}
       </div>
-      {confirmDialog}
     </div>
   )
 }

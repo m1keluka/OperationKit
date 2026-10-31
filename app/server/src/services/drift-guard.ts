@@ -228,6 +228,12 @@ const DRIFT_TICK_MS = 60 * 1000
  */
 export function startDriftGuard(): void {
   if (driftTimer) return
+  // Client installs (install/docker-compose.yml) run from an immutable image
+  // with no live checkout to drift, so every check would be a false alarm.
+  if ((process.env.DRIFT_GUARD || '').trim().toLowerCase() === 'off') {
+    console.log('[drift-guard] disabled (DRIFT_GUARD=off — image-based install, no live checkout)')
+    return
+  }
   // Initial check after a short grace so the server finishes booting first.
   setTimeout(() => {
     try {

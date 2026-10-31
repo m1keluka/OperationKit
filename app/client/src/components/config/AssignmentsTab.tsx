@@ -248,7 +248,7 @@ export function AssignmentsTab() {
                 type="text"
                 value={project}
                 onChange={e => setProject(e.target.value)}
-                placeholder="e.g. example-platform"
+                placeholder="e.g. my-app"
                 className={cn(inputCls, 'w-48')}
               />
             </div>

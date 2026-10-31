@@ -4,6 +4,7 @@
  * stopPlannerSession delegates to stopSession in session-control.
  */
 import fs from 'fs'
+import { seatCredentialEnv } from './seat-credentials.js'
 import path from 'path'
 import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
@@ -80,6 +81,7 @@ export async function spawnPlannerSession(objective: Objective): Promise<string>
     effort: 'high',
     model: getPlannerModelId(),
     env: buildSpawnEnv({ objective, homeDir: account.homeDir, sessionKind: 'planner' }),
+    seatEnv: seatCredentialEnv(account),
   })
 
   registerActiveSession(sessionId, {
@@ -223,6 +225,7 @@ export async function spawnReviewerSession(objective: Objective): Promise<string
     // Reviewer keeps the per-objective TESTCRED_* spread AFTER the consolidated base
     // env (unchanged order) — those are objective-scoped, orthogonal to secret tiering.
     env: { ...buildSpawnEnv({ objective, homeDir: account.homeDir, sessionKind: 'reviewer' }), ...credEnv },
+    seatEnv: seatCredentialEnv(account),
   })
 
   registerActiveSession(sessionId, {

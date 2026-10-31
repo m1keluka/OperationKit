@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Modal, Skeleton } from './ui'
+import { useWorkspaces } from '../hooks/useWorkspaces'
 
 const POLL_INTERVAL_MS = 60_000
 
@@ -15,20 +16,6 @@ interface MeetingActionItem {
   source_excerpt: string | null
   meeting_title: string | null
   meeting_date: string | null
-}
-
-const WORKSPACE_BADGE: Record<string, string> = {
-  example: 'bg-status-working/20 text-status-working',
-  'example-project': 'bg-green-500/20 text-green-400',
-  example2: 'bg-amber-500/20 text-amber-400',
-  personal: 'bg-surface-3/20 text-fg-2',
-}
-
-const WORKSPACE_LABEL: Record<string, string> = {
-  example: 'Example',
-  'example-project': 'Example Project',
-  example2: 'Example Two',
-  personal: 'Personal',
 }
 
 const PRIORITY_BADGE: Record<number, { label: string; className: string }> = {
@@ -97,6 +84,7 @@ interface DrawerProps {
 }
 
 function MeetingQueueDrawer({ onClose, onItemResolved }: DrawerProps) {
+  const { labelOf } = useWorkspaces()
   const [items, setItems] = useState<MeetingActionItem[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -176,8 +164,8 @@ function MeetingQueueDrawer({ onClose, onItemResolved }: DrawerProps) {
             <ul className="divide-y divide-border">
               {items.map(item => {
                 const priority = PRIORITY_BADGE[item.priority] ?? PRIORITY_BADGE[3]
-                const wsBadge = WORKSPACE_BADGE[item.workspace] ?? 'bg-surface-3/20 text-fg-2'
-                const wsLabel = WORKSPACE_LABEL[item.workspace] ?? item.workspace
+                const wsBadge = 'bg-surface-3/20 text-fg-2'
+                const wsLabel = labelOf(item.workspace)
                 return (
                   <li key={item.id} className="p-4 hover:bg-surface-overlay/50 transition-colors duration-fast ease-out">
                     {/* Meeting title + date */}

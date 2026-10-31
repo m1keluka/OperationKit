@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
 import { LoginPage } from './components/LoginPage'
+import { ChangePasswordPage } from './components/ChangePasswordPage'
 import { PageTransition } from './components/PageTransition'
 import { RouteFallback } from './components/RouteFallback'
 import { NavContext, useNavigate } from './context/nav'
@@ -11,6 +12,7 @@ import { BoardShell, BoardThemeProvider } from './preview/BoardShell'
 import { PreviewBoard } from './preview/PreviewBoard'
 import { PreviewArchive } from './preview/PreviewArchive'
 import { PreviewWorkspace } from './preview/PreviewWorkspace'
+import { HAS_CHAT_PAGE } from './lib/optional-pages'
 import type { Workspace } from '@operationkit/shared'
 
 // Route-level code-splitting (obj 700585): the board is the landing surface
@@ -18,24 +20,26 @@ import type { Workspace } from '@operationkit/shared'
 // importantly the heavy BlockNote editor pulled in by DocsPage — no longer
 // weighs down the initial bundle that blocks first paint.
 const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })))
-const MentorPage = lazy(() => import('./components/MentorPage').then(m => ({ default: m.MentorPage })))
+const AgentChatPage = lazy(() => import('./components/agent-chat/AgentChatPage').then(m => ({ default: m.AgentChatPage })))
 const ProjectFeed = lazy(() => import('./components/ProjectFeed').then(m => ({ default: m.ProjectFeed })))
 const DocsPage = lazy(() => import('./components/DocsPage').then(m => ({ default: m.DocsPage })))
 const ContactsPage = lazy(() => import('./components/ContactsPage').then(m => ({ default: m.ContactsPage })))
 const StatusPage = lazy(() => import('./components/StatusPage').then(m => ({ default: m.StatusPage })))
 const SettingsPage = lazy(() => import('./components/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const SettingsSecrets = lazy(() => import('./components/settings/SettingsSecrets').then(m => ({ default: m.SettingsSecrets })))
+const SettingsConnectors = lazy(() => import('./components/settings/SettingsConnectors').then(m => ({ default: m.SettingsConnectors })))
+const SettingsSeats = lazy(() => import('./components/settings/SettingsSeats').then(m => ({ default: m.SettingsSeats })))
 const SettingsOrg = lazy(() => import('./components/settings/SettingsOrg').then(m => ({ default: m.SettingsOrg })))
 const SettingsAgents = lazy(() => import('./components/settings/SettingsAgents').then(m => ({ default: m.SettingsAgents })))
 const SettingsPlatform = lazy(() => import('./components/settings/SettingsPlatform').then(m => ({ default: m.SettingsPlatform })))
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })))
 const LoopsPage = lazy(() => import('./components/LoopsPage').then(m => ({ default: m.LoopsPage })))
-const GranolaPage = lazy(() => import('./components/GranolaPage').then(m => ({ default: m.GranolaPage })))
 const JobsBoard = lazy(() => import('./components/JobsBoard').then(m => ({ default: m.JobsBoard })))
 const StrategiesPage = lazy(() => import('./components/StrategiesPage').then(m => ({ default: m.StrategiesPage })))
 const StrategyDetailPage = lazy(() => import('./components/StrategyDetailPage').then(m => ({ default: m.StrategyDetailPage })))
 const DevelopmentPage = lazy(() => import('./components/DevelopmentPage').then(m => ({ default: m.DevelopmentPage })))
 const AgentsPage = lazy(() => import('./components/AgentsPage').then(m => ({ default: m.AgentsPage })))
+const AgentTemplatesPage = lazy(() => import('./components/AgentTemplatesPage').then(m => ({ default: m.AgentTemplatesPage })))
 /**
  * Extract /w/<workspace> from a pathname. Returns null when not a workspace path.
  * Slugs are validated lexically only — the server (via /api/workspaces and
@@ -167,6 +171,11 @@ function AppContent() {
     return <LoginPage />
   }
 
+  // One-time setup password (client installs, obj 719935): nothing else until it is replaced.
+  if (user.must_change_password) {
+    return <ChangePasswordPage />
+  }
+
   const isBoardPath = pathname === '/' || workspaceFromPath(pathname) !== null
     || /^\/o\/\d+\/?$/.test(pathname)
     || pathname === '/archive'
@@ -202,26 +211,33 @@ function AppContent() {
           <Route path="/preview/*" element={<Navigate to="/" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/config" element={<Navigate to="/settings/org" replace />} />
-          <Route path="/assistant" element={<Navigate to="/assistant" replace />} />
-          <Route path="/mentor" element={<MentorPage />} />
-          <Route path="/assistant" element={<MentorPage />} />
+          {/* The built-in assistant was removed (obj 720115); its old URLs land on agent chat when present. */}
+          <Route path="/assistant" element={<Navigate to={HAS_CHAT_PAGE ? '/chat' : '/'} replace />} />
+          <Route path="/mentor" element={<Navigate to={HAS_CHAT_PAGE ? '/chat' : '/'} replace />} />
+          <Route path="/assistant" element={<Navigate to={HAS_CHAT_PAGE ? '/chat' : '/'} replace />} />
+          <Route path="/chat" element={<AgentChatPage />} />
+          <Route path="/chat/:slug" element={<AgentChatPage />} />
           <Route path="/feed" element={<ProjectFeed workspace={workspace} />} />
           <Route path="/development/*" element={<DevelopmentPage workspace={workspace} />} />
           <Route path="/feedback" element={<Navigate to="/development" replace />} />
-          <Route path="/docs" element={<DocsPage />} />
+          <Route path="/knowledge" element={<DocsPage workspace={workspace} />} />
+          <Route path="/docs" element={<Navigate to="/knowledge" replace />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/status" element={<StatusPage />} />
           <Route path="/costs" element={<Navigate to="/dashboard" replace />} />
           <Route path="/loops" element={<LoopsPage />} />
-          <Route path="/granola" element={<GranolaPage />} />
+          <Route path="/granola" element={<Navigate to="/" replace />} />
           <Route path="/jobs" element={<JobsBoard workspace={workspace} />} />
           <Route path="/agents" element={<AgentsPage workspace={workspace} />} />
+          <Route path="/agent-templates" element={<AgentTemplatesPage />} />
           <Route path="/strategies" element={<StrategiesPage workspace={workspace} />} />
           <Route path="/strategy/:id" element={<StrategyDetailPage workspace={workspace} />} />
           <Route path="/settings" element={<SettingsPage />}>
             <Route index element={<Navigate to="you" replace />} />
             <Route path="you" element={<AccountSettings embedded />} />
             <Route path="secrets" element={<SettingsSecrets />} />
+            <Route path="connectors" element={<SettingsConnectors />} />
+            <Route path="seats" element={<SettingsSeats />} />
             <Route path="org" element={<SettingsOrg />} />
             <Route path="agents" element={<SettingsAgents />} />
             <Route path="platform" element={<SettingsPlatform />} />

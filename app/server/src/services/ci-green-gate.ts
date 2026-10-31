@@ -105,7 +105,9 @@ export {
 
 export {
   applyGateHandback,
+  clearGateFailStamp,
   ensureGateTable,
+  GATE_HANDBACK_PREFIX,
   getGateRow,
   listNonGreenCompletions,
   renderNonGreenCompletions,

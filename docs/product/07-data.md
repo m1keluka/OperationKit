@@ -32,6 +32,8 @@ How to read it: a **person** belongs to **organizations**. An organization links
 | Login, orgs, who’s on the team | `users`, `user_workspaces`, `workspaces` |
 | Board cards | `objectives`, `objective_assignees`, `objective_prs`, `blocked_objectives`, `projects` |
 | Jobs / cron | `routines` |
+| Agent roster (Settings → Agents) | `agents` |
+| Content engine | `content_owners` |
 | Live session | `session_runtime`, `session_events`, `session_file_ops`, `session_leases`, `branch_leases` |
 | Spend / “what happened” | `session_intel`, `session_usage_daily`, `activity_log` |
 | GitHub as you | `user_github_tokens` |
@@ -43,7 +45,7 @@ How to read it: a **person** belongs to **organizations**. An organization links
 | Reviewer QA logins | `test_credentials` |
 | Host flags | `settings` |
 
-Hidden chrome (still in the DB): `dev_items*` (Development), `contacts_index`, `granola_*`, `uptime_events`, DSR/canary/UAT/kitchen/drift tables. They are real; they are not the daily product.
+Hidden chrome (still in the DB): `dev_items*` (Development), `contacts_index`, `granola_*`, `uptime_events`, DSR/canary/UAT/kitchen/drift tables, and the mid-run card visibility trio (`objective_progress`, `session_starts`, `fanout_groups` — back `GET /api/objectives/:id/progress` and fan-out children). They are real; they are not the daily product.
 
 ## Not SQLite
 
@@ -61,6 +63,6 @@ Hidden chrome (still in the DB): `dev_items*` (Development), `contacts_index`, `
 
 Generated from `app/server/src/db/schema/*.ts` (`CREATE TABLE IF NOT EXISTS`). If a name appears in schema and not here, the breathe Job must add it.
 
-`alerts` · `assistant_configs` · `activity_log` · `blocked_objectives` · `branch_leases` · `canary_runs` · `changelog_entries` · `contacts_index` · `dev_ingest_idempotency` · `dev_item_attachments` · `dev_item_notes` · `dev_item_prs` · `dev_items` · `doppler_scoped_tokens` · `dsr_candidates` · `dsr_fingerprints` · `dsr_lens_misses` · `dsr_runs` · `dsr_signal_stats` · `external_check_remediations` · `gmail_triage` · `granola_action_items` · `granola_processed_meetings` · `kitchen_loop_runs` · `loop_drift_metrics` · `mentor_summaries` · `mentor_threads` · `models` · `objective_assignees` · `objective_audit` · `objective_floor_runs` · `objective_learnings` · `objective_prs` · `objective_reviews` · `objective_uat_runs` · `objectives` · `planning_conversations` · `projects` · `resource_assignments` · `contactbook_threads` · `routines` · `scratchpads` · `secret_access_log` · `secret_versions` · `secrets` · `session_account_override` · `session_corrections` · `session_events` · `session_file_ops` · `session_intel` · `session_leases` · `session_runtime` · `session_usage_daily` · `settings` · `test_credentials` · `thread_folders` · `uptime_events` · `user_github_tokens` · `user_google_connections` · `user_workspaces` · `users` · `workspace_integrations` · `workspace_repos` · `workspaces`
+`agent_api_keys` · `agent_chat_cards` · `agent_chat_drafts` · `agent_chat_messages` · `agents` · `alerts` · `assistant_configs` · `activity_log` · `blocked_objectives` · `branch_leases` · `canary_runs` · `changelog_entries` · `contacts_index` · `content_owners` · `dev_ingest_idempotency` · `dev_item_attachments` · `dev_item_notes` · `dev_item_prs` · `dev_items` · `doppler_scoped_tokens` · `dsr_candidates` · `dsr_fingerprints` · `dsr_lens_misses` · `dsr_runs` · `dsr_signal_stats` · `external_check_remediations` · `fanout_groups` · `gmail_triage` · `granola_action_items` · `granola_processed_meetings` · `idempotency_keys` · `kitchen_loop_runs` · `loop_drift_metrics` · `mentor_summaries` · `mentor_threads` · `models` · `objective_assignees` · `objective_audit` · `objective_events` · `objective_floor_runs` · `objective_learnings` · `objective_progress` · `objective_prs` · `objective_reviews` · `objective_uat_runs` · `objectives` · `planning_conversations` · `projects` · `resource_assignments` · `contactbook_threads` · `routines` · `scratchpads` · `secret_access_log` · `secret_rotation_flags` · `secret_versions` · `secrets` · `session_account_override` · `session_corrections` · `session_events` · `session_file_ops` · `session_intel` · `session_leases` · `session_runtime` · `session_starts` · `session_usage_daily` · `settings` · `test_credentials` · `thread_folders` · `uptime_events` · `user_github_tokens` · `user_google_connections` · `user_workspaces` · `users` · `workspace_integrations` · `workspace_repos` · `workspaces`
 
 Also created in `db/index.ts` (not the schema folder): `schema_meta`, `gate_false_pass`, `projects` (+ `project_id` column on `objectives`).

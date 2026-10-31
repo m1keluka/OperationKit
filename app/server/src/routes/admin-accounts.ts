@@ -6,7 +6,7 @@
  */
 import { Router } from 'express'
 import type { Response } from 'express'
-import { execSync, spawn, spawnSync } from 'child_process'
+import { execSync, spawnSync } from 'child_process'
 import fs from 'fs'
 import type { AuthRequest } from '../middleware/auth.js'
 import { getAccountRouterStatus } from '../services/session-manager.js'
@@ -16,13 +16,15 @@ import {
   getAccountById,
   setAccountLabel,
   addAccountSlot,
+  ensureLegacySeat,
   recordRateLimit,
   recordAuthFailure,
   clearAuthFailure,
-  isRateLimitMessage,
   isAuthFailureMessage,
   parseResetTime,
 } from '../services/account-router.js'
+import { probeAccount } from '../services/account-probe.js'
+import { checkSlot } from '../services/account-health-check.js'
 import { grokAuthAvailable, GROK_HOME_DIR, ensureGrokCliExecutable } from '../services/session-spawn-command.js'
 import { extractGrokDeviceAuth, grokLoginSucceeded } from '../services/grok-device-auth.js'
 
@@ -36,7 +38,10 @@ router.get('/accounts', (_req: AuthRequest, res) => {
 router.post('/accounts', (req: AuthRequest, res) => {
   const label = typeof req.body?.label === 'string' ? req.body.label : ''
   const kind = req.body?.kind === 'grok' ? 'grok' : 'claude'
-  const created = addAccountSlot({ label, kind })
+  // Dashboard "Add Grok" keeps targeting the one Connect-able Grok seat;
+  // more Grok / Codex seats are added in Settings → Seats.
+  const created = kind === 'grok' ? ensureLegacySeat('grok') : addAccountSlot({ label, kind })
+  if (kind === 'grok' && label.trim()) setAccountLabel('grok', label)
   res.status(201).json({ ok: true, account: { id: created.id, label: created.customLabel || created.label, kind: created.kind || 'claude', homeDir: created.homeDir }, status: getAccountRouterStatus() })
 })
 
@@ -276,7 +281,15 @@ router.post('/accounts/:id/connect/submit', async (req: AuthRequest, res) => {
       clearAuthFailure(id)
       forceClearRateLimit(id)
       try { execSync(`tmux kill-session -t ${tmuxName} 2>/dev/null || true`, { timeout: 5000 }) } catch { /* noop */ }
-      res.json({ ok: true, success: true, status: getAccountRouterStatus() })
+      // A fresh login doesn't prove the seat can serve: an org that disabled
+      // subscription access still 403s. Health-check it right away so it is
+      // re-parked (needs admin) before any card lands on it. (obj 717767)
+      const health = await checkSlot(id)
+      if (health === 'parked') {
+        res.json({ ok: false, success: true, needsAdmin: getAccountById(id)?.authFailureReason === 'needs_admin', error: 'Signed in, but Anthropic still rejects this account (see the alert). It stays parked until a health check passes.', status: getAccountRouterStatus() })
+        return
+      }
+      res.json({ ok: true, success: true, health, status: getAccountRouterStatus() })
       return
     }
     if (/invalid|expired|failed|not valid|error/i.test(p)) {
@@ -293,7 +306,7 @@ router.post('/accounts/:id/connect/submit', async (req: AuthRequest, res) => {
  * No paste-back — the client polls /connect/status until the file appears.
  */
 async function startGrokDeviceLogin(res: Response): Promise<void> {
-  addAccountSlot({ kind: 'grok' })
+  ensureLegacySeat('grok')
   try {
     fs.mkdirSync(GROK_HOME_DIR, { recursive: true })
     fs.chmodSync(GROK_HOME_DIR, 0o777)
@@ -400,58 +413,5 @@ function extractOAuthUrl(pane: string): string | null {
   }
   return /^https:\/\/claude\.(com|ai)\/\S*oauth\/authorize\?/.test(url) ? url : null
 }
-
-/**
- * Run a single non-interactive Claude turn as the given account HOME and report
- * whether it served, was rate-limited, or failed. Uses spawn (not execSync) so
- * the ~45s probe never blocks the event loop, with a hard kill on timeout.
- *
- * CRITICAL: the probe must `unset` ANTHROPIC_API_KEY (and the other provider
- * keys) exactly like session-manager does before spawning a session. The server
- * process has ANTHROPIC_API_KEY in its env; without unsetting it, `claude` falls
- * back to API-key billing and returns a healthy "Pong" even when the account's
- * SUBSCRIPTION OAuth credential is dead — a false "serving" that masks the very
- * auth failure we're trying to detect. Stripping the keys makes the probe use
- * the same OAuth path sessions do, so its verdict matches real session behavior.
- */
-function probeAccount(homeDir: string): Promise<{ ok: boolean; rateLimited: boolean; authFailure: boolean; output: string }> {
-  return new Promise((resolve) => {
-    let out = ''
-    let settled = false
-    const child = spawn(
-      'runuser',
-      [
-        '-u', 'ccuser', '--', 'bash', '-c',
-        `unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY; ` +
-        `export HOME=${JSON.stringify(homeDir)} TERM=dumb; ` +
-        `exec claude -p ping --dangerously-skip-permissions`,
-      ],
-      { cwd: homeDir, env: { ...process.env, TERM: 'dumb' } },
-    )
-    const done = (result: { ok: boolean; rateLimited: boolean; authFailure: boolean; output: string }) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve(result)
-    }
-    const timer = setTimeout(() => {
-      try { child.kill('SIGKILL') } catch {}
-      done({ ok: false, rateLimited: false, authFailure: false, output: out || 'probe timed out after 45s' })
-    }, 45000)
-    child.stdout?.on('data', (d) => { out += d.toString() })
-    child.stderr?.on('data', (d) => { out += d.toString() })
-    child.on('error', (err) => {
-      done({ ok: false, rateLimited: false, authFailure: false, output: `spawn error: ${err.message}` })
-    })
-    child.on('close', (code) => {
-      const rateLimited = isRateLimitMessage(out)
-      const authFailure = isAuthFailureMessage(out)
-      // Serving iff a clean exit that isn't secretly a rate-limit/auth message.
-      const ok = code === 0 && !rateLimited && !authFailure
-      done({ ok, rateLimited, authFailure, output: out })
-    })
-  })
-}
-
 
 export default router

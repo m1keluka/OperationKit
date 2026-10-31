@@ -10,12 +10,16 @@ import {
   recordRateLimit,
   recordAuthFailure,
   clearRateLimit,
+  recordCreditsExhausted,
   isRateLimitMessage,
-  isAuthFailureMessage,
+  isAuthFailureEvent,
+  authParkReason,
+  type AuthParkReason,
   isSpendCapMessage,
   parseResetTime,
 } from './account-router.js'
 import { queueExtraction } from './session-intel-pipeline.js'
+import { classifySeatFailure } from './seat-pool.js'
 import { extractFinalUsage } from './session-usage.js'
 import { extractClaudeSessionId } from './session-jsonl.js'
 import { activeSessions, forgetSpawnClock, spawnSegmentOffset } from './session-registry.js'
@@ -66,6 +70,39 @@ export interface SessionDeathResult {
    * (a max_turns result carries subtype `error_max_turns`, not a 429/529). (obj 1487)
    */
   turnsExhausted: boolean
+  /**
+   * True when the death was an auth failure (401, or 403 "organization has
+   * disabled Claude subscription access"). The account is already parked by
+   * recordAuthFailure; `authReason` says whether it needs an admin (org
+   * disabled) or a reconnect (dead OAuth). limitHit is also true so legacy
+   * callers still rotate rather than review. (obj 717767)
+   */
+  authFailed: boolean
+  authReason: AuthParkReason | null
+  /** Tool calls made in the CURRENT spawn segment (0 = died before doing any work). */
+  toolCalls: number
+  /** Account the session ran on (for naming the parked slot on the card). */
+  accountId: string | null
+}
+
+/**
+ * Pure: count tool_use blocks in a set of JSONL lines (the current spawn
+ * segment). Malformed lines are skipped. Used to tell "auth died before any
+ * work" (stop, don't respawn) from "auth died mid-run" (rotate). (obj 717767)
+ */
+export function countToolCalls(lines: string[]): number {
+  let n = 0
+  for (const line of lines) {
+    if (!line.includes('tool_use')) continue
+    try {
+      const ev = JSON.parse(line)
+      const content = ev?.message?.content
+      if (ev?.type === 'assistant' && Array.isArray(content)) {
+        n += content.filter((c: { type?: string }) => c?.type === 'tool_use').length
+      }
+    } catch {}
+  }
+  return n
 }
 
 /**
@@ -133,13 +170,16 @@ export function decideTurnsContinue(input: { count: number; max: number }): { co
 
 export function handleSessionDeath(sessionId: string): SessionDeathResult {
   const session = activeSessions.get(sessionId)
-  if (!session) return { limitHit: false, spendCapHit: false, overloaded: false, turnsExhausted: false }
+  if (!session) return { limitHit: false, spendCapHit: false, overloaded: false, turnsExhausted: false, authFailed: false, authReason: null, toolCalls: 0, accountId: null }
 
   const { accountId, jsonlPath, logPath, objective } = session
   let limitHit = false
   let spendCapHit = false
   let overloaded = false
   let turnsExhausted = false
+  let authFailed = false
+  let authReason: AuthParkReason | null = null
+  let toolCalls = 0
 
   // Capture the Claude CLI session id for native --resume follow-ups, and
   // scan the finished turn for refusal / fallback-model telemetry.
@@ -183,13 +223,22 @@ export function handleSessionDeath(sessionId: string): SessionDeathResult {
           if (event.type === 'error' || (event.type === 'result' && (event.subtype === 'error' || event.is_error))) {
             const errorsText = Array.isArray(event.errors) ? event.errors.filter(Boolean).join('; ') : ''
             const text = event.error || event.result || event.text || errorsText
-            if (event.api_error_status === 429 || (text && isRateLimitMessage(text))) {
-              const resetTime = text ? parseResetTime(text) : null
-              recordRateLimit(accountId, resetTime || undefined, text || `HTTP ${event.api_error_status}`)
+            // Seat pool v2 failure classes (seat-pool.ts): credits / spend cap
+            // parks the seat (no timer, no rotation churn); a plain rate limit
+            // cools it down to the stated reset or an exponential backoff.
+            const seatFailure = classifySeatFailure({ status: event.api_error_status, text })
+            if (event.api_error_status === 429 || (text && isRateLimitMessage(text)) || seatFailure === 'credits_exhausted') {
+              const creditsOut = seatFailure === 'credits_exhausted' || (!!text && isSpendCapMessage(text))
+              if (creditsOut) {
+                recordCreditsExhausted(accountId, text || `HTTP ${event.api_error_status}`)
+              } else {
+                const resetTime = text ? parseResetTime(text) : null
+                recordRateLimit(accountId, resetTime || undefined, text || `HTTP ${event.api_error_status}`)
+              }
               limitHit = true
-              if (text && isSpendCapMessage(text)) {
+              if (creditsOut) {
                 spendCapHit = true
-                console.log(`[session-manager] Spend-cap (monthly/org) detected on session death for ${sessionId}, account ${accountId} — will park for admin action`)
+                console.log(`[session-manager] Spend-cap / credits exhausted on session death for ${sessionId}, seat ${accountId} — seat parked, card parked for admin action`)
               } else {
                 console.log(`[session-manager] Rate limit detected on session death for ${sessionId}, account ${accountId}`)
               }
@@ -208,22 +257,31 @@ export function handleSessionDeath(sessionId: string): SessionDeathResult {
             // accounts-limited path instead of storming. (The default ~5h bench
             // self-heals once the key is rotated; a 401 that outlives it re-benches
             // on the next death rather than re-entering the no-op respawn loop.)
-            if (event.api_error_status === 401 || (text && isAuthFailureMessage(text))) {
+            // 403 "Your organization has disabled Claude subscription access …
+            // ask your admin to enable access" is handled exactly like a 401
+            // (obj 717767) but parked with the distinct needs_admin reason.
+            if (isAuthFailureEvent(event.api_error_status, text || '')) {
               // A 401 is a CREDENTIAL problem, not quota — record it as an auth
-              // failure so the slot is parked as "reconnect needed" (permanent
-              // until re-login) instead of a fake 5h rate-limit that re-benches
-              // in a loop on every subsequent 401. `limitHit` still fires so the
-              // caller rotates away / auto-pauses via the all-accounts-down path.
-              recordAuthFailure(accountId, text || `HTTP 401 authentication_failed`)
+              // failure so the slot is parked (permanent until re-login or a
+              // passing health check) instead of a fake 5h rate-limit that
+              // re-benches in a loop on every subsequent 401. `limitHit` still
+              // fires so a mid-run death rotates away; the poller stops a
+              // 0-tool-call auth death outright (see handleAuthDeath).
+              const trigger = text || `HTTP ${event.api_error_status ?? 401} authentication_failed`
+              recordAuthFailure(accountId, trigger)
               limitHit = true
-              console.error(`[session-manager] 401 auth failure on session death for ${sessionId}, account ${accountId} — parked as reconnect-needed (re-login required)`)
+              authFailed = true
+              authReason = authParkReason(trigger)
+              console.error(`[session-manager] Auth failure (${authReason}) on session death for ${sessionId}, account ${accountId} — slot parked`)
               break
             }
             // Anthropic "Overloaded" (HTTP 529): a transient GLOBAL capacity error,
             // NOT a per-account limit, so we do NOT bench the account (rotation is
             // futile — every account hits the same overloaded API). The caller
             // retries this same session after a backoff instead.
-            if (event.api_error_status === 529 || (text && /overloaded/i.test(text))) {
+            // Any other 5xx is the same class (transient, no seat penalty).
+            const status = event.api_error_status
+            if (status === 529 || (typeof status === 'number' && status >= 500 && status <= 599) || (text && /overloaded/i.test(text))) {
               overloaded = true
               console.log(`[session-manager] Anthropic overload (529) detected on session death for ${sessionId}, account ${accountId}`)
               break
@@ -245,6 +303,7 @@ export function handleSessionDeath(sessionId: string): SessionDeathResult {
     const segOffset = spawnSegmentOffset.get(sessionId)
     const tail = (segOffset != null ? allLines.slice(segOffset) : allLines).slice(-5)
     turnsExhausted = detectTurnsExhausted(tail)
+    toolCalls = countToolCalls(segOffset != null ? allLines.slice(segOffset) : allLines)
     if (turnsExhausted) {
       console.log(`[session-manager] max_turns terminal exit detected on session death for ${sessionId} — eligible for bounded auto-continue`)
     }
@@ -287,7 +346,7 @@ export function handleSessionDeath(sessionId: string): SessionDeathResult {
   // session is progressing, so a later max_turns starts its continue budget
   // fresh. Only consecutive max_turns deaths accumulate toward the bound.
   if (!turnsExhausted) turnsContinueCounts.delete(sessionId)
-  return { limitHit, spendCapHit, overloaded, turnsExhausted }
+  return { limitHit, spendCapHit, overloaded, turnsExhausted, authFailed, authReason, toolCalls, accountId: accountId ?? null }
 }
 
 export const autoResumeCounts = new Map<string, number>()

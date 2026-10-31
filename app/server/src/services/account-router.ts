@@ -1,5 +1,19 @@
 import fs from 'fs'
 import path from 'path'
+import { ACCOUNT_STATE_FILE, RATE_LIMIT_LOG as DEFAULT_RATE_LIMIT_LOG } from '../config.js'
+import { SANDBOX_ACCOUNT_ID, sandboxAuthConfigured } from './sandbox-claude-auth.js'
+import { jailEnabled } from './session-jail.js'
+import { CODEX_HOME_DIR, GROK_HOME_DIR } from './session-spawn-command.js'
+import {
+  applyGoodTurn,
+  applySeatFailure,
+  pickSeat,
+  seatHealth,
+  seatKind,
+  type SeatCredentialKind,
+  type SeatHealth,
+  type SeatKind,
+} from './seat-pool.js'
 
 // ── Types ──
 
@@ -12,32 +26,46 @@ export interface UsageEvent {
                        // existing entry for that sessionId rather than appending a duplicate.
 }
 
-export type AccountKind = 'claude' | 'grok'
+/** Which engine a seat logs into. Many seats per kind (seat pool v2). */
+export type AccountKind = SeatKind
+
+export type AuthParkReason = 'needs_admin' | 'needs_reconnect'
 
 export interface AccountSlot {
-  id: string               // 'a' | 'b' | 'c' | 'd' | 'e' | dynamically added
-  label: string            // default human-readable name (from DEFAULT_ACCOUNTS)
-  // Operator-set display name that overrides `label`. Persisted (NOT forced from
-  // DEFAULT_ACCOUNTS on load) so a rename sticks. Effective label = customLabel || label.
+  id: string               // stable seat id (generated; never a person or a machine)
+  label: string            // default human-readable name ("Seat 1", …)
+  // Operator-set display name that overrides `label`. Persisted so a rename
+  // sticks. Effective label = customLabel || label.
   customLabel?: string | null
-  kind?: AccountKind       // default 'claude' (rotation). 'grok' is a SuperGrok sub, not Claude rotation.
-  priority: number         // lower = preferred. Accounts are filled in priority order;
-                           // a higher number means "use this account last" (e.g. a personal
-                           // account we want to avoid cooking until everything else is exhausted)
-  homeDir: string          // HOME env for this account
+  kind?: AccountKind       // default 'claude'
+  priority: number         // lower = preferred. Seats are filled in priority order.
+  homeDir: string          // HOME for this seat (CLI login files live here)
+  // ── Seat pool v2 (all optional so v1 state files load unchanged) ──
+  enabled?: boolean                         // false = operator disabled (never picked)
+  credentialRef?: string | null             // secrets-store key holding a pasted setup token — the NAME only
+  credentialKind?: SeatCredentialKind | null // setup_token (pasted) | cli_login (CLI login files in homeDir)
+  credentialHint?: string | null            // last 4 chars at most, for the masked summary
+  credentialAddedAt?: string | null         // ISO, when the credential was added/rotated
+  credentialExpiresAt?: string | null       // ISO, when known
+  creditsExhaustedAt?: string | null        // credits / spend cap hit — parked until a good turn / passing test
+  consecutiveFailures?: number              // drives the rate-limit backoff
   sessionsToday: number
   tokensToday: number
   costToday: number
   lastRateLimit: string | null   // ISO timestamp
-  rateLimitResetsAt: string | null // ISO timestamp when limit resets
+  rateLimitResetsAt: string | null // ISO — the seat's cooldown_until (name kept for state-file compatibility)
   // Set when the account's OAuth credential is dead (401: expired/revoked token,
   // invalid credentials). DISTINCT from a rate limit: a 401 is a CREDENTIAL
   // problem that never self-heals on a timer — the slot needs a re-login
   // (Reconnect), not a cooldown. Kept separate so it surfaces as "Reconnect
   // needed" instead of a fake 5h "Exhausted", and so pickAccount parks the slot
-  // permanently (no re-bench loop) until it's re-authenticated. Optional so
-  // existing persisted state / DEFAULT_ACCOUNTS need no migration.
+  // permanently (no re-bench loop) until it's re-authenticated.
   authFailedAt?: string | null   // ISO timestamp of the last 401 auth failure
+  // WHY the slot is parked. 'needs_admin' = the seat's org disabled
+  // subscription access (403, usually a past-due sub) — a re-login does NOT fix
+  // it, an admin has to. 'needs_reconnect' = dead/expired OAuth (re-login fixes
+  // it). Absent on pre-existing parks → treated as needs_reconnect.
+  authFailureReason?: AuthParkReason | null
   activeSessions: string[]       // session IDs currently using this account
   usageLog: UsageEvent[]         // timestamped usage for rolling window calculations
 }
@@ -48,6 +76,7 @@ export interface QueuedSession {
 }
 
 export interface RouterState {
+  version?: number         // 2 = seat pool v2 fields migrated
   accounts: AccountSlot[]
   queue: QueuedSession[]
   lastResetDate: string    // YYYY-MM-DD, resets daily counters
@@ -55,45 +84,79 @@ export interface RouterState {
 
 // ── Constants ──
 
-const STATE_FILE = '/home/operator/transcripts/account-router-state.json'
-const RATE_LIMIT_LOG = '/home/operator/transcripts/rate-limit-history.jsonl'
-const ACCOUNT_HOME_BASE = '/home/ccuser'
-
-// Default rate limit reset window (5 hours from when limit was hit)
-const DEFAULT_RESET_HOURS = 5
+// Env overrides exist so the test suite never reads/rewrites the live files
+// (vitest.setup.ts points both at temp paths).
+const STATE_FILE = process.env.CC_ACCOUNT_ROUTER_STATE_FILE || ACCOUNT_STATE_FILE
+const RATE_LIMIT_LOG = process.env.CC_RATE_LIMIT_LOG || DEFAULT_RATE_LIMIT_LOG
 
 // Rolling window durations (matching Claude's plan usage display)
 const SESSION_WINDOW_MS = 5 * 60 * 60 * 1000   // 5 hours
 const WEEKLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
-const DEFAULT_ACCOUNTS: AccountSlot[] = [
-  // priority 10 = personal account (dev@example.com, also used in the Claude app).
-  // Deprioritized so it is only picked when every other account is rate-limited.
-  { id: 'a', label: 'Primary (personal)', priority: 10, homeDir: `${ACCOUNT_HOME_BASE}-a`, sessionsToday: 0, tokensToday: 0, costToday: 0, lastRateLimit: null, rateLimitResetsAt: null, activeSessions: [], usageLog: [] },
-  { id: 'b', label: 'Secondary', priority: 0, homeDir: `${ACCOUNT_HOME_BASE}-b`, sessionsToday: 0, tokensToday: 0, costToday: 0, lastRateLimit: null, rateLimitResetsAt: null, activeSessions: [], usageLog: [] },
-  { id: 'c', label: 'Tertiary', priority: 0, homeDir: `${ACCOUNT_HOME_BASE}-c`, sessionsToday: 0, tokensToday: 0, costToday: 0, lastRateLimit: null, rateLimitResetsAt: null, activeSessions: [], usageLog: [] },
-  { id: 'd', label: 'Quaternary', priority: 0, homeDir: `${ACCOUNT_HOME_BASE}-d`, sessionsToday: 0, tokensToday: 0, costToday: 0, lastRateLimit: null, rateLimitResetsAt: null, activeSessions: [], usageLog: [] },
-  { id: 'e', label: 'Quinary (Pro Max)', priority: 0, homeDir: `${ACCOUNT_HOME_BASE}-e`, sessionsToday: 0, tokensToday: 0, costToday: 0, lastRateLimit: null, rateLimitResetsAt: null, activeSessions: [], usageLog: [] },
-  // Dynamic slots live under the already-mounted /app/data (host:
-  // /home/operator/data/command-center/cc-accounts/<slot>), so adding more needs no
-  // compose volume and no container recreate. f, g added 2026-06-21.
-  { id: 'f', label: 'Senary (Pro Max)', priority: 0, homeDir: '/app/data/cc-accounts/f', sessionsToday: 0, tokensToday: 0, costToday: 0, lastRateLimit: null, rateLimitResetsAt: null, activeSessions: [], usageLog: [] },
-  { id: 'g', label: 'Septenary (Pro Max)', priority: 0, homeDir: '/app/data/cc-accounts/g', sessionsToday: 0, tokensToday: 0, costToday: 0, lastRateLimit: null, rateLimitResetsAt: null, activeSessions: [], usageLog: [] },
-]
+/** Where new seats get their HOME (CLI login files). Under the data volume so no compose change is needed. */
+export const SEAT_HOME_ROOT = process.env.CC_SEAT_HOME_ROOT || '/app/data/cc-accounts'
 
-const DYNAMIC_HOME_ROOT = '/app/data/cc-accounts'
-const RESERVED_IDS = new Set(['codex', 'grok'])
+/**
+ * Seed seats. There are no built-in seats: an install starts with an empty pool
+ * (plus the server-token fallback seat for sandboxed sessions when that token is
+ * set). An operator who wants seats pre-declared can point CC_SEAT_POOL_DEFAULTS
+ * at a JSON array of `{ id, label?, kind?, priority?, homeDir? }`. Seats saved in
+ * the state file always win over the seed (renames, priorities, history).
+ */
+export function loadSeatDefaults(file = process.env.CC_SEAT_POOL_DEFAULTS): AccountSlot[] {
+  if (!file) return []
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown
+    if (!Array.isArray(raw)) return []
+    const out: AccountSlot[] = []
+    for (const r of raw as Array<Partial<AccountSlot>>) {
+      if (!r || typeof r.id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,31}$/i.test(r.id)) continue
+      const kind: AccountKind = r.kind === 'codex' || r.kind === 'grok' ? r.kind : 'claude'
+      const slot = emptySlot(r.id, kind, typeof r.homeDir === 'string' && r.homeDir ? r.homeDir : path.join(SEAT_HOME_ROOT, r.id))
+      if (typeof r.label === 'string' && r.label.trim()) slot.label = r.label.trim().slice(0, 60)
+      if (typeof r.priority === 'number') slot.priority = r.priority
+      out.push(slot)
+    }
+    return out
+  } catch (err) {
+    console.warn('[account-router] CC_SEAT_POOL_DEFAULTS unreadable, starting from saved state only:', err instanceof Error ? err.message : err)
+    return []
+  }
+}
 
+const RESERVED_IDS = new Set(['codex', 'grok', SANDBOX_ACCOUNT_ID])
+
+/** The single pre-v2 Codex login dir (override for tests / other layouts). */
+const LEGACY_CODEX_HOME = process.env.CC_LEGACY_CODEX_HOME || CODEX_HOME_DIR
+
+/** True for a Claude seat (the only kind the legacy pickAccount() rotates). */
 export function isClaudeRotationSlot(account: AccountSlot): boolean {
-  return account.id !== 'codex' && account.id !== 'grok' && account.kind !== 'grok'
+  return account.id !== 'codex' && account.id !== 'grok' && seatKind(account) === 'claude'
 }
 
 /**
- * Merge persisted router state onto the built-in slots without wiping names.
- * - Defaults provide id/priority/homeDir for known slots.
- * - customLabel always wins (and a saved.label that drifted off the default
+ * Bring a seat record up to v2 without losing anything: kind defaults to claude,
+ * enabled to true, and the credential kind is inferred (a pasted secret or the
+ * server-token seat = setup_token, anything else = the CLI's own login files).
+ */
+export function migrateSeatRecord(slot: AccountSlot): AccountSlot {
+  if (!slot.kind) slot.kind = slot.id === 'grok' ? 'grok' : slot.id === 'codex' ? 'codex' : 'claude'
+  if (slot.enabled === undefined) slot.enabled = true
+  if (!slot.credentialKind) {
+    slot.credentialKind = slot.credentialRef || slot.id === SANDBOX_ACCOUNT_ID ? 'setup_token' : 'cli_login'
+  }
+  if (typeof slot.consecutiveFailures !== 'number') slot.consecutiveFailures = 0
+  if (!Array.isArray(slot.activeSessions)) slot.activeSessions = []
+  if (!Array.isArray(slot.usageLog)) slot.usageLog = []
+  return slot
+}
+
+/**
+ * Merge persisted router state onto the seed seats without wiping names.
+ * - A saved seat wins over its seed entirely (priority, homeDir, history).
+ * - customLabel always wins (and a saved.label that drifted off the seed label
  *   is promoted to customLabel — that is how pre-customLabel renames survive).
- * - Slots that exist only in the save (Add Account) are kept.
+ * - Seats that exist only in the save are kept.
  */
 export function mergeAccountRecords(defaults: AccountSlot[], saved: AccountSlot[]): AccountSlot[] {
   const savedById = new Map(saved.map(a => [a.id, a]))
@@ -109,8 +172,8 @@ export function mergeAccountRecords(defaults: AccountSlot[], saved: AccountSlot[
       ...s,
       label: def.label,
       customLabel: custom,
-      priority: def.priority,
-      homeDir: def.homeDir,
+      priority: typeof s.priority === 'number' ? s.priority : def.priority,
+      homeDir: s.homeDir || def.homeDir,
       usageLog: s.usageLog || [],
     }
   })
@@ -118,7 +181,7 @@ export function mergeAccountRecords(defaults: AccountSlot[], saved: AccountSlot[
   for (const s of saved) {
     if (defaultIds.has(s.id)) continue
     merged.push({
-      ...emptySlot(s.id, s.kind || 'claude', s.homeDir || `${DYNAMIC_HOME_ROOT}/${s.id}`),
+      ...emptySlot(s.id, s.kind || 'claude', s.homeDir || path.join(SEAT_HOME_ROOT, s.id)),
       ...s,
       customLabel: s.customLabel || s.label || null,
       usageLog: s.usageLog || [],
@@ -127,13 +190,16 @@ export function mergeAccountRecords(defaults: AccountSlot[], saved: AccountSlot[
   return merged
 }
 
-function emptySlot(id: string, kind: AccountKind, homeDir: string): AccountSlot {
+function emptySlot(id: string, kind: AccountKind, homeDir: string, label?: string): AccountSlot {
   return {
     id,
-    label: id === 'grok' ? 'Grok (xAI)' : id === 'codex' ? 'Codex (ChatGPT sub)' : kind === 'grok' ? `Grok ${id}` : `Account ${id.toUpperCase()}`,
+    label: label || (id === 'grok' ? 'Grok' : id === 'codex' ? 'Codex' : `Seat ${id}`),
     kind,
-    priority: kind === 'grok' ? 99 : 0,
+    priority: 0,
     homeDir,
+    enabled: true,
+    credentialKind: 'cli_login',
+    consecutiveFailures: 0,
     sessionsToday: 0,
     tokensToday: 0,
     costToday: 0,
@@ -146,49 +212,53 @@ function emptySlot(id: string, kind: AccountKind, homeDir: string): AccountSlot 
 
 function ensureAccountHome(homeDir: string): void {
   try { fs.mkdirSync(homeDir, { recursive: true, mode: 0o755 }) } catch { /* spawn fails loudly if unwritable */ }
-  try { fs.chmodSync(homeDir, 0o777) } catch { /* ccuser needs to write .claude / .grok */ }
+  try { fs.chmodSync(homeDir, 0o777) } catch { /* ccuser needs to write .claude / .codex / .grok */ }
 }
 
+/** Next free generated id: `s1`, `s2`, … (never a letter that implies a person or a fixed slot). */
 function nextSlotId(existing: AccountSlot[]): string {
   const used = new Set(existing.map(a => a.id).concat([...RESERVED_IDS]))
-  const letters = 'abcdefghijklmnopqrstuvwxyz'
-  for (const c of letters) {
-    if (!used.has(c)) return c
-  }
-  for (let i = 0; i < 26; i++) {
-    for (const c of letters) {
-      const id = `${letters[i]}${c}`
-      if (!used.has(id)) return id
-    }
+  for (let i = 1; i < 10_000; i++) {
+    if (!used.has(`s${i}`)) return `s${i}`
   }
   return `s${Date.now().toString(36)}`
 }
 
-/** Operator: add a Claude (or Grok) subscription slot. Home dir is created under /app/data. */
-export function addAccountSlot(opts: { label?: string; kind?: AccountKind } = {}): AccountSlot {
+/** "Seat N" for the Nth seat of a kind — a neutral default display name. */
+function nextSeatLabel(kind: AccountKind): string {
+  const n = state.accounts.filter(a => seatKind(a) === kind).length + 1
+  const engine = kind === 'claude' ? 'Claude' : kind === 'codex' ? 'Codex' : 'Grok'
+  return `${engine} seat ${n}`
+}
+
+export interface AddSeatInput {
+  label?: string
+  kind?: AccountKind
+  priority?: number
+  credentialKind?: SeatCredentialKind
+  credentialRef?: string | null
+  credentialHint?: string | null
+  credentialExpiresAt?: string | null
+}
+
+/** Operator: add a seat. Each seat gets its own HOME under SEAT_HOME_ROOT. */
+export function addAccountSlot(opts: AddSeatInput = {}): AccountSlot {
   loadState()
-  const kind = opts.kind === 'grok' ? 'grok' : 'claude'
+  const kind: AccountKind = opts.kind === 'grok' || opts.kind === 'codex' ? opts.kind : 'claude'
   const name = (opts.label || '').trim().slice(0, 60)
-  // Grok is a single SuperGrok subscription engine, not a Claude rotation letter.
-  // Adding "Grok" upserts the canonical slot so we never mint unused homes
-  // that spawn would ignore (spawn always uses GROK_HOME_DIR / id `grok`).
-  if (kind === 'grok') {
-    let slot = state.accounts.find(a => a.id === 'grok')
-    if (!slot) {
-      const homeDir = '/app/data/cc-accounts/grok'
-      ensureAccountHome(homeDir)
-      slot = emptySlot('grok', 'grok', homeDir)
-      state.accounts.push(slot)
-    }
-    if (name) slot.customLabel = name
-    saveState()
-    return slot
-  }
   const id = nextSlotId(state.accounts)
-  const homeDir = `${DYNAMIC_HOME_ROOT}/${id}`
+  const homeDir = path.join(SEAT_HOME_ROOT, id)
   ensureAccountHome(homeDir)
-  const slot = emptySlot(id, kind, homeDir)
+  const slot = emptySlot(id, kind, homeDir, nextSeatLabel(kind))
   if (name) slot.customLabel = name
+  if (typeof opts.priority === 'number' && Number.isFinite(opts.priority)) slot.priority = Math.round(opts.priority)
+  slot.credentialKind = opts.credentialKind || (opts.credentialRef ? 'setup_token' : 'cli_login')
+  if (opts.credentialRef) {
+    slot.credentialRef = opts.credentialRef
+    slot.credentialHint = opts.credentialHint ?? null
+    slot.credentialAddedAt = new Date().toISOString()
+  }
+  if (opts.credentialExpiresAt) slot.credentialExpiresAt = opts.credentialExpiresAt
   state.accounts.push(slot)
   saveState()
   return slot
@@ -197,7 +267,8 @@ export function addAccountSlot(opts: { label?: string; kind?: AccountKind } = {}
 // ── State Management ──
 
 let state: RouterState = {
-  accounts: JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS)),
+  version: 2,
+  accounts: loadSeatDefaults(),
   queue: [],
   lastResetDate: todayStr(),
 }
@@ -220,18 +291,38 @@ function loadState(): void {
       const raw = fs.readFileSync(STATE_FILE, 'utf-8')
       const loaded = JSON.parse(raw) as RouterState
 
-      // Merge loaded accounts with defaults (in case new accounts were added).
-      // Static config fields (priority, homeDir) come from DEFAULT_ACCOUNTS so
-      // code re-points take effect. Display names do NOT — operator renames live
-      // in customLabel and must survive reload (they used to get wiped because
-      // `label` was forced back to Primary/Secondary/…). Extra slots created via
-      // "New account" are appended after the defaults.
-      state.accounts = mergeAccountRecords(DEFAULT_ACCOUNTS, loaded.accounts || [])
+      // Saved seats win over the optional seed (CC_SEAT_POOL_DEFAULTS): renames,
+      // priorities and homeDirs set from Settings survive a reload. Every record
+      // is brought up to v2 in place — history (usageLog, the rate-limit log,
+      // session attribution by seat id) is untouched.
+      state.accounts = mergeAccountRecords(loadSeatDefaults(), loaded.accounts || []).map(migrateSeatRecord)
       state.queue = loaded.queue || []
       state.lastResetDate = loaded.lastResetDate || todayStr()
+      state.version = 2
     }
   } catch (err) {
     console.error('[account-router] Failed to load state, using defaults:', err)
+  }
+
+  // Legacy single server token (SESSION_JAIL_CLAUDE_OAUTH_TOKEN) for sandboxed
+  // sessions, surfaced as one fallback seat. It is only USED when no pasted
+  // Claude setup-token seat exists (see seatUsable), so an install with no seats
+  // configured keeps working exactly as before.
+  if (sandboxAuthConfigured() && !state.accounts.some(a => a.id === SANDBOX_ACCOUNT_ID)) {
+    state.accounts.push(migrateSeatRecord({
+      id: SANDBOX_ACCOUNT_ID, label: 'Server Claude token (sandboxed sessions)', priority: 0,
+      homeDir: path.join(SEAT_HOME_ROOT, SANDBOX_ACCOUNT_ID), sessionsToday: 0, tokensToday: 0, costToday: 0,
+      lastRateLimit: null, rateLimitResetsAt: null, activeSessions: [], usageLog: [],
+    }))
+  }
+
+  // Single-login Codex / Grok installs (one login dir, configured by env) become
+  // one seat each, so an install that never opened Settings → Seats keeps
+  // running exactly as before. Skipped as soon as any seat of that kind exists.
+  for (const [kind, id, home] of [['codex', 'codex', LEGACY_CODEX_HOME], ['grok', 'grok', GROK_HOME_DIR]] as const) {
+    if (state.accounts.some(a => seatKind(a) === kind)) continue
+    const legacy = migrateSeatRecord(emptySlot(id, kind, home))
+    try { if (fs.statSync(seatLoginFile(legacy)).size > 8) state.accounts.push(legacy) } catch { /* not connected */ }
   }
 
   // Reset daily counters if new day
@@ -317,95 +408,161 @@ export function isOAuthTokenUsable(credentialsRaw: string, now = Date.now()): bo
     if (expiresAt === null) return true // unknown shape — don't block
     if (expiresAt > now) return true    // access token still valid
     // Expired: usable only if a refresh token can mint a new one.
-    return typeof oauth.refreshToken === 'string' && oauth.refreshToken.length > 0
+    if (!(typeof oauth.refreshToken === 'string' && oauth.refreshToken.length > 0)) return false
+    // obj 716791 (2026-10-17): a PRESENT refresh token is not enough — the
+    // refresh token itself has its own expiry (`refreshTokenExpiresAt`). A
+    // refresh token past that instant can never mint a new access token
+    // either, so the account needs a full re-login, not a transparent
+    // refresh. Six of seven pool accounts (b,c,d,e,f,g) were found silently
+    // in exactly this state: an access token expired, a refresh token
+    // present, but the refresh token itself dead for up to ~50h — this check
+    // only existed for the access token, so pickAccount kept routing to
+    // them and every spawn died with "OAuth session expired and could not
+    // be refreshed" (0 tool calls, 0 cost — see isAuthFailureMessage below).
+    const refreshTokenExpiresAt = typeof oauth.refreshTokenExpiresAt === 'number' ? oauth.refreshTokenExpiresAt : null
+    if (refreshTokenExpiresAt !== null && refreshTokenExpiresAt <= now) return false
+    return true
   } catch {
     return true // unparseable — let the spawn decide rather than false-bench
   }
 }
 
-function isAccountAvailable(account: AccountSlot): boolean {
-  // Dead credential (401): parked until a re-login clears it. A cooldown timer
-  // can't fix an expired/revoked token, so — unlike a rate limit — this does not
-  // auto-expire. clearAuthFailure() (on a successful OAuth probe / reconnect)
-  // is the only way back into rotation. Prevents the re-bench loop where a slot
-  // with a dead token gets picked, 401s, benches, clears, gets re-picked…
-  if (account.authFailedAt) {
-    return false
-  }
+// Presence check for a pasted credential (the secrets store owns the value).
+// Registered by seat-credentials.ts so this module stays free of DB imports;
+// permissive until registered — the spawn then fails loudly instead of the
+// router silently benching a seat.
+let credentialPresent: (ref: string) => boolean = () => true
+export function registerSeatCredentialCheck(fn: (ref: string) => boolean): void {
+  credentialPresent = fn
+}
 
-  // Check if rate limit has expired
-  if (account.rateLimitResetsAt) {
-    if (new Date(account.rateLimitResetsAt) > new Date()) {
-      return false // still rate limited
-    }
-    // Rate limit expired, clear it
-    account.lastRateLimit = null
-    account.rateLimitResetsAt = null
-  }
+function hasSetupTokenSeat(kind: AccountKind): boolean {
+  return state.accounts.some(a =>
+    a.id !== SANDBOX_ACCOUNT_ID && seatKind(a) === kind && a.enabled !== false &&
+    a.credentialKind === 'setup_token' && !!a.credentialRef)
+}
 
-  // Codex / Grok are not Claude OAuth slots. The dashboard overlays their
-  // real auth (codexAuthAvailable / grokAuthAvailable). Don't require
-  // ~/.claude/.credentials.json or they always look dead, and a grok
-  // follow-up would rotate onto a Claude account.
-  if (!isClaudeRotationSlot(account)) {
-    return true
-  }
-
-  // Check if the account home dir exists and has claude auth
-  const claudeJson = path.join(account.homeDir, '.claude', '.credentials.json')
-  let credentialsRaw: string
-  try {
-    credentialsRaw = fs.readFileSync(claudeJson, 'utf-8')
-  } catch {
-    return false // account not set up
-  }
-
-  // Expired OAuth token with no refresh token cannot authenticate — keep it out
-  // of rotation until re-auth (see isOAuthTokenUsable).
-  if (!isOAuthTokenUsable(credentialsRaw)) {
-    return false
-  }
-
-  return true
+/** CLI login file for a seat, by engine. */
+export function seatLoginFile(account: Pick<AccountSlot, 'homeDir' | 'kind'>): string {
+  const kind = seatKind(account)
+  if (kind === 'codex') return path.join(account.homeDir, '.codex', 'auth.json')
+  if (kind === 'grok') return path.join(account.homeDir, '.grok', 'auth.json')
+  return path.join(account.homeDir, '.claude', '.credentials.json')
 }
 
 /**
- * Pick the best available account for a new session.
- * Strategy: among available accounts, pick the one with the fewest active sessions,
- * breaking ties by fewest sessions today.
- * Returns null if all accounts are exhausted (or none pass `filter`).
+ * Is the seat's credential reachable for a session started now? Health
+ * (disabled / parked / cooling) is checked separately by seatHealth.
+ */
+export function seatCredentialUsable(account: AccountSlot, jail = jailEnabled()): boolean {
+  const kind = seatKind(account)
+  if (account.id === SANDBOX_ACCOUNT_ID) {
+    // Legacy single token: a fallback only while no pasted Claude seat exists.
+    return sandboxAuthConfigured() && !hasSetupTokenSeat('claude')
+  }
+  if (account.credentialKind === 'setup_token') {
+    return kind === 'claude' && !!account.credentialRef && credentialPresent(account.credentialRef)
+  }
+  // CLI login files in the seat's HOME. A sandboxed Claude session cannot use
+  // them: the jail never sees the seat's HOME, and copying a rotating refresh
+  // token into a jail would log the seat out on the first refresh. Codex/Grok
+  // login dirs are bind-mounted (not copied) into the one session assigned.
+  if (jail && kind === 'claude') return false
+  let raw: string
+  try {
+    raw = fs.readFileSync(seatLoginFile(account), 'utf-8')
+  } catch {
+    return false // not set up
+  }
+  if (kind === 'claude') return isOAuthTokenUsable(raw)
+  return raw.trim().length > 8
+}
+
+function isAccountAvailable(account: AccountSlot): boolean {
+  const now = Date.now()
+  // Expired cooldown → clear it so the dashboard stops showing a stale bench.
+  if (account.rateLimitResetsAt && Date.parse(account.rateLimitResetsAt) <= now) {
+    account.lastRateLimit = null
+    account.rateLimitResetsAt = null
+  }
+  // Dead credential (401/403), credits exhausted, disabled or cooling down →
+  // out. Credential parks never auto-expire: only a passing test/reconnect
+  // (clearAuthFailure) brings the seat back, which prevents the re-bench loop.
+  if (seatHealth(account, now) !== 'healthy') return false
+  return seatCredentialUsable(account)
+}
+
+/** Seat health for the API / UI (adds the credential check on top of seatHealth). */
+export function seatStatusOf(account: AccountSlot): { health: SeatHealth; available: boolean } {
+  const health = seatHealth(account, Date.now())
+  return { health, available: health === 'healthy' && seatCredentialUsable(account) }
+}
+
+/**
+ * Sandboxed sessions get their own seat while one is free (spread), and a
+ * Codex/Grok CLI login is never shared by two live sandboxed sessions
+ * (exclusive): both would refresh the same rotating token and one refresh
+ * would invalidate the other's login. On the host (tmux) path sessions keep
+ * sharing a login as before — the CLI rewrites one file in place.
+ */
+function pickOptions(kind: AccountKind, filter?: (account: AccountSlot) => boolean) {
+  const jail = jailEnabled()
+  return {
+    kind,
+    now: Date.now(),
+    spread: jail,
+    usable: (s: AccountSlot) => (!filter || filter(s)) && isAccountAvailable(s),
+    exclusive: (s: AccountSlot) => jail && s.credentialKind === 'cli_login' && seatKind(s) !== 'claude',
+  }
+}
+
+/** Pick the best available seat of an engine (null = every seat is down → caller queues). */
+export function pickSeatOfKind(kind: AccountKind, filter?: (account: AccountSlot) => boolean): AccountSlot | null {
+  loadState()
+  const seats = state.accounts.filter(a => kind !== 'claude' || isClaudeRotationSlot(a))
+  return pickSeat(seats, pickOptions(kind, filter))
+}
+
+/** Does this engine have at least one seat a new session could start on? */
+export function hasAvailableSeat(kind: AccountKind): boolean {
+  return pickSeatOfKind(kind) !== null
+}
+
+/** Number of seats configured for an engine (enabled or not). */
+export function seatCount(kind: AccountKind): number {
+  loadState()
+  return state.accounts.filter(a => seatKind(a) === kind && (kind !== 'claude' || isClaudeRotationSlot(a))).length
+}
+
+/**
+ * Pick the best available Claude seat for a new session.
+ * Order: priority asc, fewest live sessions, fewest today, fewest tokens
+ * (sandboxed sessions prefer an idle seat first). Null if all are down.
  */
 export function pickAccount(filter?: (account: AccountSlot) => boolean): AccountSlot | null {
-  // Ensure state is fresh
+  return pickSeatOfKind('claude', filter)
+}
+
+/**
+ * Pick the seat for a follow-up respawn. Follow-ups stay on the session's
+ * original seat while it is healthy; if it is now parked, disabled, out of
+ * credits or cooling down, re-pick on the same engine. Returns the seat to use
+ * (null = none available → caller enqueues) and whether it moved.
+ * `filter` is forwarded to the pick (tests / slot policy). (obj 717767)
+ */
+export function chooseFollowUpAccount(
+  currentId: string | null,
+  filter?: (account: AccountSlot) => boolean,
+  kind: AccountKind = 'claude',
+): { account: AccountSlot | null; rerouted: boolean; parkedReason: AuthParkReason | null } {
   loadState()
-
-  // `filter` narrows the pool for callers with their own slot policy (the LLM
-  // gateway's allowlist excludes the personal slot 'a').
-  const available = state.accounts.filter(a => isClaudeRotationSlot(a) && isAccountAvailable(a) && (!filter || filter(a)))
-
-  if (available.length === 0) {
-    return null
+  const current = currentId ? state.accounts.find(a => a.id === currentId) : undefined
+  const sameKind = current && seatKind(current) === kind && (kind !== 'claude' || isClaudeRotationSlot(current))
+  if (current && sameKind && isAccountAvailable(current)) {
+    return { account: current, rerouted: false, parkedReason: null }
   }
-
-  // Sort by: lowest priority number first (so a high-priority-number account like the
-  // personal one is only reached when all lower-number accounts are unavailable), then
-  // fewest active sessions, then fewest sessions today, then fewest tokens.
-  available.sort((a, b) => {
-    const pa = a.priority ?? 0
-    const pb = b.priority ?? 0
-    if (pa !== pb) {
-      return pa - pb
-    }
-    if (a.activeSessions.length !== b.activeSessions.length) {
-      return a.activeSessions.length - b.activeSessions.length
-    }
-    if (a.sessionsToday !== b.sessionsToday) {
-      return a.sessionsToday - b.sessionsToday
-    }
-    return a.tokensToday - b.tokensToday
-  })
-
-  return available[0]
+  const parkedReason = current?.authFailedAt ? (current.authFailureReason || 'needs_reconnect') : null
+  return { account: pickSeatOfKind(kind, filter), rerouted: !!current, parkedReason }
 }
 
 /**
@@ -526,19 +683,11 @@ export function recordRateLimit(accountId: string, resetTime?: Date, triggerMess
   if (!account) return
 
   const now = new Date()
-  let resetAt = resetTime || new Date(now.getTime() + DEFAULT_RESET_HOURS * 60 * 60 * 1000)
-  // Never push recovery LATER than an already-known future reset. A weak signal
-  // (the 5h fallback, or a mis-parsed text message) must not clobber a sooner,
-  // more accurate reset that an earlier structured rate_limit_event recorded —
-  // that was the bug benching working accounts for hours past their real reset
-  // (e.g. session-limit "resets 6:40pm" fell back to now+5h and overwrote the
-  // correct 18:40Z). Keep the earliest known future reset.
-  const existing = account.rateLimitResetsAt ? new Date(account.rateLimitResetsAt) : null
-  if (existing && existing.getTime() > now.getTime() && existing.getTime() < resetAt.getTime()) {
-    resetAt = existing
-  }
-  account.lastRateLimit = now.toISOString()
-  account.rateLimitResetsAt = resetAt.toISOString()
+  // No stated reset → exponential backoff from the seat's failure streak
+  // (seat-pool.ts), capped at one 5h window. A known sooner reset is never
+  // pushed later by a weaker signal.
+  applySeatFailure(account, 'rate_limit', { now: now.getTime(), resetAt: resetTime || null })
+  const resetAt = new Date(account.rateLimitResetsAt!)
   saveState()
 
   // Append to persistent history
@@ -570,11 +719,39 @@ export function recordRateLimit(accountId: string, resetTime?: Date, triggerMess
  */
 export function clearRateLimit(accountId: string): void {
   const account = state.accounts.find(a => a.id === accountId)
-  if (!account || !account.rateLimitResetsAt) return
-  console.log(`[account-router] Clearing rate-limit on ${accountId} (${account.label}) — account served a successful turn (was resetting ${account.rateLimitResetsAt})`)
-  account.lastRateLimit = null
-  account.rateLimitResetsAt = null
+  if (!account) return
+  const was = account.rateLimitResetsAt
+  // A good turn clears the cooldown, a credits park and the failure streak
+  // (not a credential park — that needs a passing test or a reconnect).
+  if (!applyGoodTurn(account)) return
+  console.log(`[account-router] Good turn on ${accountId} (${getAccountLabel(accountId)}) — cleared cooldown${was ? ` (was resetting ${was})` : ''}`)
   saveState()
+}
+
+/**
+ * Credits or the spend cap ran out. Parks the seat (no timer, no rotation
+ * churn — siblings on the same org would hit the same cap). Cleared by a good
+ * turn, a passing "Test now", or an operator.
+ */
+export function recordCreditsExhausted(accountId: string, triggerMessage?: string): void {
+  loadState()
+  const account = state.accounts.find(a => a.id === accountId)
+  if (!account) return
+  const now = new Date()
+  applySeatFailure(account, 'credits_exhausted', { now: now.getTime() })
+  saveState()
+  appendRateLimitHistory({
+    timestamp: now.toISOString(),
+    accountId,
+    label: getAccountLabel(accountId),
+    tokensAtLimit: account.tokensToday,
+    sessionsAtLimit: account.sessionsToday,
+    costAtLimit: account.costToday,
+    activeSessions: account.activeSessions.length,
+    resetTime: now.toISOString(),
+    triggerMessage: `[credits-exhausted] ${(triggerMessage || '').slice(0, 440)}`,
+  })
+  console.log(`[account-router] Seat ${accountId} (${getAccountLabel(accountId)}) parked: credits / spend cap exhausted`)
 }
 
 /**
@@ -626,7 +803,9 @@ export function recordAuthFailure(accountId: string, triggerMessage?: string): v
   const account = state.accounts.find(a => a.id === accountId)
   if (!account) return
   const now = new Date()
+  const reason = authParkReason(triggerMessage || '')
   account.authFailedAt = now.toISOString()
+  account.authFailureReason = reason
   account.lastRateLimit = null
   account.rateLimitResetsAt = null
   saveState()
@@ -639,9 +818,9 @@ export function recordAuthFailure(accountId: string, triggerMessage?: string): v
     costAtLimit: account.costToday,
     activeSessions: account.activeSessions.length,
     resetTime: now.toISOString(),
-    triggerMessage: `[auth-failure] ${(triggerMessage || '').slice(0, 460)}`,
+    triggerMessage: `[auth-failure:${reason}] ${(triggerMessage || '').slice(0, 440)}`,
   })
-  console.log(`[account-router] Account ${accountId} (${account.label}) AUTH FAILURE — parked as "reconnect needed" (credential dead, re-login required). Trigger: ${(triggerMessage || '').slice(0, 120)}`)
+  console.log(`[account-router] Account ${accountId} (${account.label}) AUTH FAILURE — parked as "${reason === 'needs_admin' ? 'account needs admin' : 'reconnect needed'}". Trigger: ${(triggerMessage || '').slice(0, 120)}`)
 }
 
 /**
@@ -656,6 +835,7 @@ export function clearAuthFailure(accountId: string): AccountSlot | null {
   if (!account.authFailedAt) return account
   console.log(`[account-router] Cleared auth-failure on ${accountId} (${account.label}) — credential re-authenticated`)
   account.authFailedAt = null
+  account.authFailureReason = null
   saveState()
   return account
 }
@@ -748,9 +928,57 @@ export function isSpendCapMessage(text: string): boolean {
  * positive on assistant text. The primary signal is `api_error_status === 401`;
  * this text match is the fallback for events that carry the message but not the
  * structured status.
+ *
+ * Also covers two credential-dead states that don't arrive as a 401:
+ *  - HTTP 403 "Your organization has disabled Claude subscription access for
+ *    Claude Code" — the seat's org turned off subscription access. It never
+ *    self-heals on a timer, but it went unmatched, so the seat stayed in
+ *    rotation and killed every session routed to it (obj 717763: 4 of 7 seats).
+ *  - "OAuth session expired and could not be refreshed" — refresh token dead.
+ *    The CLI exits with `api_error_status: null` before any API call (0 tool
+ *    calls, $0), so only this text match catches it; either half of the
+ *    phrase is matched so a copy tweak doesn't reopen the gap (obj 716791).
  */
 export function isAuthFailureMessage(text: string): boolean {
-  return /invalid authentication credentials|authentication_failed/i.test(text)
+  return authFailureKind(text) !== null
+}
+
+// Org-level "subscription access disabled" (403). Several phrasings so a CLI
+// copy tweak doesn't silently drop the match: the full sentence, the
+// "ask your admin to enable access" tail, and the org-disabled head. All are
+// specific to this error, never normal assistant prose about auth.
+const ORG_DISABLED_PATTERN =
+  /disabled Claude subscription access|organization has disabled (?:Claude )?subscription|ask your admin to enable(?: Claude subscription)? access/i
+const DEAD_CREDENTIAL_PATTERN =
+  /invalid authentication credentials|authentication_failed|oauth session expired|could not be refreshed/i
+
+/**
+ * Classify an auth-failure message: 'org_disabled' (the seat's org turned off
+ * subscription access — needs an admin, a re-login won't help) vs
+ * 'dead_credential' (expired/revoked OAuth — a reconnect fixes it). null when
+ * the text is not an auth failure.
+ */
+export function authFailureKind(text: string): 'org_disabled' | 'dead_credential' | null {
+  if (!text) return null
+  if (ORG_DISABLED_PATTERN.test(text)) return 'org_disabled'
+  if (DEAD_CREDENTIAL_PATTERN.test(text)) return 'dead_credential'
+  return null
+}
+
+/** Park reason for an auth-failure trigger message. Unclassified → needs_reconnect (the 401 default). */
+export function authParkReason(text: string): AuthParkReason {
+  return authFailureKind(text) === 'org_disabled' ? 'needs_admin' : 'needs_reconnect'
+}
+
+/**
+ * Is this errored stream event an auth failure? 401 always is. A 403 counts
+ * only when its body is the org-disabled text — a bare 403 can be a normal
+ * permission error on some other resource, so it must not park a seat.
+ */
+export function isAuthFailureEvent(status: unknown, text: string): boolean {
+  if (status === 401) return true
+  if (status === 403) return authFailureKind(text) === 'org_disabled'
+  return isAuthFailureMessage(text)
 }
 
 /**
@@ -810,7 +1038,7 @@ export interface AccountWindowUsage {
 }
 
 export function getRouterStatus(): {
-  accounts: Array<AccountSlot & { available: boolean; windows: AccountWindowUsage }>
+  accounts: Array<AccountSlot & { available: boolean; health: SeatHealth; windows: AccountWindowUsage }>
   queue: QueuedSession[]
   earliestReset: string | null
 } {
@@ -821,6 +1049,7 @@ export function getRouterStatus(): {
       label: a.customLabel || a.label, // effective display name (operator override wins)
       usageLog: [], // don't send full log to client
       available: isAccountAvailable(a),
+      health: seatHealth(a, Date.now()),
       windows: {
         sessionWindow: {
           ...getUsageInWindow(a, SESSION_WINDOW_MS),
@@ -856,6 +1085,16 @@ export function getAccountById(accountId: string): AccountSlot | null {
 }
 
 /**
+ * Operator-facing label for a slot (customLabel wins). Safe for alerts and card
+ * text — it is a display name, never a credential. Falls back to "slot <id>".
+ */
+export function getAccountLabel(accountId: string): string {
+  const account = state.accounts.find(a => a.id === accountId)
+  if (!account) return `slot ${accountId}`
+  return account.customLabel || account.label || `slot ${accountId}`
+}
+
+/**
  * Set (or clear) an operator display name for a slot. Persists as `customLabel`,
  * which loadState preserves and getRouterStatus surfaces as the effective label.
  * Passing an empty string clears the override (reverts to the DEFAULT_ACCOUNTS
@@ -866,7 +1105,7 @@ export function setAccountLabel(accountId: string, label: string): AccountSlot |
   let account = state.accounts.find(a => a.id === accountId)
   if (!account) {
     if (accountId === 'grok' || accountId === 'codex') {
-      account = emptySlot(accountId, accountId === 'grok' ? 'grok' : 'claude', accountId === 'grok' ? '/app/data/cc-accounts/grok' : '/home/ccuser-codex')
+      account = migrateSeatRecord(emptySlot(accountId, accountId, accountId === 'grok' ? GROK_HOME_DIR : CODEX_HOME_DIR))
       state.accounts.push(account)
     } else {
       return null
@@ -876,6 +1115,97 @@ export function setAccountLabel(accountId: string, label: string): AccountSlot |
   account.customLabel = trimmed.length > 0 ? trimmed : null
   saveState()
   return account
+}
+
+/**
+ * The single pre-v2 Codex / Grok seat (id `codex` / `grok`, the env-configured
+ * login dir). The Dashboard's one-click Connect still targets it; Settings →
+ * Seats adds further seats with their own login dirs.
+ */
+export function ensureLegacySeat(kind: 'codex' | 'grok'): AccountSlot {
+  loadState()
+  let seat = state.accounts.find(a => a.id === kind)
+  if (!seat) {
+    const home = kind === 'grok' ? GROK_HOME_DIR : LEGACY_CODEX_HOME
+    ensureAccountHome(home)
+    seat = migrateSeatRecord(emptySlot(kind, kind, home))
+    state.accounts.push(seat)
+    saveState()
+  }
+  return seat
+}
+
+// ── Seat admin (Settings → Seats) ──
+// Each mutator returns the seat (or null for an unknown id) and persists. The
+// route layer audits; nothing here ever sees a credential value.
+
+export interface SeatPatch {
+  label?: string
+  priority?: number
+  enabled?: boolean
+  credentialExpiresAt?: string | null
+}
+
+export function updateSeat(accountId: string, patch: SeatPatch): AccountSlot | null {
+  loadState()
+  const account = state.accounts.find(a => a.id === accountId)
+  if (!account) return null
+  if (typeof patch.label === 'string') {
+    const trimmed = patch.label.trim().slice(0, 60)
+    account.customLabel = trimmed.length > 0 ? trimmed : null
+  }
+  if (typeof patch.priority === 'number' && Number.isFinite(patch.priority)) {
+    account.priority = Math.max(-1000, Math.min(1000, Math.round(patch.priority)))
+  }
+  if (typeof patch.enabled === 'boolean') account.enabled = patch.enabled
+  if (patch.credentialExpiresAt !== undefined) {
+    const t = patch.credentialExpiresAt ? Date.parse(patch.credentialExpiresAt) : NaN
+    account.credentialExpiresAt = Number.isFinite(t) ? new Date(t).toISOString() : null
+  }
+  saveState()
+  return account
+}
+
+/**
+ * Point a seat at a (new) pasted credential. Rotating clears credential parks,
+ * credits park and cooldown — a fresh credential deserves a fresh start; the
+ * next test / turn re-parks it if it is still bad.
+ */
+export function setSeatCredential(
+  accountId: string,
+  cred: { ref: string; hint: string | null; expiresAt?: string | null },
+): AccountSlot | null {
+  loadState()
+  const account = state.accounts.find(a => a.id === accountId)
+  if (!account) return null
+  account.credentialKind = 'setup_token'
+  account.credentialRef = cred.ref
+  account.credentialHint = cred.hint
+  account.credentialAddedAt = new Date().toISOString()
+  if (cred.expiresAt !== undefined) account.credentialExpiresAt = cred.expiresAt
+  account.authFailedAt = null
+  account.authFailureReason = null
+  applyGoodTurn(account)
+  saveState()
+  return account
+}
+
+/** Remove a seat. Refused while a session is live on it. Returns the removed seat. */
+export function removeSeat(accountId: string): { removed: AccountSlot | null; error?: string } {
+  loadState()
+  const idx = state.accounts.findIndex(a => a.id === accountId)
+  if (idx < 0) return { removed: null, error: 'not_found' }
+  const account = state.accounts[idx]
+  if (account.activeSessions.length > 0) return { removed: null, error: 'seat_in_use' }
+  state.accounts.splice(idx, 1)
+  saveState()
+  return { removed: account }
+}
+
+/** Raw seat list (server-side only — callers must mask before returning it). */
+export function listSeatRecords(): AccountSlot[] {
+  loadState()
+  return state.accounts
 }
 
 // ── Queue Drain Timer ──
@@ -899,7 +1229,7 @@ export function startQueueDrain(onReady: DrainCallback): void {
     // pool fills, so a batch can never exceed real capacity; it just stops the
     // dribble. Sizing the batch to available-account count avoids a thundering
     // herd that would instantly re-cook the pool.
-    const availableCount = state.accounts.filter(a => isClaudeRotationSlot(a) && isAccountAvailable(a)).length
+    const availableCount = state.accounts.filter(a => isAccountAvailable(a)).length
     if (availableCount === 0) return // still all exhausted
 
     let released = 0

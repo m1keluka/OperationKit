@@ -1,7 +1,10 @@
+// Knowledge base (served at /knowledge; /docs redirects here). Reads and edits the
+// markdown folders the server exposes through /api/docs.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Menu, Save } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Menu, Save, Upload } from 'lucide-react'
 import { api } from '../lib/api'
-import { EmptyState } from './ui'
+import { Button, EmptyState } from './ui'
+import { KnowledgeImportPanel, useKnowledgeImportEnabled } from './KnowledgeImport'
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, type PartialBlock } from '@blocknote/core'
@@ -86,20 +89,14 @@ interface FileResponse {
   writable: boolean
 }
 
-const ROOT_LABELS: Record<string, string> = {
-  '/home/operator/second-brain': 'Second Brain',
-  '/home/operator/second-brain/workspaces/example': 'Example',
-  '/home/operator/second-brain/shared': 'Shared',
-  '/home/operator/ai-workspace': 'AI Workspace',
-  '/home/operator/ai-workspace/agents': 'Agents',
-  '/home/operator/ai-workspace/skills': 'Skills',
-  '/home/operator/projects/operationkit': 'OperationKit',
-}
-
+/** A folder's display name: its last path segment, e.g. "second-brain" → "Second brain". */
 function labelForRoot(path: string): string {
-  if (ROOT_LABELS[path]) return ROOT_LABELS[path]
-  // Fallback: use last path segment
-  return path.split('/').pop() || path
+  // Imported notes on an install without a vault: /app/data/knowledge-base/<workspace>.
+  const kb = path.match(/\/knowledge-base\/([^/]+)\/?$/)
+  if (kb) return `Knowledge base · ${kb[1]}`
+  const seg = path.split('/').filter(Boolean).pop() || path
+  const words = seg.replace(/[-_]+/g, ' ').trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 // ── Tree node ──
@@ -222,7 +219,7 @@ function EditorPane({ file, onContentChange }: EditorPaneProps) {
 
 // ── Main ──
 
-export function DocsPage() {
+export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
   const [activeRoot, setActiveRoot] = useState<string>('')
   const [availableRoots, setAvailableRoots] = useState<string[]>([])
   const [treeData, setTreeData] = useState<TreeNode[]>([])
@@ -235,6 +232,10 @@ export function DocsPage() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // File import (starter pack `knowledge-import`, obj 719936) lives on this page.
+  const importOn = useKnowledgeImportEnabled()
+  const [importing, setImporting] = useState(false)
+  const [treeVersion, setTreeVersion] = useState(0)
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -252,7 +253,7 @@ export function DocsPage() {
       })
       .catch(() => setTreeData([]))
       .finally(() => setTreeLoading(false))
-  }, [activeRoot])
+  }, [activeRoot, treeVersion])
 
   // Bootstrap: fetch initial root list from API
   useEffect(() => {
@@ -261,9 +262,12 @@ export function DocsPage() {
         if (data.roots && data.roots.length > 0) {
           setAvailableRoots(data.roots)
           setActiveRoot(data.root || data.roots[0])
+        } else {
+          // No folders configured yet (a fresh install): show the empty state, not "Loading…" forever.
+          setTreeLoading(false)
         }
       })
-      .catch(() => {})
+      .catch(() => setTreeLoading(false))
   }, [])
 
   const toggleDir = useCallback((p: string) => {
@@ -281,6 +285,7 @@ export function DocsPage() {
     setSaveError(null)
     setPendingMarkdown(null)
     setDrawerOpen(false)
+    setImporting(false)
     try {
       const data = await api.get<FileResponse>(`/docs/file?path=${encodeURIComponent(p)}`)
       setFile(data)
@@ -332,8 +337,8 @@ export function DocsPage() {
 
   const breadcrumb = useMemo(() => {
     if (!file) return null
-    // Try available roots first, then fall back to known labels
-    const allRoots = [...availableRoots, ...Object.keys(ROOT_LABELS)]
+    // Longest matching root wins, so a nested root labels its own files.
+    const allRoots = [...availableRoots].sort((a, b) => b.length - a.length)
     for (const root of allRoots) {
       if (file.path.startsWith(root)) {
         const rel = file.path.slice(root.length).replace(/^\//, '')
@@ -347,6 +352,7 @@ export function DocsPage() {
     <div className="flex h-full w-64 flex-col border-r border-line bg-surface-1">
       {/* Root switcher */}
       <div className="border-b border-line-soft p-3">
+        <h1 className="mb-3 px-0.5 font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">Knowledge base</h1>
         <div className="mb-1.5 px-0.5 text-[10px] font-semibold uppercase text-fg-3" style={{ letterSpacing: '0.08em' }}>
           Source
         </div>
@@ -371,7 +377,7 @@ export function DocsPage() {
         {treeLoading ? (
           <div className="p-3 text-xs text-fg-3">Loading…</div>
         ) : treeData.length === 0 ? (
-          <div className="p-3 text-xs text-fg-3">No markdown files found.</div>
+          <div className="p-3 text-xs text-fg-3">No pages here yet.</div>
         ) : (
           treeData.map(node => (
             <TreeItem
@@ -398,7 +404,7 @@ export function DocsPage() {
       {drawerOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/60 md:hidden"
+            className="fixed inset-0 z-40 bg-surface-0/70 md:hidden"
             onClick={() => setDrawerOpen(false)}
           />
           <div className="cc-sheet-in fixed inset-y-0 left-0 z-50 md:hidden">
@@ -415,21 +421,28 @@ export function DocsPage() {
             <button
               onClick={() => setDrawerOpen(true)}
               className="rounded-sm p-1.5 text-fg-2 transition hover:bg-surface-2 hover:text-fg-0 md:hidden"
-              aria-label="Open files"
+              aria-label="Open the page list"
             >
               <Menu className="h-4 w-4" />
             </button>
-            {breadcrumb ? (
+            {importing ? (
+              <div className="text-xs font-medium text-fg-0">Import files</div>
+            ) : breadcrumb ? (
               <div className="min-w-0 truncate text-xs">
                 <span className="text-fg-2">{breadcrumb.rootLabel}</span>
                 <span className="mx-1.5 text-fg-3">/</span>
                 <span className="font-mono text-fg-0">{breadcrumb.rel}</span>
               </div>
             ) : (
-              <div className="text-xs text-fg-3">No file selected</div>
+              <div className="text-xs text-fg-3">No page selected</div>
             )}
           </div>
           <div className="flex items-center gap-2">
+            {importOn && !importing && (
+              <Button size="sm" onClick={() => setImporting(true)} leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}>
+                Import files
+              </Button>
+            )}
             {file && !file.writable && (
               <span className="rounded-xs bg-status-review/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-status-review">
                 Read-only
@@ -449,19 +462,24 @@ export function DocsPage() {
             {pendingMarkdown !== null && saveState === 'idle' && file?.writable && (
               <span className="text-[10px] text-fg-3">Unsaved</span>
             )}
-            <button
+            {!importing && <button
               onClick={handleManualSave}
               disabled={!file?.writable || pendingMarkdown === null || saveState === 'saving'}
               className="inline-flex items-center gap-1.5 rounded-sm bg-accent px-3 py-1 text-xs font-medium text-accent-fg transition hover:bg-accent-hover active:bg-accent-press disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-3"
             >
               <Save className="h-3 w-3" />
               Save
-            </button>
+            </button>}
           </div>
         </div>
 
         {/* Body */}
-        {fileLoading ? (
+        {importing ? (
+          <KnowledgeImportPanel
+            workspace={workspace}
+            onClose={() => { setImporting(false); setTreeVersion(v => v + 1) }}
+          />
+        ) : fileLoading ? (
           <div className="flex flex-1 items-center justify-center text-sm text-fg-3">
             Loading file…
           </div>
@@ -471,8 +489,15 @@ export function DocsPage() {
           <div className="flex flex-1 items-center justify-center px-4">
             <EmptyState
               icon={<FileText className="h-5 w-5" />}
-              title="No document open"
-              description="Pick a markdown file from the tree to read or edit it."
+              title="No page open"
+              description={importOn
+                ? 'Pick a page from the list to read or edit it, or import spreadsheets, PDFs and Word files to turn them into pages.'
+                : 'Pick a page from the list to read or edit it.'}
+              action={importOn ? (
+                <Button variant="primary" onClick={() => setImporting(true)} leftIcon={<Upload className="h-4 w-4" aria-hidden="true" />}>
+                  Import files
+                </Button>
+              ) : undefined}
             />
           </div>
         )}

@@ -29,6 +29,8 @@ const AGENT_PATHS = [
   '/api/auth/token',
   '/api/auth/api-key',
   '/api/auth/me',
+  '/api/auth/agent-keys',
+  '/api/auth/agent-keys/{id}',
   '/api/workspaces',
   '/api/models',
   '/api/objectives',
@@ -40,9 +42,21 @@ const AGENT_PATHS = [
   '/api/objectives/{id}/output',
   '/api/objectives/{id}/timeline',
   '/api/objectives/{id}/stop',
+  '/api/objectives/{id}/progress',
+  '/api/objectives/{id}/artifacts',
+  '/api/objectives/{id}/artifacts/file',
   '/api/briefing/briefing',
   '/api/docs/search',
   '/api/docs/file',
+  '/api/files/search',
+  '/api/files/stat',
+  '/api/files/download',
+  '/api/secrets-broker/list',
+  '/api/secrets-broker/http',
+  // Control layer + MCP (obj 714091/714092, reconciled obj 714100)
+  '/api/agent/changes',
+  '/api/agent/attention',
+  '/api/mcp',
 ]
 
 describe('GET /api/agent', () => {

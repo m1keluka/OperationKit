@@ -37,6 +37,8 @@ const ALGO = 'aes-256-gcm'
 const IV_BYTES = 12
 const KEY_BYTES = 32
 
+const KEY_FILE = '/home/operator/projects/.test-cred-encryption-key'
+
 let cachedKey: Buffer | null = null
 
 /**
@@ -55,7 +57,7 @@ function getKey(): Buffer {
     // image work either way. Path is outside the repo so it never ships in
     // builds.
     try {
-      const fromFile = readFileSync('/home/operator/projects/.test-cred-encryption-key', 'utf8').trim()
+      const fromFile = readFileSync(KEY_FILE, 'utf8').trim()
       if (fromFile.length > 0) raw = fromFile
     } catch {}
   }
@@ -81,6 +83,23 @@ function getKey(): Buffer {
   }
   cachedKey = buf
   return cachedKey
+}
+
+let cachedAltKey: Buffer | null | undefined
+
+/** The key from whichever source getKey() did NOT use (env vs host file), or
+ *  null when there is no distinct, valid second key. Decrypt-only. */
+function getAlternateKey(primary: Buffer): Buffer | null {
+  if (cachedAltKey !== undefined) return cachedAltKey
+  const candidates: string[] = []
+  if (process.env.TEST_CRED_ENCRYPTION_KEY) candidates.push(process.env.TEST_CRED_ENCRYPTION_KEY)
+  try { candidates.push(readFileSync(KEY_FILE, 'utf8').trim()) } catch {}
+  cachedAltKey = null
+  for (const raw of candidates) {
+    const buf = Buffer.from(raw, 'base64')
+    if (buf.length === KEY_BYTES && !buf.equals(primary)) { cachedAltKey = buf; break }
+  }
+  return cachedAltKey
 }
 
 /**
@@ -124,10 +143,24 @@ export function decryptField(payload: string): string {
   if (tag.length !== 16) {
     throw new Error(`decryptField: auth tag must be 16 bytes (got ${tag.length})`)
   }
-  const decipher = createDecipheriv(ALGO, key, iv)
-  decipher.setAuthTag(tag)
-  const pt = Buffer.concat([decipher.update(ct), decipher.final()])
-  return pt.toString('utf8')
+  const tryKey = (k: Buffer): string => {
+    const decipher = createDecipheriv(ALGO, k, iv)
+    decipher.setAuthTag(tag)
+    return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8')
+  }
+  try {
+    return tryKey(key)
+  } catch (err) {
+    // obj-716719: two key sources have coexisted — the host key file (rows
+    // written before the Aug 2026 secrets-store cutover) and the store value
+    // hydrated into process.env at boot. They differ, so rows written under one
+    // failed to decrypt under the other and every per-user GitHub/Google
+    // credential silently dropped out of spawn env. Fall back to the other
+    // source before giving up; the GCM tag still rejects anything forged.
+    const alt = getAlternateKey(key)
+    if (!alt) throw err
+    return tryKey(alt)
+  }
 }
 
 /**

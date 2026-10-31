@@ -88,3 +88,31 @@ describe('per-owner credential', () => {
     expect(res.ok).toBe(false)
   })
 })
+
+// Regression (obj 710856): the live API attributes lines by AUDIO TRACK —
+// 'microphone' is the owner's own mic, 'speaker' is system audio (everyone else).
+// We originally only matched 'me', so 24 of Ava's real meetings came back with
+// owner_lines: 0 and her voice profile had nothing to build from.
+describe('owner attribution by audio track', () => {
+  it('treats speaker.source "microphone" as the owner and "speaker" as not', async () => {
+    stubFetch({
+      ...NOTE,
+      transcript: [
+        { speaker: { source: 'microphone' }, text: 'I just gave it ideas that I had.' },
+        { speaker: { source: 'speaker' }, text: 'Okay, all right, cool.' },
+        { speaker: { source: 'MICROPHONE' }, text: 'It feels too AI.' },
+      ],
+    })
+    const m = await getMeeting('not_x', 'grn_k')
+    expect(m.segments.map(s => s.is_owner)).toEqual([true, false, true])
+  })
+
+  it('still honours the legacy "me" source', async () => {
+    stubFetch({
+      ...NOTE,
+      transcript: [{ speaker: { source: 'me' }, text: 'Mine.' }, { speaker: { source: 'them' }, text: 'Theirs.' }],
+    })
+    const m = await getMeeting('not_x', 'grn_k')
+    expect(m.segments.map(s => s.is_owner)).toEqual([true, false])
+  })
+})

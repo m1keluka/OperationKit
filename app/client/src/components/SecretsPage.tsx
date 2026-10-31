@@ -24,6 +24,7 @@
  * returns metadata summaries). Access is enforced server-side too; this UI just
  * scopes what it offers.
  */
+import { RotationFlagsPanel } from './secrets/RotationFlagsPanel'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { api, ApiError } from '../lib/api'
@@ -221,6 +222,9 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
             + New
           </button>
         </div>
+
+        {/* obj 718944 — secrets pasted into a card chat, to rotate later (admin, names only). */}
+        <RotationFlagsPanel />
 
         {/* Scope filter. "All scopes" is the cross-organization admin view. */}
         <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface-raised p-4">

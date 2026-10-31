@@ -73,7 +73,7 @@ export function buildThreadTimeline(messages: SessionMessage[]): ThreadSegment[]
     if (m.type === 'result') {
       segments.push({ type: 'summary', index: i, text: m.text || '', cost: m.cost, duration: m.duration, timestamp: m.timestamp })
     } else if (m.type === 'followup') {
-      segments.push({ type: 'divider', index: i, text: m.text || '', timestamp: m.timestamp })
+      segments.push({ type: 'divider', index: i, text: m.text || '', timestamp: m.timestamp, ...(m.sender ? { sender: m.sender } : {}) })
     } else {
       // error
       segments.push({ type: 'error', index: i, text: m.text || '', timestamp: m.timestamp })

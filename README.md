@@ -1,95 +1,74 @@
-# OperationKit
+# Operation Kit
 
-**Self-hosted, multi-tenant work infrastructure for teams of small to medium-sized businesses.**
+**The infrastructure layer for AI implementation consultants.**
 
-> Your work infrastructure. Any model. Your server.
+> Install it once per client, on the client's own server. They own it; you build on it.
 
-OperationKit is a board where work becomes agent sessions: you open a card, pick a model, and an
-agent session starts in tmux on your own VPS. The card is the source of truth, queue → working →
-review → done, and workspaces keep teams, clients, or business units isolated on one shared
-instance.
+Operation Kit is a ready-made base for putting AI to work inside a business. A consultant installs
+one copy per client, on a server the client owns, in under an hour. The client gets a private web
+app with a knowledge base of their own documents, AI workers that run jobs as cards on a board, an
+optional chat with ready-made agents, and a secure connection for the AI apps their people already
+use (Claude, ChatGPT, Grok). The consultant starts every engagement 80 to 90 percent of the way
+there and spends their time on the client's actual workflows.
 
-## Why own it
+## Why the client owns the install
 
-AI labs are racing toward IPOs, and public markets price growth, not margin. Today's below-cost
-token pricing is a land-grab subsidy, not a floor, once a lab answers to shareholders, usage at
-scale gets repriced toward what it actually costs to serve. If your business runs on AI at volume,
-the cheapest and most durable move is to own the infrastructure that work runs on, so the model
-underneath is a swappable input, not a structural dependency.
+- **Their server, their data.** Every client has its own copy on its own server. There is no shared
+  Operation Kit cloud and no central database holding several clients' data.
+- **Their AI accounts.** Work runs on the client's own Claude subscription or API key (OpenAI and
+  Gemini optional). No pooled or resold seats.
+- **Fewer vendor-risk questions.** Because client data never sits on a vendor's systems, the usual
+  "is your vendor SOC 2 audited?" question mostly becomes "is our own server set up well?". To be
+  plain about it: **Operation Kit has no SOC 2 attestation**, and we do not claim one. See the
+  [security overview](./docs/SECURITY-OVERVIEW.md) for what is protected and what is not done yet.
+- **No lock-in to a model.** Agents, skills and the knowledge base are plain files on the server.
+  Switch the AI provider and none of it moves.
 
-OperationKit is built that way. Your skills, agents, and knowledge base live in plain files on your
-own server, not inside a model provider's product. Point OperationKit at Claude today. Point it at
-GPT or Grok next quarter. Point it at an open-weight model on your own GPUs the quarter after that.
-The work you've built, your context, your playbooks, your history of decisions, comes with you
-every time, because none of it was ever stored in a provider's walled garden.
+## What is inside
 
-Think of it like a car and a gas station: the car (OperationKit) is what you own and drive, it
-holds your stuff, your routes, your history. The model is the gas station you fill up at. You don't
-rebuild the car to use a different station; you just pull into whichever one has the best price or
-is actually open.
+| | What it does |
+|---|---|
+| **Knowledge base** | Drop in Excel, CSV, PDF and Word files; they become organized, linked notes you can ask questions of, with every answer citing its source. It works like a living wiki: originals are kept untouched, a page per person, organization and topic is compiled from them, good answers can be saved back as new pages, and a nightly cleanup flags contradictions and stale facts. Claude and ChatGPT chat exports and call transcripts (.txt, .docx, .vtt, .srt) can be imported too. Plain markdown, so it opens in Obsidian or any editor. |
+| **AI workers on a board** | Anything that takes more than a few minutes becomes a card: *queue → working → review → done*. Each card runs a coding agent (Claude Code by default; Codex and Grok supported) in its own sandbox, and an independent AI reviewer checks the result before a person signs it off. |
+| **Agent chat (optional)** | One ongoing chat per agent, like a personal assistant. Agents read and update their own notes, draft emails and calendar invites for a person to send (never on their own), and hand bigger jobs to the board. |
+| **Connect any AI app (MCP)** | Claude, ChatGPT, Grok, Codex, Cursor and other MCP apps connect with a named, limited key and can use the same knowledge base, agents and board. [Connect your AI](./docs/CONNECT-YOUR-AGENT.md). |
+| **Agent templates** | Each agent is one file (instructions, knowledge folders, tools, schedules). Starter templates ship in the box (Personal assistant, Knowledge librarian, Operator); consultants can write their own and drop them into a client's install. A shared marketplace for publishing agents is planned, and the install side is already built for it ([how it would plug in](./docs/agents/marketplace.md)). |
+| **Connectors** | Link GitHub and Google Workspace once in Settings and choose which agents may use each. Credentials are stored encrypted and never shown to agents. |
+| **Workspaces** | Separate teams or business units inside one install, each with its own board and knowledge folders. |
 
-## Model portability
+## Install
 
-What transfers when you swap models: skills (`skills/<slug>/SKILL.md`), agents
-(`agents/<slug>.md`), the knowledge base, and workspace/objective state (Postgres/SQLite-backed,
-model-independent). None of it is stored in or dependent on a specific model provider.
+A fresh Ubuntu server, the client's domain on Cloudflare, and a Claude account. Claude Code on your
+laptop follows [INSTALL.md](./INSTALL.md) and does the work; you answer a few questions and do two
+short sign-ins. About 30 to 45 minutes, most of it waiting for the build.
 
-**Supported today (shipped):**
-- **Claude** (Anthropic), native engine, the default
-- **Codex / OpenAI**, native engine
-- **Grok** (xAI), native engine
-- **Gemini**, via the bundled LiteLLM proxy (used today for the `research` model group)
-- **Local open-weight models**, via LiteLLM + Ollama (used today for the `code` model group,
-  routing to a local `qwen3` model against your own GPU)
-
-**Roadmap:** model groups are independently configurable, and LiteLLM supports 100+ providers;
-today's default config routes most reasoning/writing workloads to Claude, with Gemini and Ollama
-wired for the research and code groups specifically. Broader "any workload, any provider" coverage
-is a configuration exercise, not a rewrite. See
-[docs/product/08-model-portability.md](./docs/product/08-model-portability.md) for how to
-configure engines and LiteLLM model groups.
-
-## Features
-
-**Primary:**
-- **Self-hosted, multi-tenant workspaces**, run OperationKit on your own server, with isolated
-  workspaces per team or business unit
-- **Model-agnostic engine routing**, point objectives at Claude, Codex, Grok, or any
-  OpenAI-compatible/local model via LiteLLM
-- **Board / objectives lifecycle**, a queue → working → review → done board tracks every unit of
-  work with acceptance criteria
-- **Skills / tools / agents layer**, composable, versioned knowledge and procedure files addressed
-  by the `okit` CLI
-- **Knowledge base**, team knowledge loads automatically before every session
-
-**Secondary:**
-- RBAC, per-workspace roles gate who can see and act on what
-- An adversarial review gate, a fresh-context AI reviewer grades generated work against locked
-  acceptance criteria before a human sees it
-- External agents driving the board via API key, Claude Projects, Grok bots, ChatGPT custom GPTs,
-  or any HTTP client can create and manage cards through a minted API key
+```
+ Person ──► Cloudflare Access ──► Cloudflare Tunnel ──► client's server (no open web ports)
+            who are you?          private connection    ├─ Operation Kit app
+                                                        └─ one sandbox per AI job
+```
 
 ## Docs
 
-| | |
-| --- | --- |
-| Product (what it is, how to use it) | [docs/product/README.md](./docs/product/README.md) |
-| Model portability | [docs/product/08-model-portability.md](./docs/product/08-model-portability.md) |
-| Agent / HTTP API | [docs/api/README.md](./docs/api/README.md) · [portable prompt](./docs/api/AGENT-PROMPT.md) |
-| Architecture | [docs/architecture/README.md](./docs/architecture/README.md) |
-| Security / threat model | [SECURITY.md](./SECURITY.md) |
-| Deploy / self-deploy | [docs/product/06-operating.md](./docs/product/06-operating.md) |
-
-## Quickstart / self-host
-
-See [docs/product/06-operating.md](./docs/product/06-operating.md) for deploy instructions, and
-[SECURITY.md](./SECURITY.md) for the threat model before exposing it to a network.
+| For | Read |
+|---|---|
+| Installing for a client | [INSTALL.md](./INSTALL.md) |
+| Connecting Claude, ChatGPT, Grok or another AI app | [docs/CONNECT-YOUR-AGENT.md](./docs/CONNECT-YOUR-AGENT.md) |
+| "Where does our data go?" (plain-language, one page) | [docs/SECURITY-OVERVIEW.md](./docs/SECURITY-OVERVIEW.md) |
+| Running a live demo | [docs/DEMO-RUNBOOK.md](./docs/DEMO-RUNBOOK.md) |
+| Using it day to day | [docs/product/README.md](./docs/product/README.md) |
+| Agent chat | [docs/product/09-agent-chat.md](./docs/product/09-agent-chat.md) |
+| Writing agent files | [docs/agents/agent-file-format.md](./docs/agents/agent-file-format.md) |
+| Agent / HTTP / MCP API reference | [docs/api/README.md](./docs/api/README.md) |
+| Model choice and portability | [docs/product/08-model-portability.md](./docs/product/08-model-portability.md) |
+| Engineers: architecture and threat model | [docs/architecture/README.md](./docs/architecture/README.md) · [SECURITY.md](./SECURITY.md) |
 
 ## Status
 
-Built to be a respectable open-source self-host: TLS, fail-loud secrets, login throttle, CSP,
-signed webhooks. It is **not** PE-diligence / SOC 2 SaaS. The Docker socket and auto-approved agent
-sessions are the product, and they are documented as such.
+Built to be a solid self-hosted install: Cloudflare in front, no open web ports, sandboxed AI jobs,
+encrypted secrets, a forced password change for the first admin, automatic security updates. It is
+not an audited SaaS. Known gaps (no SOC 2, no built-in two-factor or SSO beyond Cloudflare Access,
+transcripts not encrypted at rest) are listed in the [security overview](./docs/SECURITY-OVERVIEW.md).
 
 ## License
 
