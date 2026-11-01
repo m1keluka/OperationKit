@@ -3,6 +3,23 @@ import { broadcast } from '../ws/index.js'
 import { getDefaultModelId } from './model-registry.js'
 import { notify } from './notifier.js'
 import { MAX_CONCURRENT_SESSIONS, type Objective } from '@operationkit/shared'
+import {
+  DEFAULT_SCRIPT_TIMEOUT_SEC,
+  MAX_SCRIPT_OUTPUT_BYTES,
+  OUTPUT_TAIL_BYTES,
+  decideScriptOutcome,
+  getScriptExecutor,
+  tailOf,
+  type ScriptExecResult,
+  type ScriptRunStatus,
+} from './routine-script.js'
+import {
+  classifyAiFireResult,
+  reconcileAiRunOutcomes,
+  recordRoutineFailure,
+  recordRoutineSuccess,
+} from './routine-auto-pause.js'
+import { findOpenDuplicate, recordDedupe, isDuplicateGuardEnabled } from '../lib/objective-dedupe.js'
 
 const TICK_MS = 60 * 1000
 const PORT = parseInt(process.env.PORT || '3002', 10)
@@ -39,6 +56,21 @@ export interface RoutineRow {
   // objective). When set, runs spawn as children of the strategy and feed their
   // summary back into its context. NULL ⇒ standalone routine (unchanged).
   strategy_objective_id?: number | null
+  // obj 64 Part B — script routines + auto-pause (all optional: pre-migration
+  // rows and test fixtures omit them; kind NULL/undefined ⇒ 'ai').
+  kind?: string | null
+  script_command?: string | null
+  alert_marker?: string | null
+  script_timeout_sec?: number | null
+  last_run_status?: string | null
+  last_exit_code?: number | null
+  last_output_tail?: string | null
+  last_error?: string | null
+  max_consecutive_failures?: number | null
+  consecutive_failures?: number | null
+  auto_paused_at?: string | null
+  auto_pause_reason?: string | null
+  last_accounted_objective_id?: number | null
 }
 
 // ── Minimal 5-field cron matcher ──────────────────────────────────────────
@@ -377,14 +409,30 @@ export function overFireGuardReason(cronExpr: string, lastRunAt: string | null, 
   )
 }
 
-export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now'): Promise<FireResult> {
+/**
+ * obj 64 — a script routine's escalation into the AI card path. The card comes
+ * from the routine's objective_template (same INSERT as an AI fire) with the
+ * script output tail appended to its description; when the template is missing
+ * or unusable, `fallbackTitle` is used instead.
+ */
+interface ScriptEscalation {
+  descriptionSuffix: string
+  fallbackTitle: string
+}
+
+async function fireAiRoutine(
+  routine: RoutineRow,
+  source: 'cron' | 'run-now',
+  escalation?: ScriptEscalation,
+): Promise<FireResult> {
   const db = getDb()
 
   // Over-fire guard — EVERY automatic fire path (fresh card AND stranded-card retry)
   // goes through here, so it sits first. An explicit 'run-now' (admin/internal route,
   // granola) is deliberately unguarded. last_run_at is re-read from the DB rather than
-  // trusted from the caller's (possibly stale) row.
-  if (source !== 'run-now') {
+  // trusted from the caller's (possibly stale) row. A script escalation already
+  // passed this guard when the script was launched (and stamped last_run_at).
+  if (source !== 'run-now' && !escalation) {
     const fresh = db.prepare('SELECT last_run_at FROM routines WHERE id = ?').get(routine.id) as
       | { last_run_at: string | null }
       | undefined
@@ -446,11 +494,13 @@ export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now
   let tpl: Record<string, unknown>
   try {
     tpl = JSON.parse(routine.objective_template) as Record<string, unknown>
+    if (!tpl || typeof tpl !== 'object') throw new Error('not an object')
   } catch {
-    return { ok: false, reason: 'objective_template is not valid JSON' }
+    if (!escalation) return { ok: false, reason: 'objective_template is not valid JSON' }
+    tpl = {}
   }
   const str = (k: string): string | null => (typeof tpl[k] === 'string' && (tpl[k] as string).trim() ? (tpl[k] as string) : null)
-  const title = str('title')
+  const title = str('title') ?? escalation?.fallbackTitle ?? null
   if (!title) return { ok: false, reason: 'objective_template.title is required' }
   const type = ['project', 'bug', 'task'].includes(tpl.type as string) ? (tpl.type as string) : 'task'
 
@@ -501,6 +551,21 @@ export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now
     else console.warn(`[routines] '${routine.name}': assigned_user_id ${rawAssignee} does not exist — leaving unassigned`)
   }
 
+  // Duplicate guard (obj 64 Part C, lib/objective-dedupe.ts): an automatic cron fire
+  // does not file a card while an OPEN same-title card from ANOTHER source exists in
+  // the workspace inside the guard window. Same-routine cards are excluded — the
+  // queue-depth guard above owns those. 'run-now' (explicit) and script escalations
+  // are not guarded. last_run_at is already stamped, so a refusal skips this slot.
+  if (source !== 'run-now' && !escalation && isDuplicateGuardEnabled(db)) {
+    const dup = findOpenDuplicate(db, { title, workspace: str('workspace') || 'example', excludeRoutineId: routine.id, excludeParentId: parentId })
+    if (dup) {
+      const reason = `duplicate guard: open card #${dup.id} ("${dup.title}", ${dup.status}) has the same title`
+      recordDedupe({ event: 'duplicate_refused', source: `routine-scheduler:${routine.id}`, title, workspace: str('workspace') || 'example', existingId: dup.id, project: str('project') })
+      lastSkipReason.set(routine.id, reason)
+      return { ok: false, reason }
+    }
+  }
+
   const result = db.prepare(
     `INSERT INTO objectives
        (title, description, agent_context, workspace, project, category,
@@ -509,7 +574,7 @@ export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queue', 'routine', ?, ?, ?)`
   ).run(
     title,
-    str('description') || '',
+    (str('description') || '') + (escalation?.descriptionSuffix ?? ''),
     str('agent_context') || 'general',
     str('workspace') || 'example',
     str('project'),
@@ -547,6 +612,157 @@ export async function fireRoutine(routine: RoutineRow, source: 'cron' | 'run-now
 
   console.log(`[routines] '${routine.name}': objective ${objectiveId} transitioned to working (session spawned)`)
   return { ok: true, objective_id: objectiveId }
+}
+
+// ── Script routines + auto-pause (obj 64 Part B) ────────────────────────────
+
+/** Script routine ids with a run in progress (in-memory; prevents overlap). */
+const runningScripts = new Set<number>()
+
+export function isScriptRoutine(routine: Pick<RoutineRow, 'kind'>): boolean {
+  return routine.kind === 'script'
+}
+
+export interface FireOptions {
+  /**
+   * Script routines only: start the script and return immediately instead of
+   * awaiting it (the tick + run-now endpoints use this so a 10-min script
+   * never blocks the scheduler loop or an HTTP request). Tests await it.
+   */
+  background?: boolean
+}
+
+export interface ScriptRunResult extends FireResult {
+  status?: ScriptRunStatus
+  exit_code?: number | null
+}
+
+/**
+ * Run a script routine once: execute → decide → persist → (maybe) escalate →
+ * count toward the auto-pause streak. On `ok` no card is created and no model
+ * is called. Never throws.
+ */
+async function runScriptRoutine(routine: RoutineRow, source: 'cron' | 'run-now'): Promise<ScriptRunResult> {
+  const db = getDb()
+  const command = (routine.script_command ?? '').trim()
+  const timeoutSec =
+    Number.isInteger(routine.script_timeout_sec) && (routine.script_timeout_sec as number) > 0
+      ? (routine.script_timeout_sec as number)
+      : DEFAULT_SCRIPT_TIMEOUT_SEC
+
+  let exec: ScriptExecResult
+  if (!command) {
+    exec = { exitCode: null, timedOut: false, spawnError: 'script_command is empty', output: '', durationMs: 0 }
+  } else {
+    try {
+      exec = await getScriptExecutor()(command, { timeoutMs: timeoutSec * 1000, maxOutputBytes: MAX_SCRIPT_OUTPUT_BYTES })
+    } catch (err) {
+      exec = {
+        exitCode: null,
+        timedOut: false,
+        spawnError: err instanceof Error ? err.message : String(err),
+        output: '',
+        durationMs: 0,
+      }
+    }
+  }
+
+  const outcome = decideScriptOutcome(exec, { alertMarker: routine.alert_marker, timeoutSec })
+  const tail = tailOf(exec.output || '')
+  db.prepare(
+    `UPDATE routines SET last_run_status = ?, last_exit_code = ?, last_output_tail = ?,
+            last_error = CASE WHEN ? THEN ? ELSE last_error END
+      WHERE id = ?`,
+  ).run(outcome.status, exec.exitCode, tail, outcome.isFailure ? 1 : 0, outcome.reason, routine.id)
+  console.log(`[routines] script '${routine.name}' (${source}) → ${outcome.status} (${outcome.reason}, ${exec.durationMs}ms)`)
+
+  let objectiveId: number | undefined
+  let escalationNote: string | undefined
+  if (outcome.escalate) {
+    const suffix =
+      `\n\n---\n**Script routine escalation** — \`${routine.name}\` ${outcome.status === 'alert' ? 'raised an alert' : 'failed'} ` +
+      `(${outcome.reason}).\n\nCommand: \`${command}\`\n\nOutput tail (last ${Math.round(OUTPUT_TAIL_BYTES / 1024)}KB):\n` +
+      '```\n' + (tail || '(no output)') + '\n```\n'
+    const fire = await fireAiRoutine(routine, source, {
+      descriptionSuffix: suffix,
+      fallbackTitle: `Routine '${routine.name}' script ${outcome.status === 'alert' ? 'alert' : 'failure'}`,
+    })
+    objectiveId = fire.objective_id
+    escalationNote = fire.ok ? fire.reason : `escalation not created: ${fire.reason}`
+    if (!fire.ok) console.warn(`[routines] script '${routine.name}' escalation skipped: ${fire.reason}`)
+  }
+
+  if (outcome.isFailure) await recordRoutineFailure(routine.id, outcome.reason)
+  else recordRoutineSuccess(routine.id)
+
+  const reason = [outcome.reason, escalationNote].filter(Boolean).join('; ')
+  return {
+    ok: !outcome.isFailure,
+    reason,
+    objective_id: objectiveId,
+    status: outcome.status,
+    exit_code: exec.exitCode,
+  }
+}
+
+/**
+ * Fire a routine. AI routines: instantiate the objective template as a card and
+ * spawn its session (fireAiRoutine). Script routines: run the command with no
+ * model call and only escalate to a card on failure / alert marker. Either way
+ * the result feeds the K-consecutive-failure auto-pause (routine-auto-pause.ts).
+ */
+export async function fireRoutine(
+  routine: RoutineRow,
+  source: 'cron' | 'run-now',
+  opts: FireOptions = {},
+): Promise<FireResult> {
+  if (!isScriptRoutine(routine)) {
+    // Count any already-finished runs first so the streak is current.
+    try {
+      await reconcileAiRunOutcomes(routine.id)
+    } catch (err) {
+      console.warn(`[routines] '${routine.name}' outcome reconcile failed:`, err instanceof Error ? err.message : err)
+    }
+    const res = await fireAiRoutine(routine, source)
+    if (classifyAiFireResult(res) === 'failure') {
+      await recordRoutineFailure(routine.id, res.reason ?? 'unknown fire error')
+    }
+    return res
+  }
+
+  const db = getDb()
+  if (source !== 'run-now') {
+    const fresh = db.prepare('SELECT last_run_at FROM routines WHERE id = ?').get(routine.id) as
+      | { last_run_at: string | null }
+      | undefined
+    const reason = overFireGuardReason(routine.cron_expr, fresh?.last_run_at ?? routine.last_run_at)
+    if (reason) {
+      lastSkipReason.set(routine.id, reason)
+      return { ok: false, reason }
+    }
+  }
+  if (runningScripts.has(routine.id)) {
+    return { ok: false, reason: 'script already running' }
+  }
+  runningScripts.add(routine.id)
+  // Stamp before the (possibly long) run so the double-fire / over-fire guards hold.
+  db.prepare('UPDATE routines SET last_run_at = ? WHERE id = ?').run(new Date().toISOString(), routine.id)
+
+  const run = runScriptRoutine(routine, source)
+    .catch((err): ScriptRunResult => {
+      console.error(`[routines] script '${routine.name}' run crashed:`, err)
+      return { ok: false, reason: `script run crashed: ${err instanceof Error ? err.message : String(err)}` }
+    })
+    .finally(() => runningScripts.delete(routine.id))
+
+  if (opts.background) {
+    void run.then(res => {
+      if (res.ok) lastSkipReason.delete(routine.id)
+      else lastSkipReason.set(routine.id, res.reason ?? 'script failed')
+    })
+    return { ok: true, reason: 'script run started' }
+  }
+  return run
 }
 
 // ── Scheduler ──────────────────────────────────────────────────────────────
@@ -605,6 +821,20 @@ async function tick(): Promise<void> {
     return
   }
 
+  // obj 64 — count finished AI runs (cancelled / review-fail ⇒ failure, done ⇒
+  // success) before firing; this may auto-pause a routine, so re-select after.
+  const enabledAi = db.prepare("SELECT id, name FROM routines WHERE enabled = 1 AND COALESCE(kind, 'ai') = 'ai'").all() as {
+    id: number
+    name: string
+  }[]
+  for (const r of enabledAi) {
+    try {
+      await reconcileAiRunOutcomes(r.id)
+    } catch (err) {
+      console.warn(`[routines] '${r.name}' outcome reconcile failed:`, err instanceof Error ? err.message : err)
+    }
+  }
+
   const routines = db.prepare('SELECT * FROM routines WHERE enabled = 1').all() as RoutineRow[]
   let fired = 0
   for (const routine of routines) {
@@ -613,7 +843,8 @@ async function tick(): Promise<void> {
     // (timer drift can land two ticks inside one wall-clock minute).
     if (sameMinute(routine.last_run_at, now)) continue
     try {
-      const result = await fireRoutine(routine, 'cron')
+      // Script routines run in the background so a long script never stalls the loop.
+      const result = await fireRoutine(routine, 'cron', { background: isScriptRoutine(routine) })
       if (result.ok) {
         fired++
         // A created-but-not-spawned card is ok:true with a reason — keep it visible.

@@ -25,6 +25,6 @@ Every card with a linked repo works in its own isolated worktree — never your 
 
 ## Jobs: the scheduled variant
 
-A **Job** is a routine on a cron schedule. Each fire creates a card the same way a manual card would — Jobs are the scheduler, not a second, parallel to-do system.
+A **Job** is a routine on a cron schedule. Each fire creates a card the same way a manual card would — Jobs are the scheduler, not a second, parallel to-do system. A **script** job runs a shell command with no model call and only creates a card when the script fails or prints an alert line; any job that fails K times in a row is auto-paused with a one-click Resume. Same-title twin cards are refused for 24h unless forced. See [Token-Waste Controls](./Token-Waste-Controls).
 
 See [Delegator Mode](./Delegator-Mode) for how a single objective can fan out into multiple worker sub-sessions, and [External Agents](./External-Agents) for how a card can be created and managed from outside the UI entirely.

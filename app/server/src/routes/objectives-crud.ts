@@ -40,6 +40,13 @@ import {
 } from './objectives-helpers.js'
 import { beginIdempotent } from '../lib/idempotency.js'
 import { startCreatedObjective } from './objectives-create-start.js'
+import {
+  findOpenDuplicate,
+  recordDedupe,
+  duplicateConflictBody,
+  isDuplicateGuardEnabled,
+  duplicateGuardWindowHours,
+} from '../lib/objective-dedupe.js'
 
 /** Page size applied to an agent caller's board list when it sends no ?limit. */
 export const AGENT_DEFAULT_LIST_LIMIT = 50
@@ -368,6 +375,25 @@ router.post('/', async (req: AuthRequest, res) => {
   // inheritance, then NULL. A Strategy created here points strategy_id at itself
   // is intentionally NOT done — is_strategy already marks it as a Strategy.
   const resolvedStrategyId = resolveStrategyId(db, strategy_id, parent_id ?? null)
+
+  // Duplicate guard (obj 64 Part C, lib/objective-dedupe.ts): refuse — never merge —
+  // a card whose normalized title matches an OPEN card in this workspace created in
+  // the guard window. 409 carries the existing id; `force: true` creates anyway
+  // (the board's "Create anyway" button). Runs before the insert, so it also covers
+  // `start: true` — a duplicate is never created-and-started from this route.
+  const force = (req.body as { force?: unknown }).force === true
+  let forcedOverDuplicateId: number | null = null
+  if (isDuplicateGuardEnabled(db)) {
+    const windowHours = duplicateGuardWindowHours(db)
+    const dup = findOpenDuplicate(db, { title, workspace: effectiveWorkspace, windowHours, excludeParentId: parent_id ?? null })
+    if (dup && !force) {
+      recordDedupe({ event: 'duplicate_refused', source: 'POST /api/objectives', title: title.trim(), workspace: effectiveWorkspace, existingId: dup.id, project: project || null })
+      res.status(409).json(duplicateConflictBody(dup, windowHours))
+      return
+    }
+    if (dup) forcedOverDuplicateId = dup.id
+  }
+
   const result = db
     .prepare(
       // depth is DERIVED, never client-supplied (obj 707003). This route omitted
@@ -382,6 +408,9 @@ router.post('/', async (req: AuthRequest, res) => {
     .run(title.trim(), description || '', effectiveAgent, effectiveWorkspace, project || null, effectiveProjectId, category || 'general', parent_id || null, depthForParent(db, parent_id || null), effectiveAssignedUserId, user.id, create_pr ? 1 : 0, delegate_mode ? 1 : 0, isStrategy ? 1 : 0, completion_goal || null, workflow_hint || null, effectiveEffort, resolveObjectiveModel({ model, type: effectiveType, create_pr, delegate_mode }), effectiveType, initialStatus, skip_ai_review ? 1 : 0, req.agentKey ? 'agent_api' : 'manual', resolvedStrategyId, req.agentKey?.id ?? null, req.agentKey?.label ?? null)
 
   setAssignees(Number(result.lastInsertRowid), assigneeIds)
+  if (forcedOverDuplicateId != null) {
+    recordDedupe({ event: 'duplicate_forced', source: 'POST /api/objectives', title: title.trim(), workspace: effectiveWorkspace, existingId: forcedOverDuplicateId, newId: Number(result.lastInsertRowid), project: project || null })
+  }
 
   const objective = mapObjective(
     db.prepare('SELECT * FROM objectives WHERE id = ?').get(result.lastInsertRowid) as Objective

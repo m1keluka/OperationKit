@@ -16,6 +16,7 @@ import type {
 } from '@operationkit/shared'
 import { fieldCls, labelCls } from './objective-modal/form-tokens'
 import { FooterActions } from './objective-modal/FooterActions'
+import { parseDuplicateError, cardHref, type DuplicateCard } from '../lib/duplicateGuard'
 
 interface ObjectiveModalProps {
   objective: Objective | null
@@ -48,6 +49,9 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
   )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // obj 64: a create refused as a same-title duplicate (409 duplicate_24h) — shown
+  // with a link to the existing card and a "Create anyway" (force: true) action.
+  const [duplicate, setDuplicate] = useState<DuplicateCard | null>(null)
   const [creatingProject, setCreatingProject] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [projectBusy, setProjectBusy] = useState(false)
@@ -170,12 +174,17 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    await submit(false)
+  }
+
+  async function submit(force: boolean) {
     if (!objWorkspace) {
       setError('Pick an organization')
       return
     }
     setLoading(true)
     setError('')
+    setDuplicate(null)
 
     try {
       if (isEdit) {
@@ -202,6 +211,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
           model: model || undefined,
           delegate_mode: isAdmin ? delegateMode : undefined,
           assigned_user_ids: isAdmin ? assignedUserIds : undefined,
+          ...(force ? { force: true } : {}),
         })
         if (pendingFiles.length > 0 && created?.id) {
           setUploading(true)
@@ -210,7 +220,9 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
       }
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Operation failed')
+      const dup = isEdit ? null : parseDuplicateError(err)
+      if (dup) setDuplicate(dup)
+      else setError(err instanceof Error ? err.message : 'Operation failed')
     } finally {
       setLoading(false)
       setUploading(false)
@@ -270,6 +282,33 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
 
         {error && (
           <div className="mb-4 rounded-md border border-flag-blocked/30 bg-flag-blocked/10 px-3 py-2 text-sm text-flag-blocked">{error}</div>
+        )}
+
+        {duplicate && (
+          <div
+            data-testid="duplicate-notice"
+            role="alert"
+            className="mb-4 rounded-md border border-flag-blocked/30 bg-flag-blocked/10 px-3 py-2 text-sm text-fg-1"
+          >
+            <p>
+              An open card with this title was created in the last 24h:{' '}
+              <a href={cardHref(duplicate.id)} className="font-medium underline" data-testid="duplicate-link">
+                #{duplicate.id}{duplicate.title ? ` ${duplicate.title}` : ''}
+              </a>
+              {duplicate.status ? ` (${duplicate.status})` : ''}. Not created.
+            </p>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                data-testid="create-anyway"
+                disabled={loading}
+                onClick={() => { void submit(true) }}
+                className="rounded-md border border-line px-2.5 py-1 text-xs font-medium text-fg-0 hover:bg-surface-3 disabled:opacity-50"
+              >
+                Create anyway
+              </button>
+            </div>
+          </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">

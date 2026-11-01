@@ -252,7 +252,7 @@ describe('Idempotency-Key is namespaced per agent key', () => {
   it('two keys of the same user + same key → two cards; a repeat from one key → its original', async () => {
     const botA = mint('grok-a')
     const botB = mint('grok-b')
-    const body = { title: 'same request from two bots', workspace: WS, type: 'task' }
+    const body = { title: 'same request from two bots', workspace: WS, type: 'task', force: true } // force: bypass the obj-64 duplicate guard
     const headers = { 'Idempotency-Key': 'shared-across-bots-1' }
 
     const a1 = await call('POST', '/api/objectives', { bearer: botA.token, body, headers })
@@ -274,7 +274,7 @@ describe('Idempotency-Key is namespaced per agent key', () => {
 
   it('the legacy key and the browser session have their own namespaces too', async () => {
     const legacy = issueApiKey(ADMIN_ID).token
-    const body = { title: 'legacy vs session', workspace: WS, type: 'task' }
+    const body = { title: 'legacy vs session', workspace: WS, type: 'task', force: true } // force: bypass the obj-64 duplicate guard
     const headers = { 'Idempotency-Key': 'legacy-vs-session' }
     const viaLegacy = await call('POST', '/api/objectives', { bearer: legacy, body, headers })
     const viaSession = await call('POST', '/api/objectives', { body, headers })

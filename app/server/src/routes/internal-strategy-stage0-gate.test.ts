@@ -200,7 +200,7 @@ describe('child-cap excludes cancelled children (obj 710386 defect 3 — CC root
 
   function childPayload(parentId: number, extra = {}) {
     return {
-      title: 'child',
+      title: `child of #${parentId}`, // unique per parent: the obj-64 duplicate guard refuses open same-title twins
       parent_id: parentId,
       workspace: 'operator',
       type: 'task',

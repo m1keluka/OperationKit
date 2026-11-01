@@ -50,6 +50,7 @@ import { broadcast } from '../ws/index.js'
 import { mapObjective, requireOwnership } from './objectives-helpers.js'
 import { noteStartReason } from '../services/session-start-reasons.js'
 import { sessionCapReached, SESSION_CAP_ERROR } from '../lib/session-cap.js'
+import { findRunningTwinForStart, recordDedupe, duplicateStartConflictBody, duplicateGuardWindowHours } from '../lib/objective-dedupe.js'
 
 export function registerObjectiveStatusRoutes(router: Router): void {
 router.patch('/:id/status', async (req: AuthRequest, res) => {
@@ -88,6 +89,20 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
   if (status === 'working' && sessionCapReached(db)) {
     res.status(409).json({ error: SESSION_CAP_ERROR })
     return
+  }
+
+  // Duplicate guard on start (obj 64 Part C): a queued card whose same-title twin is
+  // already working/ai_review is refused unless `force: true` (lib/objective-dedupe.ts).
+  if (status === 'working') {
+    const twin = findRunningTwinForStart(db, existing)
+    if (twin) {
+      const force = (req.body as { force?: unknown }).force === true
+      recordDedupe({ event: force ? 'duplicate_forced' : 'duplicate_refused', source: 'PATCH /api/objectives/:id/status', title: existing.title, workspace: existing.workspace, existingId: twin.id, newId: existing.id, project: existing.project })
+      if (!force) {
+        res.status(409).json(duplicateStartConflictBody(twin, duplicateGuardWindowHours(db)))
+        return
+      }
+    }
   }
 
   // Handle session lifecycle

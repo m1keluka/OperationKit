@@ -109,6 +109,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
   const agent = getAgentMeta(objective.agent_context)
   const isBlocked = !!objective.has_blockers && !objective.session_id
   const needsSecretNames = (objective.needs_secret ?? []).map(n => n.name)
+  const freshAfterCap = objective.last_start_reason === 'fresh_seeded_after_cap'
   const aiIter = objective.ai_review_iteration ?? 0
   const showAIDots = (objective.status === 'ai_review' || aiIter > 0) && aiIter > 0
 
@@ -366,7 +367,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
         )}
 
         {/* Footer — AI dots / blocked / needs-secret / orchestrating state */}
-        {(showAIDots || isBlocked || orchestrating || needsSecretNames.length > 0) && (
+        {(showAIDots || isBlocked || orchestrating || needsSecretNames.length > 0 || freshAfterCap) && (
           <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
             {showAIDots && <AIReviewDots iteration={aiIter} verdict={objective.ai_review_verdict} />}
             {orchestrating && (
@@ -380,6 +381,15 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
             )}
             {isBlocked && <BlockedFlag />}
             {needsSecretNames.length > 0 && <NeedsSecretFlag names={needsSecretNames} />}
+            {freshAfterCap && (
+              <span
+                data-testid="fresh-after-cap"
+                className="inline-flex items-center gap-1 font-mono text-[11px] text-fg-2"
+                title="The last restart did not replay the full transcript: the session chain hit the history cap (tokens or resume rounds), so a fresh session was seeded with a compact card summary."
+              >
+                fresh start · history capped
+              </span>
+            )}
           </div>
         )}
       </div>

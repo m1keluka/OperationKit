@@ -336,7 +336,7 @@ describe('no secret value in any API response, log line or audit entry', () => {
     expect(creds.seatCredentialEnv(seat).CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN_3)
     const listed = await call('GET', '/api/admin/seats')
     for (const s of listed.json.seats) {
-      expect(Object.keys(s).sort()).toEqual(['available', 'consecutiveFailures', 'cooldownUntil', 'credential', 'enabled', 'health', 'id', 'kind', 'label', 'priority', 'sessions', 'usageToday'])
+      expect(Object.keys(s).sort()).toEqual(['available', 'consecutiveFailures', 'cooldownUntil', 'credential', 'enabled', 'health', 'id', 'kind', 'label', 'priority', 'sessions', 'usage', 'usageToday'])
     }
     await call('DELETE', `/api/admin/seats/${id}`)
 

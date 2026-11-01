@@ -365,6 +365,11 @@ export interface Objective {
   /** Secrets the worker is blocked on (obj 718944). Names + reasons only —
    *  never values. Empty/absent = not waiting on a secret. */
   needs_secret?: NeedsSecretItem[]
+  /** Reason of the most recent session spawn/resume (mirrors the newest
+   *  session_starts row, obj 64) — e.g. fresh_seeded_after_cap when a resume was
+   *  replaced by a fresh seeded session because the chain hit the history cap. */
+  last_start_reason?: string | null
+  last_start_at?: string | null
   /** The Strategy (is_strategy=1 objective) this objective belongs to or is
    *  associated with (obj 2386). Inherited from the parent chain at insert, or
    *  set explicitly on a manual objective (even when parent_id IS NULL) so it

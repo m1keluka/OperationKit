@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { SettingsSeats, healthBadge, type SeatSummary } from './SettingsSeats'
+import { fmtLocalReset, limitBadge } from './SeatUsage'
 
 async function flush() {
   for (let i = 0; i < 6; i++) {
@@ -41,10 +42,10 @@ const { store, apiMock, ApiErrorMock } = vi.hoisted(() => {
       super(message)
     }
   }
-  const store = { seats: [] as unknown[] }
+  const store = { seats: [] as unknown[], provisioning: null as unknown }
   const apiMock = {
     get: vi.fn((url: string) => {
-      if (url === '/admin/seats') return Promise.resolve({ seats: structuredClone(store.seats), kinds: ['claude', 'codex', 'grok'] })
+      if (url === '/admin/seats') return Promise.resolve({ seats: structuredClone(store.seats), kinds: ['claude', 'codex', 'grok'], provisioning: structuredClone(store.provisioning) })
       if (url.startsWith('/admin/seats/failover/')) return Promise.resolve({ workspace: 'main', enabled: false, order: ['claude', 'codex', 'grok'] })
       return Promise.resolve(null)
     }),
@@ -76,6 +77,7 @@ describe('Settings → Seats', () => {
 
   beforeEach(() => {
     for (const fn of [apiMock.post, apiMock.put, apiMock.patch, apiMock.del]) fn.mockReset()
+    store.provisioning = null
     store.seats = [
       seat(),
       seat({ id: 'seat-2', label: 'Seat 2', priority: 2, health: 'credits_exhausted', credential: { kind: 'setup_token', last4: 'cd34', addedAt: null, expiresAt: '2026-11-03T00:00:00Z', expiry: 'expiring' } }),
@@ -255,5 +257,65 @@ describe('Settings → Seats', () => {
     await flush()
     expect(apiMock.put).toHaveBeenCalledWith('/admin/seats/failover/main', { enabled: true, order: ['claude', 'codex', 'grok'] })
     expect(container.textContent).toContain('Cards pinned to one engine never move.')
+  })
+  describe('per-seat usage', () => {
+    const RESET = '2026-11-03T14:00:00.000Z'
+    const usage = (over: Partial<NonNullable<SeatSummary['usage']>> = {}): NonNullable<SeatSummary['usage']> => ({
+      tokens_24h: 1_250_000, tokens_7d: 8_400_000, sessions_24h: 12, sessions_7d: 1, limit_state: 'healthy',
+      limit_reset_at: null, limited_pct_24h: 0, ...over,
+    })
+
+    it('renders 24h / 7d tokens and sessions, the limit badge and the reset in local time with a timezone label', async () => {
+      store.seats = [
+        seat({ usage: usage() }),
+        seat({
+          id: 'seat-2', label: 'Seat 2', priority: 2, health: 'cooling_down', cooldownUntil: RESET,
+          usage: usage({ tokens_24h: 900, tokens_7d: 900, sessions_24h: 1, sessions_7d: 1, limit_state: 'weekly', limit_reset_at: RESET, limited_pct_24h: 41.7 }),
+        }),
+        seat({ id: 'seat-3', label: 'Seat 3', kind: 'codex', usage: usage({ limit_state: '5h', limit_reset_at: RESET }) }),
+      ]
+      await render()
+      const claude = section('claude')
+      const rows24 = Array.from(claude.querySelectorAll('[data-testid="seat-usage-24h"]')).map(e => e.textContent)
+      const rows7d = Array.from(claude.querySelectorAll('[data-testid="seat-usage-7d"]')).map(e => e.textContent)
+      expect(rows24).toEqual(['1.3M tokens · 12 sessions', '900 tokens · 1 session'])
+      expect(rows7d).toEqual(['8.4M tokens · 1 session', '900 tokens · 1 session'])
+      const limits = Array.from(claude.querySelectorAll('[data-testid="seat-limit"]')).map(e => e.textContent ?? '')
+      expect(limits[0]).toBe('No limit hit')
+      expect(limits[1]).toContain('Weekly limit')
+      expect(limits[1]).toContain('limited 41.7% of last 24h')
+      // Reset in the viewer's own zone, labelled with that zone.
+      const local = fmtLocalReset(RESET)
+      expect(limits[1]).toContain(`resets ${local}`)
+      const tz = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(new Date(RESET)).find(p => p.type === 'timeZoneName')!.value
+      expect(local).toContain(tz)
+      expect(section('codex').querySelector('[data-testid="seat-limit"]')!.textContent).toContain('5-hour limit')
+    })
+
+    it('formats the reset in an explicit zone with its label', () => {
+      expect(fmtLocalReset(RESET, 'America/New_York')).toMatch(/Nov 3.*9:00.*AM.*EST/)
+      expect(fmtLocalReset(RESET, 'UTC')).toMatch(/Nov 3.*2:00.*PM.*UTC/)
+      expect(limitBadge({ limit_state: '5h' }).text).toBe('5-hour limit')
+      expect(limitBadge({ limit_state: 'weekly' }).text).toBe('Weekly limit')
+    })
+
+    it('shows the provisioning hint banner', async () => {
+      store.provisioning = {
+        verdict: 'mixed', limited_seats: 2, idle_seats: 1,
+        thresholds: { limited_pct_24h: 25, idle_sessions_24h: 0 }, by_kind: [],
+        message: '2 seats rate-limited >25% of the last 24h → under-provisioned (Claude); 1 seat idle (no sessions in 24h) → over-provisioned (Codex)',
+      }
+      await render()
+      const banner = container.querySelector('[data-testid="seat-provisioning"]')!
+      expect(banner.textContent).toContain('Seats are unevenly loaded')
+      expect(banner.textContent).toContain('2 seats rate-limited >25% of the last 24h → under-provisioned (Claude)')
+      expect(banner.textContent).toContain('more than 25% of the last 24h')
+    })
+
+    it('renders without usage or provisioning from an older server', async () => {
+      await render()
+      expect(container.querySelector('[data-testid="seat-provisioning"]')).toBeNull()
+      expect(container.querySelector('[data-testid="seat-usage-24h"]')).toBeNull()
+    })
   })
 })

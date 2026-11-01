@@ -376,6 +376,12 @@ export const AGENT_OPENAPI = {
               'Create AND start (queue → working) in one call, under the same session cap / lease gates as PATCH status. ' +
               'Response gains a `start` block; on the session cap the card is created, left in queue, and the call returns 409.',
           },
+          force: {
+            type: 'boolean',
+            description:
+              'Create even when an OPEN card with the same normalized title exists in this workspace (created in the last 24h). ' +
+              'Without it such a create is refused with 409 { reason: "duplicate_24h", existing_id }.',
+          },
         },
       },
       StartOutcome: {
@@ -451,7 +457,10 @@ export const AGENT_OPENAPI = {
       StatusChangeRequest: {
         type: 'object',
         required: ['status'],
-        properties: { status: { $ref: '#/components/schemas/ObjectiveStatus' } },
+        properties: {
+          status: { $ref: '#/components/schemas/ObjectiveStatus' },
+          force: { type: 'boolean', description: 'Start even while a same-title twin (created in the last 24h) is already working/ai_review' },
+        },
       },
       MessageRequest: {
         type: 'object',
@@ -634,7 +643,9 @@ export const AGENT_OPENAPI = {
           '403': { description: 'Workspace or skip_ai_review forbidden, or missing_scope (board:write; board:start too when start:true)' },
           '409': {
             description:
-              'start:true only — card WAS created but not started (session cap or lease). Body: { error, objective, start }.',
+              'Duplicate: an open same-title card exists in this workspace (created in the last 24h) — NOT created. ' +
+              'Body: { error, reason: "duplicate_24h", existing_id, existing }. Retry with force:true to create anyway. ' +
+              'Or, start:true only — card WAS created but not started (session cap or lease). Body: { error, objective, start }.',
           },
           '422': { description: 'Idempotency-Key reused with a different body' },
         },
@@ -691,7 +702,7 @@ export const AGENT_OPENAPI = {
         responses: {
           '200': { description: 'New state' },
           '400': { description: 'Illegal transition' },
-          '409': { description: 'Cap, lease, or completion gate' },
+          '409': { description: 'Cap, lease, completion gate, or duplicate (queue → working while a same-title twin created in the last 24h is already working/ai_review; body reason "duplicate_24h", existing_id — pass force:true to start anyway)' },
         },
       },
     },
