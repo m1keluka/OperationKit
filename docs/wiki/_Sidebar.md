@@ -18,6 +18,7 @@
   - [Review Gate](./Review-Gate)
   - [External Agents](./External-Agents)
   - [Delegator Mode](./Delegator-Mode)
+  - [Token-Waste Controls](./Token-Waste-Controls)
 
 **Get going**
 - [Self-Hosting Quickstart](./Self-Hosting-Quickstart)

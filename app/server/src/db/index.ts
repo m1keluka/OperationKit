@@ -637,6 +637,48 @@ export function initDb(): Database.Database {
     db.exec('CREATE INDEX IF NOT EXISTS idx_routines_strategy ON routines(strategy_objective_id)')
   }
 
+  // routines — script routines + auto-pause (obj 64, Part B). Additive, idempotent.
+  //  - kind 'ai' (default, byte-identical legacy behaviour) | 'script': a script
+  //    routine runs `script_command` in a shell with NO model call and only
+  //    escalates to an AI card on a non-zero exit or an `alert_marker` line
+  //    (NULL ⇒ 'ALERT:'). script_timeout_sec NULL ⇒ 600s.
+  //  - last_run_status 'ok'|'alert'|'failed', last_exit_code, last_output_tail
+  //    (~4KB), last_error: per-run result surface for the Jobs board.
+  //  - consecutive_failures / max_consecutive_failures (NULL ⇒ global default) /
+  //    auto_paused_at / auto_pause_reason: the K-failure auto-pause.
+  //  - last_accounted_objective_id: watermark of routine-spawned objectives whose
+  //    terminal outcome has already been counted. Seeded to the current MAX(id)
+  //    on first add so the existing history is NOT retro-counted on deploy (a
+  //    week of failures would otherwise auto-pause everything at boot).
+  {
+    const cols = new Set(
+      (db.prepare('PRAGMA table_info(routines)').all() as { name: string }[]).map(c => c.name),
+    )
+    const add = (name: string, ddl: string) => {
+      if (!cols.has(name)) db.exec(`ALTER TABLE routines ADD COLUMN ${name} ${ddl}`)
+    }
+    add('kind', "TEXT NOT NULL DEFAULT 'ai'")
+    add('script_command', 'TEXT')
+    add('alert_marker', 'TEXT')
+    add('script_timeout_sec', 'INTEGER')
+    add('last_run_status', 'TEXT')
+    add('last_exit_code', 'INTEGER')
+    add('last_output_tail', 'TEXT')
+    add('last_error', 'TEXT')
+    add('max_consecutive_failures', 'INTEGER')
+    add('consecutive_failures', 'INTEGER NOT NULL DEFAULT 0')
+    add('auto_paused_at', 'TEXT')
+    add('auto_pause_reason', 'TEXT')
+    if (!cols.has('last_accounted_objective_id')) {
+      db.exec('ALTER TABLE routines ADD COLUMN last_accounted_objective_id INTEGER')
+      const objHasRoutineId = (db.prepare('PRAGMA table_info(objectives)').all() as { name: string }[])
+        .some(c => c.name === 'routine_id')
+      if (objHasRoutineId) db.exec(
+        'UPDATE routines SET last_accounted_objective_id = (SELECT MAX(id) FROM objectives WHERE objectives.routine_id = routines.id)',
+      )
+    }
+  }
+
   initRuntimeSchema(db)
 
   // objectives.routine_id — traceability link from routine-spawned objectives

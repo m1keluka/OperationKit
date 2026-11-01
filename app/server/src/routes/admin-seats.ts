@@ -17,6 +17,7 @@ import {
   addAccountSlot,
   clearAuthFailure,
   getAccountById,
+  getRateLimitHistory,
   getRouterStatus,
   removeSeat,
   seatCredentialUsable,
@@ -27,6 +28,7 @@ import { checkSlot } from '../services/account-health-check.js'
 import { cancelClaudeLogin, finishClaudeLogin, startClaudeLogin, type FinishError } from '../services/claude-oauth-login.js'
 import { deleteSeatCredential, maskSeat, storeSeatCredential, type SeatSummary } from '../services/seat-credentials.js'
 import { getWorkspaceFailover, setWorkspaceFailover } from '../services/seat-assign.js'
+import { computeSeatUsage, RATE_LIMIT_HISTORY_SCAN, type ProvisioningHint, type SeatUsageView } from '../services/seat-usage.js'
 import { normalizeOrder, parseCardFailover, SEAT_KINDS, type SeatKind } from '../services/seat-pool.js'
 import { ensureGrokCliExecutable } from '../services/session-spawn-command.js'
 import { extractGrokDeviceAuth, grokLoginSucceeded } from '../services/grok-device-auth.js'
@@ -43,9 +45,34 @@ export function auditSeat(actorUserId: number | null | undefined, action: string
   }
 }
 
-/** All seats, masked, with live availability. */
+type RouterSeat = ReturnType<typeof getRouterStatus>['accounts'][number]
+
+/** Rolling usage + rate-limit state for every seat (seat-usage.ts). Never throws. */
+function seatUsageView(accounts: RouterSeat[], now = Date.now()): SeatUsageView | null {
+  try {
+    return computeSeatUsage({ db: getDb(), now, seats: accounts, rateLimitEvents: getRateLimitHistory(RATE_LIMIT_HISTORY_SCAN) })
+  } catch (err) {
+    console.warn('[seats] usage aggregation failed:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+/** All seats, masked, with live availability and rolling usage, plus the pool provisioning hint. */
+export function listSeatsWithUsage(): { seats: SeatSummary[]; provisioning: ProvisioningHint | null } {
+  const accounts = getRouterStatus().accounts
+  const now = Date.now()
+  const view = seatUsageView(accounts, now)
+  const seats = accounts.map(a => {
+    const summary = maskSeat(a, now)
+    const usage = view?.usage.get(a.id)
+    return usage ? { ...summary, usage } : summary
+  })
+  return { seats, provisioning: view?.provisioning ?? null }
+}
+
+/** All seats, masked, with live availability and rolling usage. */
 export function listSeatSummaries(): SeatSummary[] {
-  return getRouterStatus().accounts.map(a => maskSeat(a))
+  return listSeatsWithUsage().seats
 }
 
 function seatOr404(id: string, res: import('express').Response) {
@@ -58,8 +85,7 @@ function seatOr404(id: string, res: import('express').Response) {
 }
 
 function summaryOf(id: string): SeatSummary | null {
-  const row = getRouterStatus().accounts.find(a => a.id === id)
-  return row ? maskSeat(row) : null
+  return listSeatsWithUsage().seats.find(s => s.id === id) ?? null
 }
 
 function parseKind(v: unknown): SeatKind | null {
@@ -79,7 +105,8 @@ function credentialFrom(body: unknown): string | null {
 }
 
 router.get('/seats', (_req: AuthRequest, res) => {
-  res.json({ seats: listSeatSummaries(), kinds: SEAT_KINDS })
+  const { seats, provisioning } = listSeatsWithUsage()
+  res.json({ seats, kinds: SEAT_KINDS, provisioning })
 })
 
 /**

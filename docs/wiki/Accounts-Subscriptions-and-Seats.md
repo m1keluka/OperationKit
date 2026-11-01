@@ -117,5 +117,6 @@ The failure classes and the cooldown-with-back-off approach on this page are ada
 
 ## Where to go next
 
+- [Token-Waste Controls](./Token-Waste-Controls) — per-seat 24h/7d usage, rate-limit state and the over/under-provisioned hint on Settings → Seats
 - [Model Portability](./Model-Portability) — which engines are wired today and how routing to a provider is configured
 - [External Agents](./External-Agents) — the API key a third-party agent uses is a per-person credential, unrelated to seat pooling

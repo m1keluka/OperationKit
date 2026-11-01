@@ -56,4 +56,18 @@ export function initLiveProgressSchema(db: Database.Database): void {
       completed_at    TEXT
     );
   `)
+
+  // obj 64 — objectives.last_start_reason / last_start_at: the reason of the most
+  // recent spawn/resume (mirrors the newest session_starts row) so the board card
+  // can show e.g. "fresh_seeded_after_cap" without a per-card query. PRAGMA on a
+  // missing table returns [] (lazy test DBs without objectives) → no-op.
+  const objCols = new Set(
+    (db.prepare("PRAGMA table_info(objectives)").all() as { name: string }[]).map((c) => c.name),
+  )
+  if (objCols.size > 0 && !objCols.has("last_start_reason")) {
+    db.exec("ALTER TABLE objectives ADD COLUMN last_start_reason TEXT")
+  }
+  if (objCols.size > 0 && !objCols.has("last_start_at")) {
+    db.exec("ALTER TABLE objectives ADD COLUMN last_start_at TEXT")
+  }
 }

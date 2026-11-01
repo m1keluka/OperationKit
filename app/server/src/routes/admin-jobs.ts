@@ -23,6 +23,7 @@ import {
   routinesHealth,
   type RoutineRow,
 } from '../services/routine-scheduler.js'
+import { autoPauseThreshold, resumeRoutine } from '../services/routine-auto-pause.js'
 import { ASSISTANT_DIR, AI_WORKSPACE_DIR, SECOND_BRAIN_DIR, SKILLS_DIR } from '../config.js'
 import { resolveAssistantPersona } from '../services/assistant-persona.js'
 import { getSkillGraph } from '../services/skill-graph.js'
@@ -235,6 +236,18 @@ router.get('/routines', (_req: AuthRequest, res) => {
         minutes_overdue: health.minutes_overdue,
         expected_last_fire: health.expected_last_fire,
         last_skip_reason: health.last_skip_reason,
+        // obj 64 Part B — script routines + auto-pause.
+        kind: r.kind === 'script' ? 'script' : 'ai',
+        script_command: r.script_command ?? null,
+        alert_marker: r.alert_marker ?? null,
+        last_run_status: r.last_run_status ?? null,
+        last_exit_code: r.last_exit_code ?? null,
+        last_output_tail: r.last_output_tail ?? null,
+        last_error: r.last_error ?? null,
+        consecutive_failures: r.consecutive_failures ?? 0,
+        auto_pause_threshold: autoPauseThreshold(r),
+        auto_paused_at: r.auto_paused_at ?? null,
+        auto_pause_reason: r.auto_pause_reason ?? null,
       }
     })
     const summary = routinesHealth()
@@ -265,11 +278,24 @@ router.post('/routines/:id/run-now', async (req: AuthRequest, res) => {
     return
   }
   try {
-    const result = await fireRoutine(routine, 'run-now')
+    // Script routines run in the background (a script may take minutes).
+    const result = await fireRoutine(routine, 'run-now', { background: true })
     res.status(result.ok ? 201 : 409).json(result)
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'run-now failed' })
   }
+})
+
+// obj 64 Part B — one-click resume of an auto-paused routine (Jobs board
+// "Resume" button). Re-enables, clears the failure streak + auto-pause fields,
+// writes an activity row. Mirrors POST /api/internal/routines/:id/resume.
+router.post('/routines/:id/resume', (req: AuthRequest, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || !resumeRoutine(id, req.user?.username ? `admin:${req.user.username}` : 'admin')) {
+    res.status(404).json({ error: 'Routine not found' })
+    return
+  }
+  res.json({ ok: true, routine: getDb().prepare('SELECT * FROM routines WHERE id = ?').get(id) })
 })
 
 // ── Strategy nodes + Strategy-owned Jobs authoring (obj 2384) ────────────────

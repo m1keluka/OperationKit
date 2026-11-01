@@ -28,7 +28,20 @@ import { assembleFlattenedFollowUpPrompt, buildPrompt, resolveWorkdir, buildObje
 import { acquireBranchLease } from './branch-lease.js'
 import { acquireSessionLeasesForSpawn } from './session-lease.js'
 import { claimObjectiveSession } from './objective-session-claim.js'
-import { logSessionStart } from './session-start-reasons.js'
+import { logSessionStart, takeStartReason } from './session-start-reasons.js'
+import {
+  FRESH_SEEDED_REASON,
+  assembleSeededFollowUpPrompt,
+  buildSeededSummary,
+  decideResumeCap,
+  describeCapDetail,
+  markChainReset,
+  measureChain,
+  postResetSessionId,
+  resolveResumeCapConfig,
+  type ResumeCapDecision,
+} from './resume-cap.js'
+import { logActivity } from '../routes/feed.js'
 import { isSessionActive } from './session-control.js'
 import { deriveBranchName, deriveWorktreeBranchName } from './branch-scope.js'
 import { spawnInTmux } from './session-tmux.js'
@@ -214,7 +227,26 @@ export function sendFollowUp(
       .get(sessionId) as { claude_session_id: string | null; account_id: string | null } | undefined
   } catch {}
   // For codex sessions this resolves the thread_id (from `thread.started`).
-  const claudeSessionId = runtimeRow?.claude_session_id || extractClaudeSessionId(jsonlPath)
+  // obj 64 — after a capped fresh start, only the conversation begun AFTER the
+  // chain-reset marker is resumable; never fall back to the over-cap one.
+  const postReset = postResetSessionId(jsonlPath)
+  const claudeSessionId =
+    postReset !== undefined ? postReset : runtimeRow?.claude_session_id || extractClaudeSessionId(jsonlPath)
+
+  // obj 64 (Part A) — resumed-session history cap. When this worker's current
+  // session chain is over its token / round budget, do NOT replay the transcript:
+  // start a fresh conversation seeded with a deterministic DB summary instead.
+  // Worker sessions only (planners/reviewers/arena are short-lived kinds).
+  let capDecision: ResumeCapDecision | null = null
+  if (WORKER_SESSION_ID.test(sessionId)) {
+    try {
+      const capDb = getDb()
+      capDecision = decideResumeCap(measureChain(capDb, sessionId, jsonlPath), resolveResumeCapConfig(capDb))
+    } catch (err) {
+      console.warn(`[resume-cap] measurement failed for ${sessionId} (resuming normally):`, (err as Error).message)
+    }
+  }
+  const historyCapped = !!capDecision?.capped
   // Resolved up front: the resume guard needs it to confirm the transcript
   // belongs to the cwd we'll actually launch from (claude --resume is
   // cwd-scoped). Also reused as the spawn workdir below.
@@ -256,7 +288,9 @@ export function sendFollowUp(
   // Resume pinning: the CLI transcript only exists in the original seat's
   // HOME, so resume requires that exact seat to be available.
   let resumeSessionId: string | undefined
-  if (claudeSessionId) {
+  if (claudeSessionId && historyCapped) {
+    console.log(`[resume-cap] Follow-up ${sessionId}: chain over cap (${describeCapDetail(capDecision!)}) — fresh seeded session instead of --resume ${claudeSessionId}`)
+  } else if (claudeSessionId) {
     const pinnedId = runtimeRow?.account_id || accountId
     const pinned = pinnedId ? getAccountById(pinnedId) : null
     const pinnedAvailable = !!pinned && seatKind(pinned) === engine &&
@@ -305,9 +339,20 @@ export function sendFollowUp(
   // reconstructed basePrompt is not doubled inside <prior_conversation>.
   let prompt = sessionText
   if (!resumeSessionId) {
-    const priorHistory = buildObjectiveHistory(objective.id)
     const basePrompt = isPlannerSession ? buildPlannerPrompt(objective) : buildPrompt(objective)
-    prompt = assembleFlattenedFollowUpPrompt(basePrompt, priorHistory, sessionText)
+    if (historyCapped && capDecision) {
+      // obj 64 — fresh session seeded from DB fields only (no transcript replay,
+      // no summarizer model call). The marker resets the chain's token count.
+      prompt = assembleSeededFollowUpPrompt(basePrompt, buildSeededSummary(getDb(), objective), sessionText, capDecision)
+    } else {
+      const priorHistory = buildObjectiveHistory(objective.id)
+      prompt = assembleFlattenedFollowUpPrompt(basePrompt, priorHistory, sessionText)
+    }
+  }
+  if (historyCapped && capDecision) {
+    try { markChainReset(jsonlPath, capDecision) } catch (err) {
+      console.warn(`[resume-cap] could not write chain-reset marker for ${sessionId}:`, (err as Error).message)
+    }
   }
 
   ensureUser()
@@ -349,7 +394,32 @@ export function sendFollowUp(
     requestedModel: objective.model || undefined,
   }
   registerActiveSession(sessionId, newSession)
-  logSessionStart(getDb(), { objectiveId: objective.id, sessionId, kind: 'resume' })
+  if (historyCapped && capDecision) {
+    // The wake source's own attribution (ai_review_fail, follow_up, …) is folded
+    // into the detail so the card still shows WHY it woke, plus that it was capped.
+    const wake = takeStartReason(objective.id)
+    const detail = describeCapDetail(capDecision, wake.reason)
+    logSessionStart(getDb(), {
+      objectiveId: objective.id,
+      sessionId,
+      kind: 'spawn',
+      reason: { reason: FRESH_SEEDED_REASON, actor: wake.actor || 'resume-cap', detail },
+    })
+    try {
+      logActivity({
+        project: objective.project || objective.workspace || 'example',
+        workspace: objective.workspace,
+        objective_id: objective.id,
+        session_id: sessionId,
+        event_type: 'decision',
+        title: `#${objective.id} restarted fresh (history cap)`,
+        detail,
+        metadata: { kind: 'resume_capped', trigger: capDecision.trigger, ...capDecision.usage, cap_tokens: capDecision.config.tokens, cap_rounds: capDecision.config.rounds },
+      })
+    } catch {}
+  } else {
+    logSessionStart(getDb(), { objectiveId: objective.id, sessionId, kind: 'resume' })
+  }
 
   return sessionId
 }

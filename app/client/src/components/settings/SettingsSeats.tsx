@@ -15,6 +15,9 @@ import { useWorkspaces } from '../../hooks/useWorkspaces'
 import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, cn, useConfirm } from '../../components/ui'
 import { SeatDeviceLogin } from './SeatDeviceLogin'
 import { SeatClaudeSignIn } from './SeatClaudeSignIn'
+import { ProvisioningBanner, SeatUsageStats, type ProvisioningHint, type SeatUsage } from './SeatUsage'
+
+export type { ProvisioningHint, SeatUsage } from './SeatUsage'
 
 // ── Types (mirror server/src/services/seat-credentials.ts SeatSummary) ──────
 export type SeatKind = 'claude' | 'codex' | 'grok'
@@ -39,6 +42,8 @@ export interface SeatSummary {
   }
   sessions: { active: number; today: number }
   usageToday: { tokens: number; cost: number }
+  /** Rolling 24h / 7d usage + rate-limit state; absent from older servers. */
+  usage?: SeatUsage
 }
 
 interface FailoverPolicy { workspace: string; enabled: boolean; order: SeatKind[] }
@@ -449,6 +454,7 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
             {fmtTokens(seat.usageToday.tokens)} tokens{isClaude && ` · $${seat.usageToday.cost.toFixed(2)}`}
           </dd>
         </div>
+        {seat.usage && <SeatUsageStats usage={seat.usage} />}
         <div className="col-span-2">
           <dt className="text-fg-3">Credential</dt>
           <dd className="flex flex-wrap items-center gap-x-2 gap-y-1 text-fg-1">
@@ -766,13 +772,15 @@ function FailoverPanel({ onNotice }: { onNotice: (n: Notice) => void }) {
 export function SettingsSeats() {
   const [seats, setSeats] = useState<SeatSummary[] | null>(null)
   const [loadError, setLoadError] = useState('')
+  const [provisioning, setProvisioning] = useState<ProvisioningHint | null>(null)
   const [notice, setNotice] = useState<Notice>(null)
   const { confirm, confirmDialog } = useConfirm()
 
   const load = useCallback(async () => {
     try {
-      const res = await api.get<{ seats: SeatSummary[] }>('/admin/seats')
+      const res = await api.get<{ seats: SeatSummary[]; provisioning?: ProvisioningHint | null }>('/admin/seats')
       setSeats(res.seats ?? [])
+      setProvisioning(res.provisioning ?? null)
       setLoadError('')
     } catch (err) {
       setLoadError(errText(err, 'Could not load seats.'))
@@ -786,7 +794,10 @@ export function SettingsSeats() {
     if (!seat) return
     setSeats(list => {
       const cur = list ?? []
-      return cur.some(s => s.id === seat.id) ? cur.map(s => (s.id === seat.id ? seat : s)) : [...cur, seat]
+      // Keep the last known usage if a mutation response came back without it.
+      return cur.some(s => s.id === seat.id)
+        ? cur.map(s => (s.id === seat.id ? { ...seat, usage: seat.usage ?? s.usage } : s))
+        : [...cur, seat]
     })
   }, [])
   const removeLocal = useCallback((id: string) => setSeats(list => (list ?? []).filter(s => s.id !== id)), [])
@@ -811,6 +822,7 @@ export function SettingsSeats() {
         </div>
       )}
       {loadError && <Alert tone="alarm" title="Could not load seats">{loadError}</Alert>}
+      <ProvisioningBanner hint={provisioning} />
 
       {seats === null ? (
         <div className="space-y-3" data-testid="seats-loading">

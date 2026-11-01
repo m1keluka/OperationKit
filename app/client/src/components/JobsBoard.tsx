@@ -2,7 +2,8 @@ import { useState, useCallback, useMemo } from 'react'
 import { ExternalLink, AlertCircle, Clock, Play, Pause, Inbox, CheckCircle2, Loader2, Target, Plus } from 'lucide-react'
 import type { Objective, ObjectiveStatus, Workspace } from '@operationkit/shared'
 import { useObjectives } from '../hooks/useObjectives'
-import { useRoutines, type RoutineSummary, type StrategyOption, type StrategyJobInput } from '../hooks/useRoutines'
+import { useRoutines, isAutoPaused, type RoutineSummary, type StrategyOption, type StrategyJobInput } from '../hooks/useRoutines'
+import { RoutineAutoPauseBanner } from './RoutineAutoPauseBanner'
 import { useWorkspaces } from '../hooks/useWorkspaces'
 import { SessionViewer } from './SessionViewer'
 import { relativeTime, relativeFuture } from '../lib/time'
@@ -71,7 +72,7 @@ export function JobsBoard(_props: JobsBoardProps) {
   // here — this surface is cross-workspace by design and filters via its own
   // `wsFilter` dropdown below. Do NOT add the gate; it would hide valid jobs.
   const { objectives, loading, error, changeStatus, connectionState } = useObjectives('all')
-  const { routines, routinesEnabled, strategies, runNow, createStrategyJob } = useRoutines()
+  const { routines, routinesEnabled, strategies, runNow, createStrategyJob, resume } = useRoutines()
   const { labelOf, workspaces } = useWorkspaces()
 
   const [sessionObjective, setSessionObjective] = useState<Objective | null>(null)
@@ -183,6 +184,12 @@ export function JobsBoard(_props: JobsBoardProps) {
         ) : (
           <span className="text-fg-3">Standalone</span>
         ),
+    },
+    {
+      // obj 64 Part B — script kind, last script result, failure streak, auto-pause.
+      key: 'health',
+      header: 'Health',
+      cell: r => <RoutineHealthBadges routine={r} />,
     },
     {
       key: 'cadence',
@@ -342,6 +349,9 @@ export function JobsBoard(_props: JobsBoardProps) {
           left={<Tabs items={wsTabs} value={wsFilter} onChange={setWsFilter} />}
         />
       )}
+
+      {/* Auto-paused routines (K consecutive failures) with one-click Resume. */}
+      <RoutineAutoPauseBanner routines={visibleRoutines} onResume={resume} />
 
       {/* ── Scheduled routines — the global DataTable. ── */}
       <section className="mb-6 space-y-2">
@@ -613,6 +623,34 @@ function NewStrategyJobModal({
         </div>
       </div>
     </Modal>
+  )
+}
+
+const SCRIPT_STATUS_TONE = { ok: 'verify', alert: 'amber', failed: 'alarm' } as const
+
+/** Compact per-routine health: kind, last script result, failure streak, auto-pause. */
+function RoutineHealthBadges({ routine: r }: { routine: RoutineSummary }) {
+  const streak = r.consecutive_failures ?? 0
+  const tip = [r.last_error, r.last_output_tail?.slice(-300)].filter(Boolean).join('\n')
+  return (
+    <div className="flex flex-wrap items-center gap-1" title={tip || undefined}>
+      {r.kind === 'script' && <Badge tone="neutral" mono>script</Badge>}
+      {r.kind === 'script' && r.last_run_status && (
+        <Badge tone={SCRIPT_STATUS_TONE[r.last_run_status]} mono>
+          {r.last_run_status}
+          {r.last_run_status === 'failed' && r.last_exit_code != null ? ` (${r.last_exit_code})` : ''}
+        </Badge>
+      )}
+      {isAutoPaused(r) ? (
+        <Badge tone="alarm">auto-paused</Badge>
+      ) : streak > 0 ? (
+        <Badge tone="amber" mono>
+          {streak}/{r.auto_pause_threshold || '∞'} failed
+        </Badge>
+      ) : r.kind !== 'script' ? (
+        <span className="text-fg-3">—</span>
+      ) : null}
+    </div>
   )
 }
 

@@ -325,15 +325,16 @@ describe('Idempotency-Key on POST /api/objectives', () => {
 
   it('creates separate cards for different keys or no key, and 422s a reused key with a new body', async () => {
     const a = await call('POST', '/api/objectives', { body: { title: 'A', workspace: WS }, headers: { 'Idempotency-Key': 'k-a' } })
-    const b = await call('POST', '/api/objectives', { body: { title: 'A', workspace: WS }, headers: { 'Idempotency-Key': 'k-b' } })
-    const c = await call('POST', '/api/objectives', { body: { title: 'A', workspace: WS } })
+    // force: same-titled cards seconds apart would otherwise hit the obj-64 duplicate guard.
+    const b = await call('POST', '/api/objectives', { body: { title: 'A', workspace: WS, force: true }, headers: { 'Idempotency-Key': 'k-b' } })
+    const c = await call('POST', '/api/objectives', { body: { title: 'A', workspace: WS, force: true } })
     expect(new Set([a.json.id, b.json.id, c.json.id]).size).toBe(3)
     const reused = await call('POST', '/api/objectives', { body: { title: 'B', workspace: WS }, headers: { 'Idempotency-Key': 'k-a' } })
     expect(reused.status).toBe(422)
   })
 
   it('scopes keys per user', async () => {
-    const body = { title: 'Per-user', workspace: WS }
+    const body = { title: 'Per-user', workspace: WS, force: true } // force: bypass the obj-64 duplicate guard
     const headers = { 'Idempotency-Key': 'shared-key' }
     const admin = await call('POST', '/api/objectives', { body, headers })
     const member = await call('POST', '/api/objectives', { body, headers, role: 'member' })
@@ -341,7 +342,7 @@ describe('Idempotency-Key on POST /api/objectives', () => {
   })
 
   it('expires keys after 24h', async () => {
-    const body = { title: 'Old key', workspace: WS }
+    const body = { title: 'Old key', workspace: WS, force: true } // force: bypass the obj-64 duplicate guard
     const headers = { 'Idempotency-Key': 'k-old' }
     const first = await call('POST', '/api/objectives', { body, headers })
     getDb().prepare("UPDATE idempotency_keys SET created_at = datetime('now', '-25 hours')").run()

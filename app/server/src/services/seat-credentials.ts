@@ -29,6 +29,7 @@ import {
   type SecretScope,
 } from './secrets-store.js'
 import { credentialHint, expiryStatus, seatHealth, seatKind, type SeatHealth, type SeatKind } from './seat-pool.js'
+import type { SeatUsage } from './seat-usage.js'
 
 const GLOBAL: SecretScope = { scopeType: 'global' }
 
@@ -113,6 +114,11 @@ export interface SeatSummary {
   }
   sessions: { active: number; today: number }
   usageToday: { tokens: number; cost: number }
+  /**
+   * Rolling 24h / 7d usage + rate-limit state (seat-usage.ts). Attached by the
+   * Settings → Seats routes only; never carries a credential, key name or path.
+   */
+  usage?: SeatUsage
 }
 
 /**

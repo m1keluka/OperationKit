@@ -28,6 +28,7 @@ import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { childCapPerParent } from '../lib/hygiene-config.js'
 import { noteStartReason } from '../services/session-start-reasons.js'
 import { livingDocsName, findOpenLivingDocsCard, noteStillPending } from '../lib/living-docs-dedupe.js'
+import { findOpenDuplicate, recordDedupe, isDuplicateGuardEnabled, duplicateGuardWindowHours } from '../lib/objective-dedupe.js'
 
 // Strategy Layer (P0) — bounded delegation-nesting controls.
 //   Canonical hierarchy (see docs/terminology-glossary.md):
@@ -93,6 +94,9 @@ router.post('/objectives', async (req, res) => {
      *  source of truth. Any other value is ignored and the computed origin
      *  stands, so this cannot forge 'strategy'/'manual'/'job_reply' provenance. */
     origin?: string
+    /** obj 64 Part C: create this item even when an open same-title twin exists in the
+     *  duplicate-guard window. Not persisted — it only bypasses the guard. */
+    force?: boolean
   }>
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -119,6 +123,7 @@ router.post('/objectives', async (req, res) => {
     'title', 'description', 'agent_context', 'workspace', 'project', 'category',
     'parent_id', 'completion_goal', 'workflow_hint', 'effort', 'model', 'type',
     'delegate_mode', 'create_pr', 'acceptance_criteria', 'source_job_id', 'origin',
+    'force',
   ])
   // Near-miss hints for the names ad-hoc curl callers actually reach for. The
   // `agent` / `agent_context` confusion is not hypothetical — it is what the
@@ -383,6 +388,19 @@ router.post('/objectives', async (req, res) => {
   const deduped: Array<{ title: string; id: number; status: string; deduped: true }> = []
   const dedupedTouched = new Set<number>()
 
+  // obj 64 Part C — general same-title duplicate guard (lib/objective-dedupe.ts). An
+  // item whose normalized title matches an OPEN card in its workspace created inside
+  // the guard window (default 24h) is NOT inserted; it is reported in deduped_details
+  // with reason 'duplicate_24h' and the existing id. Per-item `force: true` inserts
+  // anyway. Runs after the living-docs guard (which keeps its exact behaviour) and
+  // inside the transaction, so twins within ONE batch collapse too. A parent is never
+  // its child's twin. When EVERY item was refused by this guard the response is a 409.
+  const dupGuardOn = isDuplicateGuardEnabled(db)
+  const dupWindowHours = dupGuardOn ? duplicateGuardWindowHours(db) : 0
+  const duplicates: Array<{ title: string; id: number; status: string; deduped: true; reason: 'duplicate_24h' }> = []
+  const refusedMeta: Array<{ workspace: string; project: string | null }> = []
+  const forcedOver: Array<{ title: string; workspace: string; project: string | null; existingId: number; newIdx: number }> = []
+
   const created: Array<{ id: number; title: string }> = []
   const insertAll = db.transaction(() => {
     for (const item of items) {
@@ -404,6 +422,22 @@ router.post('/objectives', async (req, res) => {
           console.log(`[internal] KL-11 blocked-registry: skipped objective "${item.title.trim()}" — matches "${rule.objective_pattern}" (${rule.reason})`)
           continue
         }
+      }
+      let forcedOverId: number | null = null
+      if (dupGuardOn) {
+        const dup = findOpenDuplicate(db, {
+          title: item.title,
+          workspace: item.workspace || 'example',
+          windowHours: dupWindowHours,
+          excludeParentId: item.parent_id ?? null,
+        })
+        if (dup && item.force !== true) {
+          duplicates.push({ title: item.title.trim(), id: dup.id, status: dup.status, deduped: true, reason: 'duplicate_24h' })
+          refusedMeta.push({ workspace: item.workspace || 'example', project: item.project || null })
+          console.log(`[internal] duplicate refused: "${item.title.trim()}" → open twin #${dup.id} (${dup.status})`)
+          continue
+        }
+        if (dup) forcedOverId = dup.id
       }
       const type = item.type === 'project' || item.type === 'bug' || item.type === 'task' ? item.type : 'task'
       // Delegator-supplied acceptance criteria pre-lock the review rubric so the
@@ -507,9 +541,21 @@ router.post('/objectives', async (req, res) => {
         item.delegate_mode ? 1 : 0,
       )
       created.push({ id: result.lastInsertRowid as number, title: item.title.trim() })
+      if (forcedOverId != null) {
+        forcedOver.push({ title: item.title.trim(), workspace: itemWorkspace, project: item.project || null, existingId: forcedOverId, newIdx: created.length - 1 })
+      }
     }
   })
   insertAll()
+
+  // Dedupe metrics (activity_log), written after the commit so a rolled-back batch
+  // never reports a refusal/override that did not happen.
+  duplicates.forEach((d, i) => {
+    recordDedupe({ event: 'duplicate_refused', source: 'POST /api/internal/objectives', title: d.title, workspace: refusedMeta[i].workspace, existingId: d.id, project: refusedMeta[i].project })
+  })
+  for (const f of forcedOver) {
+    recordDedupe({ event: 'duplicate_forced', source: 'POST /api/internal/objectives', title: f.title, workspace: f.workspace, existingId: f.existingId, newId: created[f.newIdx].id, project: f.project })
+  }
 
   // obj 700030 Part B — the batch passed validation and the rows are committed,
   // so consume each owner approval that authorized a spawn in this batch. Done
@@ -557,17 +603,28 @@ router.post('/objectives', async (req, res) => {
     }
   }
 
-  console.log(`[internal] Created ${created.length} objectives from session` + (blocked.length ? `; ${blocked.length} skipped by blocked-registry` : '') + (deduped.length ? `; ${deduped.length} living-docs twin(s) refused` : '') + (started.length ? `; auto-started ${started.length}` : ''))
-  // 200 (not 201) when nothing was inserted because every item hit an open card.
-  const status = created.length === 0 && deduped.length > 0 ? 200 : 201
+  console.log(`[internal] Created ${created.length} objectives from session` + (blocked.length ? `; ${blocked.length} skipped by blocked-registry` : '') + (deduped.length ? `; ${deduped.length} living-docs twin(s) refused` : '') + (duplicates.length ? `; ${duplicates.length} duplicate(s) refused` : '') + (started.length ? `; auto-started ${started.length}` : ''))
+  // 200 (not 201) when nothing was inserted because every item hit an open
+  // living-docs card (unchanged, obj 712948). 409 when nothing was inserted and every
+  // refusal came from the general duplicate guard (obj 64) — the body keeps the 201
+  // shape plus `error` and `existing_ids`, so a caller can read either.
+  const allDuplicates = created.length === 0 && duplicates.length > 0 && deduped.length === 0 && blocked.length === 0
+  const status = allDuplicates ? 409 : created.length === 0 && (deduped.length > 0 || duplicates.length > 0) ? 200 : 201
   res.status(status).json({
+    ...(allDuplicates
+      ? {
+          error: `All ${duplicates.length} item(s) duplicate open card(s) created in the last ${dupWindowHours}h: ${duplicates.map((d) => '#' + d.id).join(', ')}. Pass "force": true on an item to create it anyway.`,
+          reason: 'duplicate_24h',
+          existing_ids: duplicates.map((d) => d.id),
+        }
+      : {}),
     created: created.length,
     objectives: created,
     blocked: blocked.length,
     blocked_details: blocked,
     started: started.length,
-    deduped: deduped.length,
-    deduped_details: deduped,
+    deduped: deduped.length + duplicates.length,
+    deduped_details: [...deduped, ...duplicates],
   })
 })
 

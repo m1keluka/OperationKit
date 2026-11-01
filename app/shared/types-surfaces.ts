@@ -618,6 +618,10 @@ export interface CreateObjectiveRequest {
    *  and must be opted into at creation — it is NEVER inferred from
    *  delegate_mode/parent_id. Defaults to false (is_strategy=0). */
   is_strategy?: boolean
+  /** obj 64: create even when an OPEN card with the same normalized title exists in
+   *  the workspace (created inside the duplicate-guard window, default 24h). Without
+   *  it the server answers 409 { reason: 'duplicate_24h', existing_id }. */
+  force?: boolean
 }
 
 export interface UpdateObjectiveRequest {
@@ -660,6 +664,9 @@ export interface UpdateObjectiveRequest {
 
 export interface StatusChangeRequest {
   status: ObjectiveStatus
+  /** obj 64: start (queue → working) even while a same-title twin created in the
+   *  duplicate-guard window is already working/ai_review. */
+  force?: boolean
 }
 
 export interface ApiError {

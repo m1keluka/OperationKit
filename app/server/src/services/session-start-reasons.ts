@@ -32,6 +32,7 @@ export const START_REASONS = [
   'plan_approved',       // planning → working on plan approval
   'decision_resolved',   // an owner resolved a decision request
   'noop_respawn',        // a no-op worker spawn was re-spawned
+  'fresh_seeded_after_cap', // obj 64: resume skipped (chain over token/round cap) — fresh session seeded from a DB summary
   'unattributed',
 ] as const
 
@@ -108,6 +109,13 @@ export function logSessionStart(
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(args.objectiveId, args.sessionId, args.kind, r.reason, r.actor ?? null, r.detail ? String(r.detail).slice(0, 500) : null)
+    // obj 64 — mirror the newest real start onto the card so the board can show it.
+    if (args.kind === 'spawn' || args.kind === 'resume') {
+      try {
+        db.prepare("UPDATE objectives SET last_start_reason = ?, last_start_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?")
+          .run(r.reason, args.objectiveId)
+      } catch {}
+    }
     return db.prepare('SELECT * FROM session_starts WHERE id = ?').get(info.lastInsertRowid) as SessionStartRow
   } catch (err) {
     console.warn(`[session-starts] failed to record start for obj ${args.objectiveId}:`, (err as Error).message)

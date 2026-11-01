@@ -23,6 +23,27 @@ export interface RoutineSummary {
   // routine is standalone.
   strategy_objective_id: number | null
   strategy_title: string | null
+  // obj 64 Part B — script routines + auto-pause. Optional so an older server
+  // response (no such fields) still renders.
+  kind?: 'ai' | 'script'
+  script_command?: string | null
+  alert_marker?: string | null
+  /** Result of the last script run: 'ok' | 'alert' | 'failed' (null for AI / never run). */
+  last_run_status?: 'ok' | 'alert' | 'failed' | null
+  last_exit_code?: number | null
+  last_output_tail?: string | null
+  last_error?: string | null
+  consecutive_failures?: number
+  /** Effective K (per-routine override → env → settings → 5). 0 = never auto-pause. */
+  auto_pause_threshold?: number
+  auto_paused_at?: string | null
+  /** e.g. "auto-paused: 5 failures, last error exit 1" — set while auto-paused. */
+  auto_pause_reason?: string | null
+}
+
+/** True while a routine is disabled by the K-consecutive-failure auto-pause. */
+export function isAutoPaused(r: Pick<RoutineSummary, 'enabled' | 'auto_paused_at'>): boolean {
+  return !r.enabled && !!r.auto_paused_at
 }
 
 /** A delegator objective that can own/steer Jobs (GET /api/admin/strategies). */
@@ -60,6 +81,8 @@ interface UseRoutinesResult {
   refresh: () => Promise<void>
   runNow: (id: number) => Promise<{ ok: boolean; reason?: string; objective_id?: number }>
   createStrategyJob: (input: StrategyJobInput) => Promise<{ ok: boolean; error?: string }>
+  /** One-click resume of an auto-paused routine (POST /api/admin/routines/:id/resume). */
+  resume: (id: number) => Promise<{ ok: boolean; error?: string }>
 }
 
 /**
@@ -129,5 +152,16 @@ export function useRoutines(): UseRoutinesResult {
     }
   }, [refresh])
 
-  return { routines, routinesEnabled, strategies, loading, error, refresh, runNow, createStrategyJob }
+  const resume = useCallback(async (id: number) => {
+    try {
+      const r = await fetch(`/api/admin/routines/${id}/resume`, { method: 'POST', credentials: 'include' })
+      const body = await r.json().catch(() => ({})) as { error?: string }
+      void refresh()
+      return { ok: r.ok, error: body.error }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Failed to resume routine' }
+    }
+  }, [refresh])
+
+  return { routines, routinesEnabled, strategies, loading, error, refresh, runNow, createStrategyJob, resume }
 }

@@ -64,6 +64,7 @@ import { isLockedStatus, runMachineStatusUpdate } from '../lib/status-lock.js'
 import { diskAction, diskBlockReason, readHostDisk } from '../lib/host-disk.js'
 import { resolveFollowUpSessionId } from '../services/objective-sessions.js'
 import { noteStartReason } from '../services/session-start-reasons.js'
+import { findRunningTwinForStart, recordDedupe, duplicateStartConflictBody, duplicateGuardWindowHours } from '../lib/objective-dedupe.js'
 
 export function registerInternalHermesRoutes(router: Router): void {
 // ─── Hermes integration: localhost-only read + control endpoints ───────────
@@ -333,6 +334,21 @@ router.patch('/objectives/:id/status', async (req, res) => {
     if (activeCount.count >= MAX_CONCURRENT_SESSIONS) {
       res.status(409).json({ error: `Maximum ${MAX_CONCURRENT_SESSIONS} concurrent sessions reached` })
       return
+    }
+
+    // Duplicate guard on start (obj 64 Part C): a queued card whose same-title twin
+    // is already working/ai_review is refused unless `force: true`. Routine cards,
+    // parent/child pairs and the card itself are exempt (lib/objective-dedupe.ts).
+    // Callers: queue-drain re-enqueues on a non-400 (the card waits for its twin),
+    // fanout treats it as "not started".
+    const twin = findRunningTwinForStart(db, existing)
+    if (twin) {
+      const force = (req.body as { force?: unknown })?.force === true
+      recordDedupe({ event: force ? 'duplicate_forced' : 'duplicate_refused', source: 'PATCH /api/internal/objectives/:id/status', title: existing.title, workspace: existing.workspace, existingId: twin.id, newId: existing.id, project: existing.project })
+      if (!force) {
+        res.status(409).json(duplicateStartConflictBody(twin, duplicateGuardWindowHours(db)))
+        return
+      }
     }
   }
 
