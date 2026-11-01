@@ -73,6 +73,11 @@ if command -v node >/dev/null 2>&1; then
       if (r.packs) for (const p of r.packs) console.log(`${p.enabled ? "ON " : "off"}  ${p.id}  — ${p.name}`)
       else { for (const st of r.steps || []) console.log(`  - ${st}`); console.log(`${r.id}: done (${r.workspace})`) }
     })' 2>/dev/null || printf '%s\n' "$OUT"
+elif command -v jq >/dev/null 2>&1; then
+  # A client server has jq (the installer needs it) but not node.
+  printf '%s' "$OUT" | jq -r '
+    if .packs then .packs[] | "\(if .enabled then "ON " else "off" end)  \(.id)  — \(.name)"
+    else ((.steps // [])[] | "  - \(.)"), "\(.id): done (\(.workspace))" end' 2>/dev/null || printf '%s\n' "$OUT"
 else
   printf '%s\n' "$OUT"
 fi

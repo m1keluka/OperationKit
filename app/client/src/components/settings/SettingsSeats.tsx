@@ -6,12 +6,15 @@
  *
  * Credentials are write-only here: a pasted token is cleared from state the
  * moment it is submitted and the server only ever sends back the last 4 chars.
+ * Claude seats sign in from the browser (SeatClaudeSignIn — the in-app
+ * `claude setup-token`); pasting a setup token stays as the fallback.
  */
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { useWorkspaces } from '../../hooks/useWorkspaces'
 import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, cn, useConfirm } from '../../components/ui'
 import { SeatDeviceLogin } from './SeatDeviceLogin'
+import { SeatClaudeSignIn } from './SeatClaudeSignIn'
 
 // ── Types (mirror server/src/services/seat-credentials.ts SeatSummary) ──────
 export type SeatKind = 'claude' | 'codex' | 'grok'
@@ -160,9 +163,37 @@ function SeatSkeleton() {
 type Notice = { ok: boolean; text: string } | null
 
 // ── Add Claude seat form ────────────────────────────────────────────────────
+/** Shared: "<seat> works." style notice after a sign-in + test turn. */
+const SIGN_IN_COPY: Record<TestOutcome, { ok: boolean; text: string }> = {
+  healthy: { ok: true, text: 'is signed in and answered its test turn. Healthy.' },
+  unparked: { ok: true, text: 'is signed in and answered its test turn. Back in rotation.' },
+  parked: { ok: false, text: 'is signed in, but failed its test turn and is out of rotation.' },
+  rate_limited: { ok: false, text: 'is signed in, but rate limited right now. It will cool down.' },
+  inconclusive: { ok: false, text: 'is signed in, but the test turn was inconclusive. Press Test now in a minute.' },
+  skipped: { ok: true, text: 'is signed in.' },
+}
+function signInNotice(name: string, outcome: TestOutcome): Notice {
+  const copy = SIGN_IN_COPY[outcome] ?? { ok: false, text: `is signed in (test: ${outcome}).` }
+  return { ok: copy.ok, text: `${name} ${copy.text}` }
+}
+
+function TextToggle({ onClick, children, disabled }: { onClick: () => void; children: ReactNode; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex min-h-[44px] items-center rounded-md px-1 text-[12.5px] font-medium text-accent-hover underline-offset-2 transition-colors duration-fast ease-out hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-[32px]"
+    >
+      {children}
+    </button>
+  )
+}
+
 function AddClaudeForm({ onAdded, onCancel, onNotice }: {
   onAdded: (seat: SeatSummary) => void; onCancel: () => void; onNotice: (n: Notice) => void
 }) {
+  const [mode, setMode] = useState<'signin' | 'paste'>('signin')
   const [label, setLabel] = useState('')
   const [token, setToken] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
@@ -195,35 +226,57 @@ function AddClaudeForm({ onAdded, onCancel, onNotice }: {
   }
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded-md border border-line bg-surface-1 p-4" aria-label="Add Claude seat">
+    <div className="space-y-4 rounded-md border border-line bg-surface-1 p-4" role="group" aria-label="Add Claude seat">
       <Field label="Label" htmlFor="seat-claude-label">
         <input id="seat-claude-label" className={INPUT} value={label} onChange={e => setLabel(e.target.value)} placeholder="Seat 1" autoComplete="off" disabled={saving} />
       </Field>
-      <Field
-        label="Setup token"
-        htmlFor="seat-claude-token"
-        hint={<>Run <code className="font-mono text-fg-2">claude setup-token</code> on a machine signed in to the subscription and paste the token. It is stored encrypted and never shown again.</>}
-      >
-        <input
-          id="seat-claude-token"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          className={cn(INPUT, 'font-mono')}
-          value={token}
-          onChange={e => setToken(e.target.value)}
-          disabled={saving}
-        />
-      </Field>
-      <Field label="Expires (optional)" htmlFor="seat-claude-expiry">
-        <input id="seat-claude-expiry" type="date" className={cn(INPUT, 'sm:max-w-[220px]')} value={expiresAt} onChange={e => setExpiresAt(e.target.value)} disabled={saving} />
-      </Field>
-      {error && <Alert tone="alarm">{error}</Alert>}
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" variant="primary" loading={saving}>Add seat</Button>
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={saving}>Cancel</Button>
-      </div>
-    </form>
+
+      {mode === 'signin' ? (
+        <>
+          <SeatClaudeSignIn<SeatSummary>
+            label={label}
+            onSuccess={(seat, outcome) => {
+              onNotice(signInNotice(seat?.label || 'Claude seat', outcome))
+              onAdded(seat)
+            }}
+            onCancel={onCancel}
+          />
+          <div className="border-t border-line pt-2">
+            <TextToggle onClick={() => setMode('paste')}>Have a setup token already? Paste it instead</TextToggle>
+          </div>
+        </>
+      ) : (
+        <form onSubmit={submit} className="space-y-3" aria-label="Paste a Claude setup token">
+          <Field
+            label="Setup token"
+            htmlFor="seat-claude-token"
+            hint={<>From <code className="font-mono text-fg-2">claude setup-token</code> on a machine signed in to the subscription. It is stored encrypted and never shown again.</>}
+          >
+            <input
+              id="seat-claude-token"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              className={cn(INPUT, 'font-mono')}
+              value={token}
+              onChange={e => setToken(e.target.value)}
+              disabled={saving}
+            />
+          </Field>
+          <Field label="Expires (optional)" htmlFor="seat-claude-expiry">
+            <input id="seat-claude-expiry" type="date" className={cn(INPUT, 'sm:max-w-[220px]')} value={expiresAt} onChange={e => setExpiresAt(e.target.value)} disabled={saving} />
+          </Field>
+          {error && <Alert tone="alarm">{error}</Alert>}
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" variant="primary" loading={saving}>Add seat</Button>
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={saving}>Cancel</Button>
+          </div>
+          <div className="border-t border-line pt-2">
+            <TextToggle onClick={() => { setMode('signin'); setToken(''); setError('') }} disabled={saving}>Sign in with Claude instead (no terminal)</TextToggle>
+          </div>
+        </form>
+      )}
+    </div>
   )
 }
 
@@ -240,6 +293,7 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
   const [labelDraft, setLabelDraft] = useState(seat.label)
   const [priorityDraft, setPriorityDraft] = useState(String(seat.priority))
   const [rotating, setRotating] = useState(false)
+  const [rotateMode, setRotateMode] = useState<'signin' | 'paste'>('signin')
   const [rotateToken, setRotateToken] = useState('')
   const [rotateExpiry, setRotateExpiry] = useState('')
   const [rowError, setRowError] = useState('')
@@ -437,8 +491,8 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
         <Button variant="secondary" onClick={() => void test()} loading={busy === 'test'} disabled={!!busy && busy !== 'test'}>
           {busy === 'test' ? 'Testing…' : 'Test now'}
         </Button>
-        <Button variant="secondary" onClick={() => { setRotating(r => !r); setRotateToken(''); setRowError('') }} disabled={!!busy} aria-expanded={rotating}>
-          {isClaude ? 'Rotate token' : 'Sign in again'}
+        <Button variant="secondary" onClick={() => { setRotating(r => !r); setRotateMode('signin'); setRotateToken(''); setRowError('') }} disabled={!!busy} aria-expanded={rotating}>
+          {isClaude ? 'Reconnect' : 'Sign in again'}
         </Button>
         <Button variant="danger" onClick={() => void remove()} loading={busy === 'remove'} disabled={!!busy && busy !== 'remove'} className="sm:ml-auto">
           Remove
@@ -448,7 +502,23 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
         <p className="text-[12px] text-fg-3" aria-live="polite">Running a small test turn. This can take up to a minute.</p>
       )}
 
-      {rotating && isClaude && (
+      {rotating && isClaude && rotateMode === 'signin' && (
+        <div className="space-y-2 rounded-md border border-line bg-surface-1 p-4">
+          <SeatClaudeSignIn<SeatSummary>
+            seatId={seat.id}
+            onSuccess={(s, outcome) => {
+              if (s) onChange(s)
+              setRotating(false)
+              onNotice(signInNotice(name, outcome))
+            }}
+            onCancel={() => setRotating(false)}
+          />
+          <div className="border-t border-line pt-2">
+            <TextToggle onClick={() => setRotateMode('paste')}>Paste a setup token instead</TextToggle>
+          </div>
+        </div>
+      )}
+      {rotating && isClaude && rotateMode === 'paste' && (
         <form onSubmit={rotate} className="space-y-3 rounded-md border border-line bg-surface-1 p-4" aria-label={`Rotate token for ${name}`}>
           <Field label="New setup token" htmlFor={`seat-rotate-${seat.id}`} hint="The old token is replaced. The new one is stored encrypted and never shown again.">
             <input

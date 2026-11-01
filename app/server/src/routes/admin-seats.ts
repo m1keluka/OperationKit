@@ -24,6 +24,7 @@ import {
   updateSeat,
 } from '../services/account-router.js'
 import { checkSlot } from '../services/account-health-check.js'
+import { cancelClaudeLogin, finishClaudeLogin, startClaudeLogin, type FinishError } from '../services/claude-oauth-login.js'
 import { deleteSeatCredential, maskSeat, storeSeatCredential, type SeatSummary } from '../services/seat-credentials.js'
 import { getWorkspaceFailover, setWorkspaceFailover } from '../services/seat-assign.js'
 import { normalizeOrder, parseCardFailover, SEAT_KINDS, type SeatKind } from '../services/seat-pool.js'
@@ -83,8 +84,9 @@ router.get('/seats', (_req: AuthRequest, res) => {
 
 /**
  * Add a seat. Claude: paste a `claude setup-token` token (`credential`), stored
- * in the secrets store. Codex / Grok: the seat is created empty and the client
- * then calls /login/start to run the CLI's own device login into its HOME.
+ * in the secrets store. That is the fallback: the no-terminal path is the
+ * browser sign-in under /seats/claude-oauth/*. Codex / Grok: the seat is created
+ * empty and the client then calls /login/start to run the CLI's own device login into its HOME.
  */
 router.post('/seats', (req: AuthRequest, res) => {
   const kind = parseKind(req.body?.kind)
@@ -115,6 +117,83 @@ router.post('/seats', (req: AuthRequest, res) => {
   }
   auditSeat(req.user?.id, 'add', seat.id, `kind=${kind}${credential ? ' credential=setup_token' : ''}`)
   res.status(201).json({ ok: true, seat: summaryOf(seat.id) })
+})
+
+// ── Claude sign-in from the browser (obj 720330) ────────────────────────────
+// The same OAuth + PKCE flow `claude setup-token` runs (claude-oauth-login.ts):
+// /start returns a "Sign in with Claude" link, the operator pastes back the
+// `code#state` Claude shows, /finish exchanges it for the subscription token,
+// stores it exactly like a pasted token, and runs the seat's test turn.
+// Paths sit under /seats/claude-oauth/* so they never collide with /seats/:id/*.
+
+const FINISH_STATUS: Record<FinishError, number> = {
+  unknown_login: 404,
+  expired: 410,
+  bad_input: 400,
+  state_mismatch: 400,
+  too_many_attempts: 429,
+  bad_code: 400,
+  not_subscription: 400,
+  exchange_failed: 502,
+}
+
+router.post('/seats/claude-oauth/start', (req: AuthRequest, res) => {
+  const seatId = typeof req.body?.seatId === 'string' ? req.body.seatId : null
+  if (seatId) {
+    const seat = seatOr404(seatId, res)
+    if (!seat) return
+    if ((seat.kind || 'claude') !== 'claude') {
+      res.status(400).json({ error: 'Only Claude seats sign in with Claude' })
+      return
+    }
+  }
+  const started = startClaudeLogin({ actorUserId: req.user?.id ?? null })
+  auditSeat(req.user?.id, 'oauth_start', seatId, 'kind=claude')
+  res.json({ ok: true, ...started })
+})
+
+router.post('/seats/claude-oauth/cancel', (req: AuthRequest, res) => {
+  if (typeof req.body?.loginId === 'string') cancelClaudeLogin(req.body.loginId)
+  res.json({ ok: true })
+})
+
+router.post('/seats/claude-oauth/finish', async (req: AuthRequest, res) => {
+  const seatId = typeof req.body?.seatId === 'string' ? req.body.seatId : null
+  if (seatId) {
+    const seat = seatOr404(seatId, res)
+    if (!seat) return
+    if ((seat.kind || 'claude') !== 'claude') {
+      res.status(400).json({ error: 'Only Claude seats sign in with Claude' })
+      return
+    }
+  }
+  const result = await finishClaudeLogin({
+    loginId: typeof req.body?.loginId === 'string' ? req.body.loginId : '',
+    pasted: typeof req.body?.code === 'string' ? req.body.code : '',
+  })
+  if (!result.ok) {
+    auditSeat(req.user?.id, 'oauth_failed', seatId, `error=${result.error}`)
+    res.status(FINISH_STATUS[result.error]).json({ error: result.message, code: result.error })
+    return
+  }
+  let id = seatId
+  if (!id) {
+    const seat = addAccountSlot({
+      kind: 'claude',
+      label: typeof req.body?.label === 'string' ? req.body.label : '',
+      priority: typeof req.body?.priority === 'number' ? req.body.priority : undefined,
+      credentialKind: 'setup_token',
+      credentialExpiresAt: result.expiresAt,
+    })
+    id = seat.id
+  }
+  const stored = storeSeatCredential(id, result.token, req.user?.id)
+  setSeatCredential(id, { ...stored, expiresAt: result.expiresAt })
+  auditSeat(req.user?.id, seatId ? 'rotate' : 'add', id, 'kind=claude credential=setup_token via=oauth')
+  // Same proof as the installer: one tiny subscription turn before we call it healthy.
+  const outcome = await checkSlot(id)
+  auditSeat(req.user?.id, 'test', id, `outcome=${outcome}`)
+  res.status(seatId ? 200 : 201).json({ ok: true, outcome, seat: summaryOf(id) })
 })
 
 router.patch('/seats/:id', (req: AuthRequest, res) => {
@@ -206,7 +285,7 @@ router.post('/seats/:id/login/start', async (req: AuthRequest, res) => {
   if (!seat) return
   const kind = seat.kind || 'claude'
   if (kind === 'claude') {
-    res.status(400).json({ error: 'Claude seats are added by pasting a setup token' })
+    res.status(400).json({ error: 'Claude seats sign in with /seats/claude-oauth/start or a pasted setup token' })
     return
   }
   if (!/^[A-Za-z0-9/_.-]+$/.test(seat.homeDir)) {

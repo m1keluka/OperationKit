@@ -19,7 +19,7 @@ Each seat has:
 | label | A display name you choose ("Seat 1"). |
 | priority | Lower is used first. |
 | enabled | A disabled seat is never picked. |
-| credential | Either a **setup token** you pasted (Claude), stored in the secrets store, or the CLI's own **login** files in the seat's private home directory (Codex, Grok). |
+| credential | Either a **setup token** (Claude — from **Sign in with Claude** or pasted), stored in the secrets store, or the CLI's own **login** files in the seat's private home directory (Codex, Grok). |
 | expiry | When the credential expires, if known. |
 | health | `healthy`, `cooling_down`, `needs_reconnect`, `needs_admin`, `credits_exhausted` or `disabled`. |
 | cooldown until | When a cooling seat can be used again. |
@@ -31,7 +31,28 @@ There are no built-in seats. A fresh install starts with an empty pool. An opera
 
 A pasted setup token goes straight into the secrets store (AES-256-GCM, every write and read audited). The seat record keeps only the name of that secret. The screen and the API show a masked summary only: the credential kind, at most its last 4 characters, the date it was added and its expiry. Seat credentials are never injected into other sessions' environments and never go through the secrets broker. Each one is handed only to the session assigned to that seat.
 
-To get a Claude setup token, run `claude setup-token` on a machine signed in to the subscription and paste the result into **Settings → Seats → Add Claude seat**. Codex and Grok seats are connected with the official CLI's own device login: press **Add**, open the link shown, enter the code, and the login lands in that seat's own home directory.
+Codex and Grok seats are connected with the official CLI's own device login: press **Add**, open the link shown, enter the code, and the login lands in that seat's own home directory.
+
+### Adding a Claude seat (no terminal)
+
+**Settings → Seats → Add Claude seat** signs in from the browser. It runs the same sign-in `claude setup-token` runs, so the result is the same one-year subscription token:
+
+1. Give the seat a label (optional). The screen shows a **Sign in with Claude** button. The server has just started a Claude OAuth sign-in with PKCE, using Claude Code's own client and the inference-only scope that `setup-token` asks for.
+2. Press it and sign in to claude.ai with the subscription account (Pro, Max or Team). Claude then shows an **Authentication code** page ("Paste this into Claude Code"). The code looks like `abc123…#xyz789…`.
+3. Copy that code, paste it into the field in the app and press **Connect seat**. The server checks that the part after `#` matches the link it made, then trades the code and its PKCE verifier for the token. It saves the token exactly like a pasted one, in the secrets store.
+4. The server runs the seat's test turn straight away. That is one tiny subscription call that has to reply `CLAUDE-OK`, the same check the installer runs. The seat shows **Healthy** once it passes.
+
+Details that matter:
+
+- **The link works for 10 minutes and the code works once.** If the link expires, if you paste a code from a different link, or after 5 failed tries, the screen offers **Get a new link**. A mistyped code can simply be pasted again.
+- **The PKCE verifier stays on the server.** It is held in memory only, never sent to the browser, never logged and never saved. It is dropped when the sign-in finishes, expires or is cancelled. A server restart in the middle of a sign-in means you need a new link.
+- **Subscription only.** If Claude replies with anything other than a subscription token (`sk-ant-oat…`), nothing is saved. There is no API-key fallback.
+- **Reconnect** on an existing Claude seat runs the same sign-in and replaces that seat's token in place. The seat keeps its id, priority and history, and any `needs reconnect` park is cleared.
+- **Pasting a token still works.** Choose **Have a setup token already? Paste it instead** to paste the output of `claude setup-token` from any machine signed in to the subscription.
+
+API: `POST /api/admin/seats/claude-oauth/start` (optional `seatId` to reconnect) returns `{ loginId, url, expiresAt }`. `POST /api/admin/seats/claude-oauth/finish` takes `{ loginId, code, label?, seatId? }` and returns `{ seat, outcome }`. On failure it returns `code`: `state_mismatch`, `expired`, `unknown_login`, `bad_code`, `too_many_attempts`, `not_subscription` or `exchange_failed`. Both routes are admin only.
+
+**The installer works the same way.** `install/claude-login.sh` (with `CLAUDE_AUTH=login`) prints the **Sign in with Claude** link and waits for you to paste the code. Typing is hidden. It then checks the token with the same `CLAUDE-OK` call. Pasting a setup token at that prompt also works, and `--token` skips the link altogether.
 
 ## How a session gets a seat
 
@@ -56,14 +77,14 @@ Every session picks a seat first, then builds its sign-in from that seat:
 | What happened | What the seat does |
 |---|---|
 | Rate limit / usage cap (429) | Cools down until the reset time the provider stated; with no stated time, backs off exponentially from 15 minutes up to a 5-hour ceiling. |
-| 401 / expired or revoked login | Parked as **needs reconnect** until a passing test or a new credential. |
+| 401 / expired or revoked login | Parked as **needs reconnect** until a passing test or a new credential (**Reconnect** → Sign in with Claude). |
 | 403 organisation or plan disabled | Parked as **needs admin**: a re-login will not fix it, an admin of that subscription has to. |
 | Credits or spend cap exhausted | Parked as **credits exhausted**, with no timer and no rotation churn (other seats on the same organisation would hit the same cap). The card is parked for a person to look at. |
 | 5xx / overloaded / timeout | No penalty to the seat. The session is retried after a short wait. |
 
 A completed turn with real usage proves a seat is live, so it clears a false cooldown or credits park immediately. Credential parks clear only on a passing **Test now** or a reconnect.
 
-A timer probes Claude seats with one tiny subscription turn (never an API key) every 30 minutes (`CC_SLOT_HEALTH_INTERVAL_MIN`). Codex and Grok seats are checked for their login files. Seats whose credential expires within **14 days** raise a dashboard alert so you can rotate them in time.
+A timer probes Claude seats with one tiny subscription turn (never an API key) that must reply `CLAUDE-OK` every 30 minutes (`CC_SLOT_HEALTH_INTERVAL_MIN`). Codex and Grok seats are checked for their login files. Seats whose credential expires within **14 days** raise a dashboard alert so you can rotate them in time.
 
 ## Cross-engine failover (opt-in)
 

@@ -38,6 +38,10 @@ export function UsersTab() {
   const [newUsername, setNewUsername] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<UserRole>('member')
+  const [newEmail, setNewEmail] = useState('')
+  // Sign-in email drafts per user (obj 720332): behind Cloudflare Access this email signs them in.
+  const [emailDraft, setEmailDraft] = useState<Record<number, string>>({})
+  const [savingEmail, setSavingEmail] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   const [revealed, setRevealed] = useState<{ username: string; password: string } | null>(null)
   const { confirm, confirmDialog } = useConfirm()
@@ -66,7 +70,11 @@ export function UsersTab() {
     }
     setCreating(true)
     try {
-      await api.post('/admin/users', { username: newUsername.trim(), password: newPassword, role: newRole })
+      await api.post('/admin/users', {
+        username: newUsername.trim(), password: newPassword, role: newRole,
+        ...(newEmail.trim() ? { email: newEmail.trim() } : {}),
+      })
+      setNewEmail('')
       setRevealed({ username: newUsername.trim(), password: newPassword })
       setNewUsername(''); setNewPassword(''); setNewRole('member')
       await reload()
@@ -90,6 +98,18 @@ export function UsersTab() {
   async function setUserRole(user: AdminUser, role: UserRole) {
     try { await api.patch(`/admin/users/${user.id}`, { role }); await reload() }
     catch (e) { setError(e instanceof Error ? e.message : 'Role update failed') }
+  }
+
+  async function saveEmail(user: AdminUser) {
+    const draft = (emailDraft[user.id] ?? user.email ?? '').trim()
+    setSavingEmail(user.id)
+    setError(null)
+    try {
+      await api.patch(`/admin/users/${user.id}`, { email: draft || null })
+      setEmailDraft(d => { const { [user.id]: _, ...rest } = d; return rest })
+      await reload()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not save the email') }
+    finally { setSavingEmail(null) }
   }
 
   async function grantWorkspace(user: AdminUser, workspace: Workspace) {
@@ -178,6 +198,10 @@ export function UsersTab() {
                 Generate
               </Button>
             </div>
+            <input
+              type="email" placeholder="sign-in email (optional)" value={newEmail} aria-label="Sign-in email"
+              onChange={e => setNewEmail(e.target.value)} className={cn(inputCls, 'sm:flex-1')}
+            />
             <select value={newRole} onChange={e => setNewRole(e.target.value as UserRole)} className={selectCls}>
               <option value="member">member</option>
               <option value="admin">admin</option>
@@ -208,6 +232,7 @@ export function UsersTab() {
               <ChevronRight className={cn('h-4 w-4 shrink-0 text-fg-3 transition-transform', isOpen && 'rotate-90')} />
               <span className="text-[13px] font-medium text-fg-0">{user.username}</span>
               <Badge tone={user.role === 'admin' ? 'accent' : 'neutral'}>{user.role}</Badge>
+              {user.email && <span className="hidden truncate text-[12px] text-fg-2 sm:inline">{user.email}</span>}
               <span className="ml-auto text-[11px] text-fg-3">
                 {memberships.length} organization{memberships.length === 1 ? '' : 's'}
               </span>
@@ -226,6 +251,27 @@ export function UsersTab() {
                     <Button size="sm" variant="secondary" onClick={() => resetPassword(user)}>Reset password</Button>
                     <Button size="sm" variant="danger" onClick={() => deleteUser(user)}>Delete user</Button>
                   </div>
+                </div>
+
+                {/* Sign-in email (obj 720332) */}
+                <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                  <label htmlFor={`user-email-${user.id}`} className="text-fg-3">Sign-in email:</label>
+                  <input
+                    id={`user-email-${user.id}`} type="email" placeholder="name@company.com"
+                    value={emailDraft[user.id] ?? user.email ?? ''}
+                    onChange={e => setEmailDraft(d => ({ ...d, [user.id]: e.target.value }))}
+                    className={cn(inputCls, 'min-w-0 flex-1')}
+                  />
+                  <Button
+                    size="sm" variant="secondary" loading={savingEmail === user.id}
+                    disabled={(emailDraft[user.id] ?? user.email ?? '') === (user.email ?? '')}
+                    onClick={() => saveEmail(user)}
+                  >
+                    Save email
+                  </Button>
+                  <p className="w-full text-[11px] text-fg-3">
+                    Behind Cloudflare Access, signing in at the Cloudflare door with this email opens the app as this user.
+                  </p>
                 </div>
 
                 {/* Memberships */}

@@ -196,6 +196,8 @@ export interface User {
   id: number
   username: string
   role: UserRole
+  /** Sign-in email; returned by the admin users API (obj 720332). */
+  email?: string | null
   workspaces?: UserWorkspace[]
   /**
    * True when this user has a `content_owners` row — i.e. the Content surface is
@@ -235,6 +237,8 @@ export interface CreateUserRequest {
   username: string
   password: string
   role?: UserRole
+  /** Sign-in email (obj 720332): behind Cloudflare Access this email signs the user in. */
+  email?: string | null
 }
 
 /** Body for POST /api/admin/users/:id/reset-password. */

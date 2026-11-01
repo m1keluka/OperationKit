@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { searchVaultIndex } from './vault-index.js'
+import { inWorkspaceFolder, knowledgeBaseRoot } from '../lib/knowledge-base-root.js'
 
 /**
  * Knowledge-base search for spawn-context injection.
@@ -31,7 +32,6 @@ import { searchVaultIndex } from './vault-index.js'
  * vault-index.ts for the FTS5-vs-embeddings rationale.
  */
 
-const VAULT_ROOT = process.env.SECOND_BRAIN_ROOT || '/home/operator/second-brain'
 const TOTAL_BUDGET_MS = 4000
 const MAX_TERMS = 8
 const MAX_CANDIDATES = 1500
@@ -125,6 +125,9 @@ export function searchKnowledge(query: string, workspace?: string | null): Knowl
  */
 export function searchKnowledgeGrep(query: string, workspace?: string | null): KnowledgeHit[] {
   try {
+    // The one knowledge base (obj 720348): the vault, or /app/data/knowledge-base
+    // on an install without one — imports land there and must be searchable.
+    const VAULT_ROOT = knowledgeBaseRoot()
     if (!existsSync(VAULT_ROOT)) return []
     const terms = extractTerms(query.slice(0, 600))
     if (terms.length === 0) return []
@@ -175,7 +178,7 @@ export function searchKnowledgeGrep(query: string, workspace?: string | null): K
 
     if (workspace) {
       for (const file of scores.keys()) {
-        if (file.includes(`/workspaces/${workspace}/`)) {
+        if (inWorkspaceFolder(file, workspace, VAULT_ROOT)) {
           scores.set(file, (scores.get(file) || 0) + 6)
         }
       }

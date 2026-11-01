@@ -23,7 +23,7 @@ sign in to a client's install. The client owns the server, the data and the AI a
 
 ```
  Person ──► Cloudflare Access ──► Cloudflare Tunnel ──► client's server (no open web ports)
-           "who are you?"         private connection     ├─ Operation Kit app (password sign-in)
+           "who are you?"         private connection     ├─ Operation Kit app (trusts the verified email)
                                   the server dials out    └─ one sandbox per AI job
 ```
 
@@ -33,9 +33,13 @@ sign in to a client's install. The client owns the server, the data and the AI a
 2. **Cloudflare Tunnel means no open doors on the server.** The server makes a private connection
    *out* to Cloudflare. Its firewall accepts nothing from the internet except SSH for the
    administrator.
-3. **Operation Kit's own sign-in is the second lock.** Username and password (stored only as a
-   one-way hash). The first administrator must replace their one-time setup password before
-   anything else works. Repeated wrong passwords are slowed down.
+3. **One login, checked twice.** After Cloudflare Access, Cloudflare hands the app a signed token
+   naming the person's email. The app checks the signature against Cloudflare's published keys,
+   and checks that the token was made for this site and has not expired, before it trusts the
+   email. The email must match an existing Operation Kit user; an unknown email gets a "no
+   account" page and is never given a new account. The username and password sign-in (stored
+   only as a one-way hash, repeated wrong passwords slowed down) stays as a break-glass way in;
+   a one-time setup password must be replaced before anything else works.
 4. **Every AI job runs in its own sandbox.** Each board card gets a fresh, locked-down container
    that can see only its own work folder. It runs as an ordinary (non-administrator) user, with
    extra system permissions removed, and it cannot see other jobs, the database or the server's
@@ -68,7 +72,7 @@ meet that today. Cloudflare and the major AI providers publish their own audit r
 | Gap | What it means today |
 |---|---|
 | **No SOC 2 or other formal audit** | See above. No penetration test report to share yet either. |
-| **No built-in single sign-on** beyond Cloudflare Access | Google or Microsoft sign-in works at the Cloudflare door. Operation Kit's own second sign-in is still a username and password, with no built-in two-factor. |
+| **Single sign-on only through Cloudflare Access** | Google or Microsoft sign-in works at the Cloudflare door, and the app trusts that sign-in (one login). The break-glass username and password has no built-in two-factor. |
 | **Chat history and AI job transcripts are not encrypted at rest** | They are plain files and database rows on the server's disk. Secrets *are* encrypted. Use the hosting provider's disk encryption. |
 | **The app itself has full control of its server** | It needs this to start and stop sandboxes. Anyone with an Operation Kit administrator login should be someone you would trust with the server. Sandboxed AI jobs do *not* have this access. |
 | **Sandboxes can reach the internet** | An AI job can make outbound web requests (it needs to, to reach the AI provider and install tools). It cannot reach the server's other files. |

@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
 import { LoginPage } from './components/LoginPage'
 import { ChangePasswordPage } from './components/ChangePasswordPage'
+import { NoAccountPage } from './components/NoAccountPage'
 import { PageTransition } from './components/PageTransition'
 import { RouteFallback } from './components/RouteFallback'
 import { NavContext, useNavigate } from './context/nav'
@@ -74,7 +75,7 @@ function NotFound() {
 }
 
 function AppContent() {
-  const { user, loading } = useAuth()
+  const { user, loading, accessDenied } = useAuth()
   const location = useLocation()
   const routerNavigate = useRouterNavigate()
   const pathname = location.pathname
@@ -168,7 +169,7 @@ function AppContent() {
   }
 
   if (!user) {
-    return <LoginPage />
+    return accessDenied ? <NoAccountPage /> : <LoginPage />
   }
 
   // One-time setup password (client installs, obj 719935): nothing else until it is replaced.

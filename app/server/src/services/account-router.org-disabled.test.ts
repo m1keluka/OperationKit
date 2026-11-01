@@ -222,6 +222,7 @@ describe('probe never uses the API key', () => {
     expect(script).toContain('--model haiku')
     expect(script).toContain("--tools ''")
     expect(script).toContain('--max-turns 1')
+    expect(script).toContain('Reply with exactly: CLAUDE-OK')
     expect(script).not.toContain('--bare') // --bare forces API-key auth
     expect(script).not.toMatch(/\$ANTHROPIC_API_KEY|--api-key/)
   })
@@ -252,8 +253,10 @@ describe('probe never uses the API key', () => {
     }
   })
 
-  it('classifyProbe: clean exit is ok; auth/rate-limit text is never ok', () => {
-    expect(probeMod.classifyProbe(0, 'ok').ok).toBe(true)
+  it('classifyProbe: a clean exit that replies CLAUDE-OK is ok; auth/rate-limit text is never ok', () => {
+    expect(probeMod.classifyProbe(0, 'CLAUDE-OK').ok).toBe(true)
+    // Same check as install/claude-login.sh: a clean exit without the reply is not a pass.
+    expect(probeMod.classifyProbe(0, 'ok')).toMatchObject({ ok: false, authFailure: false, rateLimited: false })
     expect(probeMod.classifyProbe(0, ORG_DISABLED)).toMatchObject({ ok: false, authFailure: true })
     expect(probeMod.classifyProbe(1, 'boom')).toMatchObject({ ok: false, authFailure: false, rateLimited: false })
   })

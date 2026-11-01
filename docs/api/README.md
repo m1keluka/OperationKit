@@ -353,10 +353,10 @@ merge, deploy, spend or delete tool.
 | Relay a secret request | `POST /api/objectives/:id/secret-requests/:request_id/upload-token` | `fulfill_secret_request(request_id, scope?)` | board:secrets_request |
 | Workspaces / agents | `GET /api/workspaces` · `GET /api/agents` | `list_workspaces` · `list_agents` | board:read |
 | Built-in chat agents (obj 719987) | `GET /api/agent-chat/agents` · `GET /api/agent-chat/agents/:slug` | `list_chat_agents` · `get_chat_agent(slug)`: the agent's instructions, knowledge folders and tools, to act as it from any MCP client. Chat history and drafts are never on this surface | vault:read |
-| Vault search | `GET /api/docs/search` | `search(q, workspace?, limit?)` | vault:read |
-| Vault browse | `GET /api/docs/tree` | `list_folders(root?)` | vault:read |
-| Vault read | `GET /api/docs/file` | `read_file(path)` (`.md`) | vault:read |
-| Vault write | `PUT /api/docs/file` | `write_doc(path, content)` | vault:write |
+| Knowledge base search | `GET /api/docs/search` | `search(q, workspace?, limit?)` | vault:read |
+| Knowledge base browse | `GET /api/docs/tree` | `list_folders(root?)`: with no `root`, the ONE knowledge base tree (no source to pick); `root` = a folder inside it to go deeper. Response `{ root, label, folders[], tree }` | vault:read |
+| Knowledge base read | `GET /api/docs/file` | `read_file(path)` (`.md`) | vault:read |
+| Knowledge base write | `PUT /api/docs/file` | `write_doc(path, content)` | vault:write |
 | Save an answer to the wiki | `POST /api/kb-wiki/answers` | `file_answer(workspace, question, answer, sources?)`: becomes `answers/<date>-<question>.md`, linked from the pages it used | vault:write |
 | Knowledge-base connections | `GET /api/kb-wiki/graph/related` | `kb_related(workspace, page, depth?)`: pages linked to one page (path or name), each with kind (`related` / `mentions` / `cited_by` / `answer_used`) and label (`works for` …); depth ≤ 2 | vault:read |
 | Who knows about a topic | `GET /api/kb-wiki/graph/who-knows` | `kb_who_knows(workspace, topic, limit?)`: people linked to a topic, ranked by number of citing sources then recency | vault:read |

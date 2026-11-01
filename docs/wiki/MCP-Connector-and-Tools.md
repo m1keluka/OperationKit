@@ -17,9 +17,9 @@ access.
 
 | Tool | What it does | Scope |
 | --- | --- | --- |
-| `search` | Search the knowledge base (vault) for a topic | vault:read |
+| `search` | Search the knowledge base for a topic | vault:read |
 | `search_files` | Search non-markdown files (PDFs, slides, images, etc.) | vault:read |
-| `list_folders` | List knowledge base folders | vault:read |
+| `list_folders` | Browse the knowledge base (one tree, no source to pick) | vault:read |
 | `read_file` | Read one file's contents | vault:read |
 | `file_info` | Size / type / dates of one file without downloading it | vault:read |
 | `write_doc` | Create or overwrite one markdown file in the vault | vault:write |

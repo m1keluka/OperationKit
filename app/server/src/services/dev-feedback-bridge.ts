@@ -127,6 +127,16 @@ function missingEnv(inst: DevFeedbackInstance, env: NodeJS.ProcessEnv): string[]
   return missing
 }
 
+/**
+ * Has anyone started configuring this instance? An instance with NONE of its
+ * env vars set is simply not in use on this install (a client install never
+ * has the operator's platforms) and stays silent; a half-configured one keeps
+ * logging what is missing (obj 720210).
+ */
+export function instanceConfigured(inst: DevFeedbackInstance, env: NodeJS.ProcessEnv = process.env): boolean {
+  return [inst.baseUrlEnv, inst.secretEnv, inst.bearerEnv].some(k => !!k && !!env[k])
+}
+
 /** Validate an instance's env. Returns an error string if any are missing, null if OK. */
 export function validateInstanceConfig(
   inst: DevFeedbackInstance,
@@ -460,7 +470,7 @@ async function runInstanceOnce(inst: DevFeedbackInstance, env: NodeJS.ProcessEnv
   const resolved = resolveInstance(inst, env)
   if (!resolved) {
     const summary = validateInstanceConfig(inst, env)!
-    console.log(summary)
+    if (instanceConfigured(inst, env)) console.log(summary)
     return { workspace: inst.workspace, status: 'skipped', summary, missingEnv: missingEnv(inst, env) }
   }
   try {
@@ -526,7 +536,7 @@ export function startDevFeedbackBridge(): void {
   for (const inst of DEV_FEEDBACK_INSTANCES) {
     const configErr = validateInstanceConfig(inst)
     // Log but don't crash the server — env vars might be set later via secrets hydration.
-    if (configErr) console.log(`[dev-feedback-bridge] startup: ${configErr}`)
+    if (configErr && instanceConfigured(inst)) console.log(`[dev-feedback-bridge] startup: ${configErr}`)
   }
 
   console.log(`[dev-feedback-bridge] starting, tick every ${resolvedTickMs / 1000}s`)

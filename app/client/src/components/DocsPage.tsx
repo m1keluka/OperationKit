@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Menu, Save, Upload } from 'lucide-react'
 import { api } from '../lib/api'
-import { Button, EmptyState } from './ui'
+import { Button, EmptyState, SkeletonText } from './ui'
 import { KnowledgeImportPanel, useKnowledgeImportEnabled } from './KnowledgeImport'
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -74,9 +74,15 @@ interface TreeNode {
   children?: TreeNode[]
 }
 
+interface KnowledgeFolder {
+  path: string
+  label: string
+}
+
+/** GET /api/docs/tree — the one knowledge base (obj 720348); there is no source picker. */
 interface TreeResponse {
   root: string
-  roots: string[]
+  folders?: KnowledgeFolder[]
   writeRoots: string[]
   tree: TreeNode[]
 }
@@ -89,14 +95,21 @@ interface FileResponse {
   writable: boolean
 }
 
-/** A folder's display name: its last path segment, e.g. "second-brain" → "Second brain". */
-function labelForRoot(path: string): string {
-  // Imported notes on an install without a vault: /app/data/knowledge-base/<workspace>.
-  const kb = path.match(/\/knowledge-base\/([^/]+)\/?$/)
-  if (kb) return `Knowledge base · ${kb[1]}`
-  const seg = path.split('/').filter(Boolean).pop() || path
-  const words = seg.replace(/[-_]+/g, ' ').trim()
-  return words.charAt(0).toUpperCase() + words.slice(1)
+/**
+ * Where a page sits in the knowledge base, for the breadcrumb: the path below
+ * the knowledge base folder that holds it (longest match wins, so a folder
+ * nested in the tree labels its own pages).
+ */
+export function pageLocation(filePath: string, root: string, folders: KnowledgeFolder[]): string {
+  const byDepth = [...folders].sort((a, b) => b.path.length - a.path.length)
+  for (const f of byDepth) {
+    if (filePath.startsWith(f.path + '/')) {
+      const rel = filePath.slice(f.path.length + 1)
+      // The knowledge base root itself needs no prefix; an extra folder keeps its label.
+      return f.path === root ? rel : `${f.label}/${rel}`
+    }
+  }
+  return filePath
 }
 
 // ── Tree node ──
@@ -220,8 +233,8 @@ function EditorPane({ file, onContentChange }: EditorPaneProps) {
 // ── Main ──
 
 export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
-  const [activeRoot, setActiveRoot] = useState<string>('')
-  const [availableRoots, setAvailableRoots] = useState<string[]>([])
+  const [kbRoot, setKbRoot] = useState<string>('')
+  const [folders, setFolders] = useState<KnowledgeFolder[]>([])
   const [treeData, setTreeData] = useState<TreeNode[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [treeLoading, setTreeLoading] = useState(true)
@@ -239,36 +252,18 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load tree when active root changes. On first load, discover available roots from API.
+  // One knowledge base, one tree (obj 720348). Reloads after an import.
   useEffect(() => {
-    if (!activeRoot) return
     setTreeLoading(true)
-    api.get<TreeResponse>(`/docs/tree?root=${encodeURIComponent(activeRoot)}`)
+    api.get<TreeResponse>('/docs/tree')
       .then(data => {
         setTreeData(data.tree || [])
-        // Capture available roots from the API response
-        if (data.roots && data.roots.length > 0 && availableRoots.length === 0) {
-          setAvailableRoots(data.roots)
-        }
+        setKbRoot(data.root || '')
+        setFolders(data.folders || [])
       })
       .catch(() => setTreeData([]))
       .finally(() => setTreeLoading(false))
-  }, [activeRoot, treeVersion])
-
-  // Bootstrap: fetch initial root list from API
-  useEffect(() => {
-    api.get<TreeResponse>('/docs/tree')
-      .then(data => {
-        if (data.roots && data.roots.length > 0) {
-          setAvailableRoots(data.roots)
-          setActiveRoot(data.root || data.roots[0])
-        } else {
-          // No folders configured yet (a fresh install): show the empty state, not "Loading…" forever.
-          setTreeLoading(false)
-        }
-      })
-      .catch(() => setTreeLoading(false))
-  }, [])
+  }, [treeVersion])
 
   const toggleDir = useCallback((p: string) => {
     setExpanded(prev => {
@@ -337,47 +332,24 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
 
   const breadcrumb = useMemo(() => {
     if (!file) return null
-    // Longest matching root wins, so a nested root labels its own files.
-    const allRoots = [...availableRoots].sort((a, b) => b.length - a.length)
-    for (const root of allRoots) {
-      if (file.path.startsWith(root)) {
-        const rel = file.path.slice(root.length).replace(/^\//, '')
-        return { rootLabel: labelForRoot(root), rel }
-      }
-    }
-    return { rootLabel: '', rel: file.path }
-  }, [file, availableRoots])
+    return { rootLabel: 'Knowledge base', rel: pageLocation(file.path, kbRoot, folders) }
+  }, [file, kbRoot, folders])
 
   const sidebar = (
     <div className="flex h-full w-64 flex-col border-r border-line bg-surface-1">
-      {/* Root switcher */}
+      {/* One knowledge base — no source picker (obj 720348) */}
       <div className="border-b border-line-soft p-3">
-        <h1 className="mb-3 px-0.5 font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">Knowledge base</h1>
-        <div className="mb-1.5 px-0.5 text-[10px] font-semibold uppercase text-fg-3" style={{ letterSpacing: '0.08em' }}>
-          Source
-        </div>
-        <select
-          value={activeRoot}
-          onChange={e => {
-            setActiveRoot(e.target.value)
-            setExpanded(new Set())
-          }}
-          className="w-full rounded-sm border border-line bg-surface-0 px-2 py-1.5 text-xs text-fg-0 transition focus:border-accent focus:outline-none"
-        >
-          {availableRoots.map(path => (
-            <option key={path} value={path}>
-              {labelForRoot(path)}
-            </option>
-          ))}
-        </select>
+        <h1 className="px-0.5 font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">Knowledge base</h1>
       </div>
 
       {/* Tree */}
       <div className="flex-1 overflow-y-auto py-2">
         {treeLoading ? (
-          <div className="p-3 text-xs text-fg-3">Loading…</div>
+          <div className="p-3" aria-label="Loading pages"><SkeletonText lines={6} /></div>
         ) : treeData.length === 0 ? (
-          <div className="p-3 text-xs text-fg-3">No pages here yet.</div>
+          <div className="p-3 text-xs text-fg-3">
+            {importOn ? 'No pages yet. Import files to start your knowledge base.' : 'No pages yet.'}
+          </div>
         ) : (
           treeData.map(node => (
             <TreeItem

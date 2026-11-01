@@ -41,11 +41,19 @@ interface RepoRow {
   github: string
 }
 
-/** Read all workspace_repos rows that have a non-null `github` column. */
+/**
+ * Read all workspace_repos rows that have a non-null `github` column, skipping
+ * archived workspaces: a client install archives the seeded sample workspaces,
+ * whose repos it cannot reach, and scanning them only produced errors (obj 720210).
+ */
 export function reposForDiscovery(db: Database): RepoRow[] {
   try {
     return db
-      .prepare("SELECT workspace, github FROM workspace_repos WHERE github IS NOT NULL AND github != ''")
+      .prepare(
+        `SELECT r.workspace, r.github FROM workspace_repos r
+          WHERE r.github IS NOT NULL AND r.github != ''
+            AND NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.slug = r.workspace AND w.archived = 1)`,
+      )
       .all() as RepoRow[]
   } catch {
     return []
@@ -126,6 +134,8 @@ export function persistPosthogBotPr(db: Database, pr: PosthogBotPr): boolean {
  * PRs from GitHub, persist new ones. Never throws — per-repo errors are
  * collected and returned so one inaccessible repo never breaks the sweep.
  */
+let lastErrorKey = ''
+
 export async function discoverPosthogBotPrs(
   db: Database,
   gh: GhExec,
@@ -155,7 +165,12 @@ export async function discoverPosthogBotPrs(
     }
   }
 
-  if (reposScanned.length > 0 || errors.length > 0) {
+  // Log when something was found, or when the set of failing repos changes —
+  // not the same "N error(s)" line every sweep for a repo that is never reachable.
+  const errorKey = errors.map(e => `${e.repo}: ${e.message}`).sort().join('\n')
+  const errorsChanged = errorKey !== lastErrorKey
+  lastErrorKey = errorKey
+  if (prsFound > 0 || (errors.length > 0 && errorsChanged)) {
     console.log(
       `[posthog-bot-prs] scanned ${reposScanned.length} repo(s), found ${prsFound} open PR(s), persisted ${prsPersisted} new`,
       errors.length > 0 ? `(${errors.length} error(s))` : '',

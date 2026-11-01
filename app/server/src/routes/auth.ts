@@ -12,6 +12,7 @@ import {
 } from '../middleware/login-rate-limit.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { isContentOwner } from '../services/content-owners.js'
+import { CF_ACCESS_HEADER, CF_ACCESS_LOGOUT_PATH, getCfAccessVerifier } from '../lib/cf-access.js'
 import type { LoginRequest, TokenResponse, User } from '@operationkit/shared'
 
 const TOKEN_EXPIRES_IN_SEC = 7 * 24 * 60 * 60
@@ -190,9 +191,71 @@ router.post('/change-password', requireAuth, async (req: AuthRequest, res) => {
   res.json({ user })
 })
 
+// POST /api/auth/cloudflare-access — one login behind Cloudflare Access (obj 720332).
+// Called by the client when it has no app session. Verifies the
+// Cf-Access-Jwt-Assertion header (signature against the team's public keys,
+// AUD, issuer, expiry) and, when the verified email belongs to an Operation Kit
+// user, mints the normal session cookie. Never creates a user. Off (404) unless
+// OK_CF_ACCESS_TEAM + OK_CF_ACCESS_AUD are set; the password login stays as the
+// break-glass path either way.
+router.post('/cloudflare-access', async (req, res) => {
+  const verifier = getCfAccessVerifier()
+  if (!verifier) {
+    res.status(404).json({ error: 'Cloudflare Access sign-in is not set up on this install.', code: 'cf_access_off' })
+    return
+  }
+  const header = req.headers[CF_ACCESS_HEADER]
+  const assertion = Array.isArray(header) ? header[0] : header
+  if (!assertion) {
+    res.status(401).json({ error: 'No Cloudflare Access identity on this request.', code: 'cf_access_missing' })
+    return
+  }
+  const result = await verifier.verify(assertion)
+  if (!result.ok) {
+    // Reason only — never the token. A rejected header falls back to the password page.
+    console.warn(`[cf-access] rejected assertion from ${clientIp(req)}: ${result.reason}`)
+    res.status(401).json({ error: 'Your Cloudflare Access sign-in could not be verified.', code: 'cf_access_invalid', reason: result.reason })
+    return
+  }
+
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT id, username, role, created_at FROM users WHERE email IS NOT NULL AND lower(trim(email)) = ?')
+    .all(result.email) as Array<Pick<User, 'id' | 'username' | 'role' | 'created_at'>>
+  if (rows.length !== 1) {
+    // No auto-created account, ever — and two accounts on one email is ambiguous, so neither wins.
+    console.warn(`[cf-access] verified email has ${rows.length === 0 ? 'no' : 'more than one'} matching user`)
+    res.status(403).json({
+      error: rows.length === 0
+        ? 'There is no Operation Kit account for this email.'
+        : 'More than one Operation Kit account uses this email. Ask your admin to fix it.',
+      code: rows.length === 0 ? 'no_account' : 'ambiguous_account',
+      email: result.email,
+      logout_url: CF_ACCESS_LOGOUT_PATH,
+    })
+    return
+  }
+
+  const row = rows[0]
+  const user: User = {
+    id: row.id, username: row.username, role: row.role, created_at: row.created_at,
+    workspaces: getUserWorkspaces(row.id), has_content: isContentOwner(row.id),
+  }
+  res.cookie('token', generateToken(user, { viaCfAccess: true }), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+    maxAge: TOKEN_EXPIRES_IN_SEC * 1000,
+  })
+  res.json({ user, via: 'cloudflare_access' })
+})
+
+// Logout clears the app session. Behind Cloudflare Access the client must also
+// end the Access session, or the next page load signs straight back in.
 router.post('/logout', (_req, res) => {
   res.clearCookie('token', { path: '/' })
-  res.json({ ok: true })
+  res.json(getCfAccessVerifier() ? { ok: true, access_logout_url: CF_ACCESS_LOGOUT_PATH } : { ok: true })
 })
 
 export const MIN_PASSWORD_LENGTH = 12
@@ -271,7 +334,9 @@ router.get('/me', requireAuth, (req: AuthRequest, res) => {
   }
   // Report the session's state, not just the row's: a pre-change cookie still
   // carries `pwc` and is still gated, so the client must keep showing the form.
-  if (Number(user.must_change_password) > 0 || req.user!.must_change_password) user.must_change_password = true
+  // A Cloudflare Access session (obj 720332) never typed the setup password, so
+  // it is not held on the change-password page; the setup password still expires.
+  if (!req.viaCfAccess && (Number(user.must_change_password) > 0 || req.user!.must_change_password)) user.must_change_password = true
   else delete user.must_change_password
 
   user.workspaces = getUserWorkspaces(user.id)

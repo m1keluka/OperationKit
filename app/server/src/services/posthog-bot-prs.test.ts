@@ -63,6 +63,18 @@ describe('reposForDiscovery', () => {
     expect(repos.length).toBeGreaterThanOrEqual(1)
     expect(repos.some(r => r.github === 'EXAMPLE2/example3-platform')).toBe(true)
   })
+
+  it('skips repos of archived workspaces (client installs archive the samples; obj 720210)', () => {
+    const db = getDb()
+    db.prepare("INSERT OR IGNORE INTO workspaces (slug, name, archived) VALUES ('sample-ws', 'Sample', 1)").run()
+    db.prepare(
+      `INSERT OR IGNORE INTO workspace_repos (workspace, name, github, description, stack, docs_path, docs_enabled)
+       VALUES ('sample-ws', 'example-project', 'example/example-project', null, '[]', 'docs', 0)`,
+    ).run()
+    const repos = reposForDiscovery(db)
+    expect(repos.some(r => r.github === 'example/example-project')).toBe(false)
+    expect(repos.some(r => r.github === 'EXAMPLE2/example3-platform')).toBe(true)
+  })
 })
 
 describe('fetchPosthogBotPrs', () => {

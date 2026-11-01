@@ -4,7 +4,7 @@
 #   sudo bash install/uninstall.sh --config client.conf --yes [options]
 #
 # Removes: the app + connector containers, every session sandbox container,
-# the built images, the Cloudflare tunnel / DNS record / Access app / verify
+# the nightly backup job, the built images, the Cloudflare tunnel / DNS record / Access app / verify
 # token that install.sh created, and INSTALL_DIR (data, secrets, everything).
 # Leaves alone: Docker, firewall, security updates, SSH settings (host prep is
 # harmless and makes the next install faster), other DNS records, the Cloudflare
@@ -36,7 +36,7 @@ done
 [ -n "$CONFIG" ] || die "--config <file> is required"
 conf_load "$CONFIG"; conf_validate; ok_paths
 require_root
-[ "$YES" -eq 1 ] || [ "$DRY_RUN" -eq 1 ] || die "this deletes the install for $(conf DOMAIN). Re-run with --yes to confirm."
+[ "$YES" -eq 1 ] || [ "$DRY_RUN" -eq 1 ] || die "this deletes the install for $(site_label). Re-run with --yes to confirm."
 export DRY_RUN
 
 step "Session sandboxes"
@@ -67,6 +67,9 @@ if [ "$KEEP_IMAGES" -eq 0 ]; then
     if docker image inspect "$img" >/dev/null 2>&1; then run docker rmi -f "$img" >/dev/null; log "removed $img"; fi
   done
 fi
+
+step "Nightly backup job"
+if [ -f /etc/cron.d/operationkit-backup ]; then run rm -f /etc/cron.d/operationkit-backup; log "removed (re-install adds it back)"; else log "none"; fi
 
 if [ "$KEEP_DATA" -eq 0 ]; then
   step "Install folder $OK_DIR"

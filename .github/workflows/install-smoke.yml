@@ -23,20 +23,57 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Client config (fake sample data)
+      - name: Client config (fake sample data; local mode, so no DOMAIN/ZONE/Access)
+        # The knowledge-import starter pack stays ON: it is what failed on the
+        # first real install (obj 720210), and the installer now stops if it fails.
         run: |
           sed -e 's#^INSTALL_DIR=.*#INSTALL_DIR="/opt/operationkit"#' \
-              -e 's#^STARTER_PACKS=.*#STARTER_PACKS=""#' \
+              -e 's#^DOMAIN=.*#DOMAIN=""#' -e 's#^ZONE=.*#ZONE=""#' \
+              -e 's#^ACCESS_ALLOWED_EMAILS=.*#ACCESS_ALLOWED_EMAILS=""#' \
               install/client.conf.example > ci.conf
+          grep -q '^STARTER_PACKS="knowledge-import"' ci.conf
       - name: Cloudflare API logic against a mock
         run: bash install/test/cloudflare-mock-test.sh
+      - name: Claude sign-in (link + code) against a mock
+        run: bash install/test/claude-oauth-mock-test.sh
+      - name: Without --skip-cloudflare an empty DOMAIN is refused, with the hint
+        run: |
+          if ./install.sh --config ci.conf --dry-run > out.txt 2>&1; then cat out.txt; exit 1; fi
+          grep -q 'or install with --skip-cloudflare' out.txt
       - name: Dry run
         run: sudo ./install.sh --config ci.conf --dry-run --skip-cloudflare
       - name: Install (timed)
         run: |
           start=$(date +%s)
-          sudo ./install.sh --config ci.conf --skip-cloudflare --skip-ssh-hardening --skip-verify
+          sudo ./install.sh --config ci.conf --skip-cloudflare --skip-ssh-hardening --skip-verify | tee install.log
           echo "INSTALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+      - name: Install output (build log tail, tunnel instructions, step 7 hint)
+        run: |
+          grep -q 'full build log: /opt/operationkit/logs/build-' install.log
+          sudo ls /opt/operationkit/logs/build-*.log
+          grep -q 'ssh -N -L 3002:127.0.0.1:3002' install.log
+          ! grep -q 'https://localhost' install.log
+          grep -q 'INSTALL.md step 7' install.log
+      - name: Knowledge-base starter pack is ON for the client workspace
+        run: |
+          sudo bash scripts/starter-pack.sh status | tee packs.txt
+          grep -qE '^ON +knowledge-import' packs.txt
+      - name: Build commit in /api/health
+        run: |
+          want=$(git rev-parse HEAD | cut -c1-12)
+          got=$(curl -fsS http://127.0.0.1:3002/api/health | jq -r .commit)
+          echo "commit: want $want, got $got"; test "$got" = "$want"
+      - name: Client install logs stay quiet (host-boot, dev-feedback, posthog)
+        run: |
+          sudo docker logs command-center > app.log 2>&1
+          ! grep -E 'run-all failed|MISSING required env vars|\[posthog-bot-prs\].*error' app.log
+      - name: verify.sh fails fast when no Claude seat can run (no 600s wait)
+        run: |
+          start=$(date +%s)
+          if sudo bash install/verify.sh --config ci.conf --card-timeout 600 > v.txt 2>&1; then cat v.txt; exit 1; fi
+          cat v.txt; took=$(( $(date +%s) - start )); echo "took ${took}s"
+          grep -q 'no Claude seat can run a sandboxed session' v.txt
+          test "$took" -lt 120
       - name: Verify
         run: sudo bash install/verify.sh --config ci.conf --local-only --skip-card
       - name: No secret values in the install log or the settings file
@@ -45,6 +82,30 @@ jobs:
           sudo test "$(sudo stat -c %a /opt/operationkit/secrets)" = 700
           # settings file: no secret-looking KEYS (comment lines are prose, skipped)
           ! grep -vE '^#' /opt/operationkit/install.env | grep -qiE '^[A-Z_]*(SECRET|TOKEN|_KEY|PASSWORD)'
+      - name: Backup, then restore it
+        run: |
+          sudo test -f /etc/cron.d/operationkit-backup
+          sudo bash install/backup.sh run --config ci.conf --label manual
+          dir=$(sudo find /opt/operationkit/backups -maxdepth 1 -name 'manual-*' | sort | tail -1)
+          sudo ls -l "$dir"
+          for f in command-center.db data.tar.gz home.tar.gz secrets.tar.gz client.conf MANIFEST; do sudo test -s "$dir/$f"; done
+          sudo test "$(sudo stat -c %a "$dir")" = 700
+          # Lose something, restore, and it is back.
+          sudo touch /opt/operationkit/state/data/branding/ci-marker
+          sudo bash install/backup.sh run --config ci.conf --label manual
+          dir=$(sudo find /opt/operationkit/backups -maxdepth 1 -name 'manual-*' | sort | tail -1)
+          sudo rm /opt/operationkit/state/data/branding/ci-marker
+          sudo bash install/backup.sh restore "$dir" --config ci.conf --yes
+          sudo test -f /opt/operationkit/state/data/branding/ci-marker
+          sudo bash scripts/starter-pack.sh status | grep -qE '^ON +knowledge-import'
+          sudo bash install/backup.sh list --config ci.conf
+      - name: update.sh (pre-update backup, rollback image tag, re-install at this commit)
+        run: |
+          sudo bash install/update.sh --config ci.conf --ref "$(git rev-parse HEAD)" -- --skip-ssh-hardening --skip-verify | tee update.log
+          sudo find /opt/operationkit/backups -maxdepth 1 -name 'pre-update-*' | grep -q .
+          sudo docker image ls operationkit-app --format '{{.Tag}}' | grep -q '^pre-update-'
+          grep -q 'To go back to the version' update.log
+          sudo bash install/verify.sh --config ci.conf --local-only --skip-card
       - name: Sandbox smoke (jail image runs non-root, no docker socket)
         run: |
           sudo docker run --rm ok-jail:local bash -lc 'id -u; test ! -S /var/run/docker.sock; command -v claude'
@@ -52,6 +113,7 @@ jobs:
         run: |
           sudo bash install/uninstall.sh --config ci.conf --yes --keep-images
           test ! -d /opt/operationkit
+          test ! -f /etc/cron.d/operationkit-backup
           start=$(date +%s)
           sudo ./install.sh --config ci.conf --skip-cloudflare --skip-ssh-hardening --skip-verify
           echo "REINSTALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"

@@ -124,10 +124,95 @@ describe('Settings → Seats', () => {
     expect(healthBadge({ health: 'disabled', cooldownUntil: null }).text).toBe('Disabled')
   })
 
-  it('adds a Claude seat with the pasted token and clears the input', async () => {
-    apiMock.post.mockResolvedValue({ ok: true, seat: seat({ id: 'seat-9', label: 'Seat 9', credential: { kind: 'setup_token', last4: 'zz99', addedAt: null, expiresAt: null, expiry: null } }) })
+  const LINK = { ok: true, loginId: 'login-1', url: 'https://claude.com/cai/oauth/authorize?code=true&state=st8', expiresAt: '2026-11-01T12:10:00Z' }
+  const NEW_SEAT = seat({ id: 'seat-9', label: 'Seat 9', credential: { kind: 'setup_token', last4: 'zz99', addedAt: null, expiresAt: '2027-11-01T00:00:00Z', expiry: null } })
+
+  it('Add Claude seat opens "Sign in with Claude": link, paste code#state, seat added and tested', async () => {
+    apiMock.post.mockImplementation((url: string) => {
+      if (url === '/admin/seats/claude-oauth/start') return Promise.resolve(LINK)
+      if (url === '/admin/seats/claude-oauth/finish') return Promise.resolve({ ok: true, outcome: 'healthy', seat: NEW_SEAT })
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
     await render()
     button('Add Claude seat', section('claude'))!.click()
+    await flush()
+    expect(apiMock.post).toHaveBeenCalledWith('/admin/seats/claude-oauth/start', {})
+    const link = Array.from(container.querySelectorAll('a')).find(a => a.textContent?.includes('Sign in with Claude')) as HTMLAnchorElement
+    expect(link.href).toBe(LINK.url)
+    expect(link.target).toBe('_blank')
+    expect(link.rel).toContain('noopener')
+    expect(container.querySelector('#seat-claude-token')).toBeNull() // paste-token is the fallback, not the default
+    setValue(container.querySelector('#seat-claude-label') as HTMLInputElement, 'Seat 9')
+    const code = container.querySelector('#claude-code-new') as HTMLInputElement
+    setValue(code, '  fake-auth-code#st8 ')
+    await flush()
+    button('Connect seat')!.click()
+    await flush()
+    expect(apiMock.post).toHaveBeenCalledWith('/admin/seats/claude-oauth/finish', { loginId: 'login-1', code: 'fake-auth-code#st8', label: 'Seat 9' }, { timeoutMs: 90_000 })
+    expect(container.innerHTML).not.toContain('fake-auth-code')
+    expect(section('claude').textContent).toContain('Seat 9')
+    expect(container.textContent).toContain('Seat 9 is signed in and answered its test turn. Healthy.')
+  })
+
+  it('a state mismatch keeps the link; an expired link offers a new one', async () => {
+    let finishes = 0
+    apiMock.post.mockImplementation((url: string) => {
+      if (url === '/admin/seats/claude-oauth/start') return Promise.resolve(LINK)
+      if (url === '/admin/seats/claude-oauth/finish') {
+        finishes++
+        return Promise.reject(finishes === 1
+          ? new ApiErrorMock(400, { error: 'That code is from a different sign-in link.', code: 'state_mismatch' }, 'bad')
+          : new ApiErrorMock(410, { error: 'This sign-in link expired.', code: 'expired' }, 'gone'))
+      }
+      return Promise.resolve({ ok: true })
+    })
+    await render()
+    button('Add Claude seat', section('claude'))!.click()
+    await flush()
+    setValue(container.querySelector('#claude-code-new') as HTMLInputElement, 'x#other')
+    await flush()
+    button('Connect seat')!.click()
+    await flush()
+    expect(container.textContent).toContain('That code is from a different sign-in link.')
+    expect(button('Connect seat')).toBeDefined()
+    setValue(container.querySelector('#claude-code-new') as HTMLInputElement, 'x#st8')
+    await flush()
+    button('Connect seat')!.click()
+    await flush()
+    expect(container.textContent).toContain('This sign-in link expired.')
+    button('Get a new link')!.click()
+    await flush()
+    expect(apiMock.post.mock.calls.filter(c => c[0] === '/admin/seats/claude-oauth/start')).toHaveLength(2)
+  })
+
+  it('Reconnect on a Claude seat signs in again for that seat id', async () => {
+    apiMock.post.mockImplementation((url: string) => {
+      if (url === '/admin/seats/claude-oauth/start') return Promise.resolve(LINK)
+      if (url === '/admin/seats/claude-oauth/finish') return Promise.resolve({ ok: true, outcome: 'unparked', seat: seat() })
+      return Promise.resolve({ ok: true })
+    })
+    await render()
+    const card = container.querySelector('[data-testid="seat-seat-1"]') as HTMLElement
+    button('Reconnect', card)!.click()
+    await flush()
+    expect(apiMock.post).toHaveBeenCalledWith('/admin/seats/claude-oauth/start', { seatId: 'seat-1' })
+    setValue(card.querySelector('#claude-code-seat-1') as HTMLInputElement, 'c#st8')
+    await flush()
+    button('Reconnect seat', card)!.click()
+    await flush()
+    expect(apiMock.post).toHaveBeenCalledWith('/admin/seats/claude-oauth/finish', { loginId: 'login-1', code: 'c#st8', seatId: 'seat-1' }, { timeoutMs: 90_000 })
+    expect(container.textContent).toContain('Seat 1 is signed in and answered its test turn. Back in rotation.')
+  })
+
+  it('adds a Claude seat with the pasted token (fallback) and clears the input', async () => {
+    apiMock.post.mockImplementation((url: string) => {
+      if (url === '/admin/seats/claude-oauth/start') return Promise.resolve(LINK)
+      return Promise.resolve({ ok: true, seat: NEW_SEAT })
+    })
+    await render()
+    button('Add Claude seat', section('claude'))!.click()
+    await flush()
+    button('Have a setup token already? Paste it instead')!.click()
     await flush()
     const token = container.querySelector('#seat-claude-token') as HTMLInputElement
     expect(token.type).toBe('password')

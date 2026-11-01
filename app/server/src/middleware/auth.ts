@@ -46,23 +46,30 @@ export interface AuthRequest extends Request {
   agentKey?: AgentKeyPrincipal
   /** How the caller authenticated. Absent before requireAuth / the agent-key guard ran. */
   authVia?: 'session' | 'legacy_api_key' | 'agent_api_key'
+  /** The session cookie was minted from a verified Cloudflare Access identity (obj 720332). */
+  viaCfAccess?: boolean
 }
 
-export function generateToken(user: User): string {
+export function generateToken(user: User, opts: { viaCfAccess?: boolean } = {}): string {
   // `pwc` (obj 719935): the holder signed in with a one-time setup password and
   // may only reach PASSWORD_CHANGE_ALLOWED until they pick a real one.
-  const claims = { id: user.id, username: user.username, role: user.role, ...(user.must_change_password ? { pwc: 1 } : {}) }
+  // `cfa` (obj 720332): minted from a verified Cloudflare Access identity — the
+  // holder never typed the setup password, so it is never a `pwc` session.
+  const claims = opts.viaCfAccess
+    ? { id: user.id, username: user.username, role: user.role, cfa: 1 }
+    : { id: user.id, username: user.username, role: user.role, ...(user.must_change_password ? { pwc: 1 } : {}) }
   return jwt.sign(claims, getJwtSecret(), {
     expiresIn: TOKEN_EXPIRY,
   })
 }
 
-export function verifyToken(token: string): User | null {
+export function verifyToken(token: string): (User & { via_cf_access?: true }) | null {
   try {
-    const payload = jwt.verify(token, getJwtSecret()) as User & { iat: number; exp: number; pwc?: number }
+    const payload = jwt.verify(token, getJwtSecret()) as User & { iat: number; exp: number; pwc?: number; cfa?: number }
     return {
       id: payload.id, username: payload.username, role: payload.role, created_at: '',
       ...(payload.pwc ? { must_change_password: true } : {}),
+      ...(payload.cfa ? { via_cf_access: true as const } : {}),
     }
   } catch {
     return null
@@ -191,8 +198,10 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     }
   }
 
-  req.user = user
+  const { via_cf_access, ...sessionUser } = user
+  req.user = sessionUser
   req.authVia = 'session'
+  if (via_cf_access) req.viaCfAccess = true
   next()
 }
 

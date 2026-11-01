@@ -8,20 +8,30 @@
 #   sudo bash install/cloudflare.sh agent-pass list --config client.conf
 #
 # `up` (idempotent — every object is looked up by name first and reused):
-#   1. finds the zone (ZONE) and its Cloudflare account
+#   1. finds the zone (ZONE) and its Cloudflare account: the account id comes
+#      from GET /zones?name=<ZONE> (result[0].account.id), so nobody has to look
+#      it up or type it
 #   2. creates a Cloudflare Tunnel "ok-<CLIENT_SLUG>" (remotely managed) and
 #      routes DOMAIN -> the app container. The server opens NO web ports: the
 #      tunnel connector dials OUT to Cloudflare.
 #   3. points DOMAIN at the tunnel (proxied CNAME)
 #   4. makes sure the Access login method exists (one-time email code, Google
-#      or Microsoft)
+#      or Microsoft). The default, ACCESS_LOGIN_METHOD=otp, is Cloudflare's
+#      "One-time PIN" provider: it works for every install with no Google or
+#      Microsoft app to register
 #   5. creates a Cloudflare Access application on DOMAIN that only lets
-#      ACCESS_ALLOWED_EMAILS / ACCESS_ALLOWED_EMAIL_DOMAIN through
+#      ACCESS_ALLOWED_EMAILS / ACCESS_ALLOWED_EMAIL_DOMAIN through. Its
+#      allowed_idps holds ONLY that one login method, with auto-redirect on (no
+#      provider picker) and ACCESS_SESSION_DURATION (default 24h)
 #   6. creates an Access service token used ONLY by install/verify.sh to test the
 #      site through Cloudflare without a human typing an email code
 #   7. stores the tunnel token + service token in secrets/stack.env (mode 600)
+#   8. stores the Zero Trust team domain + the Access app's AUD tag in
+#      secrets/stack.env as OK_CF_ACCESS_TEAM / OK_CF_ACCESS_AUD. The app uses
+#      them to verify Cloudflare's signed identity header and skip its own
+#      sign-in page (one login). Without them the password login is used.
 # `down` removes exactly what `up` created (app, service token, DNS record,
-# tunnel) plus every agent pass. It never touches the zone, other DNS records
+# tunnel) plus every agent pass, and blanks OK_CF_ACCESS_TEAM/AUD. It never touches the zone, other DNS records
 # or the login methods.
 #
 # `agent-pass add <name>` lets ONE outside AI tool (Claude Code, Grok, Codex…)
@@ -173,6 +183,7 @@ if [ "$ACTION" = status ]; then
   printf '  access app                    %s\n' "$(have "$a")"
   printf '  verify service token          %s\n' "$(have "$s")"
   printf '  agent passes                  %s\n' "$(list_passes | wc -l | tr -d ' ')"
+  printf '  one login (team + AUD stored) %s\n' "$([ -n "$(env_get "$OK_SECRETS_ENV" OK_CF_ACCESS_AUD)" ] && echo on || echo off)"
   exit 0
 fi
 
@@ -198,6 +209,11 @@ if [ "$ACTION" = down ]; then
     mut DELETE "/accounts/$ACCOUNT_ID/cfd_tunnel/$t/connections" >/dev/null || true
     mut DELETE "/accounts/$ACCOUNT_ID/cfd_tunnel/$t" >/dev/null; log "tunnel removed"
   else log "tunnel: none"; fi
+  # No Access app any more: switch the app back to its own password sign-in.
+  if [ "$DRY_RUN" -eq 0 ] && [ -n "$(env_get "$OK_SECRETS_ENV" OK_CF_ACCESS_AUD)" ]; then
+    env_set "$OK_SECRETS_ENV" OK_CF_ACCESS_TEAM ""; env_set "$OK_SECRETS_ENV" OK_CF_ACCESS_AUD ""
+    log "one-login settings cleared (restart the app: the password sign-in is back)"
+  fi
   exit 0
 fi
 
@@ -237,8 +253,17 @@ else
 fi
 
 step "Cloudflare Access (Zero Trust) sign-in layer"
-org=$(cf GET "/accounts/$ACCOUNT_ID/access/organizations" | jq -r '.result.auth_domain // empty' 2>/dev/null || true)
+# Two different problems look alike here: the token lacks the Access
+# "Organizations" permission (Cloudflare answers 401/403, "Authentication
+# error"), or Zero Trust was never switched on (no organization). Tell them apart.
+org_out=$(curl -sS --retry 3 -w '\n%{http_code}' -H @"$HDR" "$CF_API/accounts/$ACCOUNT_ID/access/organizations") \
+  || die "network error calling Cloudflare (GET access/organizations)"
+org_code=${org_out##*$'\n'}; org_out=${org_out%$'\n'*}
+org=$(jq -r 'select(.success == true) | .result.auth_domain // empty' <<<"$org_out" 2>/dev/null || true)
 if [ -z "$org" ]; then
+  if [[ "$org_code" =~ ^(401|403)$ ]] || jq -e '[.errors[]? | select(.code == 10000 or .code == 9109 or (.message | test("auth|permission|unauthori"; "i")))] | length > 0' <<<"$org_out" >/dev/null 2>&1; then
+    die "the Cloudflare API token cannot read the Zero Trust organization (HTTP $org_code). Edit the token and add the permission 'Account → Access: Organizations, Identity Providers, and Groups → Edit' (INSTALL.md step 2 lists all six), then re-run."
+  fi
   die "Cloudflare Zero Trust is not switched on for this account yet. In the Cloudflare dashboard open 'Zero Trust', pick a team name and the Free plan (one-time, about 2 minutes), then re-run. INSTALL.md step 2 shows the clicks."
 fi
 log "Zero Trust team domain: $org"
@@ -309,6 +334,19 @@ if [ "$DRY_RUN" -eq 1 ]; then
 else
   upsert_policy "Allowed people" "$(jq -nc --argjson inc "$include" '{name:"Allowed people", decision:"allow", include:$inc, precedence:1}')"
   upsert_policy "Install verify robot" "$(jq -nc --arg t "$SVC_ID" '{name:"Install verify robot", decision:"non_identity", include:[{service_token:{token_id:$t}}], precedence:2}')"
+fi
+
+# One login (obj 720332): the app verifies Cloudflare's signed identity header
+# against this team's public keys and this app's AUD tag. Neither is secret.
+step "One login: let the app trust the Cloudflare sign-in"
+if [ "$DRY_RUN" -eq 1 ]; then
+  log "  [dry-run] would store OK_CF_ACCESS_TEAM=$org and the app's AUD tag in secrets/stack.env"
+else
+  APP_AUD=$(cf GET "/accounts/$ACCOUNT_ID/access/apps/$APP_ID" | jq -r '.result.aud // empty')
+  [ -n "$APP_AUD" ] || die "Cloudflare did not return the Access app's AUD tag — cannot switch on one login"
+  env_set "$OK_SECRETS_ENV" OK_CF_ACCESS_TEAM "$org"
+  env_set "$OK_SECRETS_ENV" OK_CF_ACCESS_AUD "$APP_AUD"
+  log "team $org + app AUD stored: people who pass Cloudflare Access skip the app's own sign-in"
 fi
 
 log "Cloudflare done: https://$DOMAIN is served through the tunnel and gated by Access ($idp_name)."

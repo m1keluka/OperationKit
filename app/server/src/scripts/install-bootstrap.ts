@@ -6,13 +6,17 @@
  * (so the setup password never lands on argv or in `ps`):
  *
  *   {"client_slug","client_name","admin_username","setup_password",
- *    "setup_hours"?: 72, "agents"?: ["general","coo"], "reset"?: false}
+ *    "setup_hours"?: 72, "agents"?: ["general","coo"], "reset"?: false,
+ *    "admin_email"?: "alex@client.com"}
  *
  * Effects (idempotent):
  *   - creates the client workspace if it does not exist
  *   - creates the admin user if it does not exist, with the one-time setup
  *     password, must_change_password=1 and an expiry; grants workspace admin.
  *     An existing admin is left alone unless `reset` is true (install/admin-password.sh).
+ *   - links the admin to `admin_email` (obj 720332): behind Cloudflare Access the
+ *     verified Access email signs that user in without the password page. Refused
+ *     (warning, not an error) if another user already holds the email.
  *   - sets the workspace's default agent pool to `agents` when given, and
  *     archives every other agent so the board only offers the enabled ones
  *   - archives every other workspace (the code base seeds sample workspaces on
@@ -34,10 +38,12 @@ export interface BootstrapInput {
   setup_hours?: number
   agents?: string[]
   reset?: boolean
+  admin_email?: string
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/
 const USERNAME = /^[a-z][a-z0-9._-]{1,31}$/
+const EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/
 
 export function validateBootstrapInput(raw: unknown): BootstrapInput {
   const v = (raw || {}) as Record<string, unknown>
@@ -50,11 +56,13 @@ export function validateBootstrapInput(raw: unknown): BootstrapInput {
     setup_hours: typeof v.setup_hours === 'number' ? v.setup_hours : 72,
     agents: Array.isArray(v.agents) ? v.agents.filter((a): a is string => typeof a === 'string') : undefined,
     reset: v.reset === true,
+    admin_email: str('admin_email').toLowerCase() || undefined,
   }
   if (!SLUG.test(input.client_slug)) throw new Error('client_slug invalid')
   if (!input.client_name) throw new Error('client_name required')
   if (!USERNAME.test(input.admin_username)) throw new Error('admin_username invalid')
   if (input.setup_password.length < 16) throw new Error('setup_password must be at least 16 characters')
+  if (input.admin_email && !EMAIL.test(input.admin_email)) throw new Error('admin_email invalid')
   if (!(input.setup_hours! > 0 && input.setup_hours! <= 24 * 30)) throw new Error('setup_hours out of range')
   return input
 }
@@ -96,6 +104,17 @@ export async function runBootstrap(input: BootstrapInput, log: (s: string) => vo
   } else {
     userId = existing.id
     log(`admin ${input.admin_username}: exists — password unchanged`)
+  }
+
+  if (input.admin_email) {
+    const holder = db.prepare('SELECT username FROM users WHERE lower(trim(email)) = ? AND id != ?')
+      .get(input.admin_email, userId) as { username: string } | undefined
+    if (holder) {
+      log(`admin ${input.admin_username}: NOT linked to ${input.admin_email} — user ${holder.username} already has that email`)
+    } else {
+      db.prepare('UPDATE users SET email = ? WHERE id = ?').run(input.admin_email, userId)
+      log(`admin ${input.admin_username}: linked to ${input.admin_email} (Cloudflare Access sign-in)`)
+    }
   }
 
   const others = db.prepare('UPDATE workspaces SET archived = 1 WHERE slug != ? AND archived = 0').run(input.client_slug)

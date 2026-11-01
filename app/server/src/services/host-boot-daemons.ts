@@ -33,14 +33,17 @@
  * Kill switch: HOST_BOOT_DAEMONS_ENABLED=false disables it entirely.
  */
 import { execFile } from 'child_process'
+import fs from 'fs'
 
-const RUN_ALL = '/home/operator/ai-workspace/host-boot.d/run-all.sh'
+const RUN_ALL = process.env.HOST_BOOT_RUN_ALL || '/home/operator/ai-workspace/host-boot.d/run-all.sh'
 const TICK_MS = Number(process.env.HOST_BOOT_TICK_MS ?? 5 * 60 * 1000)
 const EXEC_TIMEOUT_MS = 90_000
 
 let timer: ReturnType<typeof setInterval> | null = null
 
 function tick(invoker: string): void {
+  // The script can vanish (workspace moved); stay quiet rather than log a failure every tick.
+  if (!fs.existsSync(RUN_ALL)) return
   execFile(
     '/bin/bash',
     [RUN_ALL],
@@ -63,6 +66,13 @@ export function startHostBootDaemons(): void {
     return
   }
   if (timer) return
+  // A client install (obj 720210) has no host-boot.d at all — it is the
+  // operator's private layout. Say so once and never schedule the tick, instead
+  // of logging "run-all failed: No such file" every few minutes.
+  if (!fs.existsSync(RUN_ALL)) {
+    console.log(`[host-boot] ${RUN_ALL} not present — host-boot daemons off on this install`)
+    return
+  }
 
   console.log(`[host-boot] ensuring host-boot.d daemons at boot, re-checking every ${TICK_MS / 1000}s`)
   tick('boot')

@@ -23,6 +23,9 @@ services:
     build:
       context: ../app
       dockerfile: Dockerfile
+      args:
+        # The commit being installed (install.sh writes it to install.env).
+        GIT_SHA: ${OK_GIT_SHA:-unknown}
     image: operationkit-app:local
     # Server code and scripts address the app container by this name.
     container_name: command-center
@@ -48,6 +51,8 @@ services:
       TEST_CRED_ENCRYPTION_KEY: ${TEST_CRED_ENCRYPTION_KEY:?missing — run ./install.sh}
       CORS_ORIGINS: https://${OK_DOMAIN}
       OK_BRAND_NAME: ${OK_BRAND_NAME:-OperationKit}
+      # The operator's own background jobs; nothing to run on a client install.
+      HOST_BOOT_DAEMONS_ENABLED: "false"
       # Image-based install: no live checkout, so the drift guard has nothing to watch.
       DRIFT_GUARD: "off"
       # Per-session sandbox (app/server/src/services/session-jail.ts).
@@ -58,6 +63,11 @@ services:
       # the two is set by install/claude-login.sh; both empty = sessions queue.
       SESSION_JAIL_CLAUDE_OAUTH_TOKEN: ${SESSION_JAIL_CLAUDE_OAUTH_TOKEN:-}
       SESSION_JAIL_ANTHROPIC_API_KEY: ${SESSION_JAIL_ANTHROPIC_API_KEY:-}
+      # One login (obj 720332): set by install/cloudflare.sh. Both present = the app
+      # verifies Cloudflare Access's signed identity header and skips its own
+      # sign-in page. Empty (--skip-cloudflare) = password sign-in only.
+      OK_CF_ACCESS_TEAM: ${OK_CF_ACCESS_TEAM:-}
+      OK_CF_ACCESS_AUD: ${OK_CF_ACCESS_AUD:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     healthcheck:

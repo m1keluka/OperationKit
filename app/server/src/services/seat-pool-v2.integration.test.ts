@@ -45,7 +45,7 @@ vi.mock('child_process', async (orig) => {
       child.stdout = new EventEmitter()
       child.stderr = new EventEmitter()
       child.kill = () => {}
-      setTimeout(() => { child.stdout.emit('data', Buffer.from('ok')); child.emit('close', 0) }, 5)
+      setTimeout(() => { child.stdout.emit('data', Buffer.from('CLAUDE-OK')); child.emit('close', 0) }, 5)
       return child
     },
   }

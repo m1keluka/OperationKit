@@ -36,7 +36,7 @@ Routines on a cron. Each fire is a board card. Lanes: running, needs review, com
 
 ## Knowledge base
 
-Your business's shared memory: plain markdown files on your own server that you and every agent read and edit. Open it from **Knowledge base** in the top bar (`/knowledge`; old `/docs` links still work). Pick a folder under **Source**, then a page to read or edit it. Agents reach the same files over the API and MCP (`GET /api/docs/search`, `GET/PUT /api/docs/file`), so what you write here is what they know. Product docs for OperationKit live in this repo at `docs/product/`. Linked repos keep the same folder (see [Living docs](./LIVING.md)).
+Your business's shared memory: plain markdown files on your own server that you and every agent read and edit. Open it from **Knowledge base** in the top bar (`/knowledge`; old `/docs` links still work). There is one knowledge base and one page list: each workspace is a folder in it, and imports (files, chat exports, call transcripts) land in the workspace's folder. Pick a page to read or edit it. Agent instructions and skills are on **Agents**, code repos on **Development**; they are not part of the knowledge base. Agents reach the same files over the API and MCP (`GET /api/docs/search`, `GET/PUT /api/docs/file`), so what you write here is what they know. Product docs for OperationKit live in this repo at `docs/product/`. Linked repos keep the same folder (see [Living docs](./LIVING.md)).
 
 ## Dashboard
 
