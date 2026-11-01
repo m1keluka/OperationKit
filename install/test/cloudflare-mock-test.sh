@@ -21,9 +21,12 @@ check "tunnel routes the domain to the app" "$(st '.result.configs[]|.ingress[0]
 check "proxied CNAME to the tunnel" "$(st '.result.dns[0]|(.type+" "+(.proxied|tostring)+" "+(.content|endswith(".cfargotunnel.com")|tostring))')" '"CNAME true true"'
 check "one Access app on the domain" "$(st '[.result.apps[]|.domain]')" '["ops.example-capital.com"]'
 check "one-time PIN login method" "$(st '[.result.idps[].type]')" '["onetimepin"]'
+check "app admits only the one-time PIN, auto-redirect, 24h session" "$(st '.result.apps[0]|[(.allowed_idps|length), .auto_redirect_to_identity, .session_duration]')" '[1,true,"24h"]'
 check "allowed-people policy" "$(st '[.result.policies[][]|select(.name=="Allowed people")|.include[0].email.email]')" '["alex.partner@example-capital.com"]'
 check "verify robot policy" "$(st '[.result.policies[][]|select(.name=="Install verify robot")|.decision]')" '["non_identity"]'
-check "secrets stored by name" "$(cut -d= -f1 "$WORK/ok/secrets/stack.env" | sort | tr '\n' ' ')" "OK_VERIFY_CF_CLIENT_ID OK_VERIFY_CF_CLIENT_SECRET TUNNEL_TOKEN "
+check "secrets stored by name" "$(cut -d= -f1 "$WORK/ok/secrets/stack.env" | sort | tr '\n' ' ')" "OK_CF_ACCESS_AUD OK_CF_ACCESS_TEAM OK_VERIFY_CF_CLIENT_ID OK_VERIFY_CF_CLIENT_SECRET TUNNEL_TOKEN "
+check "one login: team domain stored" "$(grep '^OK_CF_ACCESS_TEAM=' "$WORK/ok/secrets/stack.env" | cut -d= -f2)" example-capital.cloudflareaccess.com
+check "one login: the app's AUD tag stored" "$(grep '^OK_CF_ACCESS_AUD=' "$WORK/ok/secrets/stack.env" | cut -d= -f2)" "$(st '.result.apps[0].aud' | tr -d '"')"
 check "stack.env is mode 600" "$(stat -c %a "$WORK/ok/secrets/stack.env")" 600
 check "no secret value printed" "$(bash "$CF" status --config "$WORK/client.conf" | grep -c 'mock-svc-secret\|mock-tunnel-token\|mock-token' || true)" 0
 
@@ -33,6 +36,7 @@ check "still one dns record" "$(st '.result.dns|length')" 1
 check "still one app" "$(st '.result.apps|length')" 1
 check "still two policies" "$(st '[.result.policies[][]]|length')" 2
 check "still one service token" "$(st '.result.svc|length')" 1
+check "AUD unchanged on re-run" "$(grep '^OK_CF_ACCESS_AUD=' "$WORK/ok/secrets/stack.env" | cut -d= -f2)" "$(st '.result.apps[0].aud' | tr -d '"')"
 
 echo "== agent-pass add (an outside AI tool gets its own door key)"
 bash "$CF" agent-pass add claude-code --config "$WORK/client.conf" > "$WORK/out"; sed 's/^/    /' "$WORK/out"
@@ -69,6 +73,7 @@ check "app deleted" "$(st '.result.apps|length')" 0
 check "service tokens deleted (verify + agent passes)" "$(st '.result.svc|length')" 0
 check "agent pass header file deleted" "$(test -e "$WORK/ok/secrets/agent-pass-claude-code.env" && echo present || echo gone)" gone
 check "login method kept (shared)" "$(st '.result.idps|length')" 1
+check "one login switched off after down" "$(grep -c '^OK_CF_ACCESS_AUD=.\+' "$WORK/ok/secrets/stack.env" || true)" 0
 
 echo "== zero trust not enabled -> plain-language stop"
 kill $MOCK; wait $MOCK 2>/dev/null || true
@@ -76,5 +81,13 @@ MOCK_NO_ORG=1 PORT=$PORT node "$HERE/cloudflare-mock.mjs" > "$WORK/mock.log" 2>&
 for _ in $(seq 50); do curl -fs "http://127.0.0.1:$PORT/__state" >/dev/null 2>&1 && break; sleep 0.1; done
 bash "$CF" up --config "$WORK/client.conf" > "$WORK/out" 2>&1 || true
 check "tells the person to switch on Zero Trust" "$(grep -c 'Zero Trust is not switched on' "$WORK/out")" 1
+
+echo "== token without the Access Organizations permission -> names the missing permission"
+kill $MOCK; wait $MOCK 2>/dev/null || true
+MOCK_NO_ORG_SCOPE=1 PORT=$PORT node "$HERE/cloudflare-mock.mjs" > "$WORK/mock.log" 2>&1 & MOCK=$!
+for _ in $(seq 50); do curl -fs "http://127.0.0.1:$PORT/__state" >/dev/null 2>&1 && break; sleep 0.1; done
+bash "$CF" up --config "$WORK/client.conf" > "$WORK/out" 2>&1 || true
+check "names the missing Organizations permission" "$(grep -c 'Access: Organizations, Identity Providers, and Groups' "$WORK/out")" 1
+check "does not blame Zero Trust" "$(grep -c 'Zero Trust is not switched on' "$WORK/out" || true)" 0
 
 echo; [ "$fails" -eq 0 ] && echo "cloudflare mock test: ALL PASS" || { echo "cloudflare mock test: $fails FAIL"; exit 1; }

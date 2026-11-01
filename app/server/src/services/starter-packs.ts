@@ -5,7 +5,7 @@ import { getDb } from '../db/index.js'
 import { AGENTS_DIR } from '../config.js'
 import { createAgent, getAgent, updateAgent } from './agent-registry.js'
 import type { AgentKind } from '@operationkit/shared'
-import { getWorkspace, updateWorkspace } from './workspaces.js'
+import { getWorkspace, invalidateWorkspacesCache, updateWorkspace } from './workspaces.js'
 import { getInternalApiSecret } from '../middleware/internal-secret.js'
 
 /**
@@ -233,7 +233,11 @@ async function callSetup(p: StarterPack, which: 'path' | 'disable_path', opts: E
 export async function enablePack(id: string, opts: EnableOptions): Promise<EnableResult> {
   const p = getPack(id)
   if (!p) throw new PackError(`no starter pack named "${id}"`, 404)
-  const ws = getWorkspace(opts.workspace)
+  // The workspace may have been written by another process (install-bootstrap.ts
+  // runs from a separate `docker exec`), so a cache miss re-reads the table once
+  // before giving up (obj 720210).
+  let ws = getWorkspace(opts.workspace)
+  if (!ws) { invalidateWorkspacesCache(); ws = getWorkspace(opts.workspace) }
   if (!ws) throw new PackError(`no workspace named "${opts.workspace}"`, 404)
   const m = p.manifest
   const steps: string[] = []

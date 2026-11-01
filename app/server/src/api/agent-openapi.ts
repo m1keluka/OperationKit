@@ -1080,7 +1080,7 @@ export const AGENT_OPENAPI = {
     '/api/docs/search': {
       get: {
         tags: ['vault'],
-        summary: 'Search the second-brain vault',
+        summary: 'Search the knowledge base',
         parameters: [
           { name: 'q', in: 'query', required: true, schema: { type: 'string' } },
           { name: 'workspace', in: 'query', schema: { type: 'string' } },
@@ -1092,9 +1092,9 @@ export const AGENT_OPENAPI = {
     '/api/docs/file': {
       get: {
         tags: ['vault'],
-        summary: 'Read a markdown file from the vault',
+        summary: 'Read a markdown page from the knowledge base',
         parameters: [
-          { name: 'path', in: 'query', required: true, schema: { type: 'string' }, description: 'Absolute path under /home/operator/second-brain' },
+          { name: 'path', in: 'query', required: true, schema: { type: 'string' }, description: 'Absolute path of a page inside the knowledge base (see GET /api/docs/tree)' },
         ],
         responses: { '200': { description: '{ path, content, writable }' } },
       },

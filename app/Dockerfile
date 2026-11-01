@@ -103,6 +103,10 @@ EXPOSE 3002
 
 ENV NODE_ENV=production
 ENV PORT=3002
+# Which commit this image was built from (obj 720210): shown by /api/health and
+# the Settings footer. install.sh passes it; last so it never busts the cache above.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
 ENV DB_PATH=/app/data/command-center.db
 
 CMD ["tsx", "server/src/index.ts"]

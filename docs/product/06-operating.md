@@ -7,12 +7,13 @@ A client install is made by `install.sh` ([INSTALL.md](../../INSTALL.md)). The c
 
 | Task | How |
 | --- | --- |
-| **Update to a newer version** | `cd /opt/operationkit-src && git pull`, then `./install.sh --config client.conf`. No secrets file is needed: existing secrets are kept, images are rebuilt and the app restarts. Do it when no cards are running. |
+| **Update to a newer version** | `sudo bash install/update.sh --config client.conf` (or `--ref <tag or commit>`). It backs up the database, seat logins and secrets first, keeps the old image for rollback, checks out the new code, re-runs `install.sh`, and prints the rollback steps. Do it when no cards are running. [INSTALL.md, Updating](../../INSTALL.md#updating). |
+| **Which version is running** | Settings → bottom of the page (**Build**), or `curl -s http://127.0.0.1:3002/api/health` on the server (`commit`). |
 | **Check it is healthy** | `bash install/verify.sh --config client.conf`. Every line should say PASS. |
 | **Change a setting** (name, allowed emails, agents, time zone) | Edit `client.conf`, re-run `./install.sh --config client.conf`. |
 | **New one-time admin password** | `bash install/admin-password.sh --config client.conf` |
-| **Reconnect Claude** (expired or changed account) | The person runs `claude setup-token` in their own terminal, then `install/claude-login.sh` (INSTALL.md step 7). |
-| **Back up** | Copy `/opt/operationkit/` off the server (database, knowledge base, secrets). Keep it somewhere private: it includes the secrets folder. |
+| **Reconnect Claude** (expired or changed account) | Settings → Seats → **Reconnect** on the seat (or **Add Claude seat**) → Sign in with Claude, paste the code. No terminal. The server-token path is `install/claude-login.sh` (INSTALL.md step 7), which uses the same link + code. |
+| **Back up** | Automatic: every night into `/opt/operationkit/backups`, and encrypted to a bucket when `BACKUP_TARGET` is set. By hand: `sudo bash install/backup.sh run --config client.conf`. Restore: `install/backup.sh restore <folder> … --yes`. [INSTALL.md, Backups and restore](../../INSTALL.md#backups-and-restore). |
 | **Add a secret** (an API key for a connector or agent) | Settings → Secrets in the app. Values are write-only. |
 | **Remove everything** | `bash install/uninstall.sh --config client.conf --yes` |
 

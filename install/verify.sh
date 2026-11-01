@@ -15,7 +15,10 @@
 #   6. password sign-in works (a throw-away `ok-verify` admin, removed after)
 #   7. the first admin is still forced to choose a new password (until they do)
 #   8. a test card runs end to end: created, started, the AI worker answers,
-#      and it ran inside its own sandbox container with only 2 folders mounted
+#      and it ran inside its own sandbox container with only 2 folders mounted.
+#      First it asks the app whether ANY Claude seat can run a sandboxed
+#      session; if none can (e.g. only an old CLI-login seat, which the sandbox
+#      refuses) it fails at once with the fix instead of waiting --card-timeout.
 # --local-only skips 4-5 (installs made with --skip-cloudflare). --skip-card
 # skips 8 (before Claude is connected). Secrets are read from files, sent in
 # header files, and never printed.
@@ -39,7 +42,10 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$CONFIG" ] || die "--config <file> is required"
+[ "$LOCAL_ONLY" -eq 0 ] || export OK_LOCAL_ONLY=1
 conf_load "$CONFIG"; conf_validate; ok_paths
+# An install made with --skip-cloudflare has no Cloudflare side to check.
+if [ "$LOCAL_ONLY" -eq 0 ] && local_mode; then LOCAL_ONLY=1; fi
 require_root
 DOMAIN=$(conf DOMAIN); SLUG=$(conf CLIENT_SLUG)
 LOCAL=http://127.0.0.1:3002
@@ -72,7 +78,7 @@ api() { # METHOD PATH [JSON] — body to stdout, HTTP code to $TMPD/code
 }
 code() { cat "$TMPD/code"; }
 
-step "Verifying https://$DOMAIN ($([ "$LOCAL_ONLY" -eq 1 ] && echo 'local only' || echo 'through Cloudflare'))"
+step "Verifying $([ "$LOCAL_ONLY" -eq 1 ] && echo "$SLUG (local only)" || echo "https://$DOMAIN (through Cloudflare)")"
 
 # 1. containers
 [ "$(docker inspect -f '{{.State.Running}}' command-center 2>/dev/null)" = true ] && pass "app container running" || fail "app container not running"
@@ -102,6 +108,12 @@ if [ "$LOCAL_ONLY" -eq 0 ]; then
   else fail "https://$DOMAIN did not show the Cloudflare sign-in (got $stranger)"; fi
   api GET /api/health >/dev/null
   [ "$(code)" = 200 ] && pass "site loads through the tunnel (robot pass)" || fail "through the tunnel: /api/health -> $(code)"
+  # One login (obj 720332): the robot's Cloudflare token is real and signed but
+  # carries no email. "no_email" therefore proves the app fetched the team's
+  # keys and checked signature, AUD and issuer — without signing anyone in.
+  reason=$(api POST /api/auth/cloudflare-access | jq -r '.reason // .code // empty' 2>/dev/null || true)
+  if [ "$reason" = no_email ]; then pass "one login on: app verifies Cloudflare's signed identity (team keys + AUD)"
+  else fail "one login: expected the app to verify the Cloudflare token (reason no_email), got '${reason:-HTTP $(code)}' — check OK_CF_ACCESS_TEAM/AUD in secrets/stack.env and restart the app"; fi
 fi
 brand=$(api GET /api/branding | jq -r '.name // empty' 2>/dev/null || true)
 [ "$brand" = "$(conf BRAND_NAME OperationKit)" ] && pass "brand name shown: $brand" || fail "brand name is '$brand', expected '$(conf BRAND_NAME OperationKit)'"
@@ -136,6 +148,11 @@ if [ "$SKIP_CARD" -eq 1 ]; then
   log "  SKIP  test card (Claude not connected yet — run install/claude-login.sh, then re-run verify)"
 elif [ -z "${AUTH_HDR-}" ]; then
   fail "test card skipped: not signed in"
+elif ! seats=$(app_internal GET /api/internal/install/seat-status 2>/dev/null); then
+  fail "test card skipped: could not ask the app for its Claude seats (docker logs command-center)"
+elif [ "$(jq -r '.claude.usable' <<<"$seats")" != true ]; then
+  # Without this the card would sit in the queue for the whole --card-timeout.
+  fail "test card skipped: no Claude seat can run a sandboxed session ($(jq -r '.claude.seats' <<<"$seats") seat(s) configured). Connect Claude: sudo bash $OK_LIB_DIR/claude-login.sh --config $CONFIG — or Settings → Seats → Add Claude seat. A seat added by signing in to the Claude CLI on the server does not work inside the sandbox."
 else
   marker="OK-INSTALL-CHECK-$(date +%s)"
   card=$(jq -nc --arg w "$SLUG" --arg m "$marker" '{title:"Install check: say hello", workspace:$w, start:true, skip_ai_review:true,

@@ -19,14 +19,31 @@ interface UserRow {
   id: number
   username: string
   role: UserRole
+  email: string | null
   created_at: string
+}
+
+const EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/
+
+/**
+ * Normalise a sign-in email (obj 720332). Behind Cloudflare Access the verified
+ * Access email picks the user, so it must be unique (case-insensitive).
+ * Returns { email } (null = clear) or { error }.
+ */
+function parseEmail(raw: unknown, selfId: number | null): { email: string | null } | { error: string; status: number } {
+  if (raw === null || raw === '') return { email: null }
+  if (typeof raw !== 'string' || !EMAIL.test(raw.trim())) return { error: 'email must look like name@example.com', status: 400 }
+  const email = raw.trim().toLowerCase()
+  const holder = getDb().prepare('SELECT id FROM users WHERE lower(trim(email)) = ? AND id != ?').get(email, selfId ?? -1)
+  if (holder) return { error: 'Another user already has that email', status: 409 }
+  return { email }
 }
 
 // GET /api/admin/users — list every user with their workspace memberships
 router.get('/', (_req: AuthRequest, res) => {
   const db = getDb()
   const users = db
-    .prepare('SELECT id, username, role, created_at FROM users ORDER BY username')
+    .prepare('SELECT id, username, role, email, created_at FROM users ORDER BY username')
     .all() as UserRow[]
 
   const memberships = db
@@ -66,9 +83,9 @@ router.get('/', (_req: AuthRequest, res) => {
   )
 })
 
-// POST /api/admin/users  body: { username, password, role? }
+// POST /api/admin/users  body: { username, password, role?, email? }
 router.post('/', async (req: AuthRequest, res) => {
-  const { username, password, role = 'member' } = req.body as CreateUserRequest
+  const { username, password, role = 'member', email: rawEmail } = req.body as CreateUserRequest
 
   if (!username?.trim() || typeof password !== 'string' || password.length < 8) {
     res.status(400).json({ error: 'username and password (min 8 chars) required' })
@@ -86,13 +103,19 @@ router.post('/', async (req: AuthRequest, res) => {
     return
   }
 
+  const parsed = rawEmail === undefined ? { email: null } : parseEmail(rawEmail, null)
+  if ('error' in parsed) {
+    res.status(parsed.status).json({ error: parsed.error })
+    return
+  }
+
   const hash = await bcrypt.hash(password, BCRYPT_ROUNDS)
   const result = db
-    .prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
-    .run(username.trim(), hash, role)
+    .prepare('INSERT INTO users (username, password_hash, role, email) VALUES (?, ?, ?, ?)')
+    .run(username.trim(), hash, role, parsed.email)
 
   const user = db
-    .prepare('SELECT id, username, role, created_at FROM users WHERE id = ?')
+    .prepare('SELECT id, username, role, email, created_at FROM users WHERE id = ?')
     .get(result.lastInsertRowid) as User
 
   res.status(201).json(user)
@@ -146,7 +169,7 @@ router.delete('/:id', (req: AuthRequest, res) => {
   res.json({ ok: true })
 })
 
-// PATCH /api/admin/users/:id  body: { role? }
+// PATCH /api/admin/users/:id  body: { role?, email? }  (email null/'' clears it)
 router.patch('/:id', (req: AuthRequest, res) => {
   const idParam = req.params.id
   const userId = parseInt(typeof idParam === 'string' ? idParam : '', 10)
@@ -154,19 +177,33 @@ router.patch('/:id', (req: AuthRequest, res) => {
     res.status(400).json({ error: 'Invalid user_id' })
     return
   }
-  const { role } = req.body as { role?: UserRole }
-  if (role !== 'admin' && role !== 'member') {
+  const body = (req.body || {}) as { role?: UserRole; email?: string | null }
+  const { role } = body
+  const hasEmail = Object.prototype.hasOwnProperty.call(body, 'email')
+  if (role === undefined && !hasEmail) {
+    res.status(400).json({ error: 'Nothing to change: send role and/or email' })
+    return
+  }
+  if (role !== undefined && role !== 'admin' && role !== 'member') {
     res.status(400).json({ error: "role must be 'admin' or 'member'" })
     return
   }
   const db = getDb()
-  const result = db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId)
-  if (result.changes === 0) {
+  if (!db.prepare('SELECT id FROM users WHERE id = ?').get(userId)) {
     res.status(404).json({ error: 'User not found' })
     return
   }
+  if (hasEmail) {
+    const parsed = parseEmail(body.email, userId)
+    if ('error' in parsed) {
+      res.status(parsed.status).json({ error: parsed.error })
+      return
+    }
+    db.prepare('UPDATE users SET email = ? WHERE id = ?').run(parsed.email, userId)
+  }
+  if (role !== undefined) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId)
   const user = db
-    .prepare('SELECT id, username, role, created_at FROM users WHERE id = ?')
+    .prepare('SELECT id, username, role, email, created_at FROM users WHERE id = ?')
     .get(userId) as User
   res.json(user)
 })

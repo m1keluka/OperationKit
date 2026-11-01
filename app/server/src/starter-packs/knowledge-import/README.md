@@ -66,9 +66,13 @@ Running it again is safe. To switch it off, run `scripts/starter-pack.sh disable
 
 ### Where the knowledge base lives
 
+There is one knowledge base per install. The Knowledge base page, search, agents' MCP tools and every import use the same folder: the vault (`SECOND_BRAIN_DIR`) when the install has one, otherwise `/app/data/knowledge-base`. Each workspace is a folder inside it:
+
 1. If the workspace has a knowledge-base folder set in Settings → Org, that folder is used.
 2. If not, `<SECOND_BRAIN_DIR>/workspaces/<workspace>` is used, when that folder exists.
 3. Otherwise `/app/data/knowledge-base/<workspace>` is used. On a standard install that is `data/knowledge-base/<workspace>` in the install folder, and it is included in backups of `data/`.
+
+A workspace folder set outside the knowledge base (step 1) still shows in the same page list, as its own top-level folder.
 
 ### Settings (optional)
 

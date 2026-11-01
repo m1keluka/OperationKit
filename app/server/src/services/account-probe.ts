@@ -38,6 +38,9 @@ export const PROBE_STRIPPED_ENV = [
 
 const PROBE_TIMEOUT_MS = 45_000
 
+/** The reply a live seat must give — the same check install/claude-login.sh runs. */
+export const PROBE_REPLY = 'CLAUDE-OK'
+
 /** Pure: the spawn env for a probe — the server env minus every non-subscription credential. */
 export function buildProbeEnv(base: NodeJS.ProcessEnv, seatEnv?: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base, TERM: 'dumb' }
@@ -58,7 +61,7 @@ export function buildProbeScript(homeDir: string, keepSeatToken = false): string
   return (
     `unset ${unset.join(' ')}; ` +
     `export HOME=${JSON.stringify(homeDir)} TERM=dumb; ` +
-    `exec claude -p 'Reply with the single word: ok' --model haiku --tools '' --strict-mcp-config ` +
+    `exec claude -p 'Reply with exactly: ${PROBE_REPLY}' --model haiku --tools '' --strict-mcp-config ` +
     `--disable-slash-commands --no-session-persistence --max-turns 1`
   )
 }
@@ -67,8 +70,9 @@ export function buildProbeScript(homeDir: string, keepSeatToken = false): string
 export function classifyProbe(code: number | null, output: string): ProbeResult {
   const rateLimited = isRateLimitMessage(output)
   const authFailure = isAuthFailureMessage(output)
-  // Serving iff a clean exit that isn't secretly a rate-limit/auth message.
-  const ok = code === 0 && !rateLimited && !authFailure
+  // Serving iff a clean exit that actually answered CLAUDE-OK and isn't secretly
+  // a rate-limit/auth message. A clean exit without the reply is inconclusive.
+  const ok = code === 0 && !rateLimited && !authFailure && output.includes(PROBE_REPLY)
   return { ok, rateLimited, authFailure, output }
 }
 

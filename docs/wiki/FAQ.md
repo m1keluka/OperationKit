@@ -21,6 +21,9 @@ No. It pools multiple subscriptions you hold (several Claude seats, for example)
 **What happens to my knowledge base / skills / agents if I change which model I'm using?**
 Nothing — that's the point. They're plain files on your server, not stored inside a model provider's product. See [Why Own Your AI Infrastructure](./Why-Own-Your-AI-Infrastructure).
 
+**Do people have to sign in twice on a client install?**
+No. Behind Cloudflare Access the app verifies Cloudflare's signed identity token and signs the person in as the Operation Kit user with that email — one login. An allowed email with no Operation Kit user sees a "No account for this email" page (never an auto-created account). Admins link emails in Settings → Users; the username + password sign-in stays as break-glass. See [Self-Hosting Quickstart](./Self-Hosting-Quickstart).
+
 **Where do I report a bug or ask something not covered here?**
 Open an issue on [github.com/m1keluka/OperationKit](https://github.com/m1keluka/OperationKit).
 

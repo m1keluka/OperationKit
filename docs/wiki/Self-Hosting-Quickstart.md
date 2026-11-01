@@ -34,6 +34,24 @@ OperationKit runs via Docker Compose on a server you control — a VPS, a home b
 5. **Create your first workspace** (Settings → Org, admin) and invite the people who should see it.
 6. **Point a card at a model.** Claude, Codex, and Grok work out of the box once their keys are set; Gemini and local-Ollama routes go through the LiteLLM sidecar — see [Model Portability](./Model-Portability) for exactly which model groups route where today.
 
+## Client installs: one login through Cloudflare Access
+
+A client install (`./install.sh --config client.conf`, see `INSTALL.md`) puts the site behind
+Cloudflare Access. People sign in **once**, at the Cloudflare door:
+
+- Cloudflare adds a signed token (`Cf-Access-Jwt-Assertion`) to every request. The app verifies
+  it against the team's public keys (`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`,
+  cached, refreshed on rotation) and checks the Access app's AUD tag, the issuer and the expiry.
+  Only a verified token is trusted.
+- The verified email signs in the Operation Kit user with that **Sign-in email** (Settings →
+  Users). The installer links the first admin to `ADMIN_EMAIL`. An email with no user gets a "No
+  account for this email" page; no account is ever created automatically.
+- `install/cloudflare.sh` turns it on by writing `OK_CF_ACCESS_TEAM` and `OK_CF_ACCESS_AUD` to
+  `secrets/stack.env`. Without both (local or SSH-tunnel installs, `--skip-cloudflare`) the app
+  keeps its own username + password sign-in.
+- Username + password stays as a break-glass path, and API / agent keys are unchanged. Sign out
+  also ends the Cloudflare session (`/cdn-cgi/access/logout`).
+
 ## Keeping it running
 
 - A code change rebuilds in place most of the time — no container rebuild needed for TS/TSX/CSS/markdown changes. A Dockerfile, package.json, or compose change does need a rebuild, and that one does take all active sessions down.

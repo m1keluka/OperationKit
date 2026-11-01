@@ -33,6 +33,7 @@ const {
   DEV_FEEDBACK_INSTANCES,
   EXAMPLE2_INSTANCE,
   WEIGHT_SUPPLY_INSTANCE,
+  instanceConfigured,
 } = await import('./dev-feedback-bridge.js')
 
 beforeAll(() => {
@@ -610,7 +611,9 @@ describe('runDevFeedbackBridge — cross-instance isolation', () => {
       const res = await runDevFeedbackBridge({ ...EXAMPLE2_ENV, ...WS_ENV })
       expect(res.ok).toBe(true)
       const rows = getDb().prepare(`SELECT id, dev_feedback_source, workspace FROM objectives WHERE dev_feedback_uuid = ? ORDER BY dev_feedback_source`).all(shared) as any[]
-      expect(rows.map((r) => [r.dev_feedback_source, r.workspace])).toEqual([['example2', 'example2'], ['example-project', 'example-project']])
+      // Order-independent: the OSS publish transform renames these slugs, which flips ORDER BY.
+      expect(rows.map((r) => [r.dev_feedback_source, r.workspace])).toHaveLength(2)
+      expect(rows.map((r) => [r.dev_feedback_source, r.workspace])).toEqual(expect.arrayContaining([['example2', 'example2'], ['example-project', 'example-project']]))
       // Platforms now have cc_objective_id → nothing pending. Move both to review;
       // a second run must push each only to its own platform.
       for (const k of Object.keys(pending)) pending[k] = []
@@ -635,7 +638,7 @@ describe('runDevFeedbackBridge — cross-instance isolation', () => {
 })
 
 describe('runDevFeedbackBridge — skip / filter / error isolation', () => {
-  it('example-project with no secret is cleanly skipped with a log naming the env; example2 still runs', async () => {
+  it('example-project with no env at all is skipped quietly (summary still names the env); example2 still runs', async () => {
     const { fn, calls } = makeMultiFetch({ 'https://app.example2.ai': [] })
     vi.stubGlobal('fetch', fn)
     const logSpy = vi.spyOn(console, 'log')
@@ -646,7 +649,8 @@ describe('runDevFeedbackBridge — skip / filter / error isolation', () => {
       expect(ws.status).toBe('skipped')
       expect(ws.missingEnv).toEqual(['WS_DEV_FEEDBACK_BASE_URL', 'WS_DEV_FEEDBACK_INTERNAL_SECRET'])
       expect(ws.summary).toContain('MISSING required env vars: WS_DEV_FEEDBACK_BASE_URL, WS_DEV_FEEDBACK_INTERNAL_SECRET')
-      expect(logSpy.mock.calls.some((c) => String(c[0]).includes('WS_DEV_FEEDBACK_INTERNAL_SECRET'))).toBe(true)
+      // Not configured at all = not in use on this install: no per-tick log line (obj 720210).
+      expect(logSpy.mock.calls.some((c) => String(c[0]).includes('WS_DEV_FEEDBACK_INTERNAL_SECRET'))).toBe(false)
       expect(res.instances.find((i) => i.workspace === 'example2')!.status).toBe('ran')
       expect(calls.some((c) => c.url.startsWith(WS_BASE))).toBe(false)
     } finally {
@@ -686,5 +690,31 @@ describe('runDevFeedbackBridge — skip / filter / error isolation', () => {
     const out = await runDevFeedbackBridgeOnce({})
     expect(out).toContain('[dev-feedback-bridge:example2] MISSING required env vars: EXAMPLE2_PLATFORM_BASE_URL, EXAMPLE2_INTERNAL_API_SECRET')
     expect(out).toContain('[dev-feedback-bridge:example-project] MISSING required env vars: WS_DEV_FEEDBACK_BASE_URL, WS_DEV_FEEDBACK_INTERNAL_SECRET')
+  })
+})
+
+describe('client installs stay quiet (obj 720210)', () => {
+  it('an instance with none of its env set is skipped without a log line', async () => {
+    expect(instanceConfigured(EXAMPLE2_INSTANCE, {})).toBe(false)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const res = await runDevFeedbackBridge({})
+      expect(res.instances.every((i) => i.status === 'skipped')).toBe(true)
+      expect(log.mock.calls.flat().join('\n')).not.toContain('MISSING')
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it('a half-configured instance still logs what is missing', async () => {
+    const env = { EXAMPLE2_PLATFORM_BASE_URL: 'https://example.invalid' }
+    expect(instanceConfigured(EXAMPLE2_INSTANCE, env)).toBe(true)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      await runDevFeedbackBridge(env, { workspace: 'example2' })
+      expect(log.mock.calls.flat().join('\n')).toContain('MISSING required env vars: EXAMPLE2_INTERNAL_API_SECRET')
+    } finally {
+      log.mockRestore()
+    }
   })
 })

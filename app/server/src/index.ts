@@ -35,6 +35,8 @@ import internalVaultRouter from './routes/internal-vault.js'
 import alertsRouter from './routes/alerts.js'
 import internalRoutinesRouter from './routes/internal-routines.js'
 import starterPacksRouter, { internalStarterPacksRouter } from './routes/starter-packs.js'
+import internalInstallRouter from './routes/internal-install.js'
+import { buildCommit } from './lib/build-info.js'
 import kbIngestRouter, { internalKbIngestRouter } from './routes/kb-ingest.js'
 import { resumeAfterRestart as resumeDocIngest } from './services/doc-ingest/service.js'
 import kbWikiRouter, { internalKbWikiRouter, resumeKbWiki } from './routes/kb-wiki.js'
@@ -211,6 +213,7 @@ app.use('/api/internal', internalRouter)  // /api/internal/deploy, /restart, /ob
 app.use('/api/internal', internalVaultRouter)  // /api/internal/vault/*, /contactbook/history — telegram-contactbook sibling (localhost)
 app.use('/api/alerts', alertsRouter)  // ingest (bearer) + list/ack (JWT) — AlertBell + notify-failure.sh
 app.use('/api/internal/routines', internalRoutinesRouter)  // routines CRUD + run-now (localhost-only)
+app.use('/api/internal/install', internalInstallRouter)  // installer: reload caches after bootstrap, seat status for verify.sh (localhost + secret; obj 720210)
 app.use('/api/internal/starter-packs', internalStarterPacksRouter)  // starter-pack switch-on for scripts/starter-pack.sh (localhost + secret; obj 719936)
 app.use('/api/internal/kb-ingest', internalKbIngestRouter)  // document-library pack setup hook (localhost + secret; obj 719936)
 app.use('/api/starter-packs', starterPacksRouter)  // admin: list / enable / disable starter packs (obj 719936)
@@ -275,7 +278,7 @@ app.use('/api/branding', brandingRouter)
 
 // Health check
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), commit: buildCommit() })
 })
 
 // Agent discovery + OpenAPI (no auth — the spec is not secret; board data is).

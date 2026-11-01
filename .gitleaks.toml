@@ -40,6 +40,15 @@
 #   'Authorization: Bearer mock-token' to its local mock Cloudflare API and trips
 #   `curl-auth-header`. Same treatment: the exact literal only.
 #
+#   Fifth wave (obj 720345, surfaced by the OSS Sync runs for #611/#612):
+#   install/claude-oauth.sh (added by #611) sets
+#   CLAUDE_OAUTH_CLIENT_ID=9d1c250a-e61b-44d9-88ed-5944d1962f5e and trips
+#   `generic-api-key`. That UUID is NOT a credential: it is the PUBLIC OAuth client
+#   id of Claude Code (a PKCE public client — no client secret exists), shipped
+#   inside every copy of the `claude` CLI, and the installer must send it verbatim
+#   or the sign-in link does not work. Same treatment: the exact literal only, so
+#   any other UUID-shaped value next to a key-ish name still trips the gate.
+#
 #   Why not scope these by path too: the pinned gitleaks (8.21.2) treats a global
 #   [allowlist]'s `paths` and `regexes` as OR — adding a path list would allow
 #   EVERY finding in those files, which is broader, not narrower. ([[allowlists]]
@@ -63,6 +72,8 @@ regexes = [
   '''apify_api_Zx81kQ2mNv7Lp0Rt5Ws3''',
   # install/test/cloudflare-mock-test.sh — bearer for the local mock Cloudflare API.
   '''Bearer mock-token''',
+  # install/claude-oauth.sh — Claude Code's PUBLIC OAuth client id (not a secret).
+  '''9d1c250a-e61b-44d9-88ed-5944d1962f5e''',
   # admin-workspaces-integrations.test.ts / user-github-tokens.test.ts — fake PATs.
   # Real GitHub PATs are 36+ chars after the prefix; these are short by construction.
   '''ghp_valid_secret_[0-9]+''',

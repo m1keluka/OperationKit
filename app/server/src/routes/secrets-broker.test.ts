@@ -119,7 +119,8 @@ describe('GET /list', () => {
     const raw = await res.text()
     noValues(raw)
     const body = JSON.parse(raw) as { secrets: Array<Record<string, unknown>> }
-    expect(body.secrets.map(s => s.name).sort()).toEqual(['EXAMPLE_API_KEY', 'EXAMPLE2_API_KEY', 'NO_POLICY_KEY', 'SUPABASE_SERVICE_ROLE'])
+    // Both sides sorted: the OSS publish transform renames these literals, which reorders them.
+    expect(body.secrets.map(s => s.name).sort()).toEqual(['EXAMPLE_API_KEY', 'EXAMPLE2_API_KEY', 'NO_POLICY_KEY', 'SUPABASE_SERVICE_ROLE'].sort())
     expect(body.secrets.find(s => s.name === 'SUPABASE_SERVICE_ROLE')).toEqual({
       name: 'SUPABASE_SERVICE_ROLE', description: 'service role', scope: 'global', workspace: null,
       allowed_hosts: ['*.supabase.co'], allowed_methods: null, usable: true,
@@ -130,7 +131,7 @@ describe('GET /list', () => {
 
   it('a workspace key sees only its workspace secrets + globals tagged for it', async () => {
     const g = await (await call('GET', '/api/secrets-broker/list', example2Key)).json() as { secrets: Array<{ name: string }> }
-    expect(g.secrets.map(s => s.name).sort()).toEqual(['EXAMPLE2_API_KEY', 'SUPABASE_SERVICE_ROLE'])
+    expect(g.secrets.map(s => s.name).sort()).toEqual(['EXAMPLE2_API_KEY', 'SUPABASE_SERVICE_ROLE'].sort())
     const a = await (await call('GET', '/api/secrets-broker/list', exampleKey)).json() as { secrets: Array<{ name: string }> }
     expect(a.secrets.map(s => s.name)).toEqual(['EXAMPLE_API_KEY'])
     expect((await call('GET', '/api/secrets-broker/list?workspace=example', example2Key)).status).toBe(403)

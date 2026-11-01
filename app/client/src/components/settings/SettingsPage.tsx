@@ -6,6 +6,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { PageContainer, PageHeader, Tabs } from '../ui'
 import type { TabItem } from '../ui'
+import { BuildFooter } from './BuildFooter'
 
 const YOU = 'you'
 const CONNECTORS = 'connectors'
@@ -69,6 +70,7 @@ export function SettingsPage() {
         <Tabs items={tabs} value={segment} onChange={key => navigate(`/settings/${key}`)} />
       </div>
       <Outlet />
+      <BuildFooter />
     </PageContainer>
   )
 }

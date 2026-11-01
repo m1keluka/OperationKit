@@ -60,7 +60,7 @@ const MAX_TEXT_CHARS = 20_000
 const MAX_BINARY_INLINE_BYTES = 300_000
 
 const SERVER_INSTRUCTIONS = [
-  'Command Center: a kanban board of objectives (cards) — each card runs one coding-agent session — plus the second-brain vault, docs and files. Live data, nothing cached.',
+  'Command Center: a kanban board of objectives (cards) — each card runs one coding-agent session — plus ONE knowledge base (markdown pages: imports, wiki pages, saved answers, decisions) and files. Live data, nothing cached.',
   'Status flow: planning → queue → working → ai_review → review → done (or cancelled). review = Needs You (the human).',
   'READ BEFORE YOU WRITE. Each turn: get_attention (what needs a decision) → get_changes(since=<next_cursor you stored>) (what moved) → act on one card with get_objective / get_progress. Do not re-read the board with list_objectives every turn.',
   'Before creating: search_objectives — never duplicate a card, never create one just to ask for status. Follow-ups on existing work go through send_message.',
@@ -225,7 +225,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'search',
     access: 'read',
     scope: 'vault:read',
-    description: 'Full-text search over the second-brain vault / markdown docs (decisions, active.md, architecture notes, PRDs). Returns paths + snippets; open a hit with read_file.',
+    description: 'Full-text search over the knowledge base (one place: imported files, chat/call imports, wiki pages, saved answers, decisions, notes). Returns paths + snippets; open a hit with read_file.',
     inputSchema: {
       type: 'object',
       required: ['q'],
@@ -278,7 +278,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'list_folders',
     access: 'read',
     scope: 'vault:read',
-    description: 'Browse the markdown vault/docs tree (directories + .md files) under a root. Omit root for your default doc root; call again with a child dir\'s path to go deeper.',
+    description: 'Browse the knowledge base tree (folders + .md pages). Omit root for the whole knowledge base; pass a folder path from a previous call to go deeper. There is one knowledge base — no source to pick.',
     inputSchema: { type: 'object', properties: { root: { type: 'string', description: 'Absolute directory path' } } },
     run: async (a, rest) => {
       const r = await rest('GET', `/api/docs/tree${qs({ root: strArg(a, 'root') })}`)
@@ -357,7 +357,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'write_doc',
     access: 'write',
     scope: 'vault:write',
-    description: 'Create or overwrite one markdown file in the vault (e.g. append a decision to workspaces/<slug>/active.md — read it first and send the full new content). Path must be absolute, end in .md and sit under a writable doc root.',
+    description: 'Create or overwrite one markdown page in the knowledge base (e.g. append a decision to a workspace\'s active.md — read it first and send the full new content). Path must be absolute, end in .md and sit inside the knowledge base folders list_folders returns (writable ones only).',
     inputSchema: {
       type: 'object',
       required: ['path', 'content'],

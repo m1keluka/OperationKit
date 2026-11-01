@@ -41,12 +41,39 @@ if [ "${VERSION_ID:-}" != "24.04" ]; then
 fi
 export DEBIAN_FRONTEND=noninteractive
 
+# A package mirror answering 503 for a minute killed the first real install.
+# apt retries each download itself (Acquire::Retries) and the whole command is
+# retried with a pause, so a short mirror hiccup no longer stops the install.
+APT_RETRY_CONF=/etc/apt/apt.conf.d/80-ok-retries
+if [ "$DRY_RUN" -eq 0 ] && [ ! -f "$APT_RETRY_CONF" ]; then
+  printf 'Acquire::Retries "3";\n' > "$APT_RETRY_CONF"
+fi
+apt_retry() {
+  local n
+  if [ "$DRY_RUN" -eq 1 ]; then printf '  [dry-run] apt-get %s\n' "$*"; return 0; fi
+  for n in 1 2 3; do
+    apt-get -o Acquire::Retries=3 "$@" && return 0
+    [ "$n" -lt 3 ] || break
+    warn "apt-get $1 failed (attempt $n of 3) — the package mirror may be busy; retrying in $((n * 20))s"
+    sleep $((n * 20))
+  done
+  die "apt-get $1 failed 3 times. Check the server's internet access, then re-run (it is safe to re-run)."
+}
+
 step "1/6 Base packages"
 if dpkg -s ca-certificates curl gnupg git jq openssl ufw fail2ban unattended-upgrades >/dev/null 2>&1; then
   log "base packages already installed"
 else
-  run apt-get update -qq
-  run apt-get install -y -qq ca-certificates curl gnupg git jq openssl ufw fail2ban unattended-upgrades
+  apt_retry update -qq
+  apt_retry install -y -qq ca-certificates curl gnupg git jq openssl ufw fail2ban unattended-upgrades
+fi
+# restic encrypts and uploads the off-server backups (install/backup.sh). It is
+# in Ubuntu's "universe" section; a server without it still installs, and
+# backup.sh says so when BACKUP_TARGET needs it.
+if ! command -v restic >/dev/null 2>&1; then
+  if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] would install restic (off-server backups)"
+  elif apt-get -o Acquire::Retries=3 install -y -qq restic >/dev/null 2>&1; then log "restic installed (off-server backups)"
+  else warn "restic could not be installed — off-server backups (BACKUP_TARGET) will not run until it is"; fi
 fi
 
 step "2/6 Docker Engine + compose plugin (official Docker repo)"
@@ -57,12 +84,12 @@ else
   if [ "$DRY_RUN" -eq 1 ]; then
     log "  [dry-run] would add the Docker apt repo and install docker-ce + compose plugin"
   else
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+    curl -fsSL --retry 5 --retry-delay 5 https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
     printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu %s stable\n' \
       "$(dpkg --print-architecture)" "$VERSION_CODENAME" > /etc/apt/sources.list.d/docker.list
-    apt-get update -qq
-    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    apt_retry update -qq
+    apt_retry install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   fi
   run systemctl enable --now docker
 fi

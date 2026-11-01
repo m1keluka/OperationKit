@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { inWorkspaceFolder, knowledgeBaseRoot } from '../lib/knowledge-base-root.js'
 
 /**
  * Semantic vault index for spawn-context KB injection (ST6).
@@ -246,7 +247,7 @@ function makeSnippet(file: string, terms: string[]): string {
  */
 export function searchVaultIndex(query: string, workspace?: string | null): VaultHit[] {
   try {
-    const root = process.env.SECOND_BRAIN_ROOT || '/home/operator/second-brain'
+    const root = knowledgeBaseRoot()
     if (!existsSync(root)) return []
     const baseTerms = extractTerms(query.slice(0, 600))
     if (baseTerms.length === 0) return []
@@ -269,7 +270,7 @@ export function searchVaultIndex(query: string, workspace?: string | null): Vaul
     if (rows.length === 0) return []
 
     for (const r of rows) {
-      if (workspace && r.path.includes(`/workspaces/${workspace}/`)) {
+      if (workspace && inWorkspaceFolder(r.path, workspace, root)) {
         r.score -= WORKSPACE_BONUS
       }
     }

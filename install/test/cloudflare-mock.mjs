@@ -45,7 +45,11 @@ http.createServer((req, res) => {
       if (m === 'PUT') { state.dns[i] = { id: mm[1], ...json }; return ok(res, state.dns[i]) }
       if (m === 'DELETE') { state.dns.splice(i, 1); return ok(res, {}) }
     }
-    if (p === '/accounts/acct1/access/organizations') return state.org ? ok(res, state.org) : bad(res, 404, 'zero trust not enabled')
+    if (p === '/accounts/acct1/access/organizations') {
+      // A token without the Access "Organizations" permission (obj 720210).
+      if (process.env.MOCK_NO_ORG_SCOPE) { res.writeHead(403, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ success: false, errors: [{ code: 10000, message: 'Authentication error' }] })) }
+      return state.org ? ok(res, state.org) : bad(res, 404, 'zero trust not enabled')
+    }
     if (p === '/accounts/acct1/access/identity_providers') {
       if (m === 'GET') return ok(res, state.idps)
       const i = { id: randomUUID(), ...json }; state.idps.push(i); return ok(res, i)
@@ -65,9 +69,11 @@ http.createServer((req, res) => {
         if (m === 'DELETE') { state.policies[appId] = list.filter(x => x.id !== polId); return ok(res, {}) }
       }
       if (m === 'GET' && !appId) return ok(res, state.apps)
-      if (m === 'POST') { const a = { id: randomUUID(), ...json }; state.apps.push(a); return ok(res, a) }
+      // Cloudflare generates the AUD tag on create and keeps it across updates.
+      if (m === 'POST') { const a = { id: randomUUID(), aud: randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, ''), ...json }; state.apps.push(a); return ok(res, a) }
       const i = state.apps.findIndex(a => a.id === appId)
-      if (m === 'PUT') { state.apps[i] = { id: appId, ...json }; return ok(res, state.apps[i]) }
+      if (m === 'GET') return i >= 0 ? ok(res, state.apps[i]) : bad(res, 404, 'no such app')
+      if (m === 'PUT') { state.apps[i] = { id: appId, aud: state.apps[i].aud, ...json }; return ok(res, state.apps[i]) }
       if (m === 'DELETE') { state.apps.splice(i, 1); delete state.policies[appId]; return ok(res, {}) }
     }
     bad(res, 404, `mock: unhandled ${m} ${p}`)

@@ -56,6 +56,18 @@ describe('SettingsPage tabs', () => {
     expect(labels).toEqual(['You', 'Connectors'])
   })
 
+  it('shows the running build commit from /api/health in the footer (obj 720210)', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ok', commit: '4212de2abcde' }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      mount('/settings/you')
+      await vi.waitFor(() => expect(container.querySelector('[data-testid="build-footer"]')?.textContent).toContain('4212de2abcde'))
+      expect(fetchMock).toHaveBeenCalledWith('/api/health', expect.anything())
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('opens the Seats pane for an admin', () => {
     mount('/settings/seats')
     expect(container.textContent).toContain('seats-pane')

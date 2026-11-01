@@ -25,7 +25,9 @@ CLIENT_SLUG="example-capital"
 
 # ── Web address ───────────────────────────────────────────────────────────────
 # The full address people will type. Must be a sub-domain of a domain that is
-# already on the client's Cloudflare account (ZONE below).
+# already on the client's Cloudflare account (ZONE below). DOMAIN, ZONE and the
+# ACCESS_* settings may be left empty for a local-only test install
+# (./install.sh --skip-cloudflare, reached over an SSH tunnel).
 DOMAIN="ops.example-capital.com"
 
 # The Cloudflare zone (the bare domain) that DOMAIN lives under.
@@ -43,6 +45,12 @@ BRAND_LOGO=""
 # Username for the first admin account. The installer creates it with a
 # one-time setup password; the first sign-in is forced to choose a new one.
 ADMIN_USERNAME="admin"
+
+# The first admin's email. Behind Cloudflare Access, whoever signs in at the
+# Cloudflare door with THIS email lands in the app as the admin — no second
+# sign-in. Leave empty to use the first address in ACCESS_ALLOWED_EMAILS.
+# Other people get linked later in Settings → Users (their sign-in email).
+ADMIN_EMAIL=""
 
 # ── Who may open the site (Cloudflare Access) ─────────────────────────────────
 # Nobody reaches the sign-in page unless Cloudflare Access lets them through.
@@ -79,9 +87,24 @@ AGENTS_ENABLED="general,coo,cfo"
 
 # ── Starter packs ─────────────────────────────────────────────────────────────
 # Ready-made bundles of agents + sample data, switched on after the first boot.
-# Comma-separated pack ids (folders under app/server/src/starter-packs/). Packs
-# not present in this copy of the code are skipped with a warning.
+# Comma-separated pack ids (folders under app/server/src/starter-packs/). If a
+# pack cannot be switched on the install stops with the reason (re-run after
+# fixing it). Leave empty for none.
 STARTER_PACKS="knowledge-import"
+
+# ── Backups ───────────────────────────────────────────────────────────────────
+# A backup runs every night at BACKUP_TIME (server time zone) into
+# INSTALL_DIR/backups on this server (the last BACKUP_KEEP_LOCAL kept). Set
+# BACKUP_TARGET to ALSO copy it, encrypted, off the server — strongly
+# recommended: a backup on the same disk does not survive losing the server.
+#   Backblaze B2 (S3 API): s3:https://s3.us-west-004.backblazeb2.com/<bucket>/<folder>
+#   Any S3-compatible:     s3:https://<endpoint>/<bucket>/<folder>
+#   Backblaze B2 (native): b2:<bucket>:<folder>
+# Its two keys go in the secrets hand-over file, never here:
+# BACKUP_ACCESS_KEY_ID and BACKUP_SECRET_ACCESS_KEY (INSTALL.md, "Backups").
+BACKUP_TARGET=""
+BACKUP_TIME="03:30"
+BACKUP_KEEP_LOCAL="7"
 
 # ── Server ────────────────────────────────────────────────────────────────────
 # Where everything is stored on the server. Change only if the client asks.
