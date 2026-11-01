@@ -427,6 +427,13 @@ export function buildReviewerPrompt(
     '   If a deliverable appears absent, you MUST first confirm you are on the worker\'s branch/worktree.'
       + ' If you cannot locate the worker\'s tree at all, emit `<verdict>blocked</verdict>` — NOT `fail`.'
       + ' "I looked on `main` and didn\'t see it" is never grounds for `fail`.',
+    '   **Ungradeable tree ≠ fail.** If the worktree has `MERGE_HEAD` set, is mid-rebase, or holds'
+      + ' the entire deliverable as uncommitted changes with ZERO commits beyond the branch point, the'
+      + ' producing session terminated abnormally — there is no final artifact to grade. Emit'
+      + ' `<verdict>blocked</verdict>` ("no gradeable commit — re-spawn worker to commit/finish"),'
+      + ' NOT `fail`. A `fail` here mislabels abnormally-terminated work as defective and wastes the'
+      + ' review iteration; the work often ships clean on the next session (obj 720115→#601,'
+      + ' 720117→#602, 2026-10-31).',
     '4. Emit your verdict at the end of your response in this exact shape. Every `[PASS]` line MUST cite its concrete artifact; a line without one is a `[FAIL]`:',
     '',
     '<verdict>pass</verdict>  ← or fail / blocked',
