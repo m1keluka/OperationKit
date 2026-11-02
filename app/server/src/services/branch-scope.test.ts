@@ -96,7 +96,21 @@ describe('detectBranchBleed', () => {
     const o = 'cto/718075-e1-foundation'
     expect(detectBranchBleed('git push origin fix818:fix/obj718075-e1e3-email-redesign', o)).toBeNull()
     expect(detectBranchBleed('git push origin local/813:fix/obj718075-a2-a6-approve-race-and-polish', o)).toBeNull()
-    expect(detectBranchBleed('git push origin tmp-merge-a1a7:test/web-quote-flow-integration', o)).toBe('test/web-quote-flow-integration')
+    // Post-718329: test/* is the sanctioned shared integration-staging convention
+    // (CLAUDE.md) with no embedded objective id, so this is now exempt, not flagged.
+    expect(detectBranchBleed('git push origin tmp-merge-a1a7:test/web-quote-flow-integration', o)).toBeNull()
+  })
+  it('does NOT flag merging into the shared integration-staging branch (obj 718329)', () => {
+    const o = 'cc/obj-718061-e1-foundation'
+    expect(detectBranchBleed('git checkout -b test/web-quote-flow-integration', o)).toBeNull()
+    expect(detectBranchBleed('git push origin test/web-quote-flow-integration', o)).toBeNull()
+    expect(detectBranchBleed('git push origin integration/web-quote-flow', o)).toBeNull()
+    expect(detectBranchBleed('git checkout -b combined/ponytail-sweep', o)).toBeNull()
+    expect(detectBranchBleed('git push origin tmp/all-merged', o)).toBeNull()
+  })
+  it('STILL flags a staging-looking branch embedding a FOREIGN objective id (obj 718329)', () => {
+    const o = 'cc/obj-718061-e1-foundation'
+    expect(detectBranchBleed('git push origin test/obj999999-foo', o)).toBe('test/obj999999-foo')
   })
   it('STILL flags a genuinely foreign no-id branch', () => {
     expect(detectBranchBleed('git checkout -b obj-loops-kanban', 'cc/obj-994-guardrail-thing')).toBe('obj-loops-kanban')
