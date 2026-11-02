@@ -11,6 +11,11 @@ laptop and tell it:
 > The server is `<IP address>`, I log in as `root` (or: as `ubuntu`, with sudo).
 > My Cloudflare API token is in the environment variable `CF_API_TOKEN`.
 
+Starting from nothing (no server, no domain yet)? Follow
+[docs/RECOMMENDED-STACK.md](docs/RECOMMENDED-STACK.md) first: how big a server to get, ordering it at
+OVHcloud, SSH keys, putting the domain on Cloudflare, off-site backups on Backblaze B2, seats, GitHub
+and updates. It comes back here for the install itself.
+
 No domain yet, or just trying it out? See
 [Test install without a domain](#test-install-without-a-domain-ip-only-ssh-tunnel):
 same installer, no Cloudflare, reached over an SSH tunnel.
@@ -25,7 +30,7 @@ needs you to click something or choose something. Those moments are marked
 
 | | What | Why |
 |---|---|---|
-| 1 | A fresh **Ubuntu 24.04** server: 4 CPU cores, 8 GB memory, 80 GB disk or more | Where Operation Kit runs. Any provider works (DigitalOcean, Hetzner, AWS, OVH…). |
+| 1 | A fresh **Ubuntu 24.04** server sized for how many AI sessions run at once: at least **8 CPU threads, 16 GB memory, 150 GB disk** for 1-2 sessions; more for a team ([sizing table](docs/RECOMMENDED-STACK.md#1-choose-a-server-size)) | Where Operation Kit runs. Any provider works; we run and test on an [OVHcloud Rise](docs/RECOMMENDED-STACK.md) dedicated server. One AI session can use up to about 3.6 GB of memory, and the images with their rollback copies need about 40 GB of disk. |
 | 2 | **SSH access** to it as `root`, or as a user with `sudo` (OVH and AWS images log in as `ubuntu`), with an SSH key | Claude Code uses it to install everything. |
 | 3 | The client's domain on **Cloudflare** (for example `clientfirm.com`) | The site gets its own address, e.g. `ops.clientfirm.com`. |
 | 4 | A **Cloudflare API token** (how to make one: step 2 below) | Lets the installer set up the address and the sign-in screen. |
@@ -92,8 +97,11 @@ done.
 ssh -o StrictHostKeyChecking=accept-new SERVER 'grep PRETTY_NAME /etc/os-release; nproc; free -g | head -2; df -h / | tail -1'
 ```
 
-It must say **Ubuntu 24.04**, with at least 4 cores, 8 GB of memory and 60 GB
-or more of free disk. If it doesn't, stop and tell the person what is missing.
+It must say **Ubuntu 24.04**, with at least 8 CPU threads (`nproc`), 16 GB of
+memory and 150 GB of free disk: the smallest size in the
+[sizing table](docs/RECOMMENDED-STACK.md#1-choose-a-server-size), enough for one or two
+sessions at once. If it doesn't, stop and tell the person what is missing and
+which size the table recommends for them.
 
 ### Step 2: Cloudflare (👤 You, about 5 minutes, one time per client)
 
@@ -149,10 +157,11 @@ code** option needs none of this. Use it unless the client asks otherwise.
 
 ```bash
 ssh SERVER 'sudo apt-get update -qq && sudo apt-get install -y -qq git && \
-  sudo git clone <the Operation Kit repository URL> /opt/operationkit-src'
+  sudo git clone https://github.com/m1keluka/OperationKit.git /opt/operationkit-src'
 ```
 
-(As `root`, the `sudo`s are harmless.) Keep the code in `/opt/operationkit-src`.
+(As `root`, the `sudo`s are harmless.) Keep the code in `/opt/operationkit-src`:
+updates are pulled from the same repository into the same folder (see [Updating](#updating)).
 The install itself goes in `/opt/operationkit`, and the uninstall script deletes
 that folder.
 
@@ -186,7 +195,7 @@ every setting is explained there in plain words.
 | `CLAUDE_AUTH` | Claude subscription (`login`) or API key (`api-key`)? | `login` |
 | `AGENTS_ENABLED` | Which AI agents? | `general,coo,cfo` |
 | `TIMEZONE` | Which time zone are they in? | `America/New_York` |
-| `BACKUP_TARGET` | Where should backups be copied off the server? (empty = this server only; see [Backups](#backups-and-restore)) | `s3:https://s3.us-west-004.backblazeb2.com/clientfirm-ok/operationkit` |
+| `BACKUP_TARGET` | Should nightly backups also go off the server, to Backblaze B2? If **yes**, leave it empty here: after the install the person runs `install/b2-setup.sh` in their own terminal (step 10 and [Backups](#backups-and-restore)), which fills it in. If they already use another S3 bucket, write its address. | empty, or `s3:https://s3.us-west-004.backblazeb2.com/clientfirm-ok/operationkit` |
 
 Write it with a heredoc over SSH. The file holds no secrets.
 
@@ -249,6 +258,9 @@ The installer:
    knowledge base import). If one cannot be switched on, the install **stops**
    with the reason; fix it and re-run.
 7. **Schedules the nightly backup** (see [Backups and restore](#backups-and-restore)).
+   Run by a person in a terminal with `BACKUP_TARGET` empty, it then asks whether
+   to set up off-site backups to Backblaze B2 (Enter skips). Over plain `ssh`
+   from Claude Code there is no terminal, so it never asks.
 8. **Runs the checks** in step 8 (the test card waits until Claude is
    connected).
 
@@ -363,11 +375,55 @@ Tell the person, in a few sentences:
 - the site address and that verify passed (paste the PASS/FAIL count)
 - the build: the `Build:` line the installer printed (the same commit shows at
   the bottom of **Settings** and in `/api/health`)
-- whether backups go off the server (`BACKUP_TARGET`) or only to this server
+- whether backups go off the server (`BACKUP_TARGET`) or only to this server. If
+  only to this server and they want Backblaze B2, give them the command to run
+  in **their own terminal** (it asks for the key):
+  `ssh -t SERVER sudo bash /opt/operationkit-src/install/b2-setup.sh --config /opt/operationkit-src/client.conf`
+- the next steps that are theirs: more Claude seats ([Seats](#connect-subscription-seats)),
+  and for cards that work on code, GitHub tokens and repositories
+  ([Cards that work on code](#cards-that-work-on-code-github-and-repositories))
 - the total install time from `/opt/operationkit/install-timing.log`
 - anything you skipped and why
 
 ---
+
+## Connect subscription seats
+
+A **seat** is one AI account the sessions sign in with. Seats are in **Settings → Seats**
+(admins only): **Add Claude seat** (sign in with Claude, or paste a `claude setup-token`
+token), and optionally **Add Codex seat** / **Add Grok seat**.
+
+- **How many.** The app has no fixed number of sessions per Claude seat: each new session goes to
+  the healthy seat with the fewest sessions running. Each plan's own usage allowance is the limit.
+  Start with one and add seats when cards wait for one. A Codex or Grok login runs one sandboxed
+  session at a time.
+- **At the limit.** A rate-limited seat cools down until the provider's reset time (or 15 minutes,
+  doubling on repeats, at most 5 hours) and comes back by itself. A seat out of credits, or showing
+  **Reconnect**, waits for you.
+- **No seat free.** The card is queued (*"All Claude seats are unavailable … queued for
+  auto-retry"*), and every 30 seconds the app starts as many queued cards as there are free seats.
+
+Details: [RECOMMENDED-STACK step 7](docs/RECOMMENDED-STACK.md#7-connect-subscription-seats-).
+
+## Cards that work on code (GitHub and repositories)
+
+A card that edits a repository or opens a pull request needs three things. Step by step, with the
+exact commands: [RECOMMENDED-STACK step 8](docs/RECOMMENDED-STACK.md#8-github-tokens-and-repositories).
+
+1. **The person's GitHub token.** Each person links their own in **Settings → Connectors → GitHub**
+   (or `POST /api/user/github-token` with `{"token": "…"}`). Sessions push as the card's assigned
+   user, or its creator if nobody is assigned. Use a fine-grained token limited to the repositories,
+   with *Contents* and *Pull requests* read and write.
+2. **A checkout on the server** at `/opt/operationkit/state/home/projects/<name>` (inside the app:
+   `/home/operator/projects/<name>`). Nothing clones it for you. Clone it with the token passed
+   through `GIT_ASKPASS`, never in the URL.
+3. **The repository registered with its path** by an admin:
+   `POST /api/admin/workspaces/<workspace>/repos` with `name`, `github`, `stack` (a list of strings)
+   and `repo_path` (the in-app path above). That adds the project to the app's
+   `ai-workspace/workspaces.json` (the installer creates the file) and sets the checkout's
+   `!gh auth git-credential` helper. The **Settings → Org → Organizations → Repos & projects** screen
+   does not ask for the path yet: add it with `PATCH …/repos/<id>`. Without a path, a project card
+   fails with *"resolveWorkdir: … no workspace in workspaces.json maps it to an existing checkout"*.
 
 ## Test install without a domain (IP only, SSH tunnel)
 
@@ -403,6 +459,12 @@ kept.
 
 ## Updating
 
+**Updates are manual: nothing pulls new Operation Kit code by itself.** The automatic updates the
+installer switches on are Ubuntu's security patches for the operating system only. To hear about new
+versions, watch <https://github.com/m1keluka/OperationKit> on GitHub and read
+[CHANGELOG.md](CHANGELOG.md). To see what is waiting:
+`ssh SERVER 'cd /opt/operationkit-src && sudo git -c safe.directory="*" fetch -q origin main && git -c safe.directory="*" log --oneline HEAD..origin/main'`.
+
 ```bash
 ssh SERVER 'sudo bash /opt/operationkit-src/install/update.sh --config /opt/operationkit-src/client.conf'
 # a specific version:  … update.sh --config … --ref v1.4.0     (a tag, branch or commit)
@@ -415,8 +477,10 @@ ssh SERVER 'sudo bash /opt/operationkit-src/install/update.sh --config /opt/oper
    logins (`cc-accounts`), `secrets/stack.env` and the rest of `secrets/`, and
    `client.conf`.
 2. **Keeps the running images** as `operationkit-app:pre-update-<time>` and
-   `ok-jail:pre-update-<time>` (the newest 3 are kept).
-3. **Fetches and checks out** `--ref` (default `main`). git runs as the owner of
+   `ok-jail:pre-update-<time>` (the newest 3 are kept, about 8 GB per version: plan about
+   32 GB of disk for images plus about 8 GB of Docker build cache).
+3. **Fetches and checks out** `--ref` (default `main`) from the repository the code
+   was cloned from (`origin`: the public repository). git runs as the owner of
    the code folder, with `safe.directory` allowed, so a folder cloned as
    `ubuntu` never ends up owned by root.
 4. **Re-runs `./install.sh --config client.conf`** (it lives at the top of the
@@ -426,7 +490,7 @@ ssh SERVER 'sudo bash /opt/operationkit-src/install/update.sh --config /opt/oper
    `pre-update-<time>` images as `:local`, optionally restore the pre-update
    backup, start the app. They are printed again if the install fails.
 
-Do it when no cards are running: the app restarts. The first time, on an
+Do it **when no cards are running**: the app restarts and running sessions are cut off. The first time, on an
 install older than this script, get it with
 `sudo git -c safe.directory='*' -C /opt/operationkit-src pull` and then run it.
 
@@ -450,12 +514,44 @@ The newest `BACKUP_KEEP_LOCAL` (default 7) stay on the server. Log:
 **Off the server (recommended).** A backup on the same disk does not survive
 losing the server. Set `BACKUP_TARGET` in `client.conf` and every nightly folder
 is also sent, encrypted, to an S3-compatible bucket with
-[restic](https://restic.net) (installed by the installer), keeping 14 daily,
-8 weekly and 12 monthly copies.
+[restic](https://restic.net) (installed by the installer). It is the **same one
+nightly job**: there is no separate off-site timer. restic keeps one copy per day
+for `BACKUP_KEEP_DAILY` days, one per week for `BACKUP_KEEP_WEEKLY` weeks and one
+per month for `BACKUP_KEEP_MONTHLY` months (defaults **7 / 4 / 6**, at most 17
+snapshots). Pruning old data runs on Sundays.
 
-1. **👤 You:** create a private bucket and an application key limited to it.
-   Backblaze B2: *Buckets → Create a Bucket* (private), then *Application Keys →
-   Add a New Application Key* for that bucket only, with read and write.
+**What it costs on Backblaze B2:** $6.95 per TB per month, the first 10 GB free,
+downloads free up to three times what you store
+([pricing](https://www.backblaze.com/cloud-storage/pricing)). Estimated storage
+after about 6 months, as an upper bound (nightly size x about 34 snapshots, no
+de-duplication assumed; nightly size 10-30 MB solo, 50-150 MB small team,
+150-500 MB heavy): **under 1 GB** solo, **1.7-5 GB** small team (both free),
+**5-17 GB** heavy ($0 to about $0.05 a month).
+
+**The easy way (Backblaze B2):**
+
+1. **👤 You:** in Backblaze, *Buckets → Create a Bucket* (**Private**), then
+   *Application Keys → Add a New Application Key*: *Allow access to Bucket(s)*:
+   **only that bucket**; *Type of Access*: **Read and Write**. restic must list
+   the bucket and list, read, write and delete files (deleting removes old
+   snapshots): the key needs `listBuckets`, `listFiles`, `readFiles`,
+   `writeFiles` and `deleteFiles`, which *Read and Write* gives.
+2. **👤 You, in your own terminal** (it asks for the key, so never through a chat):
+
+   ```bash
+   ssh -t SERVER sudo bash /opt/operationkit-src/install/b2-setup.sh --config /opt/operationkit-src/client.conf
+   ```
+
+   It reads the applicationKey hidden, checks the key with Backblaze (accepted,
+   limited to the bucket, the five permissions above), writes `BACKUP_TARGET`
+   into `client.conf` and the two keys into `secrets/stack.env` (mode 600),
+   keeps the one nightly job, sends the first snapshot, runs the restore test
+   and prints one line ending in `restore test PASS`. Re-running it is safe.
+3. Save the backup password (point 5 below).
+
+**By hand, or another S3-compatible store:**
+
+1. Create a private bucket and a key limited to it, with read and write.
 2. In `client.conf`:
    `BACKUP_TARGET="s3:https://s3.<region>.backblazeb2.com/<bucket>/operationkit"`
    (the endpoint is shown on the bucket page). Any S3-compatible store works the
@@ -467,12 +563,26 @@ is also sent, encrypted, to an S3-compatible bucket with
    --secrets-file …`.
 4. Test it now instead of waiting for the night:
    `ssh SERVER 'sudo bash /opt/operationkit-src/install/backup.sh run --label nightly --config /opt/operationkit-src/client.conf'`,
-   then `… backup.sh list --config …` shows the off-server copy.
+   then `… backup.sh list --config …` shows the off-server copy, and
+   `… backup.sh verify --config …` runs the restore test.
 5. **👤 You: save the backup password somewhere safe, off the server** (a
    password manager). The off-server copies are encrypted with it, and if the
    server is lost so is the copy in `stack.env`. Read it in your own terminal,
    never in a chat:
    `ssh -t SERVER sudo grep ^OK_BACKUP_PASSWORD= /opt/operationkit/secrets/stack.env`
+
+**Restore test (do it after the first backup, then monthly).**
+
+```bash
+ssh SERVER 'sudo bash /opt/operationkit-src/install/backup.sh verify --config /opt/operationkit-src/client.conf'
+```
+
+It downloads the newest off-server snapshot (with no `BACKUP_TARGET`: takes the
+newest backup folder on the server) into a scratch folder, checks every file
+against the backup's `MANIFEST` checksums, opens every archive, runs SQLite's
+`PRAGMA integrity_check` and counts the rows of the main tables, then prints
+`RESTORE TEST: PASS` or `RESTORE TEST: FAIL` (exit code 1), and deletes the
+scratch copy. It changes nothing. `--snapshot <id>` tests an older one.
 
 **By hand:** `sudo bash install/backup.sh run --config client.conf` (label
 `manual`, kept until you delete it). `list` shows what exists, here and off the
@@ -506,7 +616,12 @@ database, seat logins and secrets but leaves home as it is.
 
    Run the printed `restore` command. The restored `secrets/` includes the old
    tunnel token, so the site comes back on the same address.
-4. Run verify (step 8).
+4. Run verify (step 8), then the restore test (`backup.sh verify`) so the new
+   server's own off-site backups are known to work.
+
+If the backup password is lost, these steps cannot work: the off-site copies
+cannot be decrypted by anyone. That is why point 5 above says to keep it in a
+password manager.
 
 ## After the install
 
@@ -556,6 +671,13 @@ They are harmless, and they make the next install faster.
 | `the image build failed` | The last 40 build lines are printed; the whole log is in `/opt/operationkit/logs/build-<time>.log`. |
 | `detected dubious ownership in repository` | See step 3: `git config --global --add safe.directory /opt/operationkit-src`. |
 | `This setup password has expired` | `bash install/admin-password.sh --config client.conf` |
+| `resolveWorkdir: … no workspace in workspaces.json maps it to an existing checkout` | The card's project is not registered with a `repo_path`, or that folder does not exist: [Cards that work on code](#cards-that-work-on-code-github-and-repositories), points 2-3. |
+| `All Claude seats are unavailable … queued for auto-retry` | Every seat is cooling down or parked. The card starts by itself when one frees up; add a seat in **Settings → Seats** if it happens often ([Seats](#connect-subscription-seats)). |
+| A card looks stuck, or (on installs before the 2026-11-01 update) shows **review** with no session while work continues | Its sandbox may still be working: `docker ps \| grep ok-jail` shows it. Wait for it before restarting anything; update older installs. |
+| A card cannot push or open a PR | The card's person has no GitHub token linked, or the repository is not checked out: [Cards that work on code](#cards-that-work-on-code-github-and-repositories). |
+| b2-setup: `Backblaze did not accept this keyID / applicationKey` | Typo, or the key was deleted. The applicationKey is shown only once; make a new key and re-run. |
+| b2-setup: `this key cannot deleteFiles` (or another permission) | The key is read-only or too narrow. Make a new key with **Read and Write** for the bucket. |
+| `RESTORE TEST: FAIL` | The FAIL lines say which check. Wrong password or keys: compare with your password manager. Damaged snapshot: run the test again with `--snapshot <older id>` (ids: `backup.sh list`). |
 
 ## What is stored where
 

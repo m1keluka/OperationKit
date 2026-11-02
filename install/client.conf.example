@@ -102,9 +102,18 @@ STARTER_PACKS="knowledge-import"
 #   Backblaze B2 (native): b2:<bucket>:<folder>
 # Its two keys go in the secrets hand-over file, never here:
 # BACKUP_ACCESS_KEY_ID and BACKUP_SECRET_ACCESS_KEY (INSTALL.md, "Backups").
+# Easiest way to fill BACKUP_TARGET and hand over the keys for B2: run
+#   sudo bash install/b2-setup.sh --config client.conf
+# in your own terminal (install.sh offers it at the end of an interactive run).
 BACKUP_TARGET=""
 BACKUP_TIME="03:30"
 BACKUP_KEEP_LOCAL="7"
+# How many off-server copies restic keeps (BACKUP_TARGET only): one per day for
+# the last BACKUP_KEEP_DAILY days, one per week for BACKUP_KEEP_WEEKLY weeks, one
+# per month for BACKUP_KEEP_MONTHLY months. About 17 snapshots with the defaults.
+BACKUP_KEEP_DAILY="7"
+BACKUP_KEEP_WEEKLY="4"
+BACKUP_KEEP_MONTHLY="6"
 
 # ── Server ────────────────────────────────────────────────────────────────────
 # Where everything is stored on the server. Change only if the client asks.

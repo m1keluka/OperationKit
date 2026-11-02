@@ -19,7 +19,9 @@
 #      Cloudflare Access sign-in is the only one they need (one login)
 #   8. switches on the STARTER_PACKS (a failure stops the install)
 #   9. schedules the nightly backup (install/backup.sh; off the server when
-#      BACKUP_TARGET is set) and runs install/verify.sh
+#      BACKUP_TARGET is set). Run in a terminal with BACKUP_TARGET empty, it
+#      offers to set up off-site backups to Backblaze B2 (install/b2-setup.sh;
+#      Enter = skip). Then runs install/verify.sh
 # Re-running is safe: every step checks what is already there. To move an
 # install to newer code, use install/update.sh (backs up first, then re-runs this).
 #
@@ -35,6 +37,8 @@
 #   --skip-firewall        leave the firewall alone
 #   --skip-ssh-hardening   leave SSH password logins as they are
 #   --skip-verify          do not run install/verify.sh at the end
+#   --no-backup-prompt     do not offer the Backblaze B2 setup (it is only ever
+#                          offered in an interactive terminal anyway)
 #   --swap-gb N            swap file size (default 4, 0 = none)
 #   -h | --help
 # ==============================================================================
@@ -46,6 +50,7 @@ CONFIG=
 SECRETS_HANDOVER=
 SKIP_CF=0
 SKIP_VERIFY=0
+BACKUP_PROMPT=1
 BOOT_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -56,8 +61,9 @@ while [ $# -gt 0 ]; do
     --skip-firewall) BOOT_ARGS+=(--skip-firewall) ;;
     --skip-ssh-hardening) BOOT_ARGS+=(--skip-ssh-hardening) ;;
     --skip-verify) SKIP_VERIFY=1 ;;
+    --no-backup-prompt) BACKUP_PROMPT=0 ;;
     --swap-gb) shift; BOOT_ARGS+=(--swap-gb "${1:-}") ;;
-    -h|--help) sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
   esac
   shift
@@ -267,6 +273,14 @@ fi
 step "9. Nightly backup"
 b_args=(install-cron --config "$CONFIG"); [ "$DRY_RUN" -eq 1 ] && b_args+=(--dry-run)
 bash "$OK_LIB_DIR/backup.sh" "${b_args[@]}"
+# Optional off-site backups: only asked in a real terminal (never when Claude
+# Code drives the install over plain ssh, never in CI), only while
+# BACKUP_TARGET is empty, and Enter skips. It re-writes the same cron job, so
+# there is still exactly one nightly backup.
+if [ "$DRY_RUN" -eq 0 ] && [ "$BACKUP_PROMPT" -eq 1 ] && [ -z "$(conf BACKUP_TARGET)" ] && [ -t 0 ] && [ -t 1 ]; then
+  bash "$OK_LIB_DIR/b2-setup.sh" --config "$CONFIG" || warn "off-site backup setup did not finish — re-run: sudo bash $OK_LIB_DIR/b2-setup.sh --config $CONFIG"
+  conf_load "$CONFIG"   # BACKUP_TARGET may have changed
+fi
 
 # ── 8. Verify ─────────────────────────────────────────────────────────────────
 claude_ready=0

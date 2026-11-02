@@ -116,9 +116,75 @@ conf_validate() {
     case "$a" in general|cto|cmo|coo|cfo) ;; *) die "AGENTS_ENABLED: unknown agent '$a' (allowed: general, cto, cmo, coo, cfo)" ;; esac
   done
   [[ "$(conf INSTALL_DIR /opt/operationkit)" == /* ]] || die "INSTALL_DIR must be an absolute path"
+  local k
+  for k in BACKUP_KEEP_LOCAL BACKUP_KEEP_DAILY BACKUP_KEEP_WEEKLY BACKUP_KEEP_MONTHLY; do
+    [ -z "$(conf "$k")" ] || [[ "$(conf "$k")" =~ ^[0-9]{1,3}$ ]] || die "$k must be a whole number (got '$(conf "$k")')"
+  done
   local bt; bt=$(conf BACKUP_TARGET)
   [ -z "$bt" ] || [[ "$bt" =~ ^(s3|b2):[^[:space:]]+$ ]] \
     || die "BACKUP_TARGET must look like s3:https://<endpoint>/<bucket>/<folder> or b2:<bucket>:<folder> (got '$bt')"
+}
+
+# conf_set FILE KEY VALUE — position-preserving upsert of KEY="VALUE" in a
+# client.conf. Only for NON-secret settings (client.conf never holds a secret).
+# Keeps the file's mode and owner, and updates CONF too.
+conf_set() {
+  local file=$1 key=$2 val=$3 tmp
+  [[ "$val" != *'"'* && "$val" != *$'\n'* ]] || die "conf_set: the $key value must not contain quotes or newlines"
+  if [ "$DRY_RUN" -eq 1 ]; then printf '  [dry-run] would set %s in %s\n' "$key" "$file"; return 0; fi
+  tmp=$(mktemp "$file.XXXXXX")
+  OK_K=$key OK_V=$val awk '
+    BEGIN { k = ENVIRON["OK_K"]; v = ENVIRON["OK_V"]; done = 0 }
+    (!done && $0 ~ ("^[[:space:]]*" k "=")) { print k "=\"" v "\""; done = 1; next }
+    { print }
+    END { if (!done) print k "=\"" v "\"" }
+  ' "$file" > "$tmp"
+  chmod --reference="$file" "$tmp" 2>/dev/null || true
+  chown --reference="$file" "$tmp" 2>/dev/null || true
+  mv "$tmp" "$file"
+  CONF[$key]=$val
+}
+
+# db_inspect DB — integrity-check a SQLite file and count the rows of the main
+# tables with whatever the host has: sqlite3, else python3 (on every Ubuntu
+# server image), else node. Prints "integrity=<result>" and then one
+# "<table>=<rows>" line per table ("<table>=missing" when it does not exist).
+# Returns 2 when none of the three tools is available.
+db_inspect() {
+  local db=$1 t
+  if command -v sqlite3 >/dev/null 2>&1; then
+    printf 'integrity=%s\n' "$(sqlite3 "file:$db?mode=ro" 'PRAGMA integrity_check' 2>&1 | head -1)"
+    for t in workspaces users objectives projects; do
+      printf '%s=%s\n' "$t" "$(sqlite3 "file:$db?mode=ro" "SELECT count(*) FROM $t" 2>/dev/null || echo missing)"
+    done
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -I -c '
+import sqlite3, sys
+c = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
+try:
+    print("integrity=" + str(c.execute("PRAGMA integrity_check").fetchone()[0]))
+except Exception as e:
+    print("integrity=" + str(e).replace("\n", " "))
+for t in ("workspaces", "users", "objectives", "projects"):
+    try:
+        print(t + "=" + str(c.execute("SELECT count(*) FROM " + t).fetchone()[0]))
+    except Exception:
+        print(t + "=missing")
+' "$db"
+  elif command -v node >/dev/null 2>&1 && node --no-warnings -e 'require("node:sqlite")' >/dev/null 2>&1; then
+    node --no-warnings -e '
+const { DatabaseSync } = require("node:sqlite");
+let d;
+try {
+  d = new DatabaseSync(process.argv[1], { readOnly: true });
+  console.log("integrity=" + Object.values(d.prepare("PRAGMA integrity_check").get())[0]);
+} catch (e) { console.log("integrity=" + String(e.message).replace(/\n/g, " ")); process.exit(0); }
+for (const t of ["workspaces", "users", "objectives", "projects"]) {
+  try { console.log(t + "=" + d.prepare("SELECT count(*) AS n FROM " + t).get().n); } catch { console.log(t + "=missing"); }
+}' "$db"
+  else
+    return 2
+  fi
 }
 
 # site_label — how scripts name the install in messages.

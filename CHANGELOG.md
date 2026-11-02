@@ -8,6 +8,36 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Recommended stack guide, off-site backup setup, restore test, retention 7/4/6 (obj 84)
+
+**What changed.**
+
+- **New guide: [docs/RECOMMENDED-STACK.md](docs/RECOMMENDED-STACK.md)**: an end-to-end walk-through on the stack we run
+  (OVHcloud Rise + Backblaze B2 + Cloudflare): a server sizing table with measured numbers, ordering, SSH keys,
+  Cloudflare, the installer, B2 backups, seats, GitHub tokens and repositories, updates, and monthly checks.
+  README and INSTALL now give the real repository URL, consistent minimum sizes (8 threads / 16 GB / 150 GB), and say
+  plainly that Operation Kit updates are manual (the automatic updates are Ubuntu security patches only).
+- **`install/b2-setup.sh` (new, optional).** Interactive Backblaze B2 setup: reads the application key hidden, checks it
+  with Backblaze (bucket-limited, list/read/write/delete), writes `BACKUP_TARGET` to `client.conf` and the keys to
+  `secrets/stack.env` (600), sends the first snapshot and runs the restore test. `install.sh` offers it at the end of
+  an install run in a terminal while `BACKUP_TARGET` is empty (Enter skips; never asked without a terminal, or with
+  `--no-backup-prompt`). It re-writes the same `/etc/cron.d/operationkit-backup` job: still one nightly backup.
+- **`install/backup.sh verify` (new).** The restore test: restores the newest off-server snapshot (or the newest local
+  backup) into a scratch folder, checks MANIFEST checksums, archives, `PRAGMA integrity_check` and row counts, prints
+  `RESTORE TEST: PASS`/`FAIL` and exits 1 on FAIL.
+- **Off-server retention is now a setting, and shorter by default:** `BACKUP_KEEP_DAILY` / `BACKUP_KEEP_WEEKLY` /
+  `BACKUP_KEEP_MONTHLY`, default **7 / 4 / 6** (was a fixed 14 / 8 / 12).
+
+**What to do.**
+
+- **Existing installs with `BACKUP_TARGET` set:** after the next update, the nightly job keeps 7 / 4 / 6, so older
+  snapshots beyond that are removed at the next Sunday prune. To keep the old retention, add
+  `BACKUP_KEEP_DAILY="14"`, `BACKUP_KEEP_WEEKLY="8"`, `BACKUP_KEEP_MONTHLY="12"` to `client.conf` before updating.
+- Run the restore test once: `sudo bash install/backup.sh verify --config client.conf`.
+- If you set up off-site backups with your own systemd timer or cron job, switch to the built-in one
+  (`install/b2-setup.sh`) and disable yours, so backups do not run twice. `b2-setup.sh` warns when it sees one.
+- The installer now also installs `sqlite3` on the host (used by the restore test; `python3` is the fallback).
+
 ### Built-in agent chat — one chat per person per agent (obj 719987)
 
 **What changed.** A new **Chat** tab (`/chat`): pick an agent (one file, `agents/<slug>/agent.yaml`) and talk to it in
