@@ -36,6 +36,12 @@ jobs:
         run: bash install/test/cloudflare-mock-test.sh
       - name: Claude sign-in (link + code) against a mock
         run: bash install/test/claude-oauth-mock-test.sh
+      - name: Off-site backup setup (B2 prompt, retention, restore test) against a mock
+        run: bash install/test/b2-setup-test.sh
+      - name: Install docs links and anchors resolve
+        run: node install/test/docs-links-test.mjs
+      - name: shellcheck (backup + B2 setup scripts)
+        run: shellcheck --version && shellcheck -x --severity=warning install/lib.sh install/backup.sh install/b2-setup.sh install/test/b2-setup-test.sh
       - name: Without --skip-cloudflare an empty DOMAIN is refused, with the hint
         run: |
           if ./install.sh --config ci.conf --dry-run > out.txt 2>&1; then cat out.txt; exit 1; fi
@@ -90,6 +96,9 @@ jobs:
           sudo ls -l "$dir"
           for f in command-center.db data.tar.gz home.tar.gz secrets.tar.gz client.conf MANIFEST; do sudo test -s "$dir/$f"; done
           sudo test "$(sudo stat -c %a "$dir")" = 700
+          # The restore test on a real database (local mode: the newest backup folder).
+          sudo bash install/backup.sh verify --config ci.conf | tee verify.out
+          grep -q "^RESTORE TEST: PASS" verify.out
           # Lose something, restore, and it is back.
           sudo touch /opt/operationkit/state/data/branding/ci-marker
           sudo bash install/backup.sh run --config ci.conf --label manual

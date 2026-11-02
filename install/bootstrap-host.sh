@@ -61,7 +61,7 @@ apt_retry() {
 }
 
 step "1/6 Base packages"
-if dpkg -s ca-certificates curl gnupg git jq openssl ufw fail2ban unattended-upgrades >/dev/null 2>&1; then
+if dpkg -s ca-certificates curl gnupg git jq openssl sqlite3 ufw fail2ban unattended-upgrades >/dev/null 2>&1; then
   log "base packages already installed"
 else
   apt_retry update -qq

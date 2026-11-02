@@ -7,7 +7,8 @@ A client install is made by `install.sh` ([INSTALL.md](../../INSTALL.md)). The c
 
 | Task | How |
 | --- | --- |
-| **Update to a newer version** | `sudo bash install/update.sh --config client.conf` (or `--ref <tag or commit>`). It backs up the database, seat logins and secrets first, keeps the old image for rollback, checks out the new code, re-runs `install.sh`, and prints the rollback steps. Do it when no cards are running. [INSTALL.md, Updating](../../INSTALL.md#updating). |
+| **Back up off the server / test a restore** | `sudo bash install/b2-setup.sh --config client.conf` once (Backblaze B2, asks for the key in your terminal); then monthly `sudo bash install/backup.sh verify --config client.conf` prints PASS or FAIL. See [INSTALL.md → Backups and restore](../../INSTALL.md#backups-and-restore). |
+| **Update to a newer version** (by hand: nothing updates Operation Kit by itself; run it when no cards are running) | `sudo bash install/update.sh --config client.conf` (or `--ref <tag or commit>`). It backs up the database, seat logins and secrets first, keeps the old image for rollback, checks out the new code, re-runs `install.sh`, and prints the rollback steps. Do it when no cards are running. [INSTALL.md, Updating](../../INSTALL.md#updating). |
 | **Which version is running** | Settings → bottom of the page (**Build**), or `curl -s http://127.0.0.1:3002/api/health` on the server (`commit`). |
 | **Check it is healthy** | `bash install/verify.sh --config client.conf`. Every line should say PASS. |
 | **Change a setting** (name, allowed emails, agents, time zone) | Edit `client.conf`, re-run `./install.sh --config client.conf`. |

@@ -38,9 +38,28 @@ there and spends their time on the client's actual workflows.
 
 ## Install
 
-A fresh Ubuntu server, the client's domain on Cloudflare, and a Claude account. Claude Code on your
-laptop follows [INSTALL.md](./INSTALL.md) and does the work; you answer a few questions and do two
+A fresh Ubuntu 24.04 server, the client's domain on Cloudflare, and a Claude account. Claude Code on
+your laptop follows [INSTALL.md](./INSTALL.md) and does the work; you answer a few questions and do two
 short sign-ins. About 30 to 45 minutes, most of it waiting for the build.
+
+The code: <https://github.com/m1keluka/OperationKit> (updates come from the same place, and are
+applied by hand: [Updating](./INSTALL.md#updating)).
+
+**Recommended stack** (what we run and test): an **OVHcloud Rise** dedicated server, **Backblaze B2**
+for encrypted off-site backups, and **Cloudflare** (Free) for the domain, the tunnel and the sign-in.
+[docs/RECOMMENDED-STACK.md](./docs/RECOMMENDED-STACK.md) walks through it end to end, from ordering
+the server to GitHub tokens and updates. Any Ubuntu 24.04 server works.
+
+**How big a server.** Plan **6 GB of memory plus 3 GB per AI session running at once**, 2 CPU threads
+plus 1.5 per session, and 60 GB of disk plus about 3 GB per session plus the client's files:
+
+| Sessions at once | Server | Example (prices checked 2026-11-01) |
+|---|---|---|
+| 1-2 (solo) | 8+ threads, 16 GB, 150 GB | OVH RISE-1 from $64/month |
+| 3-5 (small team) | 12+ threads, 32 GB, 250 GB | OVH RISE-2 from $72/month |
+| 6-10+ (heavy) | 24-32 threads, 64-128 GB, 500 GB+ | OVH RISE-4 from about EUR 160/month |
+
+Measured numbers, alternatives and the reasoning: [choosing a server](./docs/RECOMMENDED-STACK.md#1-choose-a-server-size).
 
 ```
  Person ──► Cloudflare Access ──► Cloudflare Tunnel ──► client's server (no open web ports)
@@ -52,6 +71,7 @@ short sign-ins. About 30 to 45 minutes, most of it waiting for the build.
 
 | For | Read |
 |---|---|
+| Setting up from nothing: server size, OVH, Cloudflare, B2 backups, seats, GitHub, updates | [docs/RECOMMENDED-STACK.md](./docs/RECOMMENDED-STACK.md) |
 | Installing for a client | [INSTALL.md](./INSTALL.md) |
 | Connecting Claude, ChatGPT, Grok or another AI app | [docs/CONNECT-YOUR-AGENT.md](./docs/CONNECT-YOUR-AGENT.md) |
 | "Where does our data go?" (plain-language, one page) | [docs/SECURITY-OVERVIEW.md](./docs/SECURITY-OVERVIEW.md) |
@@ -66,8 +86,9 @@ short sign-ins. About 30 to 45 minutes, most of it waiting for the build.
 ## Status
 
 Built to be a solid self-hosted install: Cloudflare in front, no open web ports, sandboxed AI jobs,
-encrypted secrets, a forced password change for the first admin, automatic security updates. It is
-not an audited SaaS. Known gaps (no SOC 2, no built-in two-factor or SSO beyond Cloudflare Access,
+encrypted secrets, a forced password change for the first admin, encrypted off-site backups with a
+restore test, and automatic security updates for the operating system (Ubuntu's patches; Operation
+Kit itself is updated by hand, see [Updating](./INSTALL.md#updating)). It is not an audited SaaS. Known gaps (no SOC 2, no built-in two-factor or SSO beyond Cloudflare Access,
 transcripts not encrypted at rest) are listed in the [security overview](./docs/SECURITY-OVERVIEW.md).
 
 ## License

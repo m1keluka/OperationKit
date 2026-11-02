@@ -5,6 +5,7 @@
 #   sudo bash install/backup.sh list         --config client.conf
 #   sudo bash install/backup.sh fetch        --config client.conf [--snapshot latest|<id>]
 #   sudo bash install/backup.sh restore DIR  --config client.conf --yes
+#   sudo bash install/backup.sh verify       --config client.conf [--snapshot latest|<id>]
 #   sudo bash install/backup.sh install-cron --config client.conf
 #   (every action takes --dry-run)
 #
@@ -21,8 +22,15 @@
 # Only the newest BACKUP_KEEP_LOCAL (default 7) nightly folders are kept, and 5
 # pre-update ones. When BACKUP_TARGET is set, a nightly folder is also sent OFF
 # the server with restic (encrypted with OK_BACKUP_PASSWORD from stack.env)
-# to any S3-compatible bucket (Backblaze B2, AWS S3, Wasabi…), keeping 14 daily,
-# 8 weekly and 12 monthly copies.
+# to any S3-compatible bucket (Backblaze B2, AWS S3, Wasabi…), keeping
+# BACKUP_KEEP_DAILY daily, BACKUP_KEEP_WEEKLY weekly and BACKUP_KEEP_MONTHLY
+# monthly copies (defaults 7 / 4 / 6).
+#
+# `verify` is the restore test: it downloads the newest off-server snapshot
+# (or, with no BACKUP_TARGET, takes the newest backup folder on this server)
+# into a scratch folder, checks the MANIFEST checksums, every archive, the
+# database's PRAGMA integrity_check and its row counts, prints PASS or FAIL,
+# deletes the scratch copy, and exits non-zero on FAIL. It changes nothing.
 #
 # `fetch` downloads an off-server backup into INSTALL_DIR/backups/restored-…/ and
 # prints the folder; `restore DIR` stops the app, puts that folder's database,
@@ -45,12 +53,12 @@ while [ $# -gt 0 ]; do
     --snapshot) shift; SNAPSHOT=${1:-latest} ;;
     --yes) YES=1 ;;
     --dry-run) DRY_RUN=1 ;;
-    -h|--help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
   shift
 done
-case "$ACTION" in run|list|fetch|restore|install-cron) ;; *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
+case "$ACTION" in run|list|fetch|restore|verify|install-cron) ;; *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
 [ -n "$CONFIG" ] || die "--config <file> is required"
 [ -f "$CONFIG" ] || die "config file not found: $CONFIG"
 CONFIG=$(cd "$(dirname "$CONFIG")" && pwd)/$(basename "$CONFIG")
@@ -62,11 +70,13 @@ require_root
 BACKUPS=$OK_DIR/backups
 DB=$OK_STATE/data/command-center.db
 TARGET=$(conf BACKUP_TARGET)
+KEEP_DAILY=$(conf BACKUP_KEEP_DAILY 7); KEEP_WEEKLY=$(conf BACKUP_KEEP_WEEKLY 4); KEEP_MONTHLY=$(conf BACKUP_KEEP_MONTHLY 6)
 
 # ── restic (off-server copies) ────────────────────────────────────────────────
 # The repository password and bucket keys go through the environment and a
 # mode-600 file, never argv, and are never printed.
 RESTIC_PW_FILE=
+VERIFY_SCRATCH=
 restic_env() {
   [ -n "$TARGET" ] || die "BACKUP_TARGET is empty in $CONFIG — there is no off-server backup to talk to"
   command -v restic >/dev/null 2>&1 || die "restic is not installed (sudo apt-get install restic), needed for BACKUP_TARGET"
@@ -76,7 +86,7 @@ restic_env() {
   kid=$(env_get "$OK_SECRETS_ENV" OK_BACKUP_ACCESS_KEY_ID); key=$(env_get "$OK_SECRETS_ENV" OK_BACKUP_SECRET_ACCESS_KEY)
   [ -n "$kid" ] && [ -n "$key" ] || die "BACKUP_TARGET is set but the bucket keys are not: hand over BACKUP_ACCESS_KEY_ID and BACKUP_SECRET_ACCESS_KEY (INSTALL.md, Backups)"
   RESTIC_PW_FILE=$(mktemp); chmod 600 "$RESTIC_PW_FILE"
-  trap 'rm -f "$RESTIC_PW_FILE"' EXIT
+  trap 'rm -f "$RESTIC_PW_FILE"; [ -z "$VERIFY_SCRATCH" ] || rm -rf --one-file-system "$VERIFY_SCRATCH"' EXIT
   printf '%s\n' "$pw" > "$RESTIC_PW_FILE"
   export RESTIC_REPOSITORY=$TARGET RESTIC_PASSWORD_FILE=$RESTIC_PW_FILE
   case "$TARGET" in
@@ -167,7 +177,7 @@ do_run() {
     restic backup --quiet --host "ok-$(conf CLIENT_SLUG)" --tag operationkit --tag "$LABEL" "$dir"
     local prune=(); [ "$(date +%u)" = 7 ] && prune=(--prune)   # the slow repack only on Sundays
     restic forget --quiet --host "ok-$(conf CLIENT_SLUG)" --tag operationkit \
-      --keep-daily 14 --keep-weekly 8 --keep-monthly 12 "${prune[@]+"${prune[@]}"}"
+      --keep-daily "$KEEP_DAILY" --keep-weekly "$KEEP_WEEKLY" --keep-monthly "$KEEP_MONTHLY" "${prune[@]+"${prune[@]}"}"
     log "  sent (restic snapshot $(restic snapshots --json --latest 1 --host "ok-$(conf CLIENT_SLUG)" | jq -r '.[-1].short_id // "?"'))"
   elif [ -z "$TARGET" ] && [ "$LABEL" = nightly ]; then
     warn "BACKUP_TARGET is empty: this backup is on the SAME server as the data. Set an off-server target (INSTALL.md, Backups)."
@@ -228,6 +238,68 @@ do_fetch() {
   log "    sudo bash $OK_LIB_DIR/backup.sh restore $found --config $CONFIG --yes"
 }
 
+# ── verify (restore test) ─────────────────────────────────────────────────────
+do_verify() {
+  local src where line integrity rows f out
+  if [ -n "$TARGET" ]; then
+    restic_env
+    where="off-server snapshot '$SNAPSHOT' in $TARGET"
+    step "Restore test: $where"
+    if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] would restic restore $SNAPSHOT into a scratch folder and check it"; return 0; fi
+    install -d -m 700 "$BACKUPS"
+    VERIFY_SCRATCH=$(mktemp -d "$BACKUPS/.verify-XXXXXX")
+    if restic check >/dev/null 2>&1; then pass "repository structure (restic check)"; else fail "restic check reports a damaged repository — run: restic check (with the same settings) to see why"; fi
+    if restic restore "$SNAPSHOT" --host "ok-$(conf CLIENT_SLUG)" --tag operationkit --target "$VERIFY_SCRATCH" >/dev/null 2>&1; then
+      pass "downloaded and decrypted snapshot $SNAPSHOT"
+    else
+      fail "could not restore snapshot $SNAPSHOT (wrong password, keys or BACKUP_TARGET, or no snapshot yet)"
+    fi
+    src=$(find "$VERIFY_SCRATCH" -name command-center.db -printf '%h\n' 2>/dev/null | head -1)
+  else
+    where="newest backup folder on this server (BACKUP_TARGET is empty)"
+    step "Restore test: $where"
+    src=$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d \( -name 'nightly-*' -o -name 'manual-*' \) 2>/dev/null | sort -t- -k2 | tail -1)
+    if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] would check ${src:-the newest backup folder}"; return 0; fi
+  fi
+  if [ -z "$src" ] || [ ! -f "$src/command-center.db" ]; then
+    fail "no backup folder with a database found"
+  else
+    log "  checking $(basename "$src")"
+    if [ -f "$src/MANIFEST" ]; then
+      if (cd "$src" && grep -E '^[0-9a-f]{64}  ' MANIFEST | sha256sum -c --quiet - >/dev/null 2>&1); then pass "files match their MANIFEST checksums"
+      else fail "files do not match their MANIFEST checksums (damaged or incomplete)"; fi
+    else
+      fail "no MANIFEST in the backup"
+    fi
+    for f in "$src"/*.tar.gz; do
+      [ -e "$f" ] || continue
+      if tar -tzf "$f" >/dev/null 2>&1; then pass "$(basename "$f") opens"; else fail "$(basename "$f") is not a readable archive"; fi
+    done
+    integrity=; rows=
+    if out=$(db_inspect "$src/command-center.db"); then
+      while IFS= read -r line; do
+        case "$line" in
+          integrity=*) integrity=${line#integrity=} ;;
+          *=*) rows="$rows ${line%%=*} ${line#*=},"; ;;
+        esac
+      done <<< "$out"
+      if [ "$integrity" = ok ]; then pass "database integrity_check: ok"; else fail "database integrity_check: ${integrity:-no answer}"; fi
+      rows=${rows%,}
+      case "$rows" in *"workspaces missing"*|*"users missing"*) fail "database rows:$rows (expected tables are missing)" ;;
+        *) pass "database rows:$rows" ;; esac
+    else
+      fail "no tool to open the database (install sqlite3: sudo apt-get install sqlite3)"
+    fi
+  fi
+  if [ -n "$VERIFY_SCRATCH" ]; then rm -rf --one-file-system "$VERIFY_SCRATCH"; VERIFY_SCRATCH=; fi
+  if [ "$FAIL_COUNT" -eq 0 ]; then
+    printf '\nRESTORE TEST: PASS (%s checks, %s)\n' "$PASS_COUNT" "$where"
+  else
+    printf '\nRESTORE TEST: FAIL (%s of %s checks failed, %s)\n' "$FAIL_COUNT" "$((PASS_COUNT + FAIL_COUNT))" "$where"
+    exit 1
+  fi
+}
+
 # ── list ──────────────────────────────────────────────────────────────────────
 do_list() {
   step "Backups on this server ($BACKUPS)"
@@ -243,7 +315,8 @@ do_list() {
 
 # ── install-cron ──────────────────────────────────────────────────────────────
 do_install_cron() {
-  local at hh mm cron_file=/etc/cron.d/operationkit-backup line
+  # OK_CRON_FILE: test hook only (install/test/b2-setup-test.sh runs without root).
+  local at hh mm cron_file=${OK_CRON_FILE:-/etc/cron.d/operationkit-backup} line
   at=$(conf BACKUP_TIME 03:30)
   [[ "$at" =~ ^([01]?[0-9]|2[0-3]):([0-5][0-9])$ ]] || die "BACKUP_TIME must be HH:MM (got '$at')"
   hh=$((10#${BASH_REMATCH[1]})); mm=$((10#${BASH_REMATCH[2]}))
@@ -256,7 +329,7 @@ do_install_cron() {
     echo "$line"; } > "$cron_file.tmp"
   chmod 644 "$cron_file.tmp"; mv "$cron_file.tmp" "$cron_file"
   log "  nightly at $at ($(timedatectl show -p Timezone --value 2>/dev/null || echo 'server time')), log: $OK_DIR/logs/backup.log"
-  if [ -n "$TARGET" ]; then log "  off-server: $TARGET (encrypted with restic)"
+  if [ -n "$TARGET" ]; then log "  off-server: $TARGET (encrypted with restic; keeps $KEEP_DAILY daily / $KEEP_WEEKLY weekly / $KEEP_MONTHLY monthly)"
   else warn "BACKUP_TARGET is empty — backups stay on this server only. Set it for an off-server copy (INSTALL.md, Backups)."; fi
 }
 
@@ -265,5 +338,6 @@ case "$ACTION" in
   restore) do_restore "$RESTORE_DIR" ;;
   fetch) do_fetch ;;
   list) do_list ;;
+  verify) do_verify ;;
   install-cron) do_install_cron ;;
 esac

@@ -1,5 +1,9 @@
 # Command Center: DigitalOcean → OVHcloud Rise-4 migration runbook
 
+> **Setting up a NEW install?** Follow [docs/RECOMMENDED-STACK.md](../RECOMMENDED-STACK.md) instead. This page is the
+> runbook we used to move our own, older install from a DigitalOcean droplet to an OVH Rise-4. It is kept for its
+> measured costs and its RAID advice (§A), which apply to any Rise server. Host names below are placeholders.
+
 | | Source (today) | Target |
 |---|---|---|
 | Host | DigitalOcean droplet `command-center`, c2-32vcpu-64gb-intel | OVHcloud Rise-4 bare metal, Vint Hill VA (US-East) |
@@ -29,7 +33,7 @@ Scripts: `scripts/migrate/`. Every script uses `set -euo pipefail` and supports 
 
 ---
 
-## A. Mike does these himself
+## A. The owner does these personally
 
 Nothing here can be scripted or delegated. They involve money, DNS, or identity.
 
@@ -40,13 +44,13 @@ Nothing here can be scripted or delegated. They involve money, DNS, or identity.
   - RAID5/6: skip. Slow writes, long rebuilds, and OVH's installer handles it less well.
   - Tradeoff: RAID10 gives up redundancy you will not need (3-disk survival) for headroom you will need. Backups (§I) cover the "whole box lost" case, which no RAID level does.
 - [ ] **Add your SSH public key** in the OVH panel at install time (it lands in `root`'s or `ubuntu`'s `authorized_keys`; `bootstrap-host.sh` copies it to `mike`).
-- [ ] **Lower the DNS TTL** for `cc.example.com` to **300 s at least 24 h before cutover**. Do the same for `llm.mikeluka.com`, `n8n.example.com` if it moves (§B.6), and any `*.cc.example.com` wildcard.
+- [ ] **Lower the DNS TTL** for `cc.example.com` to **300 s at least 24 h before cutover**. Do the same for `llm.<your-domain>`, `n8n.example.com` if it moves (§B.6), and any `*.cc.example.com` wildcard.
 - [ ] **Approve the cutover window**: 2–3 h, ideally a weekday evening ET when no cards are running (§H).
 - [ ] **Create and pay for backup storage**: a private Backblaze B2 bucket plus an application key limited to that bucket (§I). Expect under $1/mo at current sizes.
 - [ ] **Create the restic password** in your password manager and paste it into the root-only file (§I.2). Without it the backups cannot be read.
 - [ ] **Flip the DNS A records** when `cutover.sh` tells you to (§G).
 - [ ] **Destroy the DO droplet only after 48 h of healthy running** on OVH. No script ever deletes the droplet or its data.
-- [ ] **Update any third-party IP allowlists** that name the droplet's IP. The new host's outbound IP will be different. **VERIFY ON HOST**: check vendor dashboards (database firewalls, the Twenty droplet's SSH/firewall, Supabase network restrictions) for the old IP.
+- [ ] **Update any third-party IP allowlists** that name the droplet's IP. The new host's outbound IP will be different. **VERIFY ON HOST**: check vendor dashboards (database firewalls, other servers' SSH/firewall rules, Supabase network restrictions) for the old IP.
 
 ---
 
@@ -99,7 +103,7 @@ It checks both hosts: SSH and sudo, versions, disk, RAID sync, free-space headro
 
 ### B.4 Services the repo defines (moved by the scripts)
 
-`docker-compose.yml`: `command-center` (127.0.0.1:3002), `litellm` (127.0.0.1:4000), `litellm-db` (postgres:16, volume `litellm_postgres_data`). Caddy fronts `cc.example.com` (→3002), `llm.mikeluka.com` (→4000) and `import /etc/caddy/sites-enabled/*.caddy` (PR previews). The one systemd pair is `cc-preview-spool.{path,service}`.
+`docker-compose.yml`: `command-center` (127.0.0.1:3002), `litellm` (127.0.0.1:4000), `litellm-db` (postgres:16, volume `litellm_postgres_data`). Caddy fronts `cc.example.com` (→3002), `llm.<your-domain>` (→4000) and `import /etc/caddy/sites-enabled/*.caddy` (PR previews). The one systemd pair is `cc-preview-spool.{path,service}`.
 
 ### B.5 Inside-container daemons
 
@@ -109,8 +113,8 @@ It checks both hosts: SSH and sudo, versions, disk, RAID sync, free-space headro
 
 The Caddyfile proxies two hosts that compose does not define:
 
-- `n8n.example.com` → `localhost:5678`. The Caddyfile comment says it carries the Wrong-Time → n8n → GHL webhook and all other n8n inbound webhooks. **If n8n runs on this droplet, destroying the droplet kills it.** Decide before cutover: move it (stop container, copy its data dir/volume, `docker run` with the same flags, flip its A record) or keep it running elsewhere. Find it with `docker ps -a`, `docker inspect n8n --format '{{json .Mounts}}'` and `systemctl list-units | grep -i n8n`. `preflight.sh` lists every extra container.
-- `oh.mikeluka.com` → `localhost:3000` (OpenHands). `scripts/bootstrap.sh` mentions it but compose does not. It is probably retired; confirm before dropping it.
+- `n8n.example.com` → `localhost:5678`. The Caddyfile comment says it carries the inbound n8n webhooks. **If n8n runs on this droplet, destroying the droplet kills it.** Decide before cutover: move it (stop container, copy its data dir/volume, `docker run` with the same flags, flip its A record) or keep it running elsewhere. Find it with `docker ps -a`, `docker inspect n8n --format '{{json .Mounts}}'` and `systemctl list-units | grep -i n8n`. `preflight.sh` lists every extra container.
+- `oh.<your-domain>` → `localhost:3000` (OpenHands). `scripts/bootstrap.sh` mentions it but compose does not. It is probably retired; confirm before dropping it.
 - Anything in **root's** crontab: preflight counts its entries; port them by hand.
 
 ---
@@ -240,7 +244,7 @@ It asks for a `cc_live_` key with input hidden (create one in **Settings → You
 - [ ] **MCP**: `POST /api/mcp` `tools/list` with the `cc_live_` key returns `tools`
 - [ ] **Test card reaches `working`** (`--test-card`, type `TEST-CARD`): creates a throwaway card, PATCHes it to working, waits for a session, then cancels it
 - [ ] **Account slots a–g + codex** logged in (§D.3)
-- [ ] **OSS sync**: gitleaks 8.21.2 is installed, and `scripts/oss-gate-roster-test.sh` (the real gate, run against clean and dirty fixtures) passes. The publish job itself runs in GitHub Actions and is host-independent; `verify.sh` prints the last `oss-sync.yml` run. Mike's call: trigger a `workflow_dispatch` once afterwards. It opens or updates the public sync PR, so it is not automated here.
+- [ ] **OSS sync**: gitleaks 8.21.2 is installed, and `scripts/oss-gate-roster-test.sh` (the real gate, run against clean and dirty fixtures) passes. The publish job itself runs in GitHub Actions and is host-independent; `verify.sh` prints the last `oss-sync.yml` run. The owner's call: trigger a `workflow_dispatch` once afterwards. It opens or updates the public sync PR, so it is not automated here.
 - [ ] **Crons** (update-active-state, generate-daily-digest, campaign-audit, cron-health-check, dream-cycle, disk-cleanup, reconcile-clients) and **timers** (`cc-backup.timer`, `cc-preview-spool.path`)
 - [ ] **host-boot.d** and the **disk watchdog** logging in the container
 - [ ] **Disk/RAID**: ≥15% free, `/proc/mdstat` all `[UUUU]`, each `md` array clean/active, `smartctl -H` PASSED on every NVMe
@@ -253,7 +257,7 @@ It asks for a `cc_live_` key with input hidden (create one in **Settings → You
 **Cutover.** TTL must already be 300 s (§A, set ≥24 h earlier). At the `dns` step, change the A records to the OVH IP:
 
 - `cc.example.com` (required)
-- `llm.mikeluka.com` (LiteLLM admin; moves with compose)
+- `llm.<your-domain>` (LiteLLM admin; moves with compose)
 - `*.cc.example.com` / `pr-N.cc.example.com`, if previews use a wildcard record (**VERIFY** in the DNS zone)
 - `n8n.example.com` **only** if n8n was moved (§B.6)
 
@@ -266,7 +270,7 @@ Leave mail records (MX/SPF/DKIM) alone; nothing here touches mail. Inbound webho
 2. Point the A records back to the DO IP.
 3. On DO: `crontab ~/.cc-migrate/crontab.before-cutover && cd ~/projects/operationkit && docker compose up -d && sudo systemctl start cc-preview-spool.path`.
 4. Anything done on OVH after cutover (cards, vault edits) only exists there. To keep it, stop OVH and reverse the copy *before* step 3: on OVH `sqlite3 command-center.db ".backup …"`, then rsync that file and `second-brain/` back to DO. The scripts are not wired for the reverse direction on purpose; do it deliberately.
-5. **Only Mike destroys the droplet**, after 48 h healthy on OVH and one successful `restore-test.sh`.
+5. **Only the owner destroys the droplet**, after 48 h healthy on OVH and one successful `restore-test.sh`.
 
 ---
 
@@ -290,14 +294,14 @@ Leave mail records (MX/SPF/DKIM) alone; nothing here touches mail. Inbound webho
 
 | When | Who | What |
 |---|---|---|
-| T-7d | Mike | Order Rise-4 (§A). Create the B2 bucket + key + restic password. |
+| T-7d | Owner | Order Rise-4 (§A). Create the B2 bucket + key + restic password. |
 | T-5d | script | `bootstrap-host.sh`, `preflight.sh --sizes`; fix every FAIL. Decide n8n (§B.6). |
 | T-4d | script | First `presync.sh` (hours; DO stays live). `docker compose build` on OVH to prove the build. |
 | T-2d | script | `presync.sh` again; `cutover.sh --dry-run`; `install-backup-timer.sh` + manual backup + `restore-test.sh` against a presynced copy |
-| T-1d (≥24 h before) | Mike | Lower TTLs to 300. Approve the window. Final `presync.sh`. |
-| T-0 | Mike + script | `cutover.sh` in tmux; flip DNS when prompted; `verify.sh --test-card` |
+| T-1d (≥24 h before) | Owner | Lower TTLs to 300. Approve the window. Final `presync.sh`. |
+| T-0 | Owner + script | `cutover.sh` in tmux; flip DNS when prompted; `verify.sh --test-card` |
 | T+1d | script | First nightly backup ran (`journalctl -u cc-backup`), then `restore-test.sh` |
-| T+48h | Mike | All green, so destroy the droplet. Raise TTLs back. |
+| T+48h | Owner | All green, so destroy the droplet. Raise TTLs back. |
 
 ---
 
