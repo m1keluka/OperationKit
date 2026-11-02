@@ -25,7 +25,8 @@ export const HOME_DIR = process.env.USER_HOME || '/home/operator'
 // ── Derived Paths ──
 export const AGENTS_DIR = `${AI_WORKSPACE_DIR}/agents`
 export const SKILLS_DIR = `${AI_WORKSPACE_DIR}/skills`
-export const WORKSPACES_JSON = `${AI_WORKSPACE_DIR}/workspaces.json`
+// Overridable so tests (and unusual installs) can point read + write at one file.
+export const WORKSPACES_JSON = process.env.WORKSPACES_JSON_PATH || `${AI_WORKSPACE_DIR}/workspaces.json`
 export const MENTOR_WORKDIR = `${AI_WORKSPACE_DIR}/mentor-workspace`
 export const MINION_DIR = `${AI_WORKSPACE_DIR}/scripts/minions`
 export const SKILLS_REGISTRY = `${SKILLS_DIR}/registry.json`

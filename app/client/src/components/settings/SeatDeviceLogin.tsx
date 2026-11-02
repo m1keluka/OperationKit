@@ -1,7 +1,7 @@
 /**
  * Device sign-in for a Codex / Grok seat. Starts the CLI's own device login on
  * the server, shows the approval page + user code, and polls every 3s until the
- * seat is signed in. Same flow as the Dashboard ConnectModal, scoped to a seat.
+ * seat is signed in, scoped to that seat.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../../lib/api'

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { ModelsModule } from './ModelsModule'
 import { CostModule } from './CostModule'
-import { ConnectModal } from './ConnectModal'
+import { SeatPool } from './settings/SettingsSeats'
 import {
   PageContainer,
   PageHeader,
@@ -28,7 +29,7 @@ interface WindowUsage {
 interface AccountInfo {
   id: string
   label: string
-  kind?: 'claude' | 'grok'
+  kind?: 'claude' | 'codex' | 'grok'
   homeDir: string
   sessionsToday: number
   tokensToday: number
@@ -140,18 +141,10 @@ function UsageBar({ percent }: { percent: number }) {
   )
 }
 
-const PLAN_LABELS: Record<string, string> = {
-  a: 'Max (20x)',
-  b: 'Team Pro',
-  c: 'Team Pro',
-  codex: 'ChatGPT Plus',
-  grok: 'SuperGrok',
-}
-
 // Codex / Grok are flat-rate subscriptions surfaced alongside the Claude rotation,
 // not members of it.
 function isSubscriptionAccount(account: AccountInfo): boolean {
-  return account.id === 'codex' || account.id === 'grok' || account.kind === 'grok'
+  return account.id === 'codex' || account.id === 'grok' || account.kind === 'codex' || account.kind === 'grok'
 }
 
 // Compact headline metric tile. Mono number + uppercase mono eyebrow.
@@ -170,316 +163,6 @@ function MetricCard({
       <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-fg-0">{value}</div>
       {sub && <div className="mt-0.5 font-mono text-[11px] text-fg-3">{sub}</div>}
     </Card>
-  )
-}
-
-interface RecheckResult {
-  ok: boolean
-  stillLimited: boolean
-  cleared?: boolean
-  resetsAt?: string | null
-  inconclusive?: boolean
-  needsReconnect?: boolean
-  error?: string
-}
-
-function AccountCard({ account, onChanged }: { account: AccountInfo; onChanged?: () => void }) {
-  const { sessionWindow, weeklyWindow } = account.windows
-  const isCodex = account.id === 'codex'
-  const isGrok = account.id === 'grok' || account.kind === 'grok'
-  const isFlatSub = isCodex || isGrok
-  // Auth failure (dead OAuth credential) is distinct from a rate limit: it needs
-  // a re-login, not a cooldown. Surface it as "Reconnect needed" (amber), and
-  // don't let it masquerade as "Exhausted" (red).
-  const needsReconnect = !!account.authFailedAt
-  const needsAdmin = needsReconnect && account.authFailureReason === 'needs_admin'
-  const isRateLimited = !account.available && !needsReconnect && account.rateLimitResetsAt
-
-  const [rechecking, setRechecking] = useState(false)
-  const [recheckMsg, setRecheckMsg] = useState<{ tone: 'ok' | 'warn' | 'bad'; text: string } | null>(null)
-  const [showConnect, setShowConnect] = useState(false)
-  // Inline label rename
-  const [editingLabel, setEditingLabel] = useState(false)
-  const [labelDraft, setLabelDraft] = useState(account.label)
-  const [labelSaveFailed, setLabelSaveFailed] = useState(false)
-  // onBlur AND Enter's onKeyDown both call saveLabel: Enter sets editingLabel
-  // false, which unmounts the <input>, which fires a native blur that re-enters
-  // saveLabel a second time with the same stale closure. Without this guard that
-  // fires two redundant PUTs (and two races against the poll); with it the
-  // second call is a no-op.
-  const savingLabel = useRef(false)
-
-  const saveLabel = async () => {
-    if (savingLabel.current) return
-    const next = labelDraft.trim()
-    setEditingLabel(false)
-    if (next === account.label) return
-    savingLabel.current = true
-    try {
-      await api.put(`/admin/accounts/${account.id}/label`, { label: next })
-      setLabelSaveFailed(false)
-      onChanged?.()
-    } catch {
-      // Don't let the failure masquerade as a silent revert — surface it so a
-      // dropped PUT (expired session, transient network error) is visible
-      // instead of looking like the rename "just reverted".
-      setLabelSaveFailed(true)
-    } finally {
-      savingLabel.current = false
-    }
-  }
-
-  const onRecheck = async () => {
-    setRechecking(true)
-    setRecheckMsg(null)
-    try {
-      const r = await api.post<RecheckResult>(`/admin/accounts/${account.id}/recheck`)
-      if (r.cleared) {
-        setRecheckMsg({ tone: 'ok', text: 'Verified serving — bench cleared, back in rotation.' })
-      } else if (r.needsReconnect) {
-        setRecheckMsg({ tone: 'warn', text: 'Credential dead (401) — use Reconnect to re-login.' })
-      } else if (r.inconclusive) {
-        setRecheckMsg({ tone: 'warn', text: 'Probe inconclusive — state left as-is.' })
-      } else if (r.stillLimited) {
-        setRecheckMsg({
-          tone: 'bad',
-          text: r.resetsAt ? `Still limited — resets in ${formatTimeUntil(r.resetsAt)}.` : 'Still rate-limited.',
-        })
-      } else {
-        setRecheckMsg({ tone: 'ok', text: 'Available.' })
-      }
-      onChanged?.()
-    } catch {
-      setRecheckMsg({ tone: 'bad', text: 'Recheck failed.' })
-    } finally {
-      setRechecking(false)
-    }
-  }
-
-  return (
-    <Card className={cn(
-      isRateLimited && 'border-signal-alarm/30 bg-signal-alarm/5',
-      needsReconnect && 'border-signal-amber/30 bg-signal-amber/5',
-    )}>
-      {/* Header */}
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="font-mono text-sm font-semibold text-fg-0">
-            {isCodex ? 'Codex' : isGrok ? 'Grok' : `Account ${account.id.toUpperCase()}`}
-          </span>
-          {editingLabel ? (
-            <input
-              autoFocus
-              value={labelDraft}
-              onChange={(e) => setLabelDraft(e.target.value)}
-              onBlur={saveLabel}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') saveLabel()
-                if (e.key === 'Escape') { setLabelDraft(account.label); setEditingLabel(false) }
-              }}
-              className="w-32 rounded bg-surface-3 px-1.5 py-0.5 text-xs text-fg-1 outline-none focus:ring-1 focus:ring-accent/50"
-            />
-          ) : (
-            <button
-              onClick={() => { setLabelDraft(account.label); setEditingLabel(true); setLabelSaveFailed(false) }}
-              title="Rename"
-              className="rounded border border-line/60 px-1.5 py-0.5 text-xs text-fg-2 hover:border-line-strong hover:text-fg-0"
-            >
-              {account.label}
-            </button>
-          )}
-          {labelSaveFailed && (
-            <span className="text-[11px] text-signal-alarm" title="The rename did not save — try again">
-              Rename failed
-            </span>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {PLAN_LABELS[account.id] && (
-            <span className="text-[11px] text-fg-3">{PLAN_LABELS[account.id]}</span>
-          )}
-          {account.available ? (
-            <Badge tone="verify">Available</Badge>
-          ) : needsReconnect ? (
-            <Badge tone="amber">{needsAdmin ? 'Account needs admin' : 'Reconnect needed'}</Badge>
-          ) : (
-            <Badge tone="alarm">{isRateLimited ? 'Exhausted' : 'Unavailable'}</Badge>
-          )}
-        </div>
-      </div>
-
-      {isFlatSub ? (
-        <div className="mb-4 rounded-lg bg-surface-3 px-3 py-2.5 text-xs text-fg-2">
-          {isGrok
-            ? 'xAI SuperGrok · grok.com subscription (Connect to sign in — same idea as Codex / Claude)'
-            : 'ChatGPT Plus · flat-rate subscription (no token or cost window)'}
-        </div>
-      ) : (
-        <>
-          {/* Session window (5h) */}
-          <div className="mb-4">
-            <div className="mb-1 flex items-baseline justify-between">
-              <span className="text-sm font-medium text-fg-1">Session window (5h)</span>
-              <span className="font-mono text-sm font-medium text-fg-0">{formatTokens(sessionWindow.tokens)}</span>
-            </div>
-            <div className="font-mono text-xs text-fg-3">
-              {sessionWindow.resetsAt
-                ? `Resets in ${formatTimeUntil(sessionWindow.resetsAt)}`
-                : 'No usage in window'}
-              {sessionWindow.cost > 0 && ` · $${sessionWindow.cost.toFixed(2)}`}
-            </div>
-          </div>
-
-          {/* Weekly window */}
-          <div className="mb-4">
-            <div className="mb-1 flex items-baseline justify-between">
-              <span className="text-sm font-medium text-fg-1">Weekly</span>
-              <span className="font-mono text-sm font-medium text-fg-0">{formatTokens(weeklyWindow.tokens)}</span>
-            </div>
-            <div className="font-mono text-xs text-fg-3">
-              {weeklyWindow.resetsAt
-                ? `Resets in ${formatTimeUntil(weeklyWindow.resetsAt)}`
-                : 'No usage in window'}
-              {weeklyWindow.cost > 0 && ` · $${weeklyWindow.cost.toFixed(2)}`}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Today's stats */}
-      <div className="grid grid-cols-3 gap-2 rounded-lg bg-surface-3 px-3 py-2.5">
-        <div className="text-center">
-          <div className="font-mono text-lg font-semibold text-fg-0">{account.activeSessions.length}</div>
-          <div className="font-mono text-[10px] uppercase tracking-wider text-fg-3">Active</div>
-        </div>
-        <div className="text-center">
-          <div className="font-mono text-lg font-semibold text-fg-0">{account.sessionsToday}</div>
-          <div className="font-mono text-[10px] uppercase tracking-wider text-fg-3">Today</div>
-        </div>
-        <div className="text-center">
-          <div className="font-mono text-lg font-semibold text-fg-0">${account.costToday.toFixed(2)}</div>
-          <div className="font-mono text-[10px] uppercase tracking-wider text-fg-3">Cost</div>
-        </div>
-      </div>
-
-      {/* Rate limit banner */}
-      {isRateLimited && account.rateLimitResetsAt && (
-        <div className="mt-3 flex items-center gap-2 rounded-lg border border-signal-alarm/30 bg-signal-alarm/10 px-3 py-2.5">
-          <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-signal-alarm" />
-          <div className="flex-1 text-xs text-signal-alarm">
-            Rate limited {formatTimeAgo(account.lastRateLimit!)}
-          </div>
-          <div className="rounded bg-signal-alarm/20 px-2 py-0.5 font-mono text-xs font-medium text-signal-alarm">
-            Resets in {formatTimeUntil(account.rateLimitResetsAt)}
-          </div>
-        </div>
-      )}
-
-      {/* Auth-failure banner — dead OAuth credential, needs a re-login (not a cooldown) */}
-      {needsReconnect && (
-        <div className="mt-3 flex items-center gap-2 rounded-lg border border-signal-amber/30 bg-signal-amber/10 px-3 py-2.5">
-          <div className="h-2 w-2 shrink-0 rounded-full bg-signal-amber" />
-          <div className="flex-1 text-xs text-signal-amber">
-            {needsAdmin
-              ? <>Org disabled subscription access {formatTimeAgo(account.authFailedAt!)} — an admin must re-enable it (parked until a health check passes)</>
-              : <>Credential expired {formatTimeAgo(account.authFailedAt!)} — re-login required</>}
-          </div>
-          <div className="rounded bg-signal-amber/20 px-2 py-0.5 font-mono text-xs font-medium text-signal-amber">
-            {needsAdmin ? 'Needs admin' : 'Reconnect'}
-          </div>
-        </div>
-      )}
-
-      {/* Claude: recheck + Connect. Grok: Connect (SuperGrok device login). Codex: already authed out of band. */}
-      {(!isFlatSub || isGrok) && (
-        <div className="mt-3 flex items-center gap-2">
-          {!isFlatSub && (isRateLimited || needsReconnect) && (
-            <Button size="sm" variant="secondary" loading={rechecking} onClick={onRecheck}>
-              Recheck
-            </Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={() => setShowConnect(true)}>
-            Connect
-          </Button>
-          {recheckMsg && (
-            <span
-              className={cn(
-                'text-xs',
-                recheckMsg.tone === 'ok' && 'text-signal-verify',
-                recheckMsg.tone === 'warn' && 'text-fg-2',
-                recheckMsg.tone === 'bad' && 'text-signal-alarm',
-              )}
-            >
-              {recheckMsg.text}
-            </span>
-          )}
-        </div>
-      )}
-
-      {showConnect && (
-        <ConnectModal
-          slot={account.id}
-          label={account.label}
-          onConnected={() => onChanged?.()}
-          onClose={() => { setShowConnect(false); onChanged?.() }}
-        />
-      )}
-    </Card>
-  )
-}
-
-function AddAccountButton({ onAdded }: { onAdded: () => void }) {
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [kind, setKind] = useState<'claude' | 'grok'>('claude')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-
-  const submit = async () => {
-    setBusy(true)
-    setErr('')
-    try {
-      await api.post('/admin/accounts', { label: name.trim(), kind })
-      setOpen(false)
-      setName('')
-      setKind('claude')
-      onAdded()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not add account')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (!open) {
-    return (
-      <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
-        New account
-      </Button>
-    )
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <input
-        autoFocus
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') void submit(); if (e.key === 'Escape') setOpen(false) }}
-        placeholder="Name (e.g. Jordan Lee)"
-        className="h-8 w-40 rounded bg-surface-3 px-2 text-xs text-fg-1 outline-none focus:ring-1 focus:ring-accent/50"
-      />
-      <select
-        value={kind}
-        onChange={(e) => setKind(e.target.value as 'claude' | 'grok')}
-        className="h-8 rounded border border-line bg-surface-1 px-2 text-xs text-fg-1"
-      >
-        <option value="claude">Claude</option>
-        <option value="grok">Grok</option>
-      </select>
-      <Button size="sm" loading={busy} onClick={() => void submit()}>Add</Button>
-      <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-      {err && <span className="text-xs text-signal-alarm">{err}</span>}
-    </div>
   )
 }
 
@@ -756,32 +439,20 @@ export function Dashboard() {
           </Card>
         ) : null}
 
-        {/* Account Cards */}
-        {loading && !accounts ? (
-          <div>
-            <SectionHeading>Subscription Accounts</SectionHeading>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Card key={i}>
-                  <Skeleton className="h-4 w-24" />
-                  <SkeletonText lines={3} />
-                </Card>
-              ))}
-            </div>
+        {/* Subscription seats — the same list and actions as Settings → Seats,
+            so there is one way to add, sign in, reconnect and remove a seat. */}
+        <section aria-labelledby="dashboard-seats">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 id="dashboard-seats" className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">Subscription seats</h3>
+            <Link
+              to="/settings/seats"
+              className="inline-flex min-h-[44px] items-center rounded-md px-2 text-[12.5px] font-medium text-accent-hover underline-offset-2 transition-colors duration-fast ease-out hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]"
+            >
+              Manage seats
+            </Link>
           </div>
-        ) : accounts ? (
-          <div>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">Subscription Accounts</h3>
-              <AddAccountButton onAdded={fetchData} />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {accounts.accounts.map((account) => (
-                <AccountCard key={account.id} account={account} onChanged={fetchData} />
-              ))}
-            </div>
-          </div>
-        ) : null}
+          <SeatPool refreshMs={15_000} />
+        </section>
 
         {/* Models configuration */}
         <ModelsModule />

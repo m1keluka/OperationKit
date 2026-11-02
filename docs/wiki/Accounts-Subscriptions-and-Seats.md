@@ -54,6 +54,21 @@ API: `POST /api/admin/seats/claude-oauth/start` (optional `seatId` to reconnect)
 
 **The installer works the same way.** `install/claude-login.sh` (with `CLAUDE_AUTH=login`) prints the **Sign in with Claude** link and waits for you to paste the code. Typing is hidden. It then checks the token with the same `CLAUDE-OK` call. Pasting a setup token at that prompt also works, and `--token` skips the link altogether.
 
+### One place to manage seats (Dashboard = Settings → Seats)
+
+The Dashboard's **Subscription seats** panel is the same seat list as **Settings → Seats**, with the same actions. There is no second "accounts" flow. **Manage seats** on the panel opens Settings → Seats, which adds the engine-failover setting.
+
+- **Every card names its engine** (`CLAUDE`, `CODEX`, `GROK`) next to the seat's label.
+- **Add** exists for every engine: **Add Claude seat**, **Add Codex seat**, **Add Grok seat**. Claude opens Sign in with Claude. Codex and Grok create the seat and start the device login.
+- **Remove** works for every seat. A seat running a session is refused with a message (disable it, let the session finish, then remove). A removed seat stays removed, even one the server would otherwise re-create: a `CC_SEAT_POOL_DEFAULTS` seed, the server-token seat, or the legacy single Codex / Grok login. The router state keeps those ids in `removedSeatIds`. Adding a new seat never reuses a removed one.
+- **Every Connect / Reconnect click shows something**: the sign-in link, or the reason it could not start.
+- **A seat with no usable sign-in says so.** It shows **Not signed in** (Codex / Grok) or **Needs a token** (Claude) instead of **Healthy**. The seat summary carries `credential.usable` for this.
+
+**Claude seats on a CLI login (older installs).** Sandboxed sessions (`SESSION_ISOLATION=docker`) cannot use a Claude CLI login: the jail never sees the seat's home directory. Those seats used to show "Connected" and then stay Unavailable. Now:
+
+- They show **Needs Sign in with Claude** and a **Reconnect with Sign in with Claude** button. Signing in converts the seat **in place** to a setup token: same id, label, priority and history. The summary flag is `credential.needsClaudeSignIn`.
+- While the jail is on, the server never creates or reconnects a Claude CLI login. The old routes `POST /api/admin/accounts` (`kind: claude`) and `POST /api/admin/accounts/:id/connect/start` (Claude seat) return **409** `{ code: "claude_cli_login_jailed", manage: "/settings/seats" }`. On a host (tmux) install without the jail, CLI-login Claude seats keep working as before.
+
 ## How a session gets a seat
 
 Every session picks a seat first, then builds its sign-in from that seat:

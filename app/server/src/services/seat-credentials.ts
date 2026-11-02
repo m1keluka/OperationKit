@@ -111,6 +111,14 @@ export interface SeatSummary {
     addedAt: string | null
     expiresAt: string | null
     expiry: 'expired' | 'expiring' | null
+    /** Can a session started now use this credential (jail rules included)? */
+    usable: boolean
+    /**
+     * A Claude seat on the CLI's own login files that sessions cannot use
+     * (the jail never sees the seat's HOME, or the login is gone). The fix is
+     * "Sign in with Claude", which converts the seat to a setup token in place.
+     */
+    needsClaudeSignIn: boolean
   }
   sessions: { active: number; today: number }
   usageToday: { tokens: number; cost: number }
@@ -126,14 +134,17 @@ export interface SeatSummary {
  * path), no secret key name, no value — only what the screen needs.
  */
 export function maskSeat(
-  seat: AccountSlot & { available?: boolean },
+  seat: AccountSlot & { available?: boolean; credentialUsable?: boolean },
   now = Date.now(),
 ): SeatSummary {
   const health = seatHealth(seat, now)
+  const kind = seatKind(seat)
+  const usable = seat.credentialUsable ?? true
+  const cliLogin = seat.credentialKind !== 'setup_token'
   return {
     id: seat.id,
     label: seat.customLabel || seat.label,
-    kind: seatKind(seat),
+    kind,
     priority: seat.priority ?? 0,
     enabled: seat.enabled !== false,
     health,
@@ -146,6 +157,8 @@ export function maskSeat(
       addedAt: seat.credentialAddedAt || null,
       expiresAt: seat.credentialExpiresAt || null,
       expiry: expiryStatus(seat.credentialExpiresAt, now),
+      usable,
+      needsClaudeSignIn: kind === 'claude' && cliLogin && seat.id !== SANDBOX_ACCOUNT_ID && !usable,
     },
     sessions: { active: seat.activeSessions.length, today: seat.sessionsToday },
     usageToday: { tokens: seat.tokensToday, cost: seat.costToday },

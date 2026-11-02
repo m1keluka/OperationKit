@@ -9,7 +9,7 @@
  * Claude seats sign in from the browser (SeatClaudeSignIn — the in-app
  * `claude setup-token`); pasting a setup token stays as the fallback.
  */
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { useWorkspaces } from '../../hooks/useWorkspaces'
 import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, cn, useConfirm } from '../../components/ui'
@@ -39,6 +39,10 @@ export interface SeatSummary {
     addedAt: string | null
     expiresAt: string | null
     expiry: 'expired' | 'expiring' | null
+    /** Can a session started now use this credential? (absent on older servers) */
+    usable?: boolean
+    /** Claude seat on a CLI login sessions cannot use — fix is Sign in with Claude. */
+    needsClaudeSignIn?: boolean
   }
   sessions: { active: number; today: number }
   usageToday: { tokens: number; cost: number }
@@ -97,6 +101,15 @@ export function healthBadge(seat: Pick<SeatSummary, 'health' | 'cooldownUntil'>)
     case 'credits_exhausted': return { tone: 'amber', text: 'Credits used up' }
     case 'disabled': return { tone: 'neutral', text: 'Disabled' }
   }
+}
+
+/** The card's status chip: credential problems first, then pool health. */
+export function seatBadge(seat: Pick<SeatSummary, 'health' | 'cooldownUntil' | 'credential' | 'kind'>): ReturnType<typeof healthBadge> {
+  if (seat.credential.needsClaudeSignIn) return { tone: 'alarm', text: 'Needs Sign in with Claude' }
+  if (seat.health === 'healthy' && seat.credential.usable === false) {
+    return { tone: 'amber', text: seat.kind === 'claude' ? 'Needs a token' : 'Not signed in' }
+  }
+  return healthBadge(seat)
 }
 
 function Chevron({ up }: { up?: boolean }) {
@@ -304,8 +317,10 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
   const [rowError, setRowError] = useState('')
   const id = encodeURIComponent(seat.id)
   const name = seat.label || `${ENGINE_NAME[seat.kind]} seat`
-  const badge = healthBadge(seat)
+  const badge = seatBadge(seat)
   const isClaude = seat.kind === 'claude'
+  const needsSignIn = !!seat.credential.needsClaudeSignIn
+  const notSignedIn = !needsSignIn && seat.credential.usable === false
 
   useEffect(() => { setPriorityDraft(String(seat.priority)) }, [seat.priority])
 
@@ -425,6 +440,7 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
             </form>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
+              <Badge mono className="uppercase tracking-[0.08em]">{ENGINE_NAME[seat.kind]}</Badge>
               <h4 className="truncate font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">{name}</h4>
               <Badge tone={badge.tone}>{badge.text}</Badge>
               {seat.consecutiveFailures > 0 && (
@@ -474,6 +490,23 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
           </dd>
         </div>
       </dl>
+
+      {needsSignIn && !rotating && (
+        <div className="flex flex-col gap-3 rounded-md border border-signal-alarm/30 bg-signal-alarm/5 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-fg-1">
+            This seat is signed in with the Claude CLI, which sandboxed sessions cannot use, so it stays unavailable.
+            Sign in with Claude once to switch it to a setup token. Its name, priority and history stay.
+          </p>
+          <Button variant="primary" onClick={() => { setRotating(true); setRotateMode('signin'); setRowError('') }} disabled={!!busy}>
+            Reconnect with Sign in with Claude
+          </Button>
+        </div>
+      )}
+      {notSignedIn && !rotating && (
+        <p className="text-[12.5px] text-signal-amber">
+          {isClaude ? 'No usable token yet. Press Reconnect to sign in.' : 'Not signed in yet. Press Sign in again to finish the login.'}
+        </p>
+      )}
 
       {/* Actions */}
       <div className="flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
@@ -768,30 +801,49 @@ function FailoverPanel({ onNotice }: { onNotice: (n: Notice) => void }) {
   )
 }
 
-// ── Page ────────────────────────────────────────────────────────────────────
-export function SettingsSeats() {
+// ── Seat list (shared by Settings → Seats and the Dashboard) ────────────────
+/**
+ * Every seat, grouped by engine, with every action (add, sign in, reconnect,
+ * test, rename, priority, enable, remove). The Dashboard renders this same
+ * component, so there is exactly one way to manage seats. (obj 720368)
+ */
+export function SeatPool({ refreshMs }: { refreshMs?: number } = {}) {
   const [seats, setSeats] = useState<SeatSummary[] | null>(null)
   const [loadError, setLoadError] = useState('')
   const [provisioning, setProvisioning] = useState<ProvisioningHint | null>(null)
   const [notice, setNotice] = useState<Notice>(null)
   const { confirm, confirmDialog } = useConfirm()
 
+  // A poll that started before a local change (rename, remove, sign-in) and
+  // resolves after it must not overwrite that change with stale data — the
+  // obj 718892 "nickname reverts on poll" race. Only the newest request wins,
+  // and every local write invalidates any request already in flight.
+  const seq = useRef(0)
   const load = useCallback(async () => {
+    const mine = ++seq.current
     try {
       const res = await api.get<{ seats: SeatSummary[]; provisioning?: ProvisioningHint | null }>('/admin/seats')
+      if (mine !== seq.current) return
       setSeats(res.seats ?? [])
       setProvisioning(res.provisioning ?? null)
       setLoadError('')
     } catch (err) {
+      if (mine !== seq.current) return
       setLoadError(errText(err, 'Could not load seats.'))
       setSeats(prev => prev ?? [])
     }
   }, [])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    if (!refreshMs) return
+    const t = setInterval(() => { void load() }, refreshMs)
+    return () => clearInterval(t)
+  }, [load, refreshMs])
 
   const upsert = useCallback((seat: SeatSummary) => {
     if (!seat) return
+    seq.current++
     setSeats(list => {
       const cur = list ?? []
       // Keep the last known usage if a mutation response came back without it.
@@ -800,7 +852,10 @@ export function SettingsSeats() {
         : [...cur, seat]
     })
   }, [])
-  const removeLocal = useCallback((id: string) => setSeats(list => (list ?? []).filter(s => s.id !== id)), [])
+  const removeLocal = useCallback((id: string) => {
+    seq.current++
+    setSeats(list => (list ?? []).filter(s => s.id !== id))
+  }, [])
 
   const byKind = useMemo(() => {
     const groups: Record<SeatKind, SeatSummary[]> = { claude: [], codex: [], grok: [] }
@@ -810,12 +865,7 @@ export function SettingsSeats() {
   }, [seats])
 
   return (
-    <div className="max-w-4xl space-y-6">
-      <p className="text-[13px] leading-relaxed text-fg-2">
-        Subscriptions sessions run on. Each card uses the healthy seat with the lowest priority number for its engine;
-        a seat that hits a limit cools down and the next one takes over.
-      </p>
-
+    <div className="space-y-6">
       {notice && (
         <div aria-live="polite">
           <Alert tone={notice.ok ? 'verify' : 'alarm'}>{notice.text}</Alert>
@@ -845,13 +895,33 @@ export function SettingsSeats() {
           />
         ))
       )}
+      {confirmDialog}
+    </div>
+  )
+}
 
+// ── Page ────────────────────────────────────────────────────────────────────
+export function SettingsSeats() {
+  const [notice, setNotice] = useState<Notice>(null)
+  return (
+    <div className="max-w-4xl space-y-6">
+      <p className="text-[13px] leading-relaxed text-fg-2">
+        Subscriptions sessions run on. Each card uses the healthy seat with the lowest priority number for its engine;
+        a seat that hits a limit cools down and the next one takes over.
+      </p>
+
+      <SeatPool />
+
+      {notice && (
+        <div aria-live="polite">
+          <Alert tone={notice.ok ? 'verify' : 'alarm'}>{notice.text}</Alert>
+        </div>
+      )}
       <FailoverPanel onNotice={setNotice} />
 
       <p className="border-t border-line-soft pt-4 text-[12px] text-fg-3">
         Connect only subscriptions you own and follow each provider's terms.
       </p>
-      {confirmDialog}
     </div>
   )
 }

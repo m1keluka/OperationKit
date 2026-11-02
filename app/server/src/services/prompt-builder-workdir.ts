@@ -112,6 +112,32 @@ export function readAgentInstructions(agentName: string): string | null {
   }
 }
 
+/** Expand a leading `~` and drop trailing slashes. Relative paths are rejected (`null`). */
+function expandRepoPath(raw: string): string | null {
+  const p = raw.trim().replace(/^~(?=\/|$)/, HOME_DIR).replace(/\/+$/, '')
+  return p.startsWith('/') ? p : null
+}
+
+function isBareProjectsRoot(p: string): boolean {
+  return path.resolve(p) === path.resolve(PROJECTS_DIR) || path.resolve(p) === '/'
+}
+
+/** workspace_repos.repo_path rows for a project name, the objective's own workspace first. */
+export function loadDbRepoPaths(project: string, workspace: string): string[] {
+  try {
+    const rows = getDb()
+      .prepare(
+        `SELECT repo_path FROM workspace_repos
+          WHERE name = ? AND repo_path IS NOT NULL AND TRIM(repo_path) != ''
+          ORDER BY (workspace = ?) DESC, id ASC`,
+      )
+      .all(project, workspace) as { repo_path: string }[]
+    return rows.map(r => r.repo_path)
+  } catch {
+    return [] // table missing / DB unavailable → no fallback (still fails closed)
+  }
+}
+
 // Load workspaces config for project path resolution
 export function loadWorkspacesConfig(): Record<string, { projects: Array<{ name: string; path: string }> }> | null {
   try {
@@ -150,6 +176,8 @@ export function resolveWorkdir(
   deps: {
     workspaces?: Record<string, { projects: Array<{ name: string; path: string }> }> | null
     existsSync?: (p: string) => boolean
+    /** DB-registered checkouts for a project name (workspace_repos.repo_path). */
+    dbRepoPaths?: (project: string, workspace: string) => string[]
   } = {},
 ): string {
   const existsSync = deps.existsSync ?? fs.existsSync
@@ -174,11 +202,22 @@ export function resolveWorkdir(
         }
       }
     }
+    // Fallback: a repo registered through the Config page / admin API lives in the
+    // DB `workspace_repos` table. Fresh installs never had a workspaces.json, so
+    // without this a repo registered via POST /api/admin/workspaces/:slug/repos
+    // could never be resolved. Same rules as above: own workspace first, the path
+    // must exist, and the bare projects root is NEVER accepted.
+    const dbPaths = (deps.dbRepoPaths ?? loadDbRepoPaths)(objective.project, objective.workspace)
+    for (const raw of dbPaths) {
+      const resolved = expandRepoPath(raw)
+      if (!resolved || isBareProjectsRoot(resolved)) continue
+      if (existsSync(resolved)) return resolved
+    }
     // Project-linked but unresolvable to an existing checkout → FAIL CLOSED.
     // Do NOT fall back to the bare projects root, which would spawn an unguarded
     // session in the live tree.
     throw new Error(
-      `resolveWorkdir: objective ${objective.id} is linked to project "${objective.project}" but no workspace in workspaces.json maps it to an existing checkout. Refusing to fall back to the bare projects root "${PROJECTS_DIR}" — that would spawn an UNGUARDED session in the live checkout (obj 1451 fail-closed). Register "${objective.project}" under a workspace.`,
+      `resolveWorkdir: objective ${objective.id} is linked to project "${objective.project}" but no workspace in workspaces.json (nor any workspace_repos.repo_path) maps it to an existing checkout. Refusing to fall back to the bare projects root "${PROJECTS_DIR}" — that would spawn an UNGUARDED session in the live checkout (obj 1451 fail-closed). Register "${objective.project}" under a workspace.`,
     )
   }
   // Non-project objective → agent-based workdir (unchanged).

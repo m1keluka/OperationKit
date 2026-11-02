@@ -2,11 +2,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
+import { MemoryRouter } from 'react-router-dom'
 import { Dashboard } from './Dashboard'
 
 // obj 718892 — subscription account nicknames were reverting to the default
-// label after a periodic poll or a recheck's refetch resolved out of order
-// against a just-saved rename. These tests prove:
+// label after a periodic poll resolved out of order against a just-saved
+// rename. Since obj 720368 the Dashboard panel is the shared seat list
+// (SeatPool, polling /admin/seats), so the same guarantees are proven there:
 //   1. a rename survives a stale, slow-to-resolve poll response that started
 //      before the save but resolves after it (the actual reported bug), and
 //   2. a rename survives a plain remount (full page refresh).
@@ -42,52 +44,43 @@ vi.mock('../lib/api', () => ({
 // Neither module is under test here and both fire their own fetches on mount.
 vi.mock('./ModelsModule', () => ({ ModelsModule: () => null }))
 vi.mock('./CostModule', () => ({ CostModule: () => null }))
-vi.mock('./ConnectModal', () => ({ ConnectModal: () => null }))
 
-function accountFixture(label: string) {
+function seatFixture(label: string) {
   return {
-    accounts: [
-      {
-        id: 'b',
-        label,
-        homeDir: '/home/ccuser-b',
-        sessionsToday: 0,
-        tokensToday: 0,
-        costToday: 0,
-        lastRateLimit: null,
-        rateLimitResetsAt: null,
-        activeSessions: [],
-        available: true,
-        windows: {
-          sessionWindow: { tokens: 0, cost: 0, resetsAt: null },
-          weeklyWindow: { tokens: 0, cost: 0, resetsAt: null },
-        },
-      },
-    ],
-    queue: [],
-    earliestReset: null,
-    untrackedToday: { cost: 0, tokens: 0, sessions: 0 },
+    id: 'b',
+    label,
+    kind: 'claude',
+    priority: 0,
+    enabled: true,
+    health: 'healthy',
+    available: true,
+    cooldownUntil: null,
+    consecutiveFailures: 0,
+    credential: { kind: 'setup_token', last4: 'ab12', addedAt: null, expiresAt: null, expiry: null, usable: true, needsClaudeSignIn: false },
+    sessions: { active: 0, today: 0 },
+    usageToday: { tokens: 0, cost: 0 },
   }
 }
+const seatsFixture = (label: string) => ({ seats: [seatFixture(label)] })
 
-describe('Dashboard — subscription account nickname persistence', () => {
+describe('Dashboard — subscription seat nickname persistence', () => {
   let root: Root
   let container: HTMLDivElement
-  // One pending resolver per '/admin/accounts' call, in call order, so a test
-  // can resolve them in whatever order it needs to simulate an out-of-order
+  // One pending resolver per '/admin/seats' call, in call order, so a test can
+  // resolve them in whatever order it needs to simulate an out-of-order
   // network response.
-  let accountsResolvers: Array<(v: ReturnType<typeof accountFixture>) => void>
+  let seatsResolvers: Array<(v: ReturnType<typeof seatsFixture>) => void>
 
   beforeEach(() => {
     vi.useFakeTimers()
     apiMock.get.mockReset()
-    apiMock.put.mockReset()
-    accountsResolvers = []
+    apiMock.patch.mockReset()
+    seatsResolvers = []
     apiMock.get.mockImplementation((url: string) => {
-      if (url === '/admin/accounts') {
-        return new Promise(resolve => { accountsResolvers.push(resolve) })
+      if (url === '/admin/seats') {
+        return new Promise(resolve => { seatsResolvers.push(resolve) })
       }
-      if (url === '/admin/system') return Promise.resolve(null)
+      if (url === '/admin/accounts') return Promise.resolve({ accounts: [], queue: [], earliestReset: null })
       if (url.startsWith('/admin/rate-limits')) return Promise.resolve([])
       return Promise.resolve(null)
     })
@@ -102,60 +95,54 @@ describe('Dashboard — subscription account nickname persistence', () => {
     vi.useRealTimers()
   })
 
-  function renameButtonText() {
-    return container.querySelector('button[title="Rename"]')?.textContent ?? ''
-  }
+  const render = () => flushSync(() => { root.render(<MemoryRouter><Dashboard /></MemoryRouter>) })
+  const seatName = () => container.querySelector('[data-testid="seat-b"] h4')?.textContent ?? ''
 
   it('keeps a saved rename when a stale poll response resolves after the save', async () => {
-    flushSync(() => { root.render(<Dashboard />) })
+    render()
     await flush()
 
     // Initial mount fetch (#0) resolves with the default label.
-    expect(accountsResolvers).toHaveLength(1)
-    accountsResolvers[0](accountFixture('Secondary'))
+    expect(seatsResolvers).toHaveLength(1)
+    seatsResolvers[0](seatsFixture('Secondary'))
     await flush()
-    expect(renameButtonText()).toBe('Secondary')
+    expect(seatName()).toBe('Secondary')
 
-    // The 5s poll fires and starts fetch #1 — leave it pending, simulating a
-    // slow response already in flight when the user saves a rename.
-    await vi.advanceTimersByTimeAsync(5000)
+    // The poll fires and starts fetch #1 — leave it pending, simulating a slow
+    // response already in flight when the user saves a rename.
+    await vi.advanceTimersByTimeAsync(15_000)
     await flush()
-    expect(accountsResolvers).toHaveLength(2)
+    expect(seatsResolvers).toHaveLength(2)
 
-    // User renames the account; the PUT resolves, and the save's own refetch
-    // is fetch #2.
-    apiMock.put.mockResolvedValueOnce({ ok: true, id: 'b', label: 'Ava Team' })
-    const renameBtn = container.querySelector('button[title="Rename"]') as HTMLButtonElement
+    // User renames the seat; the PATCH resolves with the saved seat.
+    apiMock.patch.mockResolvedValueOnce({ ok: true, seat: seatFixture('Ava Team') })
+    const renameBtn = Array.from(container.querySelectorAll('[data-testid="seat-b"] button')).find(b => b.textContent?.trim() === 'Rename') as HTMLButtonElement
     flushSync(() => { renameBtn.click() })
-    const input = container.querySelector('input') as HTMLInputElement
+    const input = container.querySelector('#seat-label-b') as HTMLInputElement
     flushSync(() => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
       setter.call(input, 'Ava Team')
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    flushSync(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    flushSync(() => { (input.closest('form') as HTMLFormElement).requestSubmit() })
     await flush()
 
-    expect(apiMock.put).toHaveBeenCalledWith('/admin/accounts/b/label', { label: 'Ava Team' })
-    expect(accountsResolvers).toHaveLength(3)
-    // Resolve fetch #2 (the save's refetch) with the new name.
-    accountsResolvers[2](accountFixture('Ava Team'))
-    await flush()
-    expect(renameButtonText()).toBe('Ava Team')
+    expect(apiMock.patch).toHaveBeenCalledWith('/admin/seats/b', { label: 'Ava Team' })
+    expect(seatName()).toBe('Ava Team')
 
     // Now the STALE poll (#1), which started before the rename, finally
     // resolves with the pre-rename payload. It must NOT clobber the display.
-    accountsResolvers[1](accountFixture('Secondary'))
+    seatsResolvers[1](seatsFixture('Secondary'))
     await flush()
-    expect(renameButtonText()).toBe('Ava Team')
+    expect(seatName()).toBe('Ava Team')
   })
 
   it('keeps a saved rename across a remount (full page refresh)', async () => {
-    flushSync(() => { root.render(<Dashboard />) })
+    render()
     await flush()
-    accountsResolvers[0](accountFixture('Ava Team'))
+    seatsResolvers[0](seatsFixture('Ava Team'))
     await flush()
-    expect(renameButtonText()).toBe('Ava Team')
+    expect(seatName()).toBe('Ava Team')
 
     // Simulate a hard refresh: unmount and remount against the same (now
     // server-persisted) data.
@@ -164,12 +151,12 @@ describe('Dashboard — subscription account nickname persistence', () => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
-    accountsResolvers = []
+    seatsResolvers = []
 
-    flushSync(() => { root.render(<Dashboard />) })
+    render()
     await flush()
-    accountsResolvers[0](accountFixture('Ava Team'))
+    seatsResolvers[0](seatsFixture('Ava Team'))
     await flush()
-    expect(renameButtonText()).toBe('Ava Team')
+    expect(seatName()).toBe('Ava Team')
   })
 })

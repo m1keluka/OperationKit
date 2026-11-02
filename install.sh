@@ -95,6 +95,13 @@ run install -d -m 1777 "$OK_STATE/tmp"
 run install -d -m 700 "$OK_SECRETS"
 # Sandboxes run as uid 1000 and write into session folders under these roots.
 for d in projects ai-workspace second-brain transcripts assistant; do run install -d -m 777 "$OK_STATE/home/$d"; done
+# Project registry the server resolves session workdirs from. Repos registered in
+# the app are added to it; never overwrite one that already exists.
+WS_JSON="$OK_STATE/home/ai-workspace/workspaces.json"
+if [ ! -e "$WS_JSON" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then printf '  [dry-run] create %s\n' "$WS_JSON"
+  else printf '{"workspaces":{}}\n' > "$WS_JSON" && chmod 664 "$WS_JSON"; fi
+fi
 mark "2 folders"
 
 # ── 3. Secrets (generated here, never printed) ────────────────────────────────
