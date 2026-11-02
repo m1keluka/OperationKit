@@ -72,6 +72,17 @@ function objectiveIdOf(branch: string): string | null {
 const INTEGRATION_BASES = new Set(['main', 'master', 'redesign'])
 
 /**
+ * True for the sanctioned shared integration-staging branch convention
+ * (CLAUDE.md, PR #566 / obj 718329): sibling features converge on one
+ * throwaway branch like `test/<feature>-integration`, `integration/<feature>`,
+ * or a ponytail sweep's `combined/*` / `tmp/*` lane before any of them merges
+ * to main. Matches a staging-prefixed branch OR the bare `integration` name.
+ */
+function isIntegrationStagingRef(bare: string): boolean {
+  return bare === 'integration' || /^(test|integration|staging|combined|tmp)\//.test(bare)
+}
+
+/**
  * Inspect a Bash command string for git operations that create or push a branch
  * OTHER than the one this objective owns — the signature of branch scope-bleed
  * (e.g. obj 841's session pushing `obj-loops-kanban`). Returns the offending
@@ -148,6 +159,13 @@ export function detectBranchBleed(command: string, ownedBranch: string): string 
     // scope-split. A DIFFERENT embedded id (or none) still gets flagged.
     const candId = objectiveIdOf(name)
     if (ownedId && candId && candId === ownedId) continue
+    // Shared integration-staging branch (CLAUDE.md convention, obj 718329): a
+    // staging-looking branch that carries NO embedded objective id is the
+    // sanctioned shared convergence lane, not a takeover. One that DOES embed a
+    // DIFFERENT objective's id (e.g. test/obj999999-foo) still gets flagged —
+    // that preserves detection of a genuine cross-objective takeover riding the
+    // staging-name convention.
+    if ((isIntegrationStagingRef(name) || isIntegrationStagingRef(bare)) && !candId) continue
     return name
   }
   return null
