@@ -43,6 +43,13 @@ export interface DeterministicIntel {
    * fails (obj 712954). Optional so hand-built intel literals stay valid.
    */
   finalResultText?: string
+  /**
+   * True when the TERMINAL `result` event is a clean success carrying answer
+   * text. Lets the no-op-spawn guard tell a pure-answer card (0 tool calls,
+   * legitimately done) from a spawn that never produced output. Optional so
+   * hand-built intel literals stay valid.
+   */
+  completedWithAnswer?: boolean
 }
 
 // ── Deterministic Parser (Phase A — $0 cost) ──
@@ -63,6 +70,7 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
   let startedAt = ''
   let endedAt = ''
   let durationMs = 0
+  let completedWithAnswer = false
   let lastTs = ''
   // Set/cleared on every `result` event so the FINAL value reflects the
   // terminal turn only — a transient 429 mid-run that later recovered to a
@@ -201,6 +209,14 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
       truncatedByUsageLimit =
         event.api_error_status === 429 ||
         /hit your (session|usage) limit|monthly spend limit|resets \d/i.test(resultText)
+      // Terminal turn ended cleanly WITH an answer (success, not an error, non-empty
+      // text, not a 429 cut). Assigned per result so only the LAST turn counts.
+      completedWithAnswer =
+        event.is_error !== true &&
+        event.subtype === 'success' &&
+        typeof event.result === 'string' &&
+        event.result.trim().length > 0 &&
+        !truncatedByUsageLimit
 
       const usage = (event.usage as Record<string, unknown> | undefined) || {}
       const turnTokens =
@@ -290,6 +306,7 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
     }),
     truncatedByUsageLimit,
     finalResultText,
+    completedWithAnswer,
   }
 }
 

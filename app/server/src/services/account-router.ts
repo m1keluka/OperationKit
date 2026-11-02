@@ -78,6 +78,11 @@ export interface QueuedSession {
 export interface RouterState {
   version?: number         // 2 = seat pool v2 fields migrated
   accounts: AccountSlot[]
+  // Ids of seats an operator removed that the server would otherwise re-create
+  // on the next load (a CC_SEAT_POOL_DEFAULTS seed, the server-token seat, the
+  // legacy single Codex / Grok login). Without this, Remove "worked" and the
+  // seat came straight back.
+  removedSeatIds?: string[]
   queue: QueuedSession[]
   lastResetDate: string    // YYYY-MM-DD, resets daily counters
 }
@@ -158,9 +163,10 @@ export function migrateSeatRecord(slot: AccountSlot): AccountSlot {
  *   is promoted to customLabel — that is how pre-customLabel renames survive).
  * - Seats that exist only in the save are kept.
  */
-export function mergeAccountRecords(defaults: AccountSlot[], saved: AccountSlot[]): AccountSlot[] {
+export function mergeAccountRecords(defaults: AccountSlot[], saved: AccountSlot[], removed: string[] = []): AccountSlot[] {
   const savedById = new Map(saved.map(a => [a.id, a]))
-  const merged: AccountSlot[] = defaults.map(def => {
+  const gone = new Set(removed)
+  const merged: AccountSlot[] = defaults.filter(def => savedById.has(def.id) || !gone.has(def.id)).map(def => {
     const s = savedById.get(def.id)
     if (!s) return { ...def }
     const custom =
@@ -177,7 +183,7 @@ export function mergeAccountRecords(defaults: AccountSlot[], saved: AccountSlot[
       usageLog: s.usageLog || [],
     }
   })
-  const defaultIds = new Set(defaults.map(d => d.id))
+  const defaultIds = new Set(merged.map(d => d.id))
   for (const s of saved) {
     if (defaultIds.has(s.id)) continue
     merged.push({
@@ -260,8 +266,17 @@ export function addAccountSlot(opts: AddSeatInput = {}): AccountSlot {
   }
   if (opts.credentialExpiresAt) slot.credentialExpiresAt = opts.credentialExpiresAt
   state.accounts.push(slot)
+  unmarkRemoved(id)
   saveState()
   return slot
+}
+
+function unmarkRemoved(id: string): void {
+  if (state.removedSeatIds?.includes(id)) state.removedSeatIds = state.removedSeatIds.filter(x => x !== id)
+}
+
+function wasRemoved(id: string): boolean {
+  return !!state.removedSeatIds?.includes(id)
 }
 
 // ── State Management ──
@@ -295,7 +310,8 @@ function loadState(): void {
       // priorities and homeDirs set from Settings survive a reload. Every record
       // is brought up to v2 in place — history (usageLog, the rate-limit log,
       // session attribution by seat id) is untouched.
-      state.accounts = mergeAccountRecords(loadSeatDefaults(), loaded.accounts || []).map(migrateSeatRecord)
+      state.removedSeatIds = Array.isArray(loaded.removedSeatIds) ? loaded.removedSeatIds.filter(x => typeof x === 'string') : []
+      state.accounts = mergeAccountRecords(loadSeatDefaults(), loaded.accounts || [], state.removedSeatIds).map(migrateSeatRecord)
       state.queue = loaded.queue || []
       state.lastResetDate = loaded.lastResetDate || todayStr()
       state.version = 2
@@ -308,7 +324,7 @@ function loadState(): void {
   // sessions, surfaced as one fallback seat. It is only USED when no pasted
   // Claude setup-token seat exists (see seatUsable), so an install with no seats
   // configured keeps working exactly as before.
-  if (sandboxAuthConfigured() && !state.accounts.some(a => a.id === SANDBOX_ACCOUNT_ID)) {
+  if (sandboxAuthConfigured() && !wasRemoved(SANDBOX_ACCOUNT_ID) && !state.accounts.some(a => a.id === SANDBOX_ACCOUNT_ID)) {
     state.accounts.push(migrateSeatRecord({
       id: SANDBOX_ACCOUNT_ID, label: 'Server Claude token (sandboxed sessions)', priority: 0,
       homeDir: path.join(SEAT_HOME_ROOT, SANDBOX_ACCOUNT_ID), sessionsToday: 0, tokensToday: 0, costToday: 0,
@@ -320,7 +336,7 @@ function loadState(): void {
   // one seat each, so an install that never opened Settings → Seats keeps
   // running exactly as before. Skipped as soon as any seat of that kind exists.
   for (const [kind, id, home] of [['codex', 'codex', LEGACY_CODEX_HOME], ['grok', 'grok', GROK_HOME_DIR]] as const) {
-    if (state.accounts.some(a => seatKind(a) === kind)) continue
+    if (wasRemoved(id) || state.accounts.some(a => seatKind(a) === kind)) continue
     const legacy = migrateSeatRecord(emptySlot(id, kind, home))
     try { if (fs.statSync(seatLoginFile(legacy)).size > 8) state.accounts.push(legacy) } catch { /* not connected */ }
   }
@@ -1038,7 +1054,7 @@ export interface AccountWindowUsage {
 }
 
 export function getRouterStatus(): {
-  accounts: Array<AccountSlot & { available: boolean; health: SeatHealth; windows: AccountWindowUsage }>
+  accounts: Array<AccountSlot & { available: boolean; health: SeatHealth; credentialUsable: boolean; windows: AccountWindowUsage }>
   queue: QueuedSession[]
   earliestReset: string | null
 } {
@@ -1050,6 +1066,7 @@ export function getRouterStatus(): {
       usageLog: [], // don't send full log to client
       available: isAccountAvailable(a),
       health: seatHealth(a, Date.now()),
+      credentialUsable: seatCredentialUsable(a),
       windows: {
         sessionWindow: {
           ...getUsageInWindow(a, SESSION_WINDOW_MS),
@@ -1130,6 +1147,7 @@ export function ensureLegacySeat(kind: 'codex' | 'grok'): AccountSlot {
     ensureAccountHome(home)
     seat = migrateSeatRecord(emptySlot(kind, kind, home))
     state.accounts.push(seat)
+    unmarkRemoved(kind)
     saveState()
   }
   return seat
@@ -1198,6 +1216,9 @@ export function removeSeat(accountId: string): { removed: AccountSlot | null; er
   const account = state.accounts[idx]
   if (account.activeSessions.length > 0) return { removed: null, error: 'seat_in_use' }
   state.accounts.splice(idx, 1)
+  // Tombstone the id so a seed / legacy / server-token seat is not re-created
+  // on the next load. Harmless for an ordinary seat (re-adding clears it).
+  state.removedSeatIds = [...new Set([...(state.removedSeatIds || []), accountId])]
   saveState()
   return { removed: account }
 }

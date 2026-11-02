@@ -10,6 +10,7 @@ import { getDb } from '../db/index.js'
 import { resolveWorkdir } from './prompt-builder.js'
 import { deriveBranchName } from './branch-scope.js'
 import { TMUX_SCRIPT_DIR } from './session-tmux.js'
+import { bestEffortFetch, resolveGitFetchToken } from './repo-git-auth.js'
 
 export type WorktreeIsolation = { projectDir: string; worktreePath: string; sessionId: string }
 
@@ -153,11 +154,11 @@ export function ensureWorktree(objective: Objective, branchName: string): string
     // server (root) has no GitHub SSH auth, so `fetch origin` fails here. A fetch
     // failure must NOT abort isolation: that would fail open into the live
     // checkout. Refresh when we can; otherwise proceed on local refs.
-    try {
-      execSync(`git -C ${JSON.stringify(projectDir)} fetch origin --quiet`, { timeout: 30000, stdio: 'pipe' })
-    } catch (e) {
-      console.warn(`[session-manager] ensureWorktree: best-effort fetch failed for ${projectDir} (continuing on local refs): ${e instanceof Error ? e.message : e}`)
-    }
+    // With a stored GitHub token (owner PAT → workspace integration → server env)
+    // the fetch authenticates via a credential-helper script that reads the token
+    // from the git child's env — never argv, never the remote URL, never logged.
+    // No token → the exact unauthenticated command as before. Never fatal.
+    bestEffortFetch(projectDir, resolveGitFetchToken(objective), { helperDir: TMUX_SCRIPT_DIR })
     execSync(`git -C ${JSON.stringify(projectDir)} worktree prune`, { timeout: 10000, stdio: 'pipe' })
     const base = resolveWorktreeBase(objective, projectDir)
     // Does the branch already exist (PR reopened / prior spawn)? If so attach to

@@ -18,7 +18,8 @@ import {
   sweepOrphanWorkerTmux,
   transcriptHasPendingWork,
 } from './session-manager.js'
-import { tmuxSessionAlive } from './session-tmux.js'
+import { resolveSessionTranscript, tmuxSessionAlive } from './session-tmux.js'
+import { jailEnabled } from './session-jail.js'
 import { authParkReason, isAuthFailureMessage, recordAuthFailure } from './account-router.js'
 import {
   isFloorActiveForProject,
@@ -128,6 +129,17 @@ export const noopRespawnCounts = new Map<number, number>()
 // 30 min: Fable 5 at high effort can think for many minutes inside one turn
 // with no JSONL writes — 10 min produced false stuck alerts on the best sessions.
 const IDLE_THRESHOLD_MS = 30 * 60 * 1000
+
+/**
+ * A worker's transcript. tmux mode: the canonical TRANSCRIPT_DIR path, exactly as
+ * before. Jail mode: falls back to the jail-home bind when the canonical symlink
+ * is missing — otherwise the no-op check would parse an absent file as a 0-tool
+ * session and re-spawn a jail that actually did the work.
+ */
+function workerTranscriptPath(sessionId: string): string {
+  const canonical = path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
+  return jailEnabled() ? resolveSessionTranscript(canonical, sessionId) : canonical
+}
 export const stuckAlerted = new Set<string>() // Avoid re-alerting same session
 export const watchdogRouted = new Set<string>() // Avoid re-routing a session the watchdog already force-routed
 
@@ -350,7 +362,7 @@ export async function pollActiveSessions(): Promise<void> {
 
     // Stuck session detection
     if (detectedState === 'working' && !stuckAlerted.has(objective.session_id!)) {
-      const jsonlPath = path.join(TRANSCRIPT_DIR, `${objective.session_id}.jsonl`)
+      const jsonlPath = workerTranscriptPath(objective.session_id!)
       try {
         const stat = fs.statSync(jsonlPath)
         const idleMs = Date.now() - stat.mtimeMs
@@ -402,7 +414,7 @@ export async function pollActiveSessions(): Promise<void> {
     // is by design while they wait on workers.
     if (detectedState === 'working' && !watchdogRouted.has(objective.session_id!) && !objective.delegate_mode) {
       try {
-        const jsonlPath = path.join(TRANSCRIPT_DIR, `${objective.session_id}.jsonl`)
+        const jsonlPath = workerTranscriptPath(objective.session_id!)
         const stat = fs.statSync(jsonlPath)
         const now = Date.now()
         const idleMs = now - stat.mtimeMs
@@ -636,7 +648,7 @@ export async function pollActiveSessions(): Promise<void> {
         !isPrAutolinkKilled(db)
       ) {
         try {
-          const transcript = fs.readFileSync(path.join(TRANSCRIPT_DIR, `${objective.session_id}.jsonl`), 'utf-8')
+          const transcript = fs.readFileSync(workerTranscriptPath(objective.session_id!), 'utf-8')
           const linked = await relinkPrFromTranscript(db, objective, transcript.split('\n'), realGhExec)
           if (linked.linked) {
             if (linked.pr_number != null) objective.pr_number = linked.pr_number
@@ -667,7 +679,7 @@ export async function pollActiveSessions(): Promise<void> {
         let authFailureText: string | null = null
         try {
           const intel = await extractDeterministic(
-            path.join(TRANSCRIPT_DIR, `${objective.session_id}.jsonl`)
+            workerTranscriptPath(objective.session_id!)
           )
           decision = classifyNoOpSpawn(
             {
@@ -675,6 +687,7 @@ export async function pollActiveSessions(): Promise<void> {
               filesCreated: intel.filesCreated.length,
               filesModified: intel.filesModified.length,
               durationMs: intel.durationMs,
+              completedWithAnswer: intel.completedWithAnswer,
             },
             noopRespawnCounts.get(objective.id) || 0
           )

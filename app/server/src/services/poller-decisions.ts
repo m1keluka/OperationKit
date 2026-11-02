@@ -65,11 +65,15 @@ export function decideDeadSessionRepark(
 }
 
 export function classifyNoOpSpawn(
-  intel: { toolCalls: number; filesCreated: number; filesModified: number; durationMs?: number },
+  intel: { toolCalls: number; filesCreated: number; filesModified: number; durationMs?: number; completedWithAnswer?: boolean },
   priorAttempts: number,
   maxRespawns: number = MAX_NOOP_RESPAWNS
 ): NoOpDecision {
-  const isNoOp = intel.toolCalls === 0 && intel.filesCreated === 0 && intel.filesModified === 0
+  // A session whose terminal turn is a clean, non-empty success ANSWERED — a
+  // pure-answer card legitimately needs 0 tool calls. That is "completed with no
+  // tools", not "spawn never produced output": never re-spawn or block it. It
+  // falls through to the short-session rule below like any other empty-tree run.
+  const isNoOp = intel.toolCalls === 0 && intel.filesCreated === 0 && intel.filesModified === 0 && !intel.completedWithAnswer
   if (isNoOp) {
     if (priorAttempts < maxRespawns) return { isNoOp: true, action: 'respawn', attempt: priorAttempts + 1 }
     return { isNoOp: true, action: 'block' }

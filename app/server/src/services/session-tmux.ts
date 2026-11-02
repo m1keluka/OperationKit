@@ -2,7 +2,7 @@
  * tmux spawn wrapper — extracted from session-manager.ts (behavior frozen).
  * Does not own the live-session table; that lives in session-registry.ts.
  */
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { PROJECTS_DIR, SECOND_BRAIN_DIR, AI_WORKSPACE_DIR } from '../config.js'
@@ -158,10 +158,117 @@ function snapshotTmuxSessions(): { ok: boolean; names: Set<string> } {
 /** Test-only: drop the snapshot so the next call shells out again. */
 export function resetTmuxListCache(): void {
   tmuxListCache = null
+  jailListCache = null
 }
 
-/** Check if a tmux session exists */
-export function tmuxSessionAlive(tmuxName: string): boolean {
+// ── Jail-aware liveness (SESSION_ISOLATION=docker) ──
+// A jailed session's tmux runs INSIDE its sibling container `ok-jail-<id>`, so
+// the host `tmux ls` above never sees it. Before this, getSessionState decided a
+// jailed session was dead seconds after spawn (no host tmux, no `result` yet) and
+// the poller flipped the card to review + nulled session_id while the jail kept
+// working (OVH install, cards #59 / #64).
+//
+// One `docker ps` per TTL lists the RUNNING jails by their `ok.session` label —
+// the same "one snapshot per poll tick" shape as the host tmux cache, never a
+// per-session docker exec on the event loop. Container running ⇒ its tmux
+// session exists: the jail's PID 1 is
+//   tmux new-session -d -s <sid> …; while tmux has-session -t <sid>; do sleep 5; done
+// (spawnInTmux below), so the container exits within 5s of its tmux session
+// ending (`--restart no`), and `docker ps` without `-a` lists running only. In
+// that ≤5s window getSessionState still reads the transcript's `result` event,
+// so a finished session routes to review on time.
+let jailListCache: { at: number; names: Set<string> } | null = null
+export const JAIL_LIST_TTL_MS = 2000
+
+/** Injectable `docker ps` runner (tests substitute a fake). Returns stdout. */
+export type JailPsRunner = () => string
+
+export const JAIL_PS_ARGV = [
+  'ps',
+  '--filter', 'label=ok.session',
+  '--filter', 'status=running',
+  '--format', '{{.Label "ok.session"}}',
+] as const
+
+const defaultJailPsRunner: JailPsRunner = () =>
+  execFileSync('docker', [...JAIL_PS_ARGV], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] })
+
+let jailPsRunner: JailPsRunner = defaultJailPsRunner
+
+/** Test-only: swap the docker runner (null restores the real one). Also drops the cache. */
+export function __setJailPsRunnerForTests(r: JailPsRunner | null): void {
+  jailPsRunner = r ?? defaultJailPsRunner
+  jailListCache = null
+}
+
+let lastJailPsWarnAt = 0
+
+/**
+ * Snapshot of session ids whose jail container is running. `ok: false` on any
+ * docker failure — and a failure is NEVER cached, mirroring the tmux snapshot,
+ * so one transient daemon hiccup cannot mark every jail dead for a TTL.
+ */
+export function snapshotJailSessions(nowMs: number = Date.now()): { ok: boolean; names: Set<string> } {
+  if (jailListCache && nowMs - jailListCache.at < JAIL_LIST_TTL_MS) {
+    return { ok: true, names: jailListCache.names }
+  }
+  try {
+    const out = jailPsRunner()
+    const names = new Set(out.split('\n').map(s => s.trim()).filter(Boolean))
+    jailListCache = { at: nowMs, names }
+    return { ok: true, names }
+  } catch (err) {
+    if (nowMs - lastJailPsWarnAt > 60_000) {
+      lastJailPsWarnAt = nowMs
+      console.warn(`[session-jail] docker ps failed — treating jailed sessions as alive this tick (fail-safe): ${(err as Error).message?.split('\n')[0] ?? err}`)
+    }
+    return { ok: false, names: new Set() }
+  }
+}
+
+const SAFE_SESSION_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/
+
+/** Host-side transcript/script dir of a jailed session (inside its HOME bind). */
+export function jailSessionDir(sessionId: string): string | null {
+  if (!SAFE_SESSION_NAME.test(sessionId)) return null
+  return path.join(JAIL_HOME_ROOT, sessionId, '.cc')
+}
+
+/** True when `sessionId` was spawned into a jail by this host (its HOME bind exists). */
+export function isJailSession(sessionId: string): boolean {
+  if (!SAFE_SESSION_NAME.test(sessionId)) return false
+  try { return fs.existsSync(path.join(JAIL_HOME_ROOT, sessionId)) } catch { return false }
+}
+
+/**
+ * Resolve a session transcript for reading. The canonical path (TRANSCRIPT_DIR)
+ * is normally a symlink onto the jail-home file; if that link is missing (its
+ * creation failed, or the transcript dir was reset) read the jail-home bind
+ * directly. Non-jail sessions — and any canonical path that exists — return the
+ * canonical path unchanged.
+ */
+export function resolveSessionTranscript(canonicalPath: string, sessionId: string, ext: 'jsonl' | 'log' = 'jsonl'): string {
+  try { if (fs.existsSync(canonicalPath)) return canonicalPath } catch { return canonicalPath }
+  const dir = jailSessionDir(sessionId)
+  if (!dir) return canonicalPath
+  const jailPath = path.join(dir, `${sessionId}.${ext}`)
+  try { if (fs.existsSync(jailPath)) return jailPath } catch {}
+  return canonicalPath
+}
+
+/**
+ * Jail-mode liveness for one session:
+ *   true  — its jail container is running (⇒ its in-jail tmux session exists)
+ *   false — docker answered and no running jail carries this session
+ *   null  — docker could not be asked (transient error) → caller decides fail-safe
+ */
+export function jailSessionAlive(sessionId: string, nowMs: number = Date.now()): boolean | null {
+  const snap = snapshotJailSessions(nowMs)
+  if (!snap.ok) return null
+  return snap.names.has(sessionId)
+}
+
+function hostTmuxSessionAlive(tmuxName: string): boolean {
   const snap = snapshotTmuxSessions()
   if (snap.ok) return snap.names.has(tmuxName)
   try {
@@ -170,6 +277,25 @@ export function tmuxSessionAlive(tmuxName: string): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Check if a session's tmux exists.
+ *
+ * SESSION_ISOLATION unset/tmux → the host-tmux check, byte-identical to before.
+ * SESSION_ISOLATION=docker     → alive if its jail is running; a host tmux
+ * session of the same name (one spawned before the flag flipped) still counts.
+ * A docker error never marks a jailed session dead: when `docker ps` fails and
+ * the session has a jail HOME on this host, it is reported alive until docker
+ * answers again (the next poll tick re-asks — failures are not cached).
+ */
+export function tmuxSessionAlive(tmuxName: string): boolean {
+  if (!jailEnabled()) return hostTmuxSessionAlive(tmuxName)
+  const jail = jailSessionAlive(tmuxName)
+  if (jail === true) return true
+  if (hostTmuxSessionAlive(tmuxName)) return true
+  if (jail === null && isJailSession(tmuxName)) return true
+  return false
 }
 
 export function spawnInTmux(opts: {

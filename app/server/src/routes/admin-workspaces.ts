@@ -29,10 +29,25 @@ import {
   listIntegrations,
 } from '../services/workspace-integrations.js'
 import { listPosthogBotDevItems } from '../services/dev-items.js'
+import { upsertWorkspacesJsonProject } from '../services/workspaces-json.js'
+import { ensureRepoCredentialHelper } from '../services/repo-git-auth.js'
 import type { IntegrationKind } from '@operationkit/shared'
 
 const router = Router()
 router.use(requireAuth, requireAdmin)
+
+/**
+ * After a repo is registered (or its path changes): record it in workspaces.json
+ * so session spawns resolve it, and give the checkout a repo-local
+ * `!gh auth git-credential` helper so https pushes from sessions authenticate.
+ * Both best-effort — registration itself never fails on them.
+ */
+function syncRegisteredRepo(workspace: string, name: string, repoPath: string): void {
+  try { upsertWorkspacesJsonProject({ workspace, name, repoPath }) } catch (err) {
+    console.warn('[admin-workspaces] workspaces.json sync failed:', (err as Error).message)
+  }
+  try { ensureRepoCredentialHelper(repoPath) } catch { /* best-effort */ }
+}
 
 function isValidWorkspace(ws: unknown): ws is string {
   return typeof ws === 'string' && workspaceExists(ws)
@@ -171,6 +186,7 @@ router.post('/:slug/repos', (req: AuthRequest, res) => {
   const repo = createWorkspaceRepo({
     workspace: slug, name, description, github, repo_path, stack, docs_path, docs_enabled,
   })
+  if (repo_path) syncRegisteredRepo(slug, name, repo_path)
   res.status(201).json(repo)
 })
 
@@ -196,6 +212,7 @@ router.patch('/:slug/repos/:id', (req: AuthRequest, res) => {
     res.status(404).json({ error: 'Repo not found' })
     return
   }
+  if (typeof patch.repo_path === 'string' && updated.repo_path) syncRegisteredRepo(slug, updated.name, updated.repo_path)
   res.json(updated)
 })
 

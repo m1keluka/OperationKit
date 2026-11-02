@@ -192,6 +192,7 @@ export function getAccountRouterStatus() {
       usageLog: [],
       available,
       health: available ? 'healthy' : 'needs_reconnect',
+      credentialUsable: available,
       windows: {
         sessionWindow: { tokens: 0, cost: 0, resetsAt: null },
         weeklyWindow: { tokens: 0, cost: 0, resetsAt: null },

@@ -16,9 +16,9 @@ import {
 import { TRANSCRIPT_DIR, PENDING_WORK_HORIZON_MS } from '../config.js'
 import { getPersistedSpawnStart, resolveSpawnStartMs } from './session-spawn-clock.js'
 import { extractFinalUsage } from './session-usage.js'
-import { tmuxSessionAlive } from './session-tmux.js'
+import { resolveSessionTranscript, tmuxSessionAlive } from './session-tmux.js'
 import { readJsonlTail, jsonlHasResult } from './session-jsonl.js'
-import { destroyJailSync } from './session-jail.js'
+import { destroyJailSync, jailEnabled } from './session-jail.js'
 import { activeSessions, forgetSpawnClock } from './session-registry.js'
 import { detectPendingWork, type PendingWorkVerdict } from './session-pending-work.js'
 
@@ -181,6 +181,16 @@ export function transcriptHasPendingWork(
   return verdict
 }
 
+/**
+ * Transcript path a state check reads. tmux mode: exactly the pre-jail
+ * expression. Jail mode: falls back to the jail-home bind
+ * (`<JAIL_HOME_ROOT>/<sid>/.cc/<sid>.jsonl`) when the canonical symlink is missing.
+ */
+function transcriptPathFor(sessionId: string, known?: string): string {
+  const canonical = known || path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
+  return jailEnabled() ? resolveSessionTranscript(canonical, sessionId) : canonical
+}
+
 export function getSessionState(sessionId: string): 'working' | 'review' | 'dead' {
   const session = activeSessions.get(sessionId)
 
@@ -192,7 +202,7 @@ export function getSessionState(sessionId: string): 'working' | 'review' | 'dead
   if (tmuxAlive) {
     // tmux session alive — check JSONL for a result event (Claude may have
     // finished but tmux shell hasn't exited yet)
-    const jsonlPath = session?.jsonlPath || path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
+    const jsonlPath = transcriptPathFor(sessionId, session?.jsonlPath)
     // The verdict only depends on whether the LAST typed event is a `result`
     // (Claude finished but the tmux shell hasn't exited yet). Scan the transcript
     // tail from the end and stop at the first parseable typed event — O(1) per
@@ -218,7 +228,7 @@ export function getSessionState(sessionId: string): 'working' | 'review' | 'dead
   }
 
   // tmux session dead — check if it completed (has result event) or crashed
-  const jsonlPath = session?.jsonlPath || path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
+  const jsonlPath = transcriptPathFor(sessionId, session?.jsonlPath)
   if (jsonlHasResult(jsonlPath)) return 'review'
 
   // ── Legacy fallback: check in-memory process ──

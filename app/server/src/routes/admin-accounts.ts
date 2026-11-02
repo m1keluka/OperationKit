@@ -27,8 +27,28 @@ import { probeAccount } from '../services/account-probe.js'
 import { checkSlot } from '../services/account-health-check.js'
 import { grokAuthAvailable, GROK_HOME_DIR, ensureGrokCliExecutable } from '../services/session-spawn-command.js'
 import { extractGrokDeviceAuth, grokLoginSucceeded } from '../services/grok-device-auth.js'
+import { jailEnabled } from '../services/session-jail.js'
 
 const router = Router()
+
+/**
+ * Sandboxed sessions cannot use a Claude CLI login (the jail never sees the
+ * seat's HOME), so a CLI-login Claude seat would say "Connected" and then sit
+ * Unavailable forever. While the jail is on, Claude seats are added and
+ * reconnected only through Settings → Seats → "Sign in with Claude", which
+ * stores a setup token. (obj 720368)
+ */
+export const CLAUDE_CLI_LOGIN_JAILED = {
+  error: 'Sessions here run sandboxed and cannot use a Claude CLI login. Use "Sign in with Claude" in Settings → Seats instead.',
+  code: 'claude_cli_login_jailed',
+  manage: '/settings/seats',
+} as const
+
+function refuseClaudeCliLogin(res: Response): boolean {
+  if (!jailEnabled()) return false
+  res.status(409).json(CLAUDE_CLI_LOGIN_JAILED)
+  return true
+}
 
 // Account router status
 router.get('/accounts', (_req: AuthRequest, res) => {
@@ -38,6 +58,7 @@ router.get('/accounts', (_req: AuthRequest, res) => {
 router.post('/accounts', (req: AuthRequest, res) => {
   const label = typeof req.body?.label === 'string' ? req.body.label : ''
   const kind = req.body?.kind === 'grok' ? 'grok' : 'claude'
+  if (kind === 'claude' && refuseClaudeCliLogin(res)) return
   // Dashboard "Add Grok" keeps targeting the one Connect-able Grok seat;
   // more Grok / Codex seats are added in Settings → Seats.
   const created = kind === 'grok' ? ensureLegacySeat('grok') : addAccountSlot({ label, kind })
@@ -177,6 +198,7 @@ router.post('/accounts/:id/connect/start', async (req: AuthRequest, res) => {
     res.status(404).json({ error: `Unknown account slot: ${id}` })
     return
   }
+  if ((account.kind || 'claude') === 'claude' && refuseClaudeCliLogin(res)) return
   const tmuxName = `reconnect-${id}`
   try {
     execSync(`tmux kill-session -t ${tmuxName} 2>/dev/null || true`, { timeout: 5000 })

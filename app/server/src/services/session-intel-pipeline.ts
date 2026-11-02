@@ -217,6 +217,19 @@ async function processExtraction(item: QueueItem): Promise<void> {
       db.prepare("UPDATE session_intel SET extraction_status = 'summarized', outcome = 'blocked', truncated_usage_limit = 1, summary = 'Session truncated by a Claude API 429 (usage/rate limit) before any tool call. NOT a work failure — re-run when account quota resets.' WHERE session_id = ?").run(sessionId)
       return
     }
+    if (intel.completedWithAnswer) {
+      // A pure-answer card: the session finished cleanly with a non-empty final
+      // message and never needed a tool. That is a completed session, not a
+      // failed spawn — record it as success with the worker's own answer.
+      console.log(`[session-intel] ${sessionId}: completed with an answer and 0 tool calls — recording success (pure-answer session)`)
+      const answer = (intel.finalResultText || '').trim()
+      const summary = answer.length > 2000 ? `${answer.slice(0, 2000)}…` : answer
+      db.prepare("UPDATE session_intel SET extraction_status = 'summarized', outcome = 'success', summary = ? WHERE session_id = ?").run(
+        `Completed with no tool calls (answer-only session). Final answer: ${summary}`,
+        sessionId,
+      )
+      return
+    }
     console.log(`[session-intel] Skipping LLM summary for ${sessionId}: no tool calls or file changes`)
     db.prepare("UPDATE session_intel SET extraction_status = 'summarized', outcome = 'failed', summary = 'Session produced no output (0 tool calls)' WHERE session_id = ?").run(sessionId)
 
