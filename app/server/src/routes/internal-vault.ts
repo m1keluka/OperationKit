@@ -13,6 +13,7 @@ import fs from 'fs'
 import path from 'path'
 import { getDb } from '../db/index.js'
 import { rebuildContactsIndex, parseFrontmatter } from '../services/contacts.js'
+import { isLocalhost } from '../lib/is-localhost.js'
 
 const VAULT_BASE = process.env.VAULT_PATH || '/home/operator/second-brain'
 
@@ -163,11 +164,12 @@ function computeNextTouchpointLocal(lastInteraction: string | null, followUpDays
 
 const router = Router()
 
-// Localhost guard for the whole router. Defined inline so we don't have to
-// export isLocalhost from index.ts.
+// Localhost guard for the whole router. Uses the shared, socket-based
+// lib/is-localhost helper (obj 900027) — the old inline copy read `req.ip`,
+// which is X-Forwarded-For derived under `trust proxy` and therefore spoofable
+// by any remote client.
 router.use((req, res, next) => {
-  const ip = req.ip || req.socket.remoteAddress || ''
-  if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return next()
+  if (isLocalhost(req)) return next()
   res.status(403).json({ error: 'Internal API: localhost only' })
 })
 

@@ -39,6 +39,7 @@ import { getDb } from '../db/index.js'
 import type { Database } from 'better-sqlite3'
 import { classifyCheckFixability } from './external-remediation-classify.js'
 import { checkCiFollowupCap, recordCiFollowup, noteCiFollowupCapExhausted } from './ci-followup-cap.js'
+import { internalApiHeaders } from '../lib/internal-api-headers.js'
 
 // ── Config ──────────────────────────────────────────────────────────────────────
 /** Repo to poll. Overridable for tests / other repos. */
@@ -172,7 +173,9 @@ export type PostMessageFn = (objectiveId: number, message: string) => Promise<{ 
 const defaultPostMessage: PostMessageFn = async (objectiveId, message) => {
   const res = await fetch(`http://localhost:${PORT}/api/internal/objectives/${objectiveId}/message`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // obj 900027: loopback already satisfies internalApiGate, but send the shared
+    // secret too so INTERNAL_API_REQUIRE_SECRET=1 can be switched on safely.
+    headers: internalApiHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ message }),
   })
   const body = await res.text().catch(() => '')

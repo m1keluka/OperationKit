@@ -34,6 +34,7 @@ import type { Database } from 'better-sqlite3'
 import { getDb } from '../db/index.js'
 import { getCanaryCatchRate } from './canary-harness.js'
 import { getFalsePassRate } from './false-pass.js'
+import { internalApiHeaders } from '../lib/internal-api-headers.js'
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on'])
 
@@ -300,7 +301,9 @@ export async function postObjectivesToBoard(
   try {
     const res = await fetch(`http://localhost:${port}/api/internal/objectives`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // obj 900027: loopback already satisfies internalApiGate, but send the shared
+      // secret too so INTERNAL_API_REQUIRE_SECRET=1 can be switched on safely.
+      headers: internalApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(items),
     })
     if (!res.ok) return []

@@ -20,6 +20,7 @@ import {
   recordRoutineSuccess,
 } from './routine-auto-pause.js'
 import { findOpenDuplicate, recordDedupe, isDuplicateGuardEnabled } from '../lib/objective-dedupe.js'
+import { internalApiHeaders } from '../lib/internal-api-headers.js'
 
 const TICK_MS = 60 * 1000
 const PORT = parseInt(process.env.PORT || '3002', 10)
@@ -336,7 +337,9 @@ async function spawnRoutineObjective(objectiveId: number): Promise<{ ok: boolean
   try {
     const resp = await fetch(`http://127.0.0.1:${PORT}/api/internal/objectives/${objectiveId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      // obj 900027: loopback already satisfies internalApiGate, but send the shared
+      // secret too so INTERNAL_API_REQUIRE_SECRET=1 can be switched on safely.
+      headers: internalApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ status: 'working', reason: 'routine', actor: 'routine-scheduler' }),
     })
     if (!resp.ok) return { ok: false, reason: `${resp.status} ${(await resp.text()).slice(0, 300)}` }

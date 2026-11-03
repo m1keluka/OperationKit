@@ -76,6 +76,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'better-sqlite3'
+import { internalApiHeaders } from '../lib/internal-api-headers.js'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -547,7 +548,9 @@ const PORT = parseInt(process.env.PORT || '3002', 10)
 export const httpObjectiveCreator: ObjectiveCreator = async payload => {
   const res = await fetch(`http://localhost:${PORT}/api/internal/objectives`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // obj 900027: loopback already satisfies internalApiGate, but send the shared
+    // secret too so INTERNAL_API_REQUIRE_SECRET=1 can be switched on safely.
+    headers: internalApiHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify([payload]),
   })
   if (!res.ok) {

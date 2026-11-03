@@ -151,14 +151,20 @@ describe('SESSION_ISOLATION=docker → createSessionJail path', () => {
     // Env is handed over via --env-file inside the HOME bind, not a third mount.
     const envFile = argv[argv.indexOf('--env-file') + 1]
     expect(envFile.startsWith(path.join(tmp, 'jail-homes'))).toBe(true)
-    expect(fs.readFileSync(envFile, 'utf8')).toContain('SOME_SECRET=value')
+    // obj 900038: and it is GONE once `docker run` has returned. The daemon
+    // consumes --env-file once at container-create time, so leaving a plaintext
+    // dump of every injected secret on the shared host /tmp bought nothing.
+    expect(fs.existsSync(envFile)).toBe(false)
 
     // Wrapper script lives in the HOME bind and references container-side paths only.
     const script = fs.readFileSync(
       path.join(tmp, 'jail-homes', 'cc-709080-1756400000000', '.cc', 'cc-709080-1756400000000.sh'),
       'utf8',
     )
-    expect(script).toContain('cd "/workspace"')
+    // obj 900038: the workdir is logged BEFORE the cd, and the cd is guarded.
+    expect(script).toContain('CC_WORKDIR="/workspace"')
+    expect(script).toContain('if ! cd "$CC_WORKDIR"')
+    expect(script).toContain('STARTUP-FAILURE')
     expect(script).toContain('/home/jailuser/.cc/')
     expect(script).not.toContain('/home/operator')
   })

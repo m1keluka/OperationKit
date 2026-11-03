@@ -73,6 +73,7 @@ import connectorsRouter from './routes/connectors.js'
 import resourceAssignmentsRouter from './routes/resource-assignments.js'
 import projectsRouter from './routes/projects.js'
 import { isLocalhost } from './lib/is-localhost.js'
+import { internalApiGate } from './middleware/internal-api-gate.js'
 import { requireAuth, requireAdmin, assertJwtSecret, type AuthRequest } from './middleware/auth.js'
 import { createLlmGatewayRouter } from './routes/llm-gateway.js'
 import { securityHeaders } from './middleware/security-headers.js'
@@ -164,11 +165,20 @@ const server = createServer(app)
 
 // Behind the Caddy reverse proxy (cc.example.com -> localhost:3002), so that
 // req.ip reflects the real client via X-Forwarded-For instead of Caddy's
-// loopback address. Without this, EVERY externally-proxied request would look
-// like 127.0.0.1 and satisfy the isLocalhost() internal-route origin check.
-// Genuine on-box first-party callers connect to localhost:3002 directly (no
-// XFF) and still resolve to 127.0.0.1, so they remain "localhost" (obj 702304).
-app.set('trust proxy', true)
+// loopback address (obj 702304).
+//
+// This is a HOP ALLOWLIST, not `true` (obj 900027). `trust proxy: true` tells
+// Express to believe the X-Forwarded-For chain no matter who opened the
+// connection, which makes `req.ip` fully client-controlled for ANY direct
+// caller — including, on a droplet where port 3002 is exposed, a remote one.
+// `loopback, uniquelocal` restricts that trust to peers we actually run
+// (Caddy/cloudflared on loopback, and the Docker bridge gateway in 172.16/12),
+// so an off-box client's forged header can never become `req.ip`.
+// Override with CC_TRUST_PROXY if the proxy topology changes.
+//
+// Defense in depth only: the internal-route origin check no longer consults
+// `req.ip` at all — see lib/is-localhost.ts.
+app.set('trust proxy', process.env.CC_TRUST_PROXY || 'loopback, uniquelocal')
 app.disable('x-powered-by')
 
 // Middleware
@@ -209,6 +219,14 @@ app.use('/api/webhooks', webhooksRouter)  // /api/webhooks/uptimerobot
 app.use('/api/admin', adminRouter)  // /api/admin/accounts, /system, /agents, /dream-cycle, etc.
 app.use('/api/n8n', n8nRouter)      // n8n watchdog: /health, /refresh, /restart
 app.use('/api/projects', projectsRouter)  // /api/projects — board project CRUD (obj 708808)
+// ── Internal API front door (obj 900027) ────────────────────────────────────
+// ONE gate ahead of EVERY /api/internal router: a request must either be a
+// genuine on-box caller (non-spoofable socket check) or carry a valid
+// X-Internal-Secret / OBJECTIVES_API_TOKEN. Mounted here so an internal route
+// added later cannot ship ungated. Per-route isLocalhost checks remain behind
+// it as defense in depth.
+app.use('/api/internal', internalApiGate)
+
 app.use('/api/internal', internalRouter)  // /api/internal/deploy, /restart, /objectives, /pr-created, /progress
 app.use('/api/internal', internalVaultRouter)  // /api/internal/vault/*, /contactbook/history — telegram-contactbook sibling (localhost)
 app.use('/api/alerts', alertsRouter)  // ingest (bearer) + list/ack (JWT) — AlertBell + notify-failure.sh

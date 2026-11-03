@@ -18,8 +18,11 @@ import {
   sweepOrphanWorkerTmux,
   transcriptHasPendingWork,
 } from './session-manager.js'
-import { resolveSessionTranscript, tmuxSessionAlive } from './session-tmux.js'
+import { resolveSessionTranscript, tmuxSessionAlive, snapshotJailSessions } from './session-tmux.js'
 import { jailEnabled } from './session-jail.js'
+import { sweepOrphanJailHomesThrottled } from './jail-home.js'
+import { activeSessions } from './session-registry.js'
+import { detectStartupFailure, describeStartupFailure, type StartupFailure } from './session-startup-failure.js'
 import { authParkReason, isAuthFailureMessage, recordAuthFailure } from './account-router.js'
 import {
   isFloorActiveForProject,
@@ -140,6 +143,44 @@ function workerTranscriptPath(sessionId: string): string {
   const canonical = path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
   return jailEnabled() ? resolveSessionTranscript(canonical, sessionId) : canonical
 }
+
+/**
+ * Session ids the sweeper must NOT touch: everything this process still tracks,
+ * plus every session whose jail container is actually running. The second half
+ * matters after a control-plane restart — `activeSessions` is empty then, but
+ * the jails kept running, and removing a live session's HOME would pull the
+ * wrapper out from under it. A docker hiccup (`ok: false`) makes the sweep skip
+ * this round entirely rather than guess. (obj 900038)
+ */
+function liveJailSessionIds(): string[] | null {
+  const snap = snapshotJailSessions()
+  if (!snap.ok) return null
+  return [...new Set([...activeSessions.keys(), ...snap.names])]
+}
+
+/** The wrapper's stderr log. Same jail fallback as the transcript. (obj 900038) */
+function workerLogPath(sessionId: string): string {
+  const canonical = path.join(TRANSCRIPT_DIR, `${sessionId}.log`)
+  return jailEnabled() ? resolveSessionTranscript(canonical, sessionId, 'log') : canonical
+}
+
+/**
+ * Did this worker die before the agent ever started? Reads the transcript and
+ * the wrapper log and asks {@link detectStartupFailure}. Never throws — an
+ * unreadable pair simply means "not a startup failure" and the caller falls
+ * through to the ordinary no-op rules.
+ */
+function readStartupFailure(sessionId: string): StartupFailure | null {
+  try {
+    let jsonl = ''
+    try { jsonl = fs.readFileSync(workerTranscriptPath(sessionId), 'utf-8') } catch { jsonl = '' }
+    let log = ''
+    try { log = fs.readFileSync(workerLogPath(sessionId), 'utf-8') } catch { log = '' }
+    return detectStartupFailure({ jsonlLines: jsonl.split('\n').filter(l => l.trim()), logText: log })
+  } catch {
+    return null
+  }
+}
 export const stuckAlerted = new Set<string>() // Avoid re-alerting same session
 export const watchdogRouted = new Set<string>() // Avoid re-routing a session the watchdog already force-routed
 
@@ -224,6 +265,19 @@ export async function pollActiveSessions(): Promise<void> {
     sweepOrphanWorkerTmux()
   } catch (err) {
     console.error('[state-poller] sweepOrphanWorkerTmux failed:', err)
+  }
+
+  // obj 900038 — jail homes whose session no longer exists. handleSessionDeath
+  // cleans up every death the control plane OBSERVES; this catches the ones it
+  // cannot: a SIGKILLed server, a container restart mid-session, a jail-home
+  // written by a process that died before registering. Without it one crash
+  // leaves a plaintext wrapper script on the shared /tmp forever. Throttled
+  // internally (default 10 min) and a no-op outside jail mode.
+  try {
+    const liveIds = jailEnabled() ? liveJailSessionIds() : null
+    if (liveIds) sweepOrphanJailHomesThrottled({ enabled: true, liveSessionIds: liveIds })
+  } catch (err) {
+    console.error('[state-poller] sweepOrphanJailHomes failed:', err)
   }
 
   // Safety net (obj 2352): auto-link worker PRs that never self-reported and
@@ -688,6 +742,12 @@ export async function pollActiveSessions(): Promise<void> {
               filesModified: intel.filesModified.length,
               durationMs: intel.durationMs,
               completedWithAnswer: intel.completedWithAnswer,
+              // obj 900038: only ask when the session looks empty. A session
+              // with real tool calls started fine by definition, and the
+              // legacy "no events at all" heuristic must not fire on it.
+              startupFailure: intel.toolCalls === 0 && !intel.completedWithAnswer
+                ? readStartupFailure(objective.session_id!)
+                : null,
             },
             noopRespawnCounts.get(objective.id) || 0
           )
@@ -726,7 +786,41 @@ export async function pollActiveSessions(): Promise<void> {
             authFailed: true, authReason: authParkReason(authFailureText), toolCalls: 0, accountId: deadAccountId,
           })) continue
         }
-        if (decision.action === 'respawn') {
+        if (decision.action === 'startup-failed') {
+          // obj 900038 — the wrapper died before the agent ran. This is an
+          // ENVIRONMENT fault (an un-enterable /workspace was the original
+          // case), so re-spawning reproduces it byte for byte. Block once,
+          // with the exit code and the stderr tail on the card, and do not
+          // consume any of the no-op respawn budget.
+          noopRespawnCounts.delete(objective.id)
+          const reason = describeStartupFailure(decision.startupFailure!)
+          console.error(
+            `[state-poller] Objective ${objective.id} (${objective.session_id}): ${reason.split('\n')[0]} — blocking, no respawn.`,
+          )
+          runMachineStatusUpdate(
+            db,
+            "UPDATE objectives SET status = 'review', ai_review_verdict = 'blocked', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
+            reason,
+            objective.id,
+          )
+          try {
+            db.prepare(
+              "INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail, metadata) VALUES (?, ?, ?, ?, 'error', 'session_startup_failed', ?, ?)"
+            ).run(
+              objective.project || 'unknown',
+              objective.workspace,
+              objective.id,
+              objective.session_id,
+              reason,
+              JSON.stringify({ kind: 'session_startup_failed', ...decision.startupFailure }),
+            )
+          } catch (err) {
+            console.error(`[state-poller] Failed to log startup failure for obj ${objective.id}:`, err)
+          }
+          const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+          if (updated) broadcast({ type: 'objective_updated', payload: updated })
+          continue
+        } else if (decision.action === 'respawn') {
           // No-op spawn re-queued — NOT a deliverable, do NOT spawn a reviewer.
           noopRespawnCounts.set(objective.id, decision.attempt!)
           console.warn(

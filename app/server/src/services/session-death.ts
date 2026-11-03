@@ -4,6 +4,7 @@
  * the counters they share live here so handleSessionDeath can reset them.
  */
 import fs from 'fs'
+import { cleanupJailHome } from './jail-home.js'
 import { getDb } from '../db/index.js'
 import {
   recordSessionEnd,
@@ -329,6 +330,23 @@ export function handleSessionDeath(sessionId: string): SessionDeathResult {
     queueExtraction(objective.id, sessionId, jsonlPath, accountId, objective)
   } catch (err) {
     console.error(`[session-manager] queueExtraction failed for ${sessionId}:`, err)
+  }
+
+  // obj 900038 — the per-session jail HOME holds the wrapper script (with an
+  // `export KEY="value"` line per injected secret) and, before this, the docker
+  // --env-file too. On a clean exit the wrapper rm'd its own files; on an EARLY
+  // death — the exact failure this objective was filed for — it never reached
+  // that line, so a world-readable plaintext credential dump outlived the
+  // session indefinitely. Clean up on EVERY death, clean or not.
+  //
+  // Transcripts are materialised first: the canonical TRANSCRIPT_DIR paths are
+  // symlinks INTO this directory (linkTranscript), so removing it without that
+  // step would take the card's own evidence with it. Best-effort throughout —
+  // a cleanup problem must never stop a session from ending.
+  try {
+    cleanupJailHome(sessionId, { transcriptPaths: [jsonlPath, logPath] })
+  } catch (err) {
+    console.warn(`[session-manager] jail-home cleanup failed for ${sessionId}:`, (err as Error).message)
   }
 
   activeSessions.delete(sessionId)

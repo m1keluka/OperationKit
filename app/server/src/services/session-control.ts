@@ -19,6 +19,7 @@ import { extractFinalUsage } from './session-usage.js'
 import { resolveSessionTranscript, tmuxSessionAlive } from './session-tmux.js'
 import { readJsonlTail, jsonlHasResult } from './session-jsonl.js'
 import { destroyJailSync, jailEnabled } from './session-jail.js'
+import { cleanupJailHome } from './jail-home.js'
 import { activeSessions, forgetSpawnClock } from './session-registry.js'
 import { detectPendingWork, type PendingWorkVerdict } from './session-pending-work.js'
 
@@ -101,6 +102,14 @@ export async function stopSession(sessionId: string): Promise<void> {
     if (session.accountId) {
       const { tokens, cost } = extractFinalUsage(session.jsonlPath)
       recordSessionEnd(session.accountId, sessionId, tokens, cost)
+    }
+    // obj 900038: an operator-initiated stop never reaches handleSessionDeath,
+    // so it would otherwise leave the jail HOME — wrapper script and all its
+    // `export KEY="value"` lines — on the shared host /tmp. Idempotent.
+    try {
+      cleanupJailHome(sessionId, { transcriptPaths: [session.jsonlPath, session.logPath] })
+    } catch (err) {
+      console.warn(`[session-manager] jail-home cleanup failed for ${sessionId}:`, (err as Error).message)
     }
     activeSessions.delete(sessionId)
     forgetSpawnClock(sessionId)

@@ -8,6 +8,90 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Sandbox: no-project cards start again; jail homes no longer leave secrets on disk (obj 900038)
+
+Only affects installs running `SESSION_ISOLATION=docker` (the client-installer default).
+
+**What changed.**
+
+- **A card with no project starts again.** Such a card resolves its workdir to the operator home, which the
+  installer creates mode `0750 root:root`. That path was bind-mounted at `/workspace`, the sandbox user could
+  not enter it, and the session died at `cd` — card shows started, 0 tools, 0 tokens, dead in ~5s, then review.
+  A card with no worktree now gets a **per-card scratch directory** (`/tmp/cc-jail-scratch/<objectiveId>`,
+  `0700`, owned by the sandbox uid). The bare home, `/`, `/home`, `/root`, `/tmp`, `/opt` and `/srv` are
+  never bind sources, and any workdir the sandbox uid cannot enter falls back to scratch instead of dying.
+- **A session that dies before the agent starts now says so on the card.** The wrapper logs before it `cd`s,
+  and on failure writes the exit code (78), the failing path and the `ls -ld`/`id` diagnostic to the log and a
+  `startup_failure` event to the transcript. The card goes to review `blocked` with that text, plus an
+  `activity_log` `error` row. It is **not** re-spawned — an environment fault repeats, so the old no-op
+  retry loop just multiplied dead cards.
+- **Session secrets no longer sit in a world-readable directory.** Per-session jail homes were `drwxrwxrwx`
+  on the shared `/tmp` and kept `<session>.env` (the docker `--env-file`: every injected secret in plaintext)
+  and the wrapper script after the session ended. Now: homes and files are `0700`/`0600` owned by the sandbox
+  uid; the env file is deleted the moment `docker run` returns; every session end — including an early death,
+  a crash and an operator stop — scrubs the credential files and removes the home (transcripts are preserved
+  first); and a sweeper removes orphaned homes older than 2 hours.
+
+**What to do.**
+
+- Nothing on upgrade. Existing leftovers under `/tmp/cc-jail-homes/` are removed by the new sweeper within a
+  couple of hours. To clear them immediately: `rm -rf /tmp/cc-jail-homes/*` while no session is running.
+- Any secret that was present in a `/tmp/cc-jail-homes/*/.cc/*.env` on a shared host should be considered
+  exposed to other local accounts and rotated (Settings → Secrets).
+- New guide: [docs/runbooks/session-sandbox-workspace-and-secrets.md](docs/runbooks/session-sandbox-workspace-and-secrets.md)
+  — what `/workspace` is bound to, how to read a startup failure, and how to check a host.
+
+### Security: `/api/internal/*` could be reached from the internet with a forged `X-Forwarded-For` (obj 900027)
+
+**Severity: high. Unauthenticated remote access to the internal API.**
+
+**What was wrong.** The server set `trust proxy: true`, which tells Express to
+derive `req.ip` from the client-supplied `X-Forwarded-For` chain. The
+internal-route origin check (`lib/is-localhost.ts`) read `req.ip` first, so any
+remote client could send `X-Forwarded-For: 127.0.0.1` and be treated as a
+first-party on-box caller. Confirmed from outside the host:
+`GET /api/internal/pr-health`, `GET /api/internal/objectives` and
+`GET /api/internal/reviews/:id/criteria` all returned **200 with no
+credentials**. On the OVH host these sit behind Cloudflare Access, which limited
+exposure there; a host that publishes port 3002, or any Access misconfiguration,
+was fully exposed. Reachable data included the whole objectives board (titles,
+summaries, review findings) and PR-health state.
+
+**What changed.**
+
+- **The origin check is socket-based and ignores forwarded headers.**
+  `isLocalhost()` now reads `req.socket.remoteAddress` (never `req.ip`) and
+  additionally **refuses any request carrying a proxy-forwarding header**
+  (`X-Forwarded-For`, `X-Forwarded-Proto`, `X-Real-IP`, `Forwarded`,
+  `CF-Connecting-IP`, …). Caddy and cloudflared terminate on the host and dial
+  `localhost:3002`, so proxied traffic also arrives on a loopback peer —
+  header presence is what distinguishes it from a genuine on-box caller, and a
+  remote client cannot strip a header the proxy adds downstream of it. A forged
+  header can now only make a request *less* trusted, never more.
+- **One gate in front of every internal router.** `middleware/internal-api-gate.ts`
+  is mounted once at `/api/internal` ahead of all internal routers: a request
+  must be a genuine local caller **or** present `X-Internal-Secret`
+  (`INTERNAL_API_SECRET`) or the scoped `OBJECTIVES_API_TOKEN`. A new internal
+  route can no longer ship ungated. Per-route `isLocalhost` checks remain behind
+  it as defense in depth.
+- **`trust proxy` is now an allowlist, not `true`** —
+  `loopback, uniquelocal` (override with `CC_TRUST_PROXY`). `req.ip` is still
+  correct behind Caddy/cloudflared, but it is no longer forgeable by a direct
+  caller — which also hardens IP-keyed login rate limiting.
+- **In-repo callers now send the secret**: the server's own loopback calls
+  (`fanout-runtime`, `kitchen-loop`, `ci-feedback-bridge`, `dev-feedback-bridge`,
+  `routine-scheduler`, `posthog-signals`, `daily-retro-gate`), plus
+  `scripts/cc-live.mjs`, `scripts/run-gmail-triage.sh` and
+  `scripts/security/weekly-security-review.sh`.
+
+**What to do.** Nothing is required — local callers keep working unchanged.
+Optionally set **`INTERNAL_API_REQUIRE_SECRET=1`** to drop the bare-localhost
+allowance entirely, so `X-Internal-Secret` is required from *every* caller
+including on-box ones. It is off by default because roughly 60 call sites in
+prompts, docs and shell scripts still call `/api/internal` without a secret;
+turn it on once those are migrated.
+
+
 ### Recommended stack guide, off-site backup setup, restore test, retention 7/4/6 (obj 84)
 
 **What changed.**
