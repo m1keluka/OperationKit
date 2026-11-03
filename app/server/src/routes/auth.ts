@@ -3,8 +3,9 @@ import bcrypt from 'bcrypt'
 import { getDb } from '../db/index.js'
 import { generateToken, isSetupExpired, requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { getApiKeySummary, issueApiKey, revokeApiKey } from '../lib/api-keys.js'
-import { createAgentKey, listAgentKeys, revokeAgentKey } from '../lib/agent-keys.js'
-import { AGENT_SCOPES, type ApiKeyIdentity } from '@operationkit/shared'
+import { createAgentKey, listAgentKeys, revokeAgentKey, updateAgentKeyConnectors } from '../lib/agent-keys.js'
+import { AGENT_SCOPES,
+  LEGACY_ALL_CONNECTORS, type ApiKeyIdentity } from '@operationkit/shared'
 import {
   inspectLoginRateLimit,
   recordLoginFailure,
@@ -312,6 +313,32 @@ router.post('/agent-keys', requireAuth, (req: AuthRequest, res) => {
   res.status(201).json(result.key)
 })
 
+// PATCH /api/auth/agent-keys/:id — narrow (or widen) a key's connector
+// allow-list. The key's OWNER does this from Settings; an admin may do it for
+// any key, because administering the install includes administering its keys.
+// Neither path reveals a token, and an admin editing somebody else's key still
+// cannot make it reach anything but that owner's own connections.
+router.patch('/agent-keys/:id', requireAuth, (req: AuthRequest, res) => {
+  if (rejectAgentKey(req, res)) return
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(404).json({ error: 'Agent key not found' })
+    return
+  }
+  const body = (req.body ?? {}) as { connectors?: unknown }
+  if (body.connectors === undefined) {
+    res.status(400).json({ error: 'connectors is required' })
+    return
+  }
+  const scopeToOwner = req.user!.role === 'admin' ? null : req.user!.id
+  const result = updateAgentKeyConnectors(id, body.connectors, scopeToOwner)
+  if (!result.ok) {
+    res.status(result.status).json({ error: result.error })
+    return
+  }
+  res.json(result.key)
+})
+
 router.delete('/agent-keys/:id', requireAuth, (req: AuthRequest, res) => {
   if (rejectAgentKey(req, res)) return
   const id = Number(req.params.id)
@@ -348,7 +375,16 @@ router.get('/me', requireAuth, (req: AuthRequest, res) => {
   if (req.agentKey) {
     api_key = { kind: 'agent', ...req.agentKey }
   } else if (req.authVia === 'legacy_api_key') {
-    api_key = { kind: 'legacy', id: null, label: 'Legacy API key (full access)', scopes: [...AGENT_SCOPES], workspaces: null }
+    // The legacy key IS its owner, so it reaches the owner's own connections —
+    // and, like every other principal, nobody else's.
+    api_key = {
+      kind: 'legacy',
+      id: null,
+      label: 'Legacy API key (full access)',
+      scopes: [...AGENT_SCOPES],
+      workspaces: null,
+      connectors: [LEGACY_ALL_CONNECTORS],
+    }
   }
   res.json(api_key ? { ...user, api_key } : user)
 })

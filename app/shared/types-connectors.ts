@@ -51,6 +51,26 @@ export interface ConnectorStatus {
 export interface ConnectorAccess {
   agents: string[] | null
   workspaces: string[] | null
+  /**
+   * Lend this connection to cards somebody ELSE assigned to me. Off by default:
+   * routing work to a person is normal, but it must not silently hand that
+   * person's outside accounts to whoever did the routing.
+   */
+  allow_delegated?: boolean
+}
+
+/** One withheld credential, for the admin audit view. Never carries a value. */
+export interface ConnectorDenial {
+  id: number
+  connector_id: string
+  owner_user_id: number | null
+  actor_kind: string
+  actor_user_id: number | null
+  key_label: string | null
+  objective_id: number | null
+  reason: string
+  detail: string
+  at: string
 }
 
 export interface ConnectorSummary {

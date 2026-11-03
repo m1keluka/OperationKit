@@ -18,6 +18,28 @@ sign in to a client's install. The client owns the server, the data and the AI a
 | **The AI accounts** (Claude, and optionally OpenAI or Gemini) | The client. Their own subscription or API key. Text sent to an AI is covered by that provider's terms with the client. |
 | **Who can open the site** | The client, through a list of allowed email addresses or an email domain. |
 | **Turning it off** | The client. One uninstall command removes the app, its data and its Cloudflare setup. |
+| **A person's connected accounts** (their Google, their GitHub…) | That person, and nobody else. Not their colleagues, not their keys for other connectors, and not an administrator. See below. |
+
+### A connected account belongs to one person
+
+Someone can connect their own Google or GitHub account in **Settings → Connectors** so their AI
+jobs can work in it. That connection is theirs alone:
+
+- **Another person cannot use or read it** — not through their own API key, not through a card,
+  not by being an administrator. An administrator runs the install; that is a different thing from
+  being everybody who uses it.
+- **Each API key is granted connectors one at a time.** A key reaches a connected account only if
+  its owner ticked that connector for that key, and only ever the owner's own copy. A key created
+  with nothing ticked can touch no connected account at all.
+- **Routing work to someone does not borrow their accounts.** An administrator can assign a card to
+  a colleague — that is ordinary work routing — but the job then runs with that colleague's
+  connections marked absent, unless the colleague has ticked *"let cards someone else assigned to
+  me use this connection"* for that connector. It is off by default.
+- **Everything refused is written down.** Administrators can see every withheld credential: who
+  asked, whose account, which connector, which key and why. The record never contains the
+  credential itself.
+- **Shared server credentials stay with the server.** Credentials the install itself needs for
+  background jobs are marked server-only and are never handed to an AI job.
 
 ## How the site is protected
 

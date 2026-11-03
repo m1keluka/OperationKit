@@ -17,7 +17,8 @@ import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import type { Objective } from '@operationkit/shared'
-import { getDecryptedForUser } from './user-github-tokens.js'
+import { CONNECTOR_ID as GITHUB_CONNECTOR, getDecryptedForUser } from './user-github-tokens.js'
+import { checkConnectorCredential } from './connector-guard.js'
 import { getRawConfig } from './workspace-integrations.js'
 
 /** Env var the helper script reads. Only ever set on the git child's env. */
@@ -64,9 +65,25 @@ export function resolveGitFetchToken(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
   const ownerId = objective.assigned_user_id ?? objective.created_by
+  // The owner's linked token is theirs alone. A card routed to them by someone
+  // else does not borrow it unless they opted that connector in, in which case
+  // this falls through to the workspace integration token or the server's own —
+  // neither of which belongs to a person.
+  const delegated =
+    typeof objective.assigned_user_id === 'number' &&
+    typeof objective.created_by === 'number' &&
+    objective.assigned_user_id > 0 &&
+    objective.created_by > 0 &&
+    objective.assigned_user_id !== objective.created_by
   if (ownerId != null) {
     try {
-      const t = getDecryptedForUser(ownerId)
+      const allowed = checkConnectorCredential({
+        connectorId: GITHUB_CONNECTOR,
+        ownerUserId: ownerId,
+        actor: { kind: 'server', reason: 'git-fetch' },
+        delegated,
+      }).allowed
+      const t = allowed ? getDecryptedForUser(ownerId, { kind: 'server', reason: 'git-fetch' }) : null
       if (t) return t
     } catch { /* fall through */ }
   }

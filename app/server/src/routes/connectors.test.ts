@@ -103,7 +103,7 @@ describe('connectors routes', () => {
     expect(google.unavailable_reason).toMatch(/not set up/)
     for (const c of list) {
       expect(c.status.state).toBe('not_connected')
-      expect(c.access).toEqual({ agents: null, workspaces: null })
+      expect(c.access).toEqual({ agents: null, workspaces: null, allow_delegated: false })
     }
   })
 
@@ -161,7 +161,7 @@ describe('connectors routes', () => {
 
     const r = await call('PUT', '/github/access', { agents: ['operator'], workspaces: ['main'] })
     expect(r.status).toBe(200)
-    expect(r.json.access).toEqual({ agents: ['operator'], workspaces: ['main'] })
+    expect(r.json.access).toEqual({ agents: ['operator'], workspaces: ['main'], allow_delegated: false })
 
     expect(isConnectorAllowed('github', 20, { agent: 'operator', workspace: 'main' })).toBe(true)
     expect(isConnectorAllowed('github', 20, { agent: 'librarian', workspace: 'main' })).toBe(false)
@@ -171,7 +171,7 @@ describe('connectors routes', () => {
     expect(isConnectorAllowed('github', 99, { agent: 'librarian', workspace: 'other' })).toBe(true)
 
     const reset = await call('PUT', '/github/access', { agents: null, workspaces: null })
-    expect(reset.json.access).toEqual({ agents: null, workspaces: null })
+    expect(reset.json.access).toEqual({ agents: null, workspaces: null, allow_delegated: false })
     expect(isConnectorAllowed('github', 20, { agent: 'librarian', workspace: 'other' })).toBe(true)
   })
 

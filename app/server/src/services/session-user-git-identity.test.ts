@@ -3,6 +3,10 @@ import os from 'os'
 import path from 'path'
 import type { Objective } from '@operationkit/shared'
 
+// These tests exercise the owner's own credential, so they read it as the
+// server acting for that owner (services/connector-guard.ts).
+const SERVER_ACTOR = { kind: 'server' as const }
+
 // obj-2221 / W4 — per-user GitHub PR attribution wired into the spawn env.
 //
 // This is the payoff test for the W1+W3 integration: once a user links a GitHub
@@ -23,6 +27,8 @@ delete process.env.SCOPE_SUPABASE_ACCESS_TOKEN
 const { initDb, getDb } = await import('../db/index.js')
 const tokens = await import('./user-github-tokens.js')
 const { userGitIdentityEnv, buildSpawnEnv } = await import('./session-manager.js')
+const { SAFE_FALLBACK_GIT_IDENTITY } = await import('./session-spawn-env.js')
+const { setAccess } = await import('../connectors/access.js')
 
 function seedUser(id: number, username: string): void {
   getDb()
@@ -55,6 +61,7 @@ beforeAll(() => {
 })
 beforeEach(() => {
   getDb().exec('DELETE FROM user_github_tokens; DELETE FROM users;')
+  try { getDb().exec('DELETE FROM connector_access') } catch { /* created lazily */ }
 })
 
 describe('userGitIdentityEnv — linked owner injects full per-user GitHub identity', () => {
@@ -62,7 +69,7 @@ describe('userGitIdentityEnv — linked owner injects full per-user GitHub ident
     seedUser(7, 'eva')
     linkEva(7)
 
-    const env = userGitIdentityEnv(7)
+    const env = userGitIdentityEnv(7, SERVER_ACTOR)
     // PR "opened by" actor lever — the token that runs `gh pr create`.
     expect(env.GH_TOKEN).toBe(RAW_PAT)
     expect(env.GITHUB_TOKEN).toBe(RAW_PAT)
@@ -82,7 +89,7 @@ describe('userGitIdentityEnv — linked owner injects full per-user GitHub ident
   it('author and committer are the SAME identity (no "authored by Eva, committed by bot" split)', () => {
     seedUser(7, 'eva')
     linkEva(7)
-    const env = userGitIdentityEnv(7)
+    const env = userGitIdentityEnv(7, SERVER_ACTOR)
     expect(env.GIT_AUTHOR_NAME).toBe(env.GIT_COMMITTER_NAME)
     expect(env.GIT_AUTHOR_EMAIL).toBe(env.GIT_COMMITTER_EMAIL)
   })
@@ -91,14 +98,14 @@ describe('userGitIdentityEnv — linked owner injects full per-user GitHub ident
 describe('userGitIdentityEnv — unlinked owner falls back to bot identity (never blocks)', () => {
   it('returns {} when the owner has no linked token', () => {
     seedUser(8, 'unlinked')
-    expect(userGitIdentityEnv(8)).toEqual({})
+    expect(userGitIdentityEnv(8, SERVER_ACTOR)).toEqual({})
   })
   it('returns {} for a null/undefined owner (automation / unowned)', () => {
-    expect(userGitIdentityEnv(null)).toEqual({})
-    expect(userGitIdentityEnv(undefined)).toEqual({})
+    expect(userGitIdentityEnv(null, SERVER_ACTOR)).toEqual({})
+    expect(userGitIdentityEnv(undefined, SERVER_ACTOR)).toEqual({})
   })
   it('returns {} for an owner id that does not exist at all', () => {
-    expect(userGitIdentityEnv(999999)).toEqual({})
+    expect(userGitIdentityEnv(999999, SERVER_ACTOR)).toEqual({})
   })
 })
 
@@ -174,7 +181,9 @@ describe('buildSpawnEnv — attribution rides on the spawn env, flags OFF (decou
     expect(env.GH_TOKEN).toBe(RAW_PAT)
   })
 
-  it('assigned user wins over created_by for GitHub attribution', () => {
+  // See the Google twin of this test: a card assigned by somebody else runs as
+  // the assignee but does not borrow the assignee's linked GitHub token.
+  it('a card assigned by someone else does NOT borrow the assignee GitHub token', () => {
     seedUser(1, 'mike')
     seedUser(7, 'eva')
     linkEva(7)
@@ -184,6 +193,20 @@ describe('buildSpawnEnv — attribution rides on the spawn env, flags OFF (decou
       sessionKind: 'worker',
     })
     expect(env.CC_ACTING_USER_ID).toBe('7')
+    expect(env.GH_TOKEN).toBeUndefined()
+    expect(env.GIT_AUTHOR_EMAIL).toBe(SAFE_FALLBACK_GIT_IDENTITY.email)
+  })
+
+  it('and DOES once the assignee allows delegated work', () => {
+    seedUser(1, 'mike')
+    seedUser(7, 'eva')
+    linkEva(7)
+    setAccess('github', 7, { agents: null, workspaces: null, allow_delegated: true })
+    const env = buildSpawnEnv({
+      objective: { ...objectiveOwnedBy(1), assigned_user_id: 7 } as Objective,
+      homeDir: '/home/ccuser-a',
+      sessionKind: 'worker',
+    })
     expect(env.GH_TOKEN).toBe(RAW_PAT)
     expect(env.GIT_AUTHOR_EMAIL).toBe(EVA_EMAIL)
   })
@@ -249,7 +272,6 @@ describe('E2E ATTRIBUTION PROOF (deterministic harness; live-push limitation sta
 // agent/workspace out withholds it and the spawn falls back to the bot identity.
 describe('buildSpawnEnv — Connectors access rules', () => {
   it('withholds the GitHub token from an agent or workspace the person left out', async () => {
-    const { setAccess } = await import('../connectors/access.js')
     seedUser(42, 'eva')
     linkEva(42)
     const obj = { ...objectiveOwnedBy(42), agent_context: 'operator' } as Objective

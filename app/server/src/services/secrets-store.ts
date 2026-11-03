@@ -27,6 +27,9 @@
 import { getDb } from '../db/index.js'
 import { encryptSecret, decryptSecret } from './secrets-crypto.js'
 import { invalidateSecretRegistry } from './secret-redaction.js'
+import { SERVICE_ONLY_BY_DEFAULT, isServiceOnlyByDefault } from './secrets-store-keys.js'
+
+export { SERVICE_ONLY_BY_DEFAULT, isServiceOnlyByDefault }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,6 +53,8 @@ export interface SecretScope {
 /** Metadata-only view of a stored secret. NEVER carries the value. */
 export interface SecretSummary {
   id: number
+  /** Server-process only: hydrated into the server's env, never into a session. */
+  serviceOnly: boolean
   scopeType: SecretScopeType
   workspace: string | null
   userId: number | null
@@ -71,6 +76,7 @@ export interface SecretVersionSummary {
 
 interface SecretRow {
   id: number
+  service_only: number
   scope_type: SecretScopeType
   workspace: string
   user_id: number
@@ -153,6 +159,7 @@ export function scopeLabel(scope: SecretScope): string {
 function rowToSummary(row: SecretRow): SecretSummary {
   return {
     id: row.id,
+    serviceOnly: Number(row.service_only) > 0,
     scopeType: row.scope_type,
     workspace: row.workspace === WS_SENTINEL ? null : row.workspace,
     userId: row.user_id === USER_SENTINEL ? null : row.user_id,
@@ -207,6 +214,12 @@ export interface SetSecretInput {
   scope: SecretScope
   key: string
   value: string
+  /**
+   * Keep this out of session envs. Omitted on CREATE = the default for the key
+   * (see SERVICE_ONLY_BY_DEFAULT; global scope only). Omitted on UPDATE = leave
+   * the existing choice alone, so re-pasting a value never silently reopens it.
+   */
+  serviceOnly?: boolean
   actorUserId?: number | null
   /** obj 719065: recorded on the version row so History shows who relayed it. Never a value. */
   via?: string | null
@@ -233,11 +246,13 @@ export function setSecret(input: SetSecretInput): SecretSummary {
     let action: SecretAction
     if (existing) {
       const nextVersion = existing.version + 1
+      const keepServiceOnly =
+        input.serviceOnly === undefined ? Number(existing.service_only) > 0 : input.serviceOnly
       db.prepare(
         `UPDATE secrets
-           SET value_encrypted = ?, version = ?, updated_by = ?, updated_at = datetime('now')
+           SET value_encrypted = ?, version = ?, service_only = ?, updated_by = ?, updated_at = datetime('now')
          WHERE id = ?`,
-      ).run(encrypted, nextVersion, actor, existing.id)
+      ).run(encrypted, nextVersion, keepServiceOnly ? 1 : 0, actor, existing.id)
       db.prepare(
         `INSERT INTO secret_versions (secret_id, version, value_encrypted, changed_by, via)
          VALUES (?, ?, ?, ?, ?)`,
@@ -245,12 +260,16 @@ export function setSecret(input: SetSecretInput): SecretSummary {
       row = findRow(n, key)!
       action = 'update'
     } else {
+      // A newly stored shared credential is service-only from the start, so a
+      // fresh install never has a window where sessions receive it.
+      const serviceOnly =
+        input.serviceOnly ?? (n.scopeType === 'global' && isServiceOnlyByDefault(key))
       const info = db
         .prepare(
-          `INSERT INTO secrets (scope_type, workspace, user_id, key, value_encrypted, version, created_by, updated_by)
-           VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+          `INSERT INTO secrets (scope_type, workspace, user_id, key, value_encrypted, version, service_only, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`,
         )
-        .run(n.scopeType, n.workspace, n.userId, key, encrypted, actor, actor)
+        .run(n.scopeType, n.workspace, n.userId, key, encrypted, serviceOnly ? 1 : 0, actor, actor)
       const id = Number(info.lastInsertRowid)
       db.prepare(
         `INSERT INTO secret_versions (secret_id, version, value_encrypted, changed_by, via)
@@ -435,6 +454,13 @@ export interface ResolveOptions {
    *  (0/system at spawn time). Off by default so plain reads don't spam audit. */
   audit?: boolean
   actorUserId?: number | null
+  /**
+   * Include secrets marked service-only. ONLY the server's own boot hydration
+   * passes this. Every session-facing caller leaves it off, which is why the
+   * default is off: a new caller that forgets to think about it gets the safe
+   * answer.
+   */
+  includeServiceOnly?: boolean
 }
 
 /**
@@ -486,6 +512,8 @@ export function resolveSecrets(opts: ResolveOptions = {}): Record<string, string
   const winners = new Map<string, SecretRow>()
   for (const r of applicable) {
     if (isSeatSecretKey(r.key)) continue
+    // Server-process credentials are not an agent's to hold.
+    if (!opts.includeServiceOnly && Number(r.service_only) > 0) continue
     const cur = winners.get(r.key)
     if (!cur || PRECEDENCE[r.scope_type] >= PRECEDENCE[cur.scope_type]) {
       winners.set(r.key, r)
@@ -512,15 +540,20 @@ export function resolveSecretNames(opts: { workspace?: string | null; userId?: n
   const uid = opts.userId ?? null
   const rows = getDb()
     .prepare(
-      `SELECT DISTINCT key FROM secrets WHERE
+      `SELECT DISTINCT key, service_only FROM secrets WHERE
          (scope_type = 'global')
          OR (scope_type = 'workspace' AND workspace = @ws AND @hasWs = 1)
          OR (scope_type = 'user' AND user_id = @uid AND @hasUid = 1)
          OR (scope_type = 'workspace_user' AND workspace = @ws AND user_id = @uid AND @hasWs = 1 AND @hasUid = 1)
        ORDER BY key`,
     )
-    .all({ ws: ws ?? WS_SENTINEL, uid: uid ?? USER_SENTINEL, hasWs: ws == null ? 0 : 1, hasUid: uid == null ? 0 : 1 }) as { key: string }[]
-  return rows.map(r => r.key).filter(k => !isSeatSecretKey(k))
+    .all({ ws: ws ?? WS_SENTINEL, uid: uid ?? USER_SENTINEL, hasWs: ws == null ? 0 : 1, hasUid: uid == null ? 0 : 1 }) as { key: string; service_only: number }[]
+  // Mirrors resolveSecrets: a session is told the names it actually holds, so
+  // the server's own service-only credentials are absent here too.
+  return rows
+    .filter(r => Number(r.service_only) === 0)
+    .map(r => r.key)
+    .filter(k => !isSeatSecretKey(k))
 }
 
 /**
@@ -532,7 +565,10 @@ export function resolveSecretNames(opts: { workspace?: string | null; userId?: n
 export function hydrateProcessEnvFromSecretsStore(): number {
   let n = 0
   try {
-    const resolved = resolveSecrets({ audit: false })
+    // Boot hydration IS the server process, so it takes the service-only rows
+    // too — that is what keeps background jobs working after sessions stop
+    // receiving them.
+    const resolved = resolveSecrets({ audit: false, includeServiceOnly: true })
     for (const [key, value] of Object.entries(resolved)) {
       if (!key || !value) continue
       if (process.env[key]) continue

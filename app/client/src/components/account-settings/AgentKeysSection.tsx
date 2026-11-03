@@ -18,12 +18,19 @@ import {
   AGENT_SCOPES,
   AGENT_SCOPE_DESCRIPTIONS,
   DEFAULT_AGENT_SCOPES,
+  LEGACY_ALL_CONNECTORS,
   type AgentApiKeyIssued,
   type AgentApiKeySummary,
   type AgentScope,
+  type ConnectorSummary,
 } from '@operationkit/shared'
 
 const HUMAN_SIGNATURE: AgentScope[] = ['board:done', 'board:delete']
+
+/** A key predating the allow-list: it kept its old reach, and should be narrowed. */
+function isLegacyAll(connectors: string[] | null): boolean {
+  return !!connectors && connectors.includes(LEGACY_ALL_CONNECTORS)
+}
 
 function errorText(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return (err.body as { error?: string })?.error || err.message
@@ -42,6 +49,12 @@ export function AgentKeysSection() {
   const [revoking, setRevoking] = useState<number | null>(null)
   const [issued, setIssued] = useState<AgentApiKeyIssued | null>(null)
   const [copied, setCopied] = useState(false)
+  // Connector grants. A key starts with none; its owner adds them deliberately.
+  const [connectorOptions, setConnectorOptions] = useState<{ id: string; name: string }[]>([])
+  const [connectors, setConnectors] = useState<string[]>([])
+  const [editing, setEditing] = useState<number | null>(null)
+  const [draft, setDraft] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
   const { confirm, confirmDialog } = useConfirm()
   const { workspaces, labelOf } = useWorkspaces()
 
@@ -57,11 +70,48 @@ export function AgentKeysSection() {
 
   useEffect(() => { void reload() }, [])
 
+  // The connector list is just names — it never carries a credential or a
+  // connection state we need here.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await api.get<{ connectors: ConnectorSummary[] }>('/connectors')
+        setConnectorOptions((res?.connectors ?? []).map(c => ({ id: c.id, name: c.name })))
+      } catch {
+        // Connectors are optional on an install; the picker just stays empty.
+        setConnectorOptions([])
+      }
+    })()
+  }, [])
+
+  function nameOfConnector(id: string): string {
+    return connectorOptions.find(c => c.id === id)?.name ?? id
+  }
+
   function resetForm() {
     setLabel('')
     setScopes([...DEFAULT_AGENT_SCOPES])
     setRestrict(false)
     setAllowed([])
+    setConnectors([])
+  }
+
+  function toggleConnector(id: string) {
+    setConnectors(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+  }
+
+  async function saveConnectors(key: AgentApiKeySummary) {
+    setSaving(true)
+    setError('')
+    try {
+      await api.patch(`/auth/agent-keys/${key.id}`, { connectors: draft })
+      setEditing(null)
+      await reload()
+    } catch (err) {
+      setError(errorText(err, 'Could not update connectors'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   function toggleScope(s: AgentScope) {
@@ -84,6 +134,7 @@ export function AgentKeysSection() {
         label: label.trim(),
         scopes,
         workspaces: restrict ? allowed : null,
+        connectors,
       })
       setIssued(key)
       setFormOpen(false)
@@ -258,6 +309,34 @@ export function AgentKeysSection() {
             )}
           </fieldset>
 
+          <fieldset>
+            <legend className="text-xs font-medium text-fg-1">Your connected accounts it may use</legend>
+            <p className="mt-1 max-w-prose text-[11px] text-fg-2">
+              Only ever your own connection, and only the ones you tick. Leave them all off and the key
+              cannot touch any connected account. Tokens are never shown here or sent to the key.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {connectorOptions.length === 0 && <span className="text-xs text-fg-2">No connectors available.</span>}
+              {connectorOptions.map(c => {
+                const on = connectors.includes(c.id)
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleConnector(c.id)}
+                    className={cn(
+                      'min-h-[44px] rounded-full border px-3 text-xs transition-colors duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]',
+                      on ? 'border-accent/60 bg-accent/15 text-fg-0' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
+                    )}
+                  >
+                    {c.name}
+                  </button>
+                )
+              })}
+            </div>
+          </fieldset>
+
           <div className="flex flex-wrap gap-2 pt-1">
             <Button type="submit" variant="primary" loading={creating} disabled={!canCreate}>
               Create key
@@ -294,16 +373,65 @@ export function AgentKeysSection() {
                     <Badge key={s} mono tone={HUMAN_SIGNATURE.includes(s) ? 'amber' : 'neutral'}>{s}</Badge>
                   ))}
                   <Badge tone="info">{k.workspaces ? k.workspaces.map(labelOf).join(', ') : 'all workspaces'}</Badge>
+                  {isLegacyAll(k.connectors) ? (
+                    <Badge tone="amber">all connectors (legacy)</Badge>
+                  ) : (k.connectors ?? []).length === 0 ? (
+                    <Badge tone="neutral">no connectors</Badge>
+                  ) : (
+                    (k.connectors ?? []).map(c => <Badge key={c} tone="info">{nameOfConnector(c)}</Badge>)
+                  )}
                 </div>
+                {!k.revoked_at && editing === k.id && (
+                  <div className="space-y-2 rounded-md border border-line bg-surface-1 p-2.5">
+                    <p className="text-[11px] text-fg-2">
+                      Which of your connected accounts this key may use. Your own, never anyone else&rsquo;s.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {connectorOptions.length === 0 && <span className="text-xs text-fg-2">No connectors available.</span>}
+                      {connectorOptions.map(c => {
+                        const on = draft.includes(c.id)
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => setDraft(prev => (prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id]))}
+                            className={cn(
+                              'min-h-[44px] rounded-full border px-3 text-xs transition-colors duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]',
+                              on ? 'border-accent/60 bg-accent/15 text-fg-0' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
+                            )}
+                          >
+                            {c.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="primary" loading={saving} onClick={() => void saveConnectors(k)}>Save</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+                    </div>
+                  </div>
+                )}
                 <p className="text-[11px] text-fg-2">
                   Created {fmtDate(k.created_at)} · Last used {k.last_used_at ? fmtDate(k.last_used_at) : 'never'}
                   {k.revoked_at && <> · Revoked {fmtDate(k.revoked_at)}</>}
                 </p>
               </div>
               {!k.revoked_at && (
-                <Button variant="danger" className="shrink-0 self-start sm:self-center" loading={revoking === k.id} onClick={() => void revoke(k)}>
-                  Revoke
-                </Button>
+                <div className="flex shrink-0 flex-wrap gap-2 self-start sm:self-center">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setEditing(editing === k.id ? null : k.id)
+                      setDraft((k.connectors ?? []).filter(c => c !== LEGACY_ALL_CONNECTORS))
+                    }}
+                  >
+                    Connectors
+                  </Button>
+                  <Button variant="danger" loading={revoking === k.id} onClick={() => void revoke(k)}>
+                    Revoke
+                  </Button>
+                </div>
               )}
             </li>
           ))}

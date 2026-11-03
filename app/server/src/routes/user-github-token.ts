@@ -86,7 +86,7 @@ router.post('/validate', async (req: AuthRequest, res: Response) => {
     res.status(404).json({ error: 'No GitHub token linked.' })
     return
   }
-  const raw = getDecryptedForUser(userId)
+  const raw = getDecryptedForUser(userId, { kind: 'user', userId })
   if (!raw) {
     res.status(404).json({ error: 'No GitHub token linked.' })
     return

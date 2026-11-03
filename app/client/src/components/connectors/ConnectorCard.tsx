@@ -22,7 +22,8 @@ function StateBadge({ status, available }: { status: ConnectorStatus; available:
 function accessSummary(a: ConnectorAccess): string {
   const agents = a.agents === null ? 'all agents' : a.agents.length === 0 ? 'no agents' : `${a.agents.length} agent${a.agents.length === 1 ? '' : 's'}`
   const ws = a.workspaces === null ? 'every workspace' : a.workspaces.length === 0 ? 'no workspaces' : `${a.workspaces.length} workspace${a.workspaces.length === 1 ? '' : 's'}`
-  return `Used by ${agents} in ${ws}`
+  const delegated = a.allow_delegated ? '' : '; not on work assigned by others'
+  return `Used by ${agents} in ${ws}${delegated}`
 }
 
 export interface ConnectorActions {

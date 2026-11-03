@@ -8,6 +8,10 @@ import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
 import type { UserGoogleConnectionSummary } from '@operationkit/shared'
 
+// These tests exercise the owner's own credential, so they read it as the
+// server acting for that owner (services/connector-guard.ts).
+const SERVER_ACTOR = { kind: 'server' as const }
+
 // obj-706070 — per-user Google Workspace connection API.
 //
 // Same harness shape as user-github-token.test.ts: encryption key + isolated DB
@@ -225,7 +229,7 @@ describe('GET /api/user/google/callback — full consent round-trip', () => {
     // …but the server-only seams recover the originals.
     expect(decryptField(row.refresh_token_encrypted)).toBe(RAW_REFRESH)
     expect(decryptField(row.access_token_encrypted as string)).toBe(RAW_ACCESS)
-    expect(getDecryptedRefreshToken(USER_ID)).toBe(RAW_REFRESH)
+    expect(getDecryptedRefreshToken(USER_ID, SERVER_ACTOR)).toBe(RAW_REFRESH)
   })
 
   it('CSRF: a forged/garbage state creates NO row and redirects to an error', async () => {
@@ -233,12 +237,12 @@ describe('GET /api/user/google/callback — full consent round-trip', () => {
     expect(forged.status).toBe(302)
     expect(forged.location).toContain('google=error')
     expect(forged.location).toContain('invalid_state')
-    expect(getDecryptedRefreshToken(USER_ID)).toBeNull()
+    expect(getDecryptedRefreshToken(USER_ID, SERVER_ACTOR)).toBeNull()
     // A state signed with the WRONG secret is equally rejected.
     const wrongSecret = jwt.sign({ uid: USER_ID }, 'some-other-secret', { expiresIn: '15m' })
     const r2 = await completeCallback(wrongSecret)
     expect(r2.location).toContain('google=error')
-    expect(getDecryptedRefreshToken(USER_ID)).toBeNull()
+    expect(getDecryptedRefreshToken(USER_ID, SERVER_ACTOR)).toBeNull()
     // Nothing was even exchanged with Google.
     expect(fetchCalls).not.toContain(TOKEN_ENDPOINT)
   })
@@ -247,7 +251,7 @@ describe('GET /api/user/google/callback — full consent round-trip', () => {
     const r = await req('GET', `/callback?state=${encodeURIComponent(signState(USER_ID))}`)
     expect(r.status).toBe(302)
     expect(r.location).toContain('google=error')
-    expect(getDecryptedRefreshToken(USER_ID)).toBeNull()
+    expect(getDecryptedRefreshToken(USER_ID, SERVER_ACTOR)).toBeNull()
   })
 })
 
@@ -289,7 +293,7 @@ describe('NO TOKEN EXPOSURE — no route body may carry credential material', ()
 describe('DELETE /api/user/google — revoke + remove', () => {
   it('calls Google revoke, drops the row, and a later GET returns connection: null', async () => {
     await completeCallback()
-    expect(getDecryptedRefreshToken(USER_ID)).toBe(RAW_REFRESH)
+    expect(getDecryptedRefreshToken(USER_ID, SERVER_ACTOR)).toBe(RAW_REFRESH)
 
     const r = await req('DELETE', '', COOKIE())
     expect(r.status).toBe(200)
@@ -299,7 +303,7 @@ describe('DELETE /api/user/google — revoke + remove', () => {
     // The grant was actually revoked upstream, not just forgotten locally.
     expect(fetchCalls).toContain(REVOKE_ENDPOINT)
 
-    expect(getDecryptedRefreshToken(USER_ID)).toBeNull()
+    expect(getDecryptedRefreshToken(USER_ID, SERVER_ACTOR)).toBeNull()
     const after = await req('GET', '', COOKIE())
     expect((after.json as { connection: unknown }).connection).toBeNull()
   })
@@ -324,7 +328,7 @@ describe('getAccessTokenForUser — cache then refresh', () => {
       clientId: process.env.GOOGLE_OAUTH_CLIENT_ID as string,
     })
     installFake() // reset call log
-    expect(await getAccessTokenForUser(USER_ID)).toBe(RAW_ACCESS)
+    expect(await getAccessTokenForUser(USER_ID, SERVER_ACTOR)).toBe(RAW_ACCESS)
     expect(fetchCalls).not.toContain(TOKEN_ENDPOINT)
   })
 
@@ -339,7 +343,7 @@ describe('getAccessTokenForUser — cache then refresh', () => {
       clientId: process.env.GOOGLE_OAUTH_CLIENT_ID as string,
     })
     installFake()
-    expect(await getAccessTokenForUser(USER_ID)).toBe(REFRESHED_ACCESS)
+    expect(await getAccessTokenForUser(USER_ID, SERVER_ACTOR)).toBe(REFRESHED_ACCESS)
     expect(fetchCalls).toContain(TOKEN_ENDPOINT)
 
     const row = getDb()
@@ -351,11 +355,11 @@ describe('getAccessTokenForUser — cache then refresh', () => {
     expect(new Date(row.access_token_expires_at).getTime()).toBeGreaterThan(Date.now())
     expect(row.last_error).toBeNull()
     // The refresh token itself is untouched by a refresh.
-    expect(getDecryptedRefreshToken(USER_ID)).toBe(RAW_REFRESH)
+    expect(getDecryptedRefreshToken(USER_ID, SERVER_ACTOR)).toBe(RAW_REFRESH)
   })
 
   it('returns null for a user with no connection', async () => {
-    expect(await getAccessTokenForUser(USER_ID)).toBeNull()
+    expect(await getAccessTokenForUser(USER_ID, SERVER_ACTOR)).toBeNull()
   })
 
   // A Google refresh token is only valid for the OAuth client that ISSUED it.
@@ -388,7 +392,7 @@ describe('getAccessTokenForUser — cache then refresh', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
       })
-      expect(await getAccessTokenForUser(USER_ID)).toBe(REFRESHED_ACCESS)
+      expect(await getAccessTokenForUser(USER_ID, SERVER_ACTOR)).toBe(REFRESHED_ACCESS)
       // The grant-issuing client's credentials were sent, NOT the primary's.
       const body = bodies.find((b) => b.includes('refresh_token')) as string
       expect(body).toContain(encodeURIComponent(LEGACY_ID))
@@ -411,7 +415,7 @@ describe('getAccessTokenForUser — cache then refresh', () => {
       clientId: 'some-client-nobody-configured.apps.googleusercontent.com',
     })
     installFake()
-    expect(await getAccessTokenForUser(USER_ID)).toBeNull()
+    expect(await getAccessTokenForUser(USER_ID, SERVER_ACTOR)).toBeNull()
     // Guaranteed-401 request never sent.
     expect(fetchCalls).not.toContain(TOKEN_ENDPOINT)
     const row = getDb()

@@ -20,6 +20,7 @@ the file describes — no client code.
 | `connect` | Either `{ kind: 'token', fields: [...] }` (paste a key) or `{ kind: 'oauth', button_label }` (sign in on the provider's site). |
 | `availability()` | Optional. Return `{ ok: false, reason }` when the server is not set up yet (for example a missing OAuth client). The card shows the reason instead of a connect button. |
 | `status(ctx)` | Describe the person's connection: state, who it is connected as, a few label/value rows. **Never include the credential.** |
+| `readCredential(ctx, use)` | Optional. The environment variables this connector contributes to a session. Call it only through `readConnectorCredential()` (`connectors/registry.ts`) — see "A connection belongs to one person" below. |
 | `connectWithFields(ctx, fields)` | For token connectors: test the key, store it encrypted, return the new status. |
 | `startOAuth(ctx)` | For sign-in connectors: return the provider URL to send the browser to. Your callback route stores the grant and redirects to `/settings/connectors`. |
 | `check(ctx)` | Optional. Re-test a stored connection ("Check connection"). |
@@ -33,10 +34,20 @@ the file describes — no client code.
 - **Never return or log a credential.** `status()` is a description of a connection, not the
   connection. The API test in `routes/connectors.test.ts` checks the GitHub token never comes back;
   copy that check for your connector.
-- **Respect "Who can use it".** If your connector hands something to sessions at start, ask
-  `isConnectorAllowed('<id>', userId, { agent, workspace })` (`app/server/src/connectors/access.ts`)
-  first, the way GitHub and Google do in `services/session-spawn-env.ts`. No rule means allowed, so
-  connections keep working until someone limits them.
+- **A connection belongs to one person, and that is checked for you.** Every read of a stored
+  credential goes through `canUseConnectorCredential` (`app/server/src/services/connector-guard.ts`),
+  which refuses unless the asking principal is the owner — or a key or session acting for the owner.
+  **An administrator role grants nothing here**: administering the install is not the same as being
+  every user. If your connector contributes anything to a session, implement `readCredential` and
+  let `readConnectorCredential()` call it; the guard runs first and your function is simply never
+  reached on a refusal. Do not read your own table from a spawn path.
+- **Respect "Who can use it".** The same guard applies the person's own rules — which agents, which
+  workspaces (`app/server/src/connectors/access.ts`), and whether work somebody else assigned to
+  them may use the connection at all (off by default). No rule means allowed, so connections keep
+  working until someone limits them.
+- **Every refusal is on the record.** A withheld credential writes a `connector_access_log` row —
+  who asked, whose connection, which connector, why, and the key's label when there was one. It
+  never stores a value. Admins read the tail at `GET /api/secrets/connector-denials`.
 - **Plain words.** The description and any error a person can see should make sense to someone
   who has never seen the code.
 

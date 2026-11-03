@@ -8,6 +8,10 @@ import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
 import type { UserGithubTokenSummary } from '@operationkit/shared'
 
+// These tests exercise the owner's own credential, so they read it as the
+// server acting for that owner (services/connector-guard.ts).
+const SERVER_ACTOR = { kind: 'server' as const }
+
 // Encryption key + isolated DB + JWT secret BEFORE importing modules.
 process.env.TEST_CRED_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64')
 process.env.JWT_SECRET = 'test-secret-ughtok-route'
@@ -109,14 +113,14 @@ describe('user-github-token routes', () => {
     expect(JSON.stringify(s)).not.toContain(RAW_PAT)
     expect(JSON.stringify(s)).not.toContain('secret_value')
     // …but it IS recoverable server-side (encrypted at rest, decrypts to original).
-    expect(getDecryptedForUser(10)).toBe(RAW_PAT)
+    expect(getDecryptedForUser(10, SERVER_ACTOR)).toBe(RAW_PAT)
   })
 
   it('POST rejects an invalid token with a clear error, stores nothing', async () => {
     const r = await req('POST', { token: 'ghp_wrong' }, COOKIE())
     expect(r.status).toBe(400)
     expect((r.json as { error: string }).error).toMatch(/invalid|401/i)
-    expect(getDecryptedForUser(10)).toBeNull()
+    expect(getDecryptedForUser(10, SERVER_ACTOR)).toBeNull()
   })
 
   it('POST /validate re-validates and bumps last_validated_at', async () => {

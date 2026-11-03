@@ -34,6 +34,7 @@ import internalRouter from './routes/internal.js'
 import internalVaultRouter from './routes/internal-vault.js'
 import alertsRouter from './routes/alerts.js'
 import internalRoutinesRouter from './routes/internal-routines.js'
+import internalPostHogHotOwnerRouter from './routes/internal-posthog-hot-owner.js'
 import starterPacksRouter, { internalStarterPacksRouter } from './routes/starter-packs.js'
 import internalInstallRouter from './routes/internal-install.js'
 import { buildCommit } from './lib/build-info.js'
@@ -92,6 +93,7 @@ import { startRoutineScheduler } from './services/routine-scheduler.js'
 import { startCanaryHarnessScheduler } from './services/canary-harness.js'
 import { startKitchenLoop } from './services/kitchen-loop.js'
 import { startBriefingNudgeScheduler } from './services/briefing-nudge.js'
+import { startPostHogHotOwnerScheduler } from './services/posthog-hot-owner-scheduler.js'
 import { startCiFeedbackBridge } from './services/ci-feedback-bridge.js'
 import { startDevFeedbackBridge } from './services/dev-feedback-bridge.js'
 import { startDriftGuard } from './services/drift-guard.js'
@@ -231,6 +233,7 @@ app.use('/api/internal', internalRouter)  // /api/internal/deploy, /restart, /ob
 app.use('/api/internal', internalVaultRouter)  // /api/internal/vault/*, /contactbook/history — telegram-contactbook sibling (localhost)
 app.use('/api/alerts', alertsRouter)  // ingest (bearer) + list/ack (JWT) — AlertBell + notify-failure.sh
 app.use('/api/internal/routines', internalRoutinesRouter)  // routines CRUD + run-now (localhost-only)
+app.use('/api/internal/posthog-hot-owner-sync', internalPostHogHotOwnerRouter)  // status + run-now + enabled flag (localhost-only; obj 900091)
 app.use('/api/internal/install', internalInstallRouter)  // installer: reload caches after bootstrap, seat status for verify.sh (localhost + secret; obj 720210)
 app.use('/api/internal/starter-packs', internalStarterPacksRouter)  // starter-pack switch-on for scripts/starter-pack.sh (localhost + secret; obj 719936)
 app.use('/api/internal/kb-ingest', internalKbIngestRouter)  // document-library pack setup hook (localhost + secret; obj 719936)
@@ -425,6 +428,13 @@ startKitchenLoop()
 
 // Start Assistant morning-nudge scheduler (daily 07:00 America/New_York Telegram digest)
 startBriefingNudgeScheduler()
+
+// Start the PostHog hot_owner sync schedule (obj 900091) — weekdays 08:00-19:30
+// America/New_York, every 30 min. Deterministic, no LLM spawn. Gated independently
+// by settings.posthog_hot_owner_sync_enabled (default on); off entirely if
+// POSTHOG_PERSONAL_API_KEY is not configured (each tick then records a failed run
+// and alerts Mike after 3 in a row, same as any other sync failure).
+startPostHogHotOwnerScheduler()
 
 // Start the CI → objective feedback bridge poller (obj 701617, 5-min tick). Reads open
 // example-platform PRs' vitest check and, on FAILURE, posts the failing-test summary back

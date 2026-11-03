@@ -91,7 +91,10 @@ export function AccessEditor({
   const [saving, setSaving] = useState(false)
   useEffect(() => setDraft(access), [access])
 
-  const dirty = !sameList(draft.agents, access.agents) || !sameList(draft.workspaces, access.workspaces)
+  const dirty =
+    !sameList(draft.agents, access.agents) ||
+    !sameList(draft.workspaces, access.workspaces) ||
+    !!draft.allow_delegated !== !!access.allow_delegated
 
   async function save() {
     setSaving(true)
@@ -122,6 +125,29 @@ export function AccessEditor({
           disabled={saving}
         />
       )}
+      {/* Work somebody else routes to you runs as you, but does not borrow your
+          outside accounts unless you say so. Off by default. */}
+      <fieldset>
+        <legend className="text-[12.5px] font-medium text-fg-1">Work assigned by others</legend>
+        <label className="mt-1.5 flex cursor-pointer items-start gap-2.5 text-[12.5px] text-fg-1">
+          <input
+            type="checkbox"
+            checked={!!draft.allow_delegated}
+            disabled={saving}
+            onChange={e => {
+              const on = e.target.checked
+              setDraft(d => ({ ...d, allow_delegated: on }))
+            }}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          />
+          <span>
+            Let cards someone else assigned to me use this connection.
+            <span className="block text-[11.5px] text-fg-3">
+              Off means those cards still run as me, but with this connection marked absent.
+            </span>
+          </span>
+        </label>
+      </fieldset>
       {dirty && (
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" size="sm" className="min-h-[44px] sm:min-h-0" loading={saving} onClick={save}>

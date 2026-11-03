@@ -14,7 +14,12 @@ import {
   USE_SCOPED_SECRETS,
 } from '../config.js'
 import { getDecryptedForUser, getForUser } from './user-github-tokens.js'
-import { isConnectorAllowed } from '../connectors/access.js'
+import {
+  checkConnectorCredential,
+  type ConnectorActor,
+} from './connector-guard.js'
+import { CONNECTOR_ID as GITHUB_CONNECTOR } from './user-github-tokens.js'
+import { CONNECTOR_ID as GOOGLE_CONNECTOR } from './user-google-connections.js'
 import {
   getForUser as getGoogleConnectionForUser,
   getDecryptedRefreshToken as getGoogleRefreshToken,
@@ -110,6 +115,62 @@ export function resolveActingUserId(
   return null
 }
 
+/**
+ * True when this card was routed to its owner by somebody ELSE.
+ *
+ * Routing work to a person is ordinary, and an admin is allowed to do it. What
+ * is NOT ordinary is the routed session quietly opening the assignee's Google
+ * account: whoever assigned the card would then be acting as them. So a
+ * delegated card runs with its connectors marked absent unless the assignee has
+ * opted that connector in (Settings → Connectors → "allow on work assigned by
+ * others"). Self-assigned work, and work with no assignee, is never delegated.
+ */
+export function isDelegatedCard(
+  objective: Pick<Objective, 'assigned_user_id' | 'created_by'>,
+): boolean {
+  const assigned = objective.assigned_user_id
+  const creator = objective.created_by
+  if (typeof assigned !== 'number' || assigned <= 0) return false
+  if (typeof creator !== 'number' || creator <= 0) return false
+  return assigned !== creator
+}
+
+/**
+ * The principal a spawned session's credential reads are made as. It acts for
+ * the card's owner, and — when the card was filed by an agent key — inherits
+ * that key's connector allow-list, so a key cannot reach through a card it
+ * created to a connector it was never granted.
+ */
+export function spawnActor(objective: Objective, actingUserId: number | null): ConnectorActor {
+  const keyId = (objective as { agent_key_id?: number | null }).agent_key_id
+  let agentKey: { keyId: number; keyLabel: string; connectors: string[] | null } | null = null
+  if (typeof keyId === 'number' && keyId > 0) {
+    try {
+      const row = getDb()
+        .prepare('SELECT id, label, connectors FROM agent_api_keys WHERE id = ?')
+        .get(keyId) as { id: number; label: string; connectors: string | null } | undefined
+      // A key that has since been deleted leaves the card with no connector
+      // grant at all, which is the safe reading of "the grant is gone".
+      agentKey = row
+        ? { keyId: row.id, keyLabel: row.label, connectors: parseKeyConnectors(row.connectors) }
+        : { keyId, keyLabel: (objective as { agent_key_label?: string | null }).agent_key_label ?? '', connectors: [] }
+    } catch {
+      agentKey = { keyId, keyLabel: '', connectors: [] }
+    }
+  }
+  return { kind: 'session', userId: actingUserId, objectiveId: objective.id, agentKey }
+}
+
+function parseKeyConnectors(raw: string | null): string[] {
+  if (raw == null) return []
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 /** SEAM — decide whether an objective spawns on the ADMIN or MEMBER tier.
  *  Resolved from the acting user's GLOBAL role in `users`:
  *  a `member` owner ⇒ 'member' tier; anything else (admin, or no resolvable
@@ -185,7 +246,10 @@ export const SAFE_FALLBACK_GIT_IDENTITY = {
  *  Invariants honored: stays PURE (only DB reads), MUST NOT throw, and NEVER logs
  *  the raw PAT — the decrypted token flows only into the returned env, which goes
  *  straight into the spawned child's process env. */
-export function userGitIdentityEnv(ownerId: number | null | undefined): Record<string, string> {
+export function userGitIdentityEnv(
+  ownerId: number | null | undefined,
+  actor: ConnectorActor,
+): Record<string, string> {
   if (ownerId == null) return {}
   try {
     // Masked identity (login + author/committer email) — resolved + verified at
@@ -194,7 +258,9 @@ export function userGitIdentityEnv(ownerId: number | null | undefined): Record<s
     if (!summary || !summary.github_login || !summary.github_email) return {}
 
     // Server-only seam: decrypt the PAT. Only reached when a row exists.
-    const token = getDecryptedForUser(ownerId)
+    // Owner-scoped: refused (and audited) unless this principal is the owner
+    // and, when it is an agent key's session, holds the connector on its list.
+    const token = getDecryptedForUser(ownerId, actor)
     if (!token) return {}
 
     const name = summary.github_login
@@ -239,7 +305,10 @@ export function userGitIdentityEnv(ownerId: number | null | undefined): Record<s
  *  Invariants, mirroring userGitIdentityEnv: PURE (DB reads only), MUST NOT
  *  throw, and NEVER logs token material — the decrypted refresh token flows only
  *  into the returned env, which goes straight into the spawned child's env. */
-export function userGoogleCredentialEnv(ownerId: number | null | undefined): Record<string, string> {
+export function userGoogleCredentialEnv(
+  ownerId: number | null | undefined,
+  actor: ConnectorActor,
+): Record<string, string> {
   const absent = { GOOGLE_WORKSPACE_CONNECTION: 'absent' }
   if (ownerId == null) return absent
   try {
@@ -255,7 +324,9 @@ export function userGoogleCredentialEnv(ownerId: number | null | undefined): Rec
     if (!client) return absent
 
     // Server-only seam: decrypt. Only reached when a row exists.
-    const refreshToken = getGoogleRefreshToken(ownerId)
+    // Owner-scoped: a refusal here is indistinguishable, to the session, from
+    // "not connected" — which is exactly the contract. It is audited.
+    const refreshToken = getGoogleRefreshToken(ownerId, actor)
     if (!refreshToken) return absent
 
     return {
@@ -313,8 +384,19 @@ export function buildSpawnEnv(opts: {
   // Settings → Connectors access rules (obj 720115): no rule = allowed, so this
   // only withholds a credential the person has explicitly limited.
   const connectorUse = { agent: objective.agent_context, workspace: objective.workspace }
-  if (isConnectorAllowed('github', actingUserId, connectorUse)) {
-    Object.assign(env, userGitIdentityEnv(actingUserId))
+  const delegated = isDelegatedCard(objective)
+  const actor = spawnActor(objective, actingUserId)
+  const mayUse = (connectorId: string): boolean =>
+    checkConnectorCredential({
+      connectorId,
+      ownerUserId: actingUserId,
+      actor,
+      use: connectorUse,
+      delegated,
+    }).allowed
+
+  if (mayUse(GITHUB_CONNECTOR)) {
+    Object.assign(env, userGitIdentityEnv(actingUserId, actor))
   }
 
   // Durable Vercel COMMIT_AUTHOR_REQUIRED guard (obj-701130). If the block above
@@ -343,8 +425,8 @@ export function buildSpawnEnv(opts: {
   // credential. Token keys are added ONLY on the connected branch. This appends
   // after the git-identity block and BEFORE scoped secrets, so an explicit scoped
   // secret can still override a Google key if an operator ever needs to.
-  const googleEnv = isConnectorAllowed('google-workspace', actingUserId, connectorUse)
-    ? userGoogleCredentialEnv(actingUserId)
+  const googleEnv = mayUse(GOOGLE_CONNECTOR)
+    ? userGoogleCredentialEnv(actingUserId, actor)
     : { GOOGLE_WORKSPACE_CONNECTION: 'absent' }
   Object.assign(env, googleEnv)
 
@@ -353,7 +435,7 @@ export function buildSpawnEnv(opts: {
   // reads the whole directory, which is how Ava's session sent as Mike.
   if (env.GOOGLE_WORKSPACE_CONNECTION === 'user' && actingUserId != null) {
     env.WORKSPACE_MCP_CREDENTIALS_DIR =
-      writeIsolatedGoogleCredsDir(actingUserId) || writeEmptyGoogleCredsDir(String(actingUserId))
+      writeIsolatedGoogleCredsDir(actingUserId, actor) || writeEmptyGoogleCredsDir(String(actingUserId))
   } else {
     env.WORKSPACE_MCP_CREDENTIALS_DIR = writeEmptyGoogleCredsDir(String(actingUserId ?? 'none'))
   }

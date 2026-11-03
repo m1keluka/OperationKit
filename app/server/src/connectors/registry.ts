@@ -6,7 +6,8 @@
 import { readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import type { ConnectorDefinition } from './types.js'
+import type { ConnectorCredentialUse, ConnectorDefinition } from './types.js'
+import { checkConnectorCredential, type ConnectorActor } from '../services/connector-guard.js'
 
 const DEFS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'defs')
 const ID = /^[a-z0-9][a-z0-9-]{0,40}$/
@@ -55,4 +56,33 @@ export async function getConnector(id: string): Promise<ConnectorDefinition | un
 export function __loadConnectorsFrom(dir: string | null): Promise<ConnectorDefinition[]> {
   loading = load(dir ?? DEFS_DIR)
   return loading
+}
+
+/**
+ * The ONLY way a connector's credential reaches a session env. The owner guard
+ * runs first, so a connector that implements `readCredential` is owner-scoped
+ * whether or not its author thought about it: a cross-user, un-allow-listed or
+ * delegated-without-opt-in request gets `{}` and an audit row, and
+ * `readCredential` is never called at all.
+ */
+export function readConnectorCredential(
+  def: Pick<ConnectorDefinition, 'id' | 'readCredential'>,
+  ownerUserId: number | null | undefined,
+  use: ConnectorCredentialUse,
+): Record<string, string> {
+  if (!def.readCredential) return {}
+  const decision = checkConnectorCredential({
+    connectorId: def.id,
+    ownerUserId,
+    actor: use.actor as ConnectorActor,
+    use: { agent: use.agent, workspace: use.workspace },
+    delegated: use.delegated,
+  })
+  if (!decision.allowed) return {}
+  try {
+    return def.readCredential({ userId: ownerUserId as number }, use) ?? {}
+  } catch {
+    // A connector that throws must not take a spawn down with it.
+    return {}
+  }
 }

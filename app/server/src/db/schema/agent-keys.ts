@@ -23,6 +23,23 @@ export function initAgentKeysSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_api_keys_user ON agent_api_keys(user_id);
   `)
 
+  // Per-key connector allow-list. A key may use a connector only if it is named
+  // here AND the connection belongs to the key's owner.
+  //
+  // Migration: this column did not exist, and no per-key gate existed either, so
+  // every EXISTING key could already reach every connector its owner had. Rows
+  // present when the column is added are therefore set to the legacy wildcard
+  // ['*'] — their behaviour is unchanged, and Settings labels them "All
+  // (legacy)" so each one can be narrowed deliberately rather than by a silent
+  // break. Keys created afterwards default to NULL, which means NO connectors.
+  const keyCols = new Set(
+    (db.prepare('PRAGMA table_info(agent_api_keys)').all() as { name: string }[]).map(c => c.name),
+  )
+  if (!keyCols.has('connectors')) {
+    db.exec('ALTER TABLE agent_api_keys ADD COLUMN connectors TEXT')
+    db.prepare("UPDATE agent_api_keys SET connectors = '[\"*\"]' WHERE connectors IS NULL").run()
+  }
+
   // Attribution on the card itself: which key created it. The label is a
   // snapshot so "created by Grok: Example" survives revocation. Both NULL for
   // every non-agent origin.

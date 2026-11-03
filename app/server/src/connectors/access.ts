@@ -13,7 +13,7 @@ import type { Database } from 'better-sqlite3'
 import type { ConnectorAccess } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 
-export const DEFAULT_ACCESS: ConnectorAccess = { agents: null, workspaces: null }
+export const DEFAULT_ACCESS: ConnectorAccess = { agents: null, workspaces: null, allow_delegated: false }
 
 let ensuredFor: Database | null = null
 
@@ -30,6 +30,16 @@ function db(): Database {
         PRIMARY KEY (connector_id, user_id)
       );
     `)
+    // Added after the table shipped, so it is an ALTER guarded on the column
+    // being absent. 0 = work another person assigned to me does NOT borrow this
+    // connection, which is the safe reading of every row written before the
+    // column existed.
+    const cols = new Set(
+      (d.prepare('PRAGMA table_info(connector_access)').all() as { name: string }[]).map(c => c.name),
+    )
+    if (!cols.has('allow_delegated')) {
+      d.exec('ALTER TABLE connector_access ADD COLUMN allow_delegated INTEGER NOT NULL DEFAULT 0')
+    }
     ensuredFor = d
   }
   return d
@@ -48,10 +58,18 @@ function parseList(raw: string | null): string[] | null {
 
 export function getAccess(connectorId: string, userId: number): ConnectorAccess {
   const row = db()
-    .prepare('SELECT agents, workspaces FROM connector_access WHERE connector_id = ? AND user_id = ?')
-    .get(connectorId, userId) as { agents: string | null; workspaces: string | null } | undefined
+    .prepare(
+      'SELECT agents, workspaces, allow_delegated FROM connector_access WHERE connector_id = ? AND user_id = ?',
+    )
+    .get(connectorId, userId) as
+    | { agents: string | null; workspaces: string | null; allow_delegated: number | null }
+    | undefined
   if (!row) return { ...DEFAULT_ACCESS }
-  return { agents: parseList(row.agents), workspaces: parseList(row.workspaces) }
+  return {
+    agents: parseList(row.agents),
+    workspaces: parseList(row.workspaces),
+    allow_delegated: Number(row.allow_delegated) > 0,
+  }
 }
 
 const SLUG = /^[a-z0-9][a-z0-9._-]{0,63}$/i
@@ -59,7 +77,15 @@ const SLUG = /^[a-z0-9][a-z0-9._-]{0,63}$/i
 /** Validate a request body into a ConnectorAccess. Returns an error sentence on bad input. */
 export function parseAccessBody(body: unknown): ConnectorAccess | { error: string } {
   const b = (body ?? {}) as Record<string, unknown>
-  const out: ConnectorAccess = { agents: null, workspaces: null }
+  const out: ConnectorAccess = { agents: null, workspaces: null, allow_delegated: false }
+  // Opt-in for work another person assigned to the owner. Absent = unchanged
+  // (off), so an existing client that never sends the field cannot turn it on.
+  if (b.allow_delegated !== undefined) {
+    if (typeof b.allow_delegated !== 'boolean') {
+      return { error: 'allow_delegated must be true or false.' }
+    }
+    out.allow_delegated = b.allow_delegated
+  }
   for (const key of ['agents', 'workspaces'] as const) {
     const v = b[key]
     if (v === null || v === undefined) continue
@@ -73,19 +99,21 @@ export function parseAccessBody(body: unknown): ConnectorAccess | { error: strin
 
 export function setAccess(connectorId: string, userId: number, access: ConnectorAccess): ConnectorAccess {
   const d = db()
-  if (access.agents === null && access.workspaces === null) {
+  if (access.agents === null && access.workspaces === null && !access.allow_delegated) {
     d.prepare('DELETE FROM connector_access WHERE connector_id = ? AND user_id = ?').run(connectorId, userId)
   } else {
     d.prepare(
-      `INSERT INTO connector_access (connector_id, user_id, agents, workspaces, updated_at)
-       VALUES (?, ?, ?, ?, datetime('now'))
+      `INSERT INTO connector_access (connector_id, user_id, agents, workspaces, allow_delegated, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))
        ON CONFLICT(connector_id, user_id) DO UPDATE SET
-         agents = excluded.agents, workspaces = excluded.workspaces, updated_at = excluded.updated_at`,
+         agents = excluded.agents, workspaces = excluded.workspaces,
+         allow_delegated = excluded.allow_delegated, updated_at = excluded.updated_at`,
     ).run(
       connectorId,
       userId,
       access.agents === null ? null : JSON.stringify(access.agents),
       access.workspaces === null ? null : JSON.stringify(access.workspaces),
+      access.allow_delegated ? 1 : 0,
     )
   }
   return getAccess(connectorId, userId)

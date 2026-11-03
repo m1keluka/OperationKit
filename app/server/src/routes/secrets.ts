@@ -21,6 +21,7 @@
  */
 import { Router } from 'express'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { recentConnectorDenials } from '../services/connector-guard.js'
 import { getDb } from '../db/index.js'
 import { listRotationFlags, resolveRotationFlag } from '../services/chat-secret-capture.js'
 import {
@@ -158,6 +159,19 @@ router.get('/versions', (req: AuthRequest, res) => {
     return
   }
   res.json(listVersions(parsed.scope, key))
+})
+
+// GET /api/secrets/connector-denials — every per-user connector credential that
+// was withheld: who asked, who it belonged to, which key, and why. Names and
+// reasons only; no credential material is stored or returned. Global admin only,
+// alongside the secrets access log.
+router.get('/connector-denials', (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    res.status(403).json({ error: 'Global admin role required' })
+    return
+  }
+  const limit = Number(req.query.limit)
+  res.json(recentConnectorDenials(Number.isFinite(limit) && limit > 0 ? limit : 100))
 })
 
 // GET /api/secrets/access-log — global admin only.
