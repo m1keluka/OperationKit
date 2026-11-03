@@ -56,6 +56,7 @@
 
 import { getDb } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
+import { internalApiHeaders } from '../lib/internal-api-headers.js'
 
 const PORT = parseInt(process.env.PORT || '3002', 10)
 
@@ -330,7 +331,9 @@ export async function runIntakePass(
         const description = buildObjectiveDescription(item)
         const createRes = await fetch(`http://localhost:${PORT}/api/internal/objectives`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          // obj 900027: loopback already satisfies internalApiGate, but send the shared
+          // secret too so INTERNAL_API_REQUIRE_SECRET=1 can be switched on safely.
+          headers: internalApiHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify([
             {
               title,

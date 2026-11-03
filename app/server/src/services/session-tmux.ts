@@ -22,6 +22,9 @@ import {
   jailImage,
 } from './session-jail.js'
 import { sandboxClaudeAuthEnv } from './sandbox-claude-auth.js'
+import { JAIL_HOME_ROOT as JAIL_HOME_ROOT_CANONICAL, createJailHome, dropEnvFile } from './jail-home.js'
+import { resolveJailWorkspace, ensureJailScratchDir, applyJailOwnership } from './jail-workspace.js'
+import { buildWorkdirGuard } from './session-startup-failure.js'
 import type { SeatMount } from './seat-credentials.js'
 
 // ── `~`-home false-negative fix (obj 532 / 553) ──
@@ -69,8 +72,12 @@ export const TMUX_SCRIPT_DIR = process.env.CC_SCRIPT_DIR || '/tmp/cc-scripts'
 /**
  * Host root for per-session jail HOME binds (SESSION_ISOLATION=docker only).
  * One dir per session, mounted at /home/jailuser inside its own jail.
+ *
+ * The constant now LIVES in `jail-home.ts`, which owns the whole
+ * create -> scrub -> sweep lifecycle (obj 900038). This re-export keeps every
+ * existing importer working unchanged.
  */
-export const JAIL_HOME_ROOT = process.env.CC_JAIL_HOME_ROOT || '/tmp/cc-jail-homes'
+export const JAIL_HOME_ROOT = JAIL_HOME_ROOT_CANONICAL
 
 /**
  * Repoint a canonical transcript path at the jail-visible file, preserving any
@@ -81,7 +88,10 @@ function linkTranscript(canonicalPath: string, jailPath: string): void {
     let existing = ''
     try { existing = fs.readFileSync(canonicalPath, 'utf8') } catch { /* nothing yet */ }
     fs.writeFileSync(jailPath, existing)
-    fs.chmodSync(jailPath, 0o666)
+    // obj 900038: the jail uid owns its transcript; nothing else on the host
+    // needs write access to it, and 0666 inside a shared /tmp made every
+    // session's live transcript writable by every other session.
+    applyJailOwnership(jailPath, 'jail-write')
     fs.rmSync(canonicalPath, { force: true })
     fs.symlinkSync(jailPath, canonicalPath)
   } catch (err) {
@@ -338,10 +348,19 @@ export function spawnInTmux(opts: {
       // Fail closed: no id → no deterministic jail name → no jail. Never silently tmux.
       throw new Error(`session-jail: SESSION_ISOLATION=docker but no objectiveId was passed for session ${sessionId}`)
     }
-    fs.mkdirSync(scriptDirHost, { recursive: true })
-    fs.chmodSync(jailHomeHost, 0o777)
-    fs.chmodSync(scriptDirHost, 0o777)
+    // obj 900038: 0700 owned by the jail uid - NEVER 0777. This directory holds
+    // the session's --env-file and wrapper script (both plaintext credentials)
+    // and sits on the shared host /tmp next to every other session's.
+    createJailHome(sessionId, JAIL_HOME_ROOT)
   }
+
+  // obj 900038: what actually gets bound at /workspace. A no-project card
+  // resolves its workdir to the bare operator HOME (0750 root:root on the OVH
+  // install), which the jail uid cannot enter - so the wrapper died at `cd`
+  // before writing a single byte. Such a card now gets a per-card scratch dir.
+  const jailWorkspace = useJail
+    ? resolveJailWorkspace({ objectiveId: String(objectiveId!), worktreeRoot, workdir })
+    : null
 
   // `~`-home fix: ensure ~/second-brain, ~/projects, ~/ai-workspace in this
   // account home resolve to the real /home/operator roots before the session starts.
@@ -355,7 +374,11 @@ export function spawnInTmux(opts: {
   // obj 715532: never hand a worker a credential in its prompt. Known values
   // become [REDACTED:<NAME>] — the worker already has <NAME> in its env.
   fs.writeFileSync(promptFile, redactPromptForWorker(prompt))
-  fs.chmodSync(promptFile, 0o666)
+  // obj 900038: in jail mode the prompt lives in the per-session HOME, so it is
+  // handed to the jail uid at 0600. In tmux mode ccuser reads it out of the
+  // shared /tmp/cc-scripts, so the historical 0666 is preserved there.
+  if (useJail) applyJailOwnership(promptFile, 'jail-read')
+  else fs.chmodSync(promptFile, 0o666)
 
   // Build env exports for the wrapper script. Canonical /home/operator roots are
   // merged in (caller env wins on collision) so every session can reference the
@@ -482,15 +505,23 @@ ${envExports}
 # mode (where /app/data is not mounted) and on a freshly rebuilt image.
 CC_CLI_BIN_DIR=${JSON.stringify(cliBinDir)}
 if [ -x "$CC_CLI_BIN_DIR/claude" ]; then export PATH="$CC_CLI_BIN_DIR:$PATH"; fi
-cd ${JSON.stringify(workdirGuest)} || exit 1
-echo "[wrapper] Starting at $(date)" >> ${JSON.stringify(logGuest)}
+${buildWorkdirGuard({
+  workdirGuest: JSON.stringify(workdirGuest),
+  logGuest: JSON.stringify(logGuest),
+  jsonlGuest: JSON.stringify(jsonlGuest),
+  sessionId,
+})}
 echo "[wrapper] Prompt file size: $(wc -c < ${JSON.stringify(promptFileGuest)})" >> ${JSON.stringify(logGuest)}
 ${runLine}
 EXIT_CODE=${piped ? '${PIPESTATUS[0]}' : '$?'}
-rm -f ${JSON.stringify(promptFileGuest)} ${JSON.stringify(scriptFileGuest)} 2>/dev/null || true
+rm -f ${JSON.stringify(promptFileGuest)} ${JSON.stringify(scriptFileGuest)}${useJail ? ` ${JSON.stringify(`${scriptDirGuest}/${sessionId}.env`)}` : ''} 2>/dev/null || true
 exit $EXIT_CODE
 `)
-  fs.chmodSync(scriptFile, 0o777)
+  // obj 900038: the wrapper contains `export KEY="value"` for every injected
+  // secret. In jail mode only the jail uid may read it (0600 - bash does not
+  // need +x for `bash <file>`). tmux mode keeps 0777 for ccuser.
+  if (useJail) applyJailOwnership(scriptFile, 'jail-read')
+  else fs.chmodSync(scriptFile, 0o777)
 
   // Record the spawn-segment boundary BEFORE this spawn's wrapper appends to the
   // jsonl, so the death-scan attributes rate limits only to events from THIS
@@ -506,10 +537,17 @@ exit $EXIT_CODE
     // createSessionJailSync throws on any docker failure and there is NO catch
     // here that falls back to the unsandboxed `tmux new-session` below.
     try { execSync(`docker rm -f ${jailName(objectiveId!)} 2>/dev/null`, { timeout: 15000 }) } catch {}
+    if (jailWorkspace!.scratch) {
+      ensureJailScratchDir(String(objectiveId!))
+      console.log(
+        `[session-jail] obj ${objectiveId} has no worktree and workdir ${JSON.stringify(workdir)} is not bindable ` +
+        `(${jailWorkspace!.reason}) - mounting per-card scratch ${jailWorkspace!.source} at ${JAIL_WORKSPACE_PATH}.`,
+      )
+    }
     const handle = createSessionJailSync({
       objectiveId: objectiveId!,
       sessionId,
-      worktreePath: worktreeRoot || workdir,
+      worktreePath: jailWorkspace!.source,
       homePath: jailHomeHost,
       env: fullEnv,
       envFilePath: path.join(scriptDirHost, `${sessionId}.env`),
@@ -521,6 +559,12 @@ exit $EXIT_CODE
         `while tmux has-session -t ${JSON.stringify(tmuxName)} 2>/dev/null; do sleep 5; done`,
       ],
     })
+    // obj 900038: `--env-file` is consumed once, synchronously, by the daemon
+    // at container-create time; the running container reads its env from its own
+    // config. The file has no reason to outlive this call, and it was the single
+    // largest plaintext-credential exposure on the host.
+    dropEnvFile(path.join(scriptDirHost, `${sessionId}.env`))
+
     // Point the caller's canonical transcript paths at the jail-visible files so
     // every existing reader keeps working without a third mount.
     linkTranscript(jsonlPath, path.join(scriptDirHost, `${sessionId}.jsonl`))

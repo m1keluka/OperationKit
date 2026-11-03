@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # session-jail-proof.sh — LIVE fail-closed proof for the per-session sibling jail.
 #
-# obj 709072 (parent 708982). Runs two real sibling containers (jail A and jail B)
-# and asserts the 7-row isolation matrix. This is evidence, not a mock: every row
+# obj 709072 (parent 708982). Runs real sibling containers (jail A and jail B)
+# and asserts the isolation matrix: rows 1-7 are the original contract; rows
+# 8-10 (obj 900038) are the no-project-card mount rules — a bare 0750 operator
+# home is unusable as /workspace, a 0700 per-card scratch dir works, and that
+# scratch dir is unreadable by any other uid. This is evidence, not a mock: every row
 # is the exit code of a command executed INSIDE a jail. Nothing here is stubbed —
 # if docker is unreachable the script fails LOUDLY at PRECHECK and prints the raw
 # daemon error rather than reporting a pass.
@@ -26,7 +29,7 @@ row()  { printf '\n--- ROW %s: %s ---\n' "$1" "$2"; }
 ok()   { PASS=$((PASS+1)); printf 'RESULT: PASS (%s)\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf 'RESULT: FAIL (%s)\n' "$1"; }
 
-cleanup() { docker rm -f "$A" "$B" >/dev/null 2>&1 || true; }
+cleanup() { docker rm -f "$A" "$B" "${C:-ok-jail-w8c}" >/dev/null 2>&1 || true; }
 
 echo "=== PRECHECK: docker reachable? ==="
 if ! docker version --format '{{.Server.Version}}' 2>&1; then
@@ -134,6 +137,72 @@ echo "leftover count: $LEFT"
 [ "$LEFT" -eq 0 ] && ok "no leftovers" || bad "$LEFT leftover container(s)"
 
 echo
+# ─────────────────────────────────────────────────────────────────────────────
+# obj 900038 — a card with NO project. Rows 8-10 are the LIVE half of that fix:
+# row 8 reproduces the original death, row 9 proves the replacement works, and
+# row 10 proves the replacement is not readable by anyone but the jail uid.
+# ─────────────────────────────────────────────────────────────────────────────
+C=ok-jail-w8c
+HOME_LIKE=/tmp/ok-jail-proof-operator-home     # stand-in for the 0750 operator home
+SCRATCH=/tmp/ok-jail-proof-scratch/900038      # stand-in for the per-card scratch dir
+
+echo
+echo '=== SETUP: obj 900038 stand-ins ==='
+sudo rm -rf "$HOME_LIKE" "$SCRATCH" 2>/dev/null || rm -rf "$HOME_LIKE" "$SCRATCH"
+mkdir -p "$HOME_LIKE" "$(dirname "$SCRATCH")" "$SCRATCH"
+# These rows are ABOUT ownership, so they need chown — i.e. root. Without it we
+# cannot build the 0750-root-owned directory that caused the bug, and a jail
+# would happily cd into a dir this user owns. SKIP loudly rather than report a
+# meaningless PASS or a false FAIL.
+OBJ900038_READY=1
+sudo -n true 2>/dev/null || OBJ900038_READY=0
+if [ "$OBJ900038_READY" = 1 ]; then
+  # The exact permissions of the real failure: 0750 root:root.
+  sudo chown root:root "$HOME_LIKE" && sudo chmod 0750 "$HOME_LIKE" || OBJ900038_READY=0
+  # The replacement: 0700 owned by the jail uid.
+  sudo chown 1000:1000 "$SCRATCH" && sudo chmod 0700 "$SCRATCH" || OBJ900038_READY=0
+fi
+ls -ld "$HOME_LIKE" "$SCRATCH"
+if [ "$OBJ900038_READY" != 1 ]; then
+  echo
+  echo 'SKIP rows 8-10 (obj 900038): passwordless sudo/chown unavailable, so the'
+  echo '0750 root-owned stand-in cannot be built. Not a pass and not a failure.'
+fi
+
+run_jail_cmd() {  # $1=name $2=hostdir $3=user -> runs 'cd /workspace && echo ok'
+  docker rm -f "$1" >/dev/null 2>&1 || true
+  docker run --rm --name "$1" --user "$3" --cap-drop ALL --security-opt no-new-privileges \
+    --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+    -v "$2:/workspace:rw" -w / "$IMAGE" sh -lc 'cd /workspace && echo TRIVIAL-COMMAND-RAN'
+}
+
+if [ "$OBJ900038_READY" = 1 ]; then
+row 8 'REGRESSION: binding the bare 0750 operator home makes cd /workspace FAIL (the original bug)'
+run_jail_cmd "$C" "$HOME_LIKE" 1000:1000; rc=$?
+echo "exit code: $rc"
+[ "$rc" -ne 0 ] && ok 'bare operator home is unusable as /workspace — which is why we never bind it' \
+                 || bad 'expected cd /workspace to fail on a 0750 root-owned bind'
+
+row 9 'FIX: a per-card scratch dir (0700, jail uid) lets a no-project card run a trivial command'
+out=$(run_jail_cmd "$C" "$SCRATCH" 1000:1000 2>&1); rc=$?
+echo "$out"; echo "exit code: $rc"
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q TRIVIAL-COMMAND-RAN; then
+  ok 'no-project card starts and runs a command in the sandbox'
+else
+  bad 'no-project card could not run in its scratch workspace'
+fi
+
+row 10 'the 0700 scratch dir is NOT readable by any other uid'
+docker run --rm --user 1234:1234 --cap-drop ALL --security-opt no-new-privileges \
+  -v "$(dirname "$SCRATCH"):/peek:ro" "$IMAGE" sh -lc 'ls -la /peek/900038 2>&1; echo exit=$?'
+docker run --rm --user 1234:1234 --cap-drop ALL --security-opt no-new-privileges \
+  -v "$(dirname "$SCRATCH"):/peek:ro" "$IMAGE" sh -lc 'ls /peek/900038' >/dev/null 2>&1; rc=$?
+echo "exit code: $rc"
+[ "$rc" -ne 0 ] && ok 'another uid cannot list the per-card scratch dir' \
+                 || bad 'per-card scratch dir is readable by a foreign uid'
+fi
+
+
 echo "==================== SUMMARY ===================="
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -4,6 +4,7 @@
  */
 import { isClearDeadSessionEnabled } from './objective-audit.js'
 import type { MergeLane } from './merge-lane.js'
+import type { StartupFailure } from './session-startup-failure.js'
 import type {
   Objective,
   ObjectiveStatus,
@@ -21,10 +22,15 @@ export interface NoOpDecision {
    *  re-spawn the worker; 'block' = no-op with the re-spawn budget exhausted;
    *  'skip-reviewer' = ran (has tool calls) but produced no files and died in
    *  under SHORT_SESSION_SKIP_REVIEWER_MS — send to human review, do not spend
-   *  a second Claude process grading an empty tree. */
-  action: 'none' | 'respawn' | 'block' | 'skip-reviewer'
+   *  a second Claude process grading an empty tree;
+   *  'startup-failed' = the spawn wrapper died before the agent ever ran
+   *  (obj 900038) — an environment fault, so block with the real reason and do
+   *  NOT burn re-spawns on an identical broken spawn. */
+  action: 'none' | 'respawn' | 'block' | 'skip-reviewer' | 'startup-failed'
   /** 1-based attempt number to record when action === 'respawn'. */
   attempt?: number
+  /** Operator-facing cause, set when action === 'startup-failed'. */
+  startupFailure?: StartupFailure
 }
 
 /** Sub-35s sessions with zero file changes (the 706967/707614 shape). */
@@ -65,10 +71,24 @@ export function decideDeadSessionRepark(
 }
 
 export function classifyNoOpSpawn(
-  intel: { toolCalls: number; filesCreated: number; filesModified: number; durationMs?: number; completedWithAnswer?: boolean },
+  intel: {
+    toolCalls: number; filesCreated: number; filesModified: number
+    durationMs?: number; completedWithAnswer?: boolean
+    /** obj 900038: set when the wrapper died before the agent ever started. */
+    startupFailure?: StartupFailure | null
+  },
   priorAttempts: number,
   maxRespawns: number = MAX_NOOP_RESPAWNS
 ): NoOpDecision {
+  // obj 900038 — a startup failure OUTRANKS the no-op rules. The session did
+  // not "produce nothing"; it never ran, because its environment was broken
+  // (an un-enterable /workspace, a missing binary). Re-spawning reproduces the
+  // fault exactly, which is how one bad mount turned into six dead cards on the
+  // OVH install. Block immediately, carrying the exit code + stderr tail so the
+  // card says WHY instead of "ended".
+  if (intel.startupFailure) {
+    return { isNoOp: true, action: 'startup-failed', startupFailure: intel.startupFailure }
+  }
   // A session whose terminal turn is a clean, non-empty success ANSWERED — a
   // pure-answer card legitimately needs 0 tool calls. That is "completed with no
   // tools", not "spawn never produced output": never re-spawn or block it. It

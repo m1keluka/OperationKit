@@ -7,11 +7,14 @@ import { getDb } from '../db/index.js'
 import { SERVER_PORT } from '../config.js'
 import { getRouterStatus } from './account-router.js'
 import { tickFanout, type FanoutTickResult, type PoolSnapshot } from './fanout.js'
+import { internalApiHeaders } from '../lib/internal-api-headers.js'
 
 export async function startChildViaInternalApi(childId: number): Promise<boolean> {
   const r = await fetch(`http://localhost:${SERVER_PORT}/api/internal/objectives/${childId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    // obj 900027: loopback already satisfies internalApiGate, but send the shared
+    // secret too so INTERNAL_API_REQUIRE_SECRET=1 can be switched on safely.
+    headers: internalApiHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ status: 'working', reason: 'fanout', actor: 'fanout-tick' }),
   })
   if (!r.ok) {

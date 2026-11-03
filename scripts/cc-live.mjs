@@ -43,9 +43,15 @@ function parseArgs(argv) {
 }
 
 async function call(method, path, body) {
+  // obj 900027: the loopback origin check alone is enough today, but pass the
+  // shared secret when the session env carries it so this keeps working under
+  // INTERNAL_API_REQUIRE_SECRET=1. Absent env var → unchanged behaviour.
+  const headers = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  if (process.env.INTERNAL_API_SECRET) headers['X-Internal-Secret'] = process.env.INTERNAL_API_SECRET
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body ? JSON.stringify(body) : undefined,
   })
   const text = await res.text()
