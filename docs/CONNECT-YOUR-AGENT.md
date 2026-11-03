@@ -17,14 +17,51 @@ It takes about 5 minutes. You need to be signed in to Operation Kit.
 
 ---
 
-## Step 0 (administrator, once per install): let AI apps through the Cloudflare door
+## Step 0 (administrator): the API door is already open — check it
 
-On a standard install, Cloudflare Access sits in front of the **whole** site. That is what keeps
-strangers out, but it also stops an AI app: the app gets Cloudflare's sign-in page instead of an
-answer. Pick one of these two ways to let AI apps reach `/api/mcp`. Both keep the agent key as the
-lock on what the AI can do.
+Cloudflare Access sits in front of the **whole** site, which is what keeps strangers out. On its
+own that also stops an AI app: it gets Cloudflare's sign-in page instead of an answer, and the key
+it sent is never looked at.
 
-**Option A: an agent pass (recommended; the door stays shut to everyone else).**
+**The installer already handles this.** `install/cloudflare.sh` creates a second,
+path-limited Cloudflare Access application — **"Operation Kit API (key auth)"** — that steps aside
+on the bot-facing API routes only, including `/api/mcp`. Your agent key is then the single check on
+those routes. Everything else on the site, and every operator route (`/api/internal`, `/api/admin`,
+`/api/secrets`, `/api/secret-upload`, `/api/webhooks`, the rest of `/api/auth`), still needs the
+Cloudflare sign-in. Anyone can now *reach* `/api/mcp`; without a valid key they get `401`.
+
+So on a current install there is **nothing to do here**. Confirm it in one command — a `401` with a
+JSON body means the app saw the request and turned it away, which is what you want:
+
+```bash
+curl -si https://<your Operation Kit address>/api/objectives | head -1
+# HTTP/2 401   ← good: the app answered, your key is what decides
+# HTTP/2 302 … cloudflareaccess.com  ← the bypass is missing, see below
+```
+
+**If it is missing** (an install made before this, or `API_KEY_AUTH_BYPASS="off"`), whoever runs the
+server adds it with one command — it is idempotent, so re-running is safe:
+
+```bash
+sudo bash /opt/operationkit-src/install/cloudflare.sh api-bypass \
+  --config /opt/operationkit-src/client.conf
+```
+
+**If your bot needs a route that is not open yet** (you get the Cloudflare sign-in page on some
+other `/api/…` address): add one line to `install/api-bypass-paths.conf` on the server —
+`prefix /api/<thing>` for a whole route, `exact /api/<thing>` for a single address — then re-run
+the command above and `install/verify.sh`. The installer **refuses** to add an operator route, so a
+mistake there stops the step instead of opening anything. Full explanation, including why this is
+safe and how to roll it back:
+[INSTALL.md → Letting bots reach the API with their key](../INSTALL.md#letting-bots-reach-the-api-with-their-key).
+
+### If you want the door shut to everyone but one tool
+
+The bypass above is per-route, not per-tool: any AI app with a valid key can use those routes. If
+you would rather Cloudflare itself only admit one named tool, use an **agent pass** instead, and
+turn the bypass off (`API_KEY_AUTH_BYPASS="off"`, then `cloudflare.sh api-bypass remove`).
+
+**An agent pass** is the alternative.
 An agent pass is a Cloudflare service token for one AI app. The app sends two extra headers that
 Cloudflare recognises; everyone else still gets the sign-in page.
 
@@ -55,21 +92,12 @@ dashboard: **Zero Trust → Access → Service auth → Create service token**, 
 Auth** policy for that token on the Operation Kit application.
 
 This works with Claude Code, Claude Desktop (through `mcp-remote`), the OpenAI Responses API, the
-xAI (Grok) API, Codex, Cursor and any app that lets you set extra headers. It does **not** work
-with the "add connector" screens in the claude.ai, ChatGPT and Grok apps (they only offer a
-sign-in flow), or with the Claude API's MCP connector (see Option B).
+xAI (Grok) API, Codex, Cursor and any app that lets you set extra headers.
 
-**Option B: open just the MCP address (for apps that can send only one key).**
-The Claude API's MCP connector sends only the key and no other headers, so it cannot pass Option
-A's headers.
-
-1. **Zero Trust → Access → Applications → Add an application → Self-hosted.** Name it
-   `Operation Kit MCP`, domain = your Operation Kit address, **path = `api/mcp`**.
-2. Add a policy with action **Bypass**, include **Everyone**. Save.
-
-Cloudflare then lets requests to `/api/mcp` straight through, and Operation Kit's agent key is the
-only check on that one address. The rest of the site stays behind the Cloudflare sign-in. Anyone
-on the internet can now *reach* `/api/mcp`, but without a valid key they get `401`.
+Note that an agent pass only opens the Cloudflare door; the app still needs an Operation Kit agent
+key on top. It does **not** work with the "add connector" screens in the claude.ai, ChatGPT and
+Grok apps (they only offer a sign-in flow), or with the Claude API's MCP connector — those send
+only the key and no extra headers, which is exactly the case the built-in bypass covers.
 
 ## Step 1: Make an agent key
 
@@ -100,8 +128,8 @@ a chat message, an email or a shared document.
 ## Step 2: Connect your app
 
 Pick your app. Replace `<address>` with your Operation Kit address and `<key>` with the key.
-Lines marked *Option A* are only needed if your administrator chose Option A in Step 0; leave them
-out for Option B.
+On a current install you only need the key. The `CF-Access-…` lines below are only for an install
+that uses an **agent pass** instead (Step 0) — leave them out otherwise.
 
 ### Claude Code (terminal)
 
@@ -112,7 +140,7 @@ claude mcp add --transport http operation-kit https://<address>/api/mcp \
   --header "CF-Access-Client-Secret: <client secret>"
 ```
 
-(The two `CF-Access-…` lines are *Option A*.)
+(The two `CF-Access-…` lines are only for an agent-pass install; drop them otherwise.)
 
 Then start `claude` and type `/mcp`. You should see `operation-kit` as connected.
 
@@ -141,7 +169,8 @@ connects with a key instead, so that screen does not work yet. Use the configura
      }
    }
    ```
-   For *Option B*, drop the two `CF-Access-…` header lines and the `CF_ID` / `CF_SECRET` values.
+   Unless your install uses an agent pass, drop the two `CF-Access-…` header lines and the
+   `CF_ID` / `CF_SECRET` values.
 3. Save and restart Claude Desktop. Operation Kit's tools appear under the tools icon in a new chat.
 
 ### ChatGPT
@@ -188,11 +217,12 @@ Responses API:
 ```
 
 In the xAI Python SDK: `mcp(server_url="https://<address>/api/mcp", server_label="operation_kit",
-authorization="Bearer <key>", extra_headers={...})` with the same two *Option A* headers.
+authorization="Bearer <key>")` — plus the same two `CF-Access-…` headers on an agent-pass install.
 
 ### Claude API (your own scripts)
 
-Needs *Option B* in Step 0 (the connector sends only the key).
+The connector sends only the key and no other headers, so this one needs the built-in key-auth
+bypass from Step 0 (it cannot use an agent pass).
 
 ```json
 {
@@ -219,11 +249,11 @@ In `~/.codex/config.toml`:
 [mcp_servers.operation-kit]
 url = "https://<address>/api/mcp"
 bearer_token_env_var = "OPERATION_KIT_KEY"
-# Option A only:
+# Agent-pass installs only:
 env_http_headers = { "CF-Access-Client-Id" = "OK_CF_ID", "CF-Access-Client-Secret" = "OK_CF_SECRET" }
 ```
 
-Then set `OPERATION_KIT_KEY` (and, for Option A, `OK_CF_ID` / `OK_CF_SECRET`) in the terminal
+Then set `OPERATION_KIT_KEY` (and, on an agent-pass install, `OK_CF_ID` / `OK_CF_SECRET`) in the terminal
 where you run `codex`.
 
 ### Cursor, Windsurf and other MCP apps
@@ -234,7 +264,7 @@ Any app that can add a "remote", "HTTP" or "streamable HTTP" MCP server works. G
 |---|---|
 | URL | `https://<address>/api/mcp` |
 | Header | `Authorization: Bearer <key>` |
-| Option A headers | `CF-Access-Client-Id: <client id>` and `CF-Access-Client-Secret: <client secret>` |
+| Agent-pass installs only | `CF-Access-Client-Id: <client id>` and `CF-Access-Client-Secret: <client secret>` |
 
 For example, Cursor's `.cursor/mcp.json`:
 

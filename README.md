@@ -65,7 +65,16 @@ Measured numbers, alternatives and the reasoning: [choosing a server](./docs/REC
  Person ──► Cloudflare Access ──► Cloudflare Tunnel ──► client's server (no open web ports)
             who are you?          private connection    ├─ Operation Kit app
                                                         └─ one sandbox per AI job
+
+ Bot ─────► (API routes only) ──► Cloudflare Tunnel ──► Operation Kit checks the key
+            Access steps aside
 ```
+
+A bot sends one thing — its Operation Kit key — so the installer gives the bot-facing API routes
+their own Cloudflare Access application set to *bypass*, and the key becomes the check. Operator
+routes (`/api/internal`, `/api/admin`, `/api/secrets`, `/api/webhooks`, sign-in) are never in that
+list and keep both locks:
+[Letting bots reach the API with their key](./INSTALL.md#letting-bots-reach-the-api-with-their-key).
 
 ## Docs
 

@@ -32,6 +32,8 @@ jobs:
               -e 's#^ACCESS_ALLOWED_EMAILS=.*#ACCESS_ALLOWED_EMAILS=""#' \
               install/client.conf.example > ci.conf
           grep -q '^STARTER_PACKS="knowledge-import"' ci.conf
+      - name: Key-auth API bypass list + guard (operator routes can never be added)
+        run: bash install/test/api-bypass-paths-test.sh
       - name: Cloudflare API logic against a mock
         run: bash install/test/cloudflare-mock-test.sh
       - name: Claude sign-in (link + code) against a mock
@@ -40,8 +42,8 @@ jobs:
         run: bash install/test/b2-setup-test.sh
       - name: Install docs links and anchors resolve
         run: node install/test/docs-links-test.mjs
-      - name: shellcheck (backup + B2 setup scripts)
-        run: shellcheck --version && shellcheck -x --severity=warning install/lib.sh install/backup.sh install/b2-setup.sh install/test/b2-setup-test.sh
+      - name: shellcheck (shared libs + backup + B2 setup scripts)
+        run: shellcheck --version && shellcheck -x --severity=warning install/lib.sh install/api-bypass-lib.sh install/backup.sh install/b2-setup.sh install/test/b2-setup-test.sh install/test/api-bypass-paths-test.sh
       - name: Without --skip-cloudflare an empty DOMAIN is refused, with the hint
         run: |
           if ./install.sh --config ci.conf --dry-run > out.txt 2>&1; then cat out.txt; exit 1; fi

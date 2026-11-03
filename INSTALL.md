@@ -147,6 +147,9 @@ Nothing else needs copying out of Cloudflare:
 - **One login:** the installer stores the Zero Trust team domain
   (`OK_CF_ACCESS_TEAM`, e.g. `clientfirm.cloudflareaccess.com`) and the Access
   app's AUD tag (`OK_CF_ACCESS_AUD`) in `secrets/stack.env` itself.
+- **Bots and AI tools:** the installer also makes a second, path-limited Access
+  application so a bot can reach the API with its Operation Kit key. Nothing to
+  click — see [Letting bots reach the API with their key](#letting-bots-reach-the-api-with-their-key).
 
 If they chose **Google** or **Microsoft** sign-in (step 4), they also need an
 OAuth app from Google Cloud or Microsoft Entra. Cloudflare's guide covers it:
@@ -309,6 +312,12 @@ Every line must say **PASS**. It checks that:
 - the app and the Cloudflare connector are running
 - the firewall is on and no web port is open
 - a stranger who opens the site gets the **Cloudflare sign-in**, not the app
+- **bots can reach the API with just their key**: a call to `/api/objectives`
+  with no key comes back `401` **as JSON from the app** — that proves the app
+  saw it and turned it away, rather than Cloudflare bouncing it to a sign-in page
+- **the operator API is still shut**: `/api/internal`, `/api/admin`,
+  `/api/secrets` and `/api/auth/token` with no key still get the Cloudflare
+  sign-in. A bypass list that grew too wide fails here
 - the site loads through Cloudflare and shows the client's name
 - **one login is on**: the app checks Cloudflare's signed identity token itself (team keys, AUD tag, issuer, expiry)
 - password sign-in works (it uses a temporary `ok-verify` account and removes it afterwards)
@@ -367,6 +376,91 @@ characters). It stops working after 72 hours. To issue a new one:
   settings empty, so the app keeps its own password sign-in.
   `cloudflare.sh down` empties them too. After changing them by hand, restart
   the app.
+
+### Letting bots reach the API with their key
+
+**The problem.** Cloudflare Access sits in front of the **whole** site. That is
+what keeps strangers out — but a bot calling the board API sends exactly one
+thing, its Operation Kit key (`cc_live_…`), and Cloudflare does not know what
+that is. It answers with its HTML sign-in page and the key is never even looked
+at. Before this, every install had to be patched by hand in the Cloudflare
+dashboard.
+
+**What the installer does.** Step 8 of `cloudflare.sh up` creates a **second**
+Access application called **"Operation Kit API (key auth)"** with one policy:
+**Bypass / Everyone**. It is limited to the bot-facing API routes and nothing
+else. Cloudflare matches the most specific application first, so those paths go
+straight to the app and everything else still hits the host-wide application
+and its sign-in. It is idempotent: re-running finds the app by name and updates
+it in place, it never makes a second one.
+
+**Why that is safe.** The lock does not disappear, it moves:
+
+- **The Operation Kit key is the check.** Those routes all require a valid
+  `cc_live_` agent key or a signed-in session. Anyone on the internet can now
+  *reach* `/api/objectives`; without a key they get `401`. A key is scoped to
+  chosen workspaces and chosen abilities (see [Connect your
+  AI](docs/CONNECT-YOUR-AGENT.md)), so it is a narrower credential than a sign-in.
+- **The operator surface keeps both locks.** `/api/internal`, `/api/admin`,
+  `/api/secrets`, `/api/secret-upload`, `/api/webhooks`, `/api/public`,
+  `/api/llm`, `/api/alerts`, `/api/costs`, `/api/intel`, `/api/status` and all
+  of `/api/auth` except the exact `/api/auth/me` are **never** in the list, and
+  the installer refuses to add them (see below).
+- **`/api/internal` is not reachable from outside anyway.** Since #625 it is
+  localhost-only *and* needs `X-Internal-Secret`, and that check no longer
+  trusts an `X-Forwarded-For` header. Keeping it behind Access as well is the
+  belt to that pair of braces.
+- **No blanket `/api/*`.** Every path is listed one by one, so a route added by
+  a future release is behind Access until someone deliberately lists it.
+
+**The route list lives in one file**, [`install/api-bypass-paths.conf`](install/api-bypass-paths.conf):
+`prefix /api/objectives` opens `/api/objectives` **and** `/api/objectives/*`;
+`exact /api/health` opens only that one address. Today it covers `/api/mcp`,
+`/api/agent`, `/api/agents`, `/api/agent-chat/agents`, `/api/objectives`,
+`/api/projects`, `/api/workspaces`, `/api/feed`, `/api/briefing`, `/api/docs`,
+`/api/kb-wiki`, `/api/files` and `/api/models` as prefixes, plus the exact
+`/api/health`, `/api/openapi.json` and `/api/auth/me`.
+
+**To add a route a bot needs** — add one line to that file and re-run the step
+on the server (no re-install, nothing else changes):
+
+```bash
+ssh SERVER 'sudo bash /opt/operationkit-src/install/cloudflare.sh api-bypass \
+  --config /opt/operationkit-src/client.conf'
+ssh SERVER 'sudo bash /opt/operationkit-src/install/verify.sh --config /opt/operationkit-src/client.conf'
+```
+
+Keep each line as narrow as it can be: use `exact` when the bot calls one
+address.
+
+**You cannot open an operator route by mistake.** `install/api-bypass-lib.sh`
+refuses any path under `/api/internal`, `/api/admin`, `/api/secrets`,
+`/api/secret-upload`, `/api/webhooks`, `/api/auth` (except the exact
+`/api/auth/me`), `/api/public`, `/api/llm`, `/api/alerts`, `/api/costs`,
+`/api/intel` and `/api/status`, and any blanket `/api` or wildcard. The step
+stops with the reason and changes nothing in Cloudflare.
+`install/test/api-bypass-paths-test.sh` proves it on every pull request.
+
+**Rollback.** To put every API route back behind the Cloudflare sign-in:
+
+```bash
+ssh SERVER 'sudo bash /opt/operationkit-src/install/cloudflare.sh api-bypass remove \
+  --config /opt/operationkit-src/client.conf'
+```
+
+It deletes that one application and its policy and touches nothing else —
+effective immediately, and bots go back to getting the sign-in page.
+`cloudflare.sh down` removes it too. To stop the installer creating it at all,
+set `API_KEY_AUTH_BYPASS="off"` in `client.conf`; `cloudflare.sh status` shows
+whether it is present.
+
+**Checking it by hand:**
+
+```bash
+curl -si https://<DOMAIN>/api/objectives | head -1     # HTTP/2 401  + JSON body  ✅
+curl -si https://<DOMAIN>/api/internal/objectives | head -1   # 302 to …cloudflareaccess.com ✅
+curl -si https://<DOMAIN>/ | head -1                   # 302 to …cloudflareaccess.com ✅
+```
 
 ### Step 10: Report
 
