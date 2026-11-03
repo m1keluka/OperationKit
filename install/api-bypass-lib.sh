@@ -104,3 +104,46 @@ ok_api_bypass_at_cloudflare() {
   case "$loc" in *cloudflareaccess.com*) return 0 ;; esac
   [[ "$c" =~ ^(301|302|303|307|308|401|403)$ ]]
 }
+
+# ── Paths another Access application already owns (obj 900069) ───────────────
+# Cloudflare refuses an Access app whose destination is already a destination of
+# a different app on the same hostname ("destination belongs to another
+# application", code 12132). A client install can legitimately already have one
+# — a real client install had a separate MCP bypass app owning /api/mcp — and before
+# this the whole Cloudflare step (and so update.sh) stopped there.
+#
+# These two helpers are pure: they take JSON in and print/return, so
+# install/test/api-bypass-paths-test.sh can exercise them with no network.
+
+# ok_api_bypass_conflicts APPS_JSON DOMAIN SELF_NAME PATHS — which of PATHS are
+# already a destination of a DIFFERENT Access application on DOMAIN.
+# APPS_JSON is a Cloudflare `GET .../access/apps` body; SELF_NAME is our own
+# app's name (matched exactly, the same way we look it up, so refreshing our own
+# app is never a conflict); PATHS is the newline-separated expanded path list.
+# Prints one "<path><TAB><app id><TAB><app name>" line per collision, in PATHS
+# order, and nothing at all when there is none.
+ok_api_bypass_conflicts() {
+  local apps=$1 domain=$2 self=$3 paths=$4
+  jq -r --arg d "$domain" --arg n "$self" --arg p "$paths" '
+    ($p | split("\n") | map(select(length > 0))) as $want
+    | [ .result[]? | select((.name // "") != $n) | . as $a
+        | ($a.destinations // [])[]
+        | (.uri // "")
+        | select(startswith($d + "/"))
+        | { path: .[($d | length):], app_id: ($a.id // ""), app_name: ($a.name // "") } ] as $owned
+    | $want[] as $w
+    | (($owned | map(select(.path == $w)))[0] // empty)
+    | "\($w)\t\(.app_id)\t\(.app_name)"
+  ' <<<"$apps" 2>/dev/null
+}
+
+# ok_api_bypass_policies_are_bypass POLICIES_JSON — true when that application
+# is itself a bypass / key-auth app, i.e. at least one of its policies decides
+# `bypass`. Such an app already lets everyone through on the paths it owns, so
+# leaving it alone and skipping those paths keeps the same end result for a bot:
+# Cloudflare steps aside and the Operation Kit key is the lock. An app WITHOUT a
+# bypass policy means the opposite (those paths stay gated), so the caller must
+# stop rather than quietly ship a half-open install.
+ok_api_bypass_policies_are_bypass() {
+  jq -e '[.result[]? | select((.decision // "") == "bypass")] | length > 0' >/dev/null 2>&1 <<<"$1"
+}

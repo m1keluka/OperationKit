@@ -12,6 +12,19 @@ const state = {
 }
 const ok = (res, result) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ success: true, errors: [], result })) }
 const bad = (res, code, message) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify({ success: false, errors: [{ code, message }] })) }
+const err = (res, status, code, message) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ success: false, errors: [{ code, message }] })) }
+
+// Cloudflare refuses an Access app whose destination already belongs to a
+// different application on the same hostname (obj 900069). Reproducing it here
+// is the point: without the skip in install/cloudflare.sh the step dies.
+const takenDestination = (json, selfId) => {
+  const want = new Set((json.destinations || []).map(d => d.uri))
+  for (const a of state.apps) {
+    if (a.id === selfId) continue
+    for (const d of a.destinations || []) if (want.has(d.uri)) return d.uri
+  }
+  return null
+}
 
 http.createServer((req, res) => {
   let body = ''
@@ -70,10 +83,18 @@ http.createServer((req, res) => {
       }
       if (m === 'GET' && !appId) return ok(res, state.apps)
       // Cloudflare generates the AUD tag on create and keeps it across updates.
-      if (m === 'POST') { const a = { id: randomUUID(), aud: randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, ''), ...json }; state.apps.push(a); return ok(res, a) }
+      if (m === 'POST') {
+        const taken = takenDestination(json, null)
+        if (taken) return err(res, 409, 12132, `The destination ${taken} belongs to another application`)
+        const a = { id: randomUUID(), aud: randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, ''), ...json }; state.apps.push(a); return ok(res, a)
+      }
       const i = state.apps.findIndex(a => a.id === appId)
       if (m === 'GET') return i >= 0 ? ok(res, state.apps[i]) : bad(res, 404, 'no such app')
-      if (m === 'PUT') { state.apps[i] = { id: appId, aud: state.apps[i].aud, ...json }; return ok(res, state.apps[i]) }
+      if (m === 'PUT') {
+        const taken = takenDestination(json, appId)
+        if (taken) return err(res, 409, 12132, `The destination ${taken} belongs to another application`)
+        state.apps[i] = { id: appId, aud: state.apps[i].aud, ...json }; return ok(res, state.apps[i])
+      }
       if (m === 'DELETE') { state.apps.splice(i, 1); delete state.policies[appId]; return ok(res, {}) }
     }
     bad(res, 404, `mock: unhandled ${m} ${p}`)

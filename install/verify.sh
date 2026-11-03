@@ -20,6 +20,9 @@
 #   7. the first admin is still forced to choose a new password (until they do)
 #   8. a test card runs end to end: created, started, the AI worker answers,
 #      and it ran inside its own sandbox container with only 2 folders mounted.
+#      The card is a throw-away: its title carries this run's unique marker (so
+#      the board's duplicate-title guard cannot refuse a second run with a 409)
+#      and it is deleted again on the way out, pass or fail.
 #      First it asks the app whether ANY Claude seat can run a sandboxed
 #      session; if none can (e.g. only an old CLI-login seat, which the sandbox
 #      refuses) it fails at once with the fix instead of waiting --card-timeout.
@@ -42,7 +45,7 @@ while [ $# -gt 0 ]; do
     --local-only) LOCAL_ONLY=1 ;;
     --skip-card) SKIP_CARD=1 ;;
     --card-timeout) shift; CARD_TIMEOUT=${1:-600} ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
   shift
@@ -58,7 +61,15 @@ LOCAL=http://127.0.0.1:3002
 VERIFY_USER=ok-verify
 
 TMPD=$(mktemp -d); chmod 700 "$TMPD"
+# The throw-away card from check 8, removed on the way out however we exit
+# (obj 900069) — it must not pile up on the client's board or trip the board's
+# duplicate-title guard on the next run.
+VERIFY_CARD_ID=
 cleanup() {
+  if [ -n "$VERIFY_CARD_ID" ] && [ -n "${AUTH_HDR-}" ]; then
+    api DELETE "/api/objectives/$VERIFY_CARD_ID" >/dev/null 2>&1 || true
+    log "  test card #$VERIFY_CARD_ID removed"
+  fi
   printf '{"action":"remove","username":"%s"}' "$VERIFY_USER" \
     | docker exec -i command-center tsx server/src/scripts/install-verify-user.ts >/dev/null 2>&1 || true
   rm -rf "$TMPD"
@@ -199,11 +210,17 @@ elif [ "$(jq -r '.claude.usable' <<<"$seats")" != true ]; then
   # Without this the card would sit in the queue for the whole --card-timeout.
   fail "test card skipped: no Claude seat can run a sandboxed session ($(jq -r '.claude.seats' <<<"$seats") seat(s) configured). Connect Claude: sudo bash $OK_LIB_DIR/claude-login.sh --config $CONFIG — or Settings → Seats → Add Claude seat. A seat added by signing in to the Claude CLI on the server does not work inside the sandbox."
 else
-  marker="OK-INSTALL-CHECK-$(date +%s)"
-  card=$(jq -nc --arg w "$SLUG" --arg m "$marker" '{title:"Install check: say hello", workspace:$w, start:true, skip_ai_review:true,
+  # The title is unique per run and `force` is set (obj 900069): the board
+  # refuses a second card with the same normalized title in the same workspace
+  # inside the duplicate-guard window (409), so the fixed title "Install check:
+  # say hello" made every verify after the first one fail. The marker is also
+  # what the worker has to echo back, so one value does both jobs.
+  marker="OK-INSTALL-CHECK-$(date +%s)-$RANDOM"
+  card=$(jq -nc --arg w "$SLUG" --arg m "$marker" '{title:("Install check: say hello " + $m), workspace:$w, start:true, skip_ai_review:true, force:true,
     description:("This is an automated install check. Reply with exactly this text and nothing else, then stop: " + $m + ". Do not create or edit any files.")}')
   id=$(api POST /api/objectives "$card" | jq -r '.id // .objective.id // empty')
-  if [ -z "$id" ]; then fail "could not create the test card ($(code))"; else
+  if [ -z "$id" ]; then fail "could not create the test card ($(code): $(head -c 300 "$TMPD/body"))"; else
+    VERIFY_CARD_ID=$id   # cleanup() removes it on the way out, pass or fail
     log "  test card #$id started — waiting up to ${CARD_TIMEOUT}s for the AI worker"
     waited=0; seen=0
     while [ "$waited" -lt "$CARD_TIMEOUT" ]; do

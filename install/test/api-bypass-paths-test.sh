@@ -88,4 +88,32 @@ check "unreachable is NOT read as Cloudflare" "$(cf_answered '000||')"          
 check "401 JSON = the app turned it away"   "$(cf_answered '401||application/json; charset=utf-8')"                                     app
 check "200 JSON = the app answered"         "$(cf_answered '200||application/json')"                                                    app
 
+echo "== paths another Access app already owns (obj 900069)"
+# One Cloudflare `GET .../access/apps` body: the host-wide app, a separate MCP
+# bypass app that already owns /api/mcp (the shape seen on a real client install), and our own app.
+APPS='{"success":true,"result":[
+  {"id":"host","name":"Operation Kit - Example","domain":"ops.example.com","destinations":[{"uri":"ops.example.com"}]},
+  {"id":"mcp","name":"MCP bypass","destinations":[{"type":"public","uri":"ops.example.com/api/mcp"},{"type":"public","uri":"ops.example.com/api/mcp/*"}]},
+  {"id":"self","name":"Operation Kit API (key auth)","destinations":[{"uri":"ops.example.com/api/objectives"},{"uri":"ops.example.com/api/mcp"}]},
+  {"id":"other","name":"Someone else","destinations":[{"uri":"other.example.com/api/files"}]}
+]}'
+conflicts() { bash -c 'set -euo pipefail; source "$0/lib.sh"; source "$0/api-bypass-lib.sh"; ok_api_bypass_conflicts "$1" "$2" "$3" "$4"' \
+  "$LIB" "$APPS" ops.example.com "Operation Kit API (key auth)" "$1"; }
+WANT=$'/api/mcp\n/api/mcp/*\n/api/objectives\n/api/objectives/*\n/api/health'
+check "names the owner of a clashing path" "$(conflicts "$WANT" | tr '\n' ';' | tr '\t' ' ')" '/api/mcp mcp MCP bypass;/api/mcp/* mcp MCP bypass;'
+check "our own app is never a conflict" "$(conflicts "$WANT" | grep -c 'self' || true)" 0
+check "the bare host-wide app is not a conflict" "$(conflicts "$WANT" | grep -c 'host' || true)" 0
+check "another hostname is not a conflict" "$(conflicts '/api/files' | wc -l | tr -d ' ')" 0
+check "a clash-free list yields nothing" "$(conflicts "$(printf '/api/health\n/api/feed')")" ''
+check "paths are reported in list order" "$(conflicts "$(printf '/api/mcp/*\n/api/mcp')" | cut -f1 | tr '\n' ' ')" '/api/mcp/* /api/mcp '
+
+# Whether the owning app is itself a bypass / key-auth app decides skip vs stop.
+isbypass() { bash -c 'set -euo pipefail; source "$0/lib.sh"; source "$0/api-bypass-lib.sh"; if ok_api_bypass_policies_are_bypass "$1"; then echo bypass; else echo gated; fi' "$LIB" "$1"; }
+check "a Bypass/Everyone app is a bypass app"   "$(isbypass '{"result":[{"decision":"bypass","include":[{"everyone":{}}]}]}')" bypass
+check "bypass alongside allow still counts"     "$(isbypass '{"result":[{"decision":"allow"},{"decision":"bypass"}]}')"        bypass
+check "an allow-only app is NOT a bypass app"   "$(isbypass '{"result":[{"decision":"allow"}]}')"                              gated
+check "a service-token app is NOT a bypass app" "$(isbypass '{"result":[{"decision":"non_identity"}]}')"                       gated
+check "an app with no policies is NOT a bypass app" "$(isbypass '{"result":[]}')"                                              gated
+check "an unreadable policy list is NOT a bypass app" "$(isbypass 'not json')"                                                 gated
+
 echo; [ "$fails" -eq 0 ] && echo "api-bypass paths test: ALL PASS" || { echo "api-bypass paths test: $fails FAIL"; exit 1; }
