@@ -68,6 +68,15 @@ ACCESS_LOGIN_METHOD="otp"
 # How long one Cloudflare sign-in lasts before asking again.
 ACCESS_SESSION_DURATION="24h"
 
+# Let bots reach the board API with their Operation Kit key ("on", the default).
+# The installer adds a second, path-limited Access app that steps aside on the
+# bot-facing API routes only (install/api-bypass-paths.conf) so the key is what
+# decides. Operator routes — /api/internal, /api/admin, /api/secrets,
+# /api/secret-upload, /api/webhooks, the rest of /api/auth — always stay behind
+# the Cloudflare sign-in. "off" means bots get the sign-in page instead of an
+# answer; only turn it off if no bot or AI tool will ever call this install.
+API_KEY_AUTH_BYPASS="on"
+
 # ── AI accounts ───────────────────────────────────────────────────────────────
 # How the server's worker sessions sign in to Claude:
 #   login    — a Claude subscription (Pro / Max / Team). Someone signs in once in

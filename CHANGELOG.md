@@ -8,6 +8,59 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Installer: bots can reach the board API with their key (obj 900028)
+
+**What was wrong.** `install/cloudflare.sh` put ONE Cloudflare Access
+application in front of the whole host. A bot calling the board API sends
+exactly one credential — its Operation Kit `cc_live_` key — which Cloudflare
+knows nothing about, so it answered with its HTML sign-in page and the key was
+never checked. Every install had to be patched by hand in the Cloudflare
+dashboard (the Example OVH host had a hand-made app, "Operation Kit API (key
+auth)", doing exactly this).
+
+**What changed.**
+
+- **New installer step, on by default.** `cloudflare.sh up` now also creates a
+  second, path-limited Access application named **"Operation Kit API (key
+  auth)"** whose only policy is Bypass / Everyone. Cloudflare matches the most
+  specific application first, so the listed API routes go straight to the app
+  and everything else still hits the host-wide sign-in. It is idempotent: the
+  app is looked up BY NAME and updated in place.
+- **One route list**, `install/api-bypass-paths.conf`: `prefix /api/objectives`
+  opens `/api/objectives` and `/api/objectives/*`; `exact /api/health` opens
+  one address. Covers `/api/mcp`, `/api/agent`, `/api/agents`,
+  `/api/agent-chat/agents`, `/api/objectives`, `/api/projects`,
+  `/api/workspaces`, `/api/feed`, `/api/briefing`, `/api/docs`, `/api/kb-wiki`,
+  `/api/files`, `/api/models` plus the exact `/api/health`,
+  `/api/openapi.json`, `/api/auth/me` — 29 paths, no blanket `/api/*`.
+- **A guard you cannot talk past.** `install/api-bypass-lib.sh` REFUSES any path
+  under `/api/internal`, `/api/admin`, `/api/secrets`, `/api/secret-upload`,
+  `/api/webhooks`, `/api/auth` (except the exact `/api/auth/me`), `/api/public`,
+  `/api/llm`, `/api/alerts`, `/api/costs`, `/api/intel`, `/api/status`, and any
+  blanket or wildcard entry. The step stops and changes nothing in Cloudflare.
+- **verify.sh checks it both ways:** a keyless `GET /api/objectives` must come
+  back `401` **as JSON from the app** (not a Cloudflare redirect), while
+  `/api/internal`, `/api/admin/seats`, `/api/secrets` and `/api/auth/token`
+  with no key must still be stopped by Cloudflare. `/` still redirects to the
+  sign-in (existing check).
+- **New standalone command + rollback:** `cloudflare.sh api-bypass` re-runs just
+  this step after editing the list; `cloudflare.sh api-bypass remove` deletes
+  the app and its policy, putting every API route back behind the sign-in.
+  `cloudflare.sh down` removes it too. `API_KEY_AUTH_BYPASS="off"` in
+  `client.conf` skips the step; `cloudflare.sh status` shows whether it exists.
+
+**Operator action.** None for a fresh install. **Existing installs pick it up on
+the next `install/update.sh`** (it re-runs `cloudflare.sh up`). To apply it
+without a full update:
+
+```bash
+sudo bash /opt/operationkit-src/install/cloudflare.sh api-bypass --config /opt/operationkit-src/client.conf
+sudo bash /opt/operationkit-src/install/verify.sh --config /opt/operationkit-src/client.conf
+```
+
+Why it is safe, how to add a route a bot needs, and the rollback:
+[INSTALL.md → Letting bots reach the API with their key](INSTALL.md#letting-bots-reach-the-api-with-their-key).
+
 ### Sandbox: no-project cards start again; jail homes no longer leave secrets on disk (obj 900038)
 
 Only affects installs running `SESSION_ISOLATION=docker` (the client-installer default).

@@ -6,6 +6,7 @@
 #   sudo bash install/cloudflare.sh status --config client.conf
 #   sudo bash install/cloudflare.sh agent-pass add|remove <name> --config client.conf
 #   sudo bash install/cloudflare.sh agent-pass list --config client.conf
+#   sudo bash install/cloudflare.sh api-bypass [remove] --config client.conf
 #
 # `up` (idempotent — every object is looked up by name first and reused):
 #   1. finds the zone (ZONE) and its Cloudflare account: the account id comes
@@ -26,7 +27,20 @@
 #   6. creates an Access service token used ONLY by install/verify.sh to test the
 #      site through Cloudflare without a human typing an email code
 #   7. stores the tunnel token + service token in secrets/stack.env (mode 600)
-#   8. stores the Zero Trust team domain + the Access app's AUD tag in
+#   8. creates a SECOND, path-limited Access application, "Operation Kit API
+#      (key auth)", whose only policy is Bypass/Everyone. It covers just the
+#      bot-facing API routes listed in install/api-bypass-paths.conf, so a bot
+#      calling the board API with its Operation Kit key reaches the app and the
+#      KEY is what decides, instead of being bounced to the Cloudflare sign-in
+#      page. Cloudflare matches the most specific application first, so this
+#      app wins on those paths and the host-wide app (step 5) still covers
+#      everything else. The guard in install/api-bypass-lib.sh refuses to put
+#      an operator route (/api/internal, /api/admin, /api/secrets,
+#      /api/secret-upload, /api/webhooks, /api/auth except the exact
+#      /api/auth/me, /api/public, /api/llm, /api/alerts, /api/costs,
+#      /api/intel, /api/status) or a blanket /api/* in it. Set
+#      API_KEY_AUTH_BYPASS="off" in client.conf to skip the step.
+#   9. stores the Zero Trust team domain + the Access app's AUD tag in
 #      secrets/stack.env as OK_CF_ACCESS_TEAM / OK_CF_ACCESS_AUD. The app uses
 #      them to verify Cloudflare's signed identity header and skip its own
 #      sign-in page (one login). Without them the password login is used.
@@ -43,6 +57,13 @@
 # top: the pass only opens the door. `agent-pass remove <name>` revokes it.
 # docs/CONNECT-YOUR-AGENT.md walks through it.
 #
+# `api-bypass` re-runs step 8 on its own, in place: run it after editing
+# install/api-bypass-paths.conf to add a route a bot needs. It is idempotent —
+# it looks the app up BY NAME and updates it, never making a second one.
+# ROLLBACK: `api-bypass remove` deletes the app and its policy, which puts every
+# API route back behind the Cloudflare sign-in immediately (bots then get the
+# sign-in page again). `down` removes it too. Nothing else is touched.
+#
 # The API token is read from $INSTALL_DIR/secrets/cloudflare-api-token (one
 # line, mode 600). It is sent to Cloudflare in a header file, never on a command
 # line, and never printed. Token permissions needed (INSTALL.md lists them):
@@ -52,6 +73,8 @@
 set -euo pipefail
 # shellcheck source=install/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=install/api-bypass-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/api-bypass-lib.sh"
 
 CF_API=${CF_API_BASE:-https://api.cloudflare.com/client/v4}
 ACTION=${1:-}; shift || true
@@ -65,6 +88,14 @@ if [ "$ACTION" = agent-pass ]; then
     *) echo "usage: cloudflare.sh agent-pass add|remove <name> | list --config client.conf" >&2; exit 2 ;;
   esac
 fi
+BYPASS_CMD=
+if [ "$ACTION" = api-bypass ]; then
+  case "${1:-}" in
+    remove) BYPASS_CMD=remove; shift ;;
+    ''|--*) BYPASS_CMD=up ;;
+    *) echo "usage: cloudflare.sh api-bypass [remove] --config client.conf" >&2; exit 2 ;;
+  esac
+fi
 CONFIG=
 REPLACE_DNS=0
 while [ $# -gt 0 ]; do
@@ -76,7 +107,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-case "$ACTION" in up|down|status|agent-pass) ;; *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
+case "$ACTION" in up|down|status|agent-pass|api-bypass) ;; *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
 [ -n "$CONFIG" ] || die "--config <file> is required"
 conf_load "$CONFIG"; conf_validate; ok_paths
 command -v jq >/dev/null || die "jq is required (install/bootstrap-host.sh installs it)"
@@ -85,6 +116,11 @@ SLUG=$(conf CLIENT_SLUG); DOMAIN=$(conf DOMAIN); ZONE=$(conf ZONE)
 TUNNEL_NAME="ok-$SLUG"
 APP_NAME="Operation Kit - $(conf CLIENT_NAME)"
 SVC_TOKEN_NAME="ok-$SLUG-verify"
+# The second, path-limited Access app (step 8). Looked up BY NAME, so re-running
+# updates it instead of adding another one. The name is part of the contract:
+# install/verify.sh and the docs both refer to it.
+API_APP_NAME="Operation Kit API (key auth)"
+API_POLICY_NAME="Key auth (Operation Kit checks the key)"
 PASS_PREFIX="ok-$SLUG-agent-"
 
 TOKEN_FILE=${CF_API_TOKEN_FILE:-$OK_SECRETS/cloudflare-api-token}
@@ -123,9 +159,68 @@ log "zone found"
 
 find_tunnel() { cf GET "/accounts/$ACCOUNT_ID/cfd_tunnel?name=$TUNNEL_NAME&is_deleted=false" | jq -r '.result[0].id // empty'; }
 find_dns()    { cf GET "/zones/$ZONE_ID/dns_records?name=$DOMAIN" | jq -c '.result[0] // empty'; }
-find_app()    { cf GET "/accounts/$ACCOUNT_ID/access/apps" | jq -r --arg d "$DOMAIN" '[.result[]? | select(.domain == $d)][0].id // empty'; }
+# The host-wide app: domain is the bare host. The key-auth app's domain carries a
+# path (DOMAIN/api/...), so it cannot match here — the name filter is belt-and-braces.
+find_app()     { cf GET "/accounts/$ACCOUNT_ID/access/apps" | jq -r --arg d "$DOMAIN" --arg n "$API_APP_NAME" '[.result[]? | select(.domain == $d and .name != $n)][0].id // empty'; }
+find_api_app() { cf GET "/accounts/$ACCOUNT_ID/access/apps" | jq -r --arg n "$API_APP_NAME" '[.result[]? | select(.name == $n)][0].id // empty'; }
 find_svc()    { cf GET "/accounts/$ACCOUNT_ID/access/service_tokens" | jq -r --arg n "${1:-$SVC_TOKEN_NAME}" '[.result[]? | select(.name == $n)][0].id // empty'; }
 list_passes() { cf GET "/accounts/$ACCOUNT_ID/access/service_tokens" | jq -r --arg p "$PASS_PREFIX" '.result[]? | select(.name | startswith($p)) | "\(.id) \(.name | ltrimstr($p))"'; }
+
+# ── Key-auth API bypass (step 8) ─────────────────────────────────────────────
+# One extra Access application, path-limited to the bot-facing API routes, with
+# a single Bypass/Everyone policy. Cloudflare stops asking for a sign-in on
+# those paths; Operation Kit's own API key becomes the only check, which is what
+# a bot can actually send. Every other path — including every operator route —
+# still hits the host-wide app from step 5.
+#
+# The paths come from ONE place, install/api-bypass-paths.conf, read through
+# ok_api_bypass_paths() in install/api-bypass-lib.sh, which REFUSES an operator
+# route or a blanket /api/*. If someone adds one, this step stops the install
+# rather than opening it.
+api_bypass_up() {
+  local paths dests body pid prec n
+  step "Cloudflare Access: API routes your bots call with a key"
+  paths=$(ok_api_bypass_paths) || exit 1   # refused: the guard already said why
+  n=$(printf '%s\n' "$paths" | wc -l | tr -d ' ')
+  dests=$(printf '%s\n' "$paths" | jq -R --arg d "$DOMAIN" '{type:"public", uri:($d + .)}' | jq -sc .)
+  # `domain` is kept alongside `destinations` for older Access API behaviour;
+  # Cloudflare derives it from the first destination anyway.
+  body=$(jq -nc --arg n "$API_APP_NAME" --arg d "$DOMAIN$(printf '%s\n' "$paths" | head -1)" --argjson dest "$dests" \
+    '{name:$n, type:"self_hosted", domain:$d, destinations:$dest, session_duration:"24h",
+      app_launcher_visible:false, auto_redirect_to_identity:false, skip_interstitial:true}')
+  API_APP_ID=$(find_api_app)
+  if [ -n "$API_APP_ID" ]; then
+    mut PUT "/accounts/$ACCOUNT_ID/access/apps/$API_APP_ID" "$body" >/dev/null
+    log "'$API_APP_NAME' exists — its $n paths refreshed"
+  else
+    API_APP_ID=$(mut POST "/accounts/$ACCOUNT_ID/access/apps" "$body" | jq -r .result.id)
+    log "'$API_APP_NAME' created over $n paths"
+  fi
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "  [dry-run] would upsert the Bypass policy '$API_POLICY_NAME' (include: Everyone)"
+    printf '%s\n' "$paths" | sed 's/^/    [dry-run] bypass /' >&2
+    return 0
+  fi
+  body=$(jq -nc --arg n "$API_POLICY_NAME" '{name:$n, decision:"bypass", include:[{everyone:{}}], precedence:1}')
+  pid=$(cf GET "/accounts/$ACCOUNT_ID/access/apps/$API_APP_ID/policies" | jq -r --arg n "$API_POLICY_NAME" '[.result[]? | select(.name == $n)][0].id // empty')
+  if [ -n "$pid" ]; then mut PUT "/accounts/$ACCOUNT_ID/access/apps/$API_APP_ID/policies/$pid" "$body" >/dev/null
+  else
+    prec=$(cf GET "/accounts/$ACCOUNT_ID/access/apps/$API_APP_ID/policies" | jq '[.result[]?.precedence // 0] | max // 0 | . + 1')
+    mut POST "/accounts/$ACCOUNT_ID/access/apps/$API_APP_ID/policies" "$(jq -c --argjson p "$prec" '. + {precedence:$p}' <<<"$body")" >/dev/null
+  fi
+  log "bypass policy in place: Cloudflare lets these through and the Operation Kit key decides"
+  log "paths: $(printf '%s\n' "$paths" | tr '\n' ' ')"
+  log "everything else on $DOMAIN — including /api/internal, /api/admin, /api/secrets and the rest of /api/auth — still needs the Cloudflare sign-in"
+}
+
+api_bypass_down() {
+  local a
+  a=$(find_api_app)
+  if [ -n "$a" ]; then
+    mut DELETE "/accounts/$ACCOUNT_ID/access/apps/$a" >/dev/null
+    log "'$API_APP_NAME' removed — every API route is behind the Cloudflare sign-in again (bots will now get the sign-in page)"
+  else log "'$API_APP_NAME': none"; fi
+}
 
 if [ "$ACTION" = agent-pass ]; then
   a=$(find_app)
@@ -172,6 +267,17 @@ if [ "$ACTION" = agent-pass ]; then
   exit 0
 fi
 
+if [ "$ACTION" = api-bypass ]; then
+  if [ "$BYPASS_CMD" = remove ]; then
+    step "Cloudflare Access: putting the API routes back behind the sign-in"
+    api_bypass_down
+  else
+    [ -n "$(find_app)" ] || die "no Access app on $DOMAIN yet — run the installer (or 'cloudflare.sh up') first"
+    api_bypass_up
+  fi
+  exit 0
+fi
+
 if [ "$ACTION" = status ]; then
   t=$(find_tunnel); d=$(find_dns); a=$(find_app); s=$(find_svc)
   have() { [ -n "$1" ] && echo present || echo MISSING; }
@@ -181,6 +287,12 @@ if [ "$ACTION" = status ]; then
   fi
   printf '  dns    %-28s %s\n' "$DOMAIN" "$(jq -r '"\(.type) -> \(.content) proxied=\(.proxied)"' <<<"${d:-null}" 2>/dev/null || echo MISSING)"
   printf '  access app                    %s\n' "$(have "$a")"
+  b=$(find_api_app)
+  if [ -n "$b" ]; then
+    printf '  API bypass app                present (%s paths, key auth)\n' "$(cf GET "/accounts/$ACCOUNT_ID/access/apps/$b" | jq -r '(.result.destinations // []) | length')"
+  else
+    printf '  API bypass app                MISSING (bots get the Cloudflare sign-in — run: cloudflare.sh api-bypass)\n'
+  fi
   printf '  verify service token          %s\n' "$(have "$s")"
   printf '  agent passes                  %s\n' "$(list_passes | wc -l | tr -d ' ')"
   printf '  one login (team + AUD stored) %s\n' "$([ -n "$(env_get "$OK_SECRETS_ENV" OK_CF_ACCESS_AUD)" ] && echo on || echo off)"
@@ -191,6 +303,7 @@ if [ "$ACTION" = down ]; then
   step "Cloudflare: removing what the installer created for $DOMAIN"
   a=$(find_app)
   if [ -n "$a" ]; then mut DELETE "/accounts/$ACCOUNT_ID/access/apps/$a" >/dev/null; log "access app removed"; else log "access app: none"; fi
+  api_bypass_down
   s=$(find_svc)
   if [ -n "$s" ]; then mut DELETE "/accounts/$ACCOUNT_ID/access/service_tokens/$s" >/dev/null; log "verify service token removed"; else log "service token: none"; fi
   while read -r pass_id pass_name; do
@@ -335,6 +448,14 @@ else
   upsert_policy "Allowed people" "$(jq -nc --argjson inc "$include" '{name:"Allowed people", decision:"allow", include:$inc, precedence:1}')"
   upsert_policy "Install verify robot" "$(jq -nc --arg t "$SVC_ID" '{name:"Install verify robot", decision:"non_identity", include:[{service_token:{token_id:$t}}], precedence:2}')"
 fi
+
+# Step 8 (obj 900028): let bots reach the board API with their Operation Kit key.
+# On by default — without it a key-authenticated bot only ever sees Cloudflare's
+# sign-in page. API_KEY_AUTH_BYPASS="off" in client.conf skips it.
+case "$(conf API_KEY_AUTH_BYPASS on)" in
+  off|no|0|false) warn "API_KEY_AUTH_BYPASS=off — bots calling the API with a key will get the Cloudflare sign-in page, not an answer" ;;
+  *) api_bypass_up ;;
+esac
 
 # One login (obj 720332): the app verifies Cloudflare's signed identity header
 # against this team's public keys and this app's AUD tag. Neither is secret.

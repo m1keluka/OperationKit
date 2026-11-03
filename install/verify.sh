@@ -9,7 +9,11 @@
 #   2. the firewall is on and no web port is open to the internet
 #   3. the app answers on the server itself
 #   4. https://DOMAIN is behind Cloudflare Access (a stranger gets the
-#      Cloudflare sign-in page, not the app)
+#      Cloudflare sign-in page, not the app), AND the key-auth bypass is right:
+#      a keyless call to a bot-facing API route reaches the APP and is turned
+#      away by it (401 JSON) instead of being redirected to the Cloudflare
+#      sign-in, while an operator route (/api/internal) still gets the
+#      redirect. A bypass that is missing, too wide or too narrow fails here.
 #   5. through Cloudflare, with the install's robot pass (Access service token),
 #      the site loads and shows the client's brand name
 #   6. password sign-in works (a throw-away `ok-verify` admin, removed after)
@@ -25,6 +29,8 @@
 set -euo pipefail
 # shellcheck source=install/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=install/api-bypass-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/api-bypass-lib.sh"
 
 CONFIG=
 LOCAL_ONLY=0
@@ -78,6 +84,14 @@ api() { # METHOD PATH [JSON] — body to stdout, HTTP code to $TMPD/code
 }
 code() { cat "$TMPD/code"; }
 
+# nokey PATH — call https://DOMAIN<PATH> as a total stranger: no Operation Kit
+# key, no Cloudflare service-token headers, no redirect following. Prints
+# "<http code>|<redirect url>|<content type>". This is exactly what a bot that
+# only has an Operation Kit API key looks like to Cloudflare.
+nokey() { curl -sS -o "$TMPD/nokey" -w '%{http_code}|%{redirect_url}|%{content_type}' "https://$DOMAIN$1" 2>/dev/null || printf '000||'; }
+# at_cloudflare lives in install/api-bypass-lib.sh so it can be unit-tested.
+at_cloudflare() { ok_api_bypass_at_cloudflare "$@"; }
+
 step "Verifying $([ "$LOCAL_ONLY" -eq 1 ] && echo "$SLUG (local only)" || echo "https://$DOMAIN (through Cloudflare)")"
 
 # 1. containers
@@ -114,6 +128,37 @@ if [ "$LOCAL_ONLY" -eq 0 ]; then
   reason=$(api POST /api/auth/cloudflare-access | jq -r '.reason // .code // empty' 2>/dev/null || true)
   if [ "$reason" = no_email ]; then pass "one login on: app verifies Cloudflare's signed identity (team keys + AUD)"
   else fail "one login: expected the app to verify the Cloudflare token (reason no_email), got '${reason:-HTTP $(code)}' — check OK_CF_ACCESS_TEAM/AUD in secrets/stack.env and restart the app"; fi
+
+  # 4b. Key-auth API bypass (obj 900028). A bot sends ONE thing: its Operation
+  # Kit key. So the test is what a keyless stranger gets on a bot-facing route:
+  # it must be the APP saying 401 in JSON ("your key is missing/invalid"), not
+  # Cloudflare's HTML sign-in. Then the opposite, on the operator API: that one
+  # must still be stopped by Cloudflare before the app ever sees it.
+  if [ "$(conf API_KEY_AUTH_BYPASS on)" != off ]; then
+    probe=$(ok_api_bypass_probe)
+    r=$(nokey "$probe"); rcode=${r%%|*}; rctype=${r##*|}
+    if [ "$rcode" = 000 ]; then
+      fail "could not reach https://$DOMAIN$probe at all (network/tunnel problem, not the bypass)"
+    elif [ "$rcode" = 401 ] && [[ "$rctype" == application/json* ]]; then
+      pass "bots can reach the API with just their key ($probe with no key -> 401 JSON from the app)"
+    elif at_cloudflare "$r"; then
+      fail "$probe is still behind the Cloudflare sign-in (got $rcode) — a bot's key is never checked. Run: bash $OK_LIB_DIR/cloudflare.sh api-bypass --config $CONFIG"
+    else
+      fail "$probe with no key returned $rcode ($rctype) — expected 401 JSON from the app"
+    fi
+    r=$(nokey /api/internal/objectives)
+    if [ "${r%%|*}" = 000 ]; then fail "could not reach https://$DOMAIN/api/internal/objectives at all (network/tunnel problem)"
+    elif at_cloudflare "$r"; then pass "the operator API is still behind Cloudflare (/api/internal with no key -> ${r%%|*})"
+    else fail "/api/internal is NOT behind the Cloudflare sign-in (got ${r%%|*}, ${r##*|}) — the bypass list is too wide. Check install/api-bypass-paths.conf, then re-run cloudflare.sh api-bypass"; fi
+    for d in /api/admin/seats /api/secrets /api/auth/token; do
+      r=$(nokey "$d")
+      if [ "${r%%|*}" = 000 ]; then fail "could not reach https://$DOMAIN$d at all (network/tunnel problem)"
+      elif at_cloudflare "$r"; then pass "$d is still behind Cloudflare (${r%%|*})"
+      else fail "$d is NOT behind the Cloudflare sign-in (got ${r%%|*}, ${r##*|}) — the bypass list is too wide"; fi
+    done
+  else
+    log "  SKIP  key-auth API bypass (API_KEY_AUTH_BYPASS=off in $CONFIG — bots get the Cloudflare sign-in page)"
+  fi
 fi
 brand=$(api GET /api/branding | jq -r '.name // empty' 2>/dev/null || true)
 [ "$brand" = "$(conf BRAND_NAME OperationKit)" ] && pass "brand name shown: $brand" || fail "brand name is '$brand', expected '$(conf BRAND_NAME OperationKit)'"
