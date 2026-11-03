@@ -130,4 +130,51 @@ bash "$CF" up --config "$WORK/client.conf" > "$WORK/out" 2>&1 || true
 check "names the missing Organizations permission" "$(grep -c 'Access: Organizations, Identity Providers, and Groups' "$WORK/out")" 1
 check "does not blame Zero Trust" "$(grep -c 'Zero Trust is not switched on' "$WORK/out" || true)" 0
 
+
+# ── obj 900069: a path a DIFFERENT Access app already owns ───────────────────
+# The shape seen on a real client install: a separate MCP bypass app already owns /api/mcp on this
+# hostname. Cloudflare answers 12132 ("belongs to another application"), which
+# used to stop the whole Cloudflare step and with it update.sh. The mock
+# enforces that duplicate-destination rule, so these checks fail without the fix.
+echo "== a path another Access app already owns (obj 900069)"
+kill $MOCK; wait $MOCK 2>/dev/null || true
+PORT=$PORT node "$HERE/cloudflare-mock.mjs" > "$WORK/mock.log" 2>&1 & MOCK=$!
+for _ in $(seq 50); do curl -fs "http://127.0.0.1:$PORT/__state" >/dev/null 2>&1 && break; sleep 0.1; done
+cfapi() { curl -s -X "$1" -H 'Authorization: Bearer mock-token' -H 'content-type: application/json' ${3:+--data "$3"} "$CF_API_BASE$2"; }
+FOREIGN=$(cfapi POST /accounts/acct1/access/apps \
+  '{"name":"MCP bypass (pre-existing)","type":"self_hosted","domain":"ops.example-capital.com/api/mcp","destinations":[{"type":"public","uri":"ops.example-capital.com/api/mcp"},{"type":"public","uri":"ops.example-capital.com/api/mcp/*"}]}' | jq -r .result.id)
+FPOL=$(cfapi POST "/accounts/acct1/access/apps/$FOREIGN/policies" \
+  '{"name":"Bypass everyone","decision":"bypass","include":[{"everyone":{}}]}' | jq -r .result.id)
+if bash "$CF" up --config "$WORK/client.conf" > "$WORK/out" 2>&1; then check "up completes despite the clash" ok ok
+else check "up completes despite the clash" "failed: $(tail -2 "$WORK/out" | tr '\n' ' ')" ok; fi
+OURS='[.result.apps[]|select(.name=="Operation Kit API (key auth)")]'
+check "our app skips the two owned paths (29 - 2)" "$(st "$OURS|.[0].destinations|length")" 27
+check "our app does not claim /api/mcp" "$(st "$OURS|.[0].destinations|map(.uri)|map(select(contains(\"/api/mcp\")))|length")" 0
+check "it still claims the rest of the list" "$(st "$OURS|.[0].destinations|map(.uri)|map(select(endswith(\"/api/objectives\")))|length")" 1
+check "the skip names both paths and the other app" "$(grep -c "is already a destination of the Access app 'MCP bypass (pre-existing)'" "$WORK/out")" 2
+check "the other app is not touched" "$(st "[.result.apps[]|select(.id==\"$FOREIGN\")][0]|[.name,(.destinations|length)]")" '["MCP bypass (pre-existing)",2]'
+check "the other app keeps its policy" "$(st "[.result.policies[\"$FOREIGN\"][]?]|length")" 1
+
+echo "== the same path owned by an app that is NOT a bypass app -> refuse, change nothing"
+bash "$CF" api-bypass remove --config "$WORK/client.conf" >/dev/null
+cfapi PUT "/accounts/acct1/access/apps/$FOREIGN/policies/$FPOL" \
+  '{"name":"Allowed people","decision":"allow","include":[{"email":{"email":"someone@example-capital.com"}}]}' >/dev/null
+if bash "$CF" api-bypass --config "$WORK/client.conf" > "$WORK/out" 2>&1; then check "refuses when the owner is not a bypass app" ran-ok refused
+else check "refuses when the owner is not a bypass app" "$(grep -c 'has no Bypass policy' "$WORK/out")" 1; fi
+check "the refusal names the owning app" "$(grep -c "MCP bypass (pre-existing)" "$WORK/out")" 1
+check "nothing was created on refusal" "$(st "$OURS|length")" 0
+check "the other app is still untouched" "$(st "[.result.apps[]|select(.id==\"$FOREIGN\")][0].destinations|length")" 2
+
+echo "== a renamed Bypass/Everyone policy is reused, not duplicated"
+cfapi PUT "/accounts/acct1/access/apps/$FOREIGN/policies/$FPOL" \
+  '{"name":"Bypass everyone","decision":"bypass","include":[{"everyone":{}}]}' >/dev/null
+bash "$CF" api-bypass --config "$WORK/client.conf" >/dev/null 2>&1
+OURS_ID=$(st "$OURS|.[0].id" | tr -d '"')
+OURS_POL=$(st "[.result.policies[\"$OURS_ID\"][]]|.[0].id" | tr -d '"')
+cfapi PUT "/accounts/acct1/access/apps/$OURS_ID/policies/$OURS_POL" \
+  '{"name":"Renamed in the dashboard","decision":"bypass","include":[{"everyone":{}}],"precedence":1}' >/dev/null
+bash "$CF" api-bypass --config "$WORK/client.conf" >/dev/null 2>&1
+check "still exactly one policy on our app" "$(st "[.result.policies[\"$OURS_ID\"][]]|length")" 1
+check "and it is still Bypass/Everyone" "$(st "[.result.policies[\"$OURS_ID\"][]|[.decision,(.include[0]|keys[0])]]")" '[["bypass","everyone"]]'
+
 echo; [ "$fails" -eq 0 ] && echo "cloudflare mock test: ALL PASS" || { echo "cloudflare mock test: $fails FAIL"; exit 1; }

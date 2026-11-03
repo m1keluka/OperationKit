@@ -60,6 +60,10 @@
 # `api-bypass` re-runs step 8 on its own, in place: run it after editing
 # install/api-bypass-paths.conf to add a route a bot needs. It is idempotent —
 # it looks the app up BY NAME and updates it, never making a second one.
+# A path another Access application already owns is left to its owner: if that
+# app is itself a bypass/key-auth app the path is skipped with a warning, and if
+# it is not, the step stops and names it. Either way the other app is never
+# created, edited or deleted (obj 900069).
 # ROLLBACK: `api-bypass remove` deletes the app and its policy, which puts every
 # API route back behind the Cloudflare sign-in immediately (bots then get the
 # sign-in page again). `down` removes it too. Nothing else is touched.
@@ -177,10 +181,48 @@ list_passes() { cf GET "/accounts/$ACCOUNT_ID/access/service_tokens" | jq -r --a
 # ok_api_bypass_paths() in install/api-bypass-lib.sh, which REFUSES an operator
 # route or a blanket /api/*. If someone adds one, this step stops the install
 # rather than opening it.
+#
+# A path another Access application already owns is SKIPPED, not fought over
+# (obj 900069). Cloudflare rejects a duplicate destination outright ("the
+# destination … belongs to another application", code 12132), so one
+# pre-existing app — a real client install had a separate MCP bypass app owning
+# /api/mcp — used to stop this whole step, and with it update.sh. We now ask
+# Cloudflare which apps exist first and leave that path to its owner. Two cases,
+# deliberately different:
+#   · the owner is itself a bypass / key-auth app (it has a `bypass` policy) —
+#     the end result for a bot is already what we wanted, so skip the path, say
+#     so, and carry on. The other app is never edited or deleted.
+#   · the owner is anything else — those paths stay behind a sign-in, so the
+#     install would be half-open. Stop and name the app, rather than ship it.
 api_bypass_up() {
-  local paths dests body pid prec n
+  local paths dests body pid prec n apps conflicts kept skipped line cpath cid cname pol
   step "Cloudflare Access: API routes your bots call with a key"
   paths=$(ok_api_bypass_paths) || exit 1   # refused: the guard already said why
+
+  # Which of our paths does a DIFFERENT Access app already own on this hostname?
+  apps=$(cf GET "/accounts/$ACCOUNT_ID/access/apps")
+  conflicts=$(ok_api_bypass_conflicts "$apps" "$DOMAIN" "$API_APP_NAME" "$paths")
+  if [ -n "$conflicts" ]; then
+    skipped=''
+    while IFS=$'\t' read -r cpath cid cname; do
+      [ -n "$cpath" ] || continue
+      pol=$(cf GET "/accounts/$ACCOUNT_ID/access/apps/$cid/policies")
+      if ok_api_bypass_policies_are_bypass "$pol"; then
+        warn "$cpath is already a destination of the Access app '$cname' ($cid), which is itself a bypass/key-auth app — leaving that path to it (its app is not touched)"
+        skipped="$skipped$cpath"$'\n'
+      else
+        die "$cpath is already a destination of the Access app '$cname' ($cid), and that app has no Bypass policy — a bot's key would never be checked there. Either make that app a bypass app, remove $cpath from it, or drop the route from $(ok_api_bypass_conf). Nothing was changed."
+      fi
+    done <<<"$conflicts"
+    # Keep our list in file order, minus everything another bypass app owns.
+    kept=$(grep -vxF -f <(printf '%s' "$skipped") <<<"$paths" || true)
+    if [ -z "${kept//[[:space:]]/}" ]; then
+      log "every path on the list is already covered by another bypass app — nothing left for '$API_APP_NAME' to own, and nothing was changed"
+      return 0
+    fi
+    paths=$kept
+  fi
+
   n=$(printf '%s\n' "$paths" | wc -l | tr -d ' ')
   dests=$(printf '%s\n' "$paths" | jq -R --arg d "$DOMAIN" '{type:"public", uri:($d + .)}' | jq -sc .)
   # `domain` is kept alongside `destinations` for older Access API behaviour;
@@ -202,7 +244,15 @@ api_bypass_up() {
     return 0
   fi
   body=$(jq -nc --arg n "$API_POLICY_NAME" '{name:$n, decision:"bypass", include:[{everyone:{}}], precedence:1}')
-  pid=$(cf GET "/accounts/$ACCOUNT_ID/access/apps/$API_APP_ID/policies" | jq -r --arg n "$API_POLICY_NAME" '[.result[]? | select(.name == $n)][0].id // empty')
+  # Match the policy by WHAT IT DOES (decision bypass + include Everyone), not
+  # only by our name for it (obj 900069): an install whose policy was renamed in
+  # the dashboard, or created by an earlier version, would otherwise get a
+  # SECOND Bypass/Everyone policy added on every re-run. Our own name still wins
+  # when both are present.
+  pid=$(cf GET "/accounts/$ACCOUNT_ID/access/apps/$API_APP_ID/policies" | jq -r --arg n "$API_POLICY_NAME" '
+    [.result[]? | select(.name == $n)][0].id
+    // [.result[]? | select((.decision // "") == "bypass" and ((.include // []) | map(has("everyone")) | any))][0].id
+    // empty')
   if [ -n "$pid" ]; then mut PUT "/accounts/$ACCOUNT_ID/access/apps/$API_APP_ID/policies/$pid" "$body" >/dev/null
   else
     prec=$(cf GET "/accounts/$ACCOUNT_ID/access/apps/$API_APP_ID/policies" | jq '[.result[]?.precedence // 0] | max // 0 | . + 1')

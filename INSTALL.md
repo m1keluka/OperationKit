@@ -331,6 +331,11 @@ Every line must say **PASS**. It checks that:
   server, which the sandbox cannot use. Connect Claude with step 7 (or
   **Settings → Seats → Add Claude seat**) and re-run verify.
 
+The test card is a **throw-away**: its title carries a per-run marker (so the
+board's duplicate-title guard never refuses it on a second run) and verify
+deletes the card again on its way out, pass or fail. It should leave nothing
+behind on the client's board.
+
 If a line says FAIL, the message says what to look at. Fix it, then re-run
 verify.
 
@@ -440,6 +445,29 @@ refuses any path under `/api/internal`, `/api/admin`, `/api/secrets`,
 `/api/intel` and `/api/status`, and any blanket `/api` or wildcard. The step
 stops with the reason and changes nothing in Cloudflare.
 `install/test/api-bypass-paths-test.sh` proves it on every pull request.
+
+**If another Access app already owns one of those paths.** Some installs were
+patched by hand before this step existed, and already have a separate Access
+application covering, say, `/api/mcp`. Cloudflare will not let two applications
+claim the same destination ("the destination … belongs to another
+application", error code `12132`), so that one path used to stop the whole
+Cloudflare step — and with it `update.sh`. Now the step looks the account's
+Access applications up first and:
+
+- if the other application is itself a **bypass / key-auth** app (it has a
+  `Bypass` policy), the path is **skipped with a warning naming the app** and
+  the rest of the list is applied. A bot already gets through on that path, so
+  the end result is the same. **The other application is never edited or
+  deleted** — if you want it folded in, remove it in the Cloudflare dashboard
+  and re-run `cloudflare.sh api-bypass`.
+- if the other application is **not** a bypass app, those paths would stay
+  behind the sign-in, so the step **stops and names the application** rather
+  than shipping a half-open install. Either make that app a bypass app, remove
+  the path from it, or drop the route from `install/api-bypass-paths.conf`.
+
+The Bypass policy on our own app is also matched by **what it does** (decision
+`bypass`, include *Everyone*), not only by its name, so an install whose policy
+was renamed in the dashboard gets it reused rather than a second one added.
 
 **Rollback.** To put every API route back behind the Cloudflare sign-in:
 

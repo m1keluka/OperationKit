@@ -8,6 +8,59 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Installer: the API bypass steps around paths another Access app owns, and verify stops colliding with itself (obj 900069)
+
+Two bugs found while deploying the step below on a client install.
+
+**1. One pre-existing Access app stopped the whole Cloudflare step.** Cloudflare
+refuses an Access application whose destination already belongs to a different
+application on the same hostname (*"the destination … belongs to another
+application"*, error code `12132`). An install that had been patched by hand
+before `api-bypass` existed already had a separate MCP bypass app owning
+`/api/mcp` — so `cloudflare.sh api-bypass` died there, and `update.sh` stopped
+with it. It only completed with an `OK_API_BYPASS_CONF` override that edited the
+route list out.
+
+Now the step lists the account's Access applications first and splits the two
+cases that look alike:
+
+- the owning app is **itself a bypass / key-auth app** (it has a `Bypass`
+  policy) → the path is **skipped with a warning naming the app and its id**,
+  the rest of the list is applied, and `update.sh` completes with no override.
+  A bot already reaches the app on that path, so nothing is lost.
+- the owning app is **anything else** → those paths would stay behind the
+  sign-in, so the step **stops and names the app** instead of shipping a
+  half-open install.
+
+**The other application is never created, edited or deleted** in either case.
+The step stays idempotent: our own app is still looked up by name and updated
+in place, never duplicated.
+
+**The Bypass policy is now matched by what it does** — decision `bypass` with
+include *Everyone* — and not only by our name for it. An install whose policy
+had been renamed in the Cloudflare dashboard used to collect a **second**
+Bypass/Everyone policy on every re-run.
+
+**2. `install/verify.sh` failed with "could not create the test card (409)".**
+Check 8 posted a card titled exactly `Install check: say hello` every time, and
+the board's duplicate-title guard refuses a second open card with the same
+normalized title in the same workspace inside its 24h window. So the first
+verify after an install passed and every verify that day failed. The title now
+carries the run's unique marker and the create sends `force: true`; verify also
+**deletes its own throw-away card on the way out**, pass or fail, so nothing
+piles up on the client's board. (This is the bug card #900022 describes.)
+
+**Operator action: none.** Re-run `install/cloudflare.sh api-bypass` and
+`install/verify.sh` as usual. If you had an install pinned to a trimmed
+`OK_API_BYPASS_CONF` to get past the clash, you can drop the override.
+
+**Tests.** `install/test/cloudflare-mock.mjs` now enforces Cloudflare's
+duplicate-destination rule (`12132`), so `install/test/cloudflare-mock-test.sh`
+reproduces the real failure and proves the skip, the refusal, the
+other-app-untouched guarantee and the single-policy result;
+`install/test/api-bypass-paths-test.sh` unit-tests the two new pure helpers in
+`install/api-bypass-lib.sh`.
+
 ### Installer: bots can reach the board API with their key (obj 900028)
 
 **What was wrong.** `install/cloudflare.sh` put ONE Cloudflare Access
