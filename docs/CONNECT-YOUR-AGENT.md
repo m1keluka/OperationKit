@@ -322,6 +322,10 @@ Grok](./product/10-agents-from-other-ai.md) and the [Agent API reference](./api/
 | A Cloudflare sign-in page, a redirect, or HTML instead of a reply | Cloudflare Access stopped the request. Do Step 0, or check the two `CF-Access-…` headers are spelled exactly. |
 | Tools appear but every write fails | The key is the older full-access **API key**, which is read-only over MCP. Use an **agent key**. |
 
+## Knowledge-base rules travel with the connection
+
+To tell every connected app when to read and write the knowledge base and the board, put one page in that workspace's knowledge folder: `topics/agent-kb-usage-guide.md`. Operation Kit sends it when the app connects. You do not paste it into each app. A workspace without that page is unchanged. Details: [Knowledge-base usage guide](./api/README.md#knowledge-base-usage-guide).
+
 ## Good habits
 
 - One key per app and per person. If a laptop is lost, revoke just that key (Settings → You →

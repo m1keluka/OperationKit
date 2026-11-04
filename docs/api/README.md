@@ -321,8 +321,34 @@ Bot gets the new tools at its next chat. Nothing about the URL changes.
 | Auth | `Authorization: Bearer cc_live_…`: the bot's own agent key (a JWT also works). No header → `401` + `WWW-Authenticate: Bearer`. Cookies are ignored. |
 | Writes | **Need a named agent key.** On the legacy full-access key the connector is read-only: write tools return a tool error that tells the bot to ask for a named key. That key can also set `done`, so it must not reach every bot that shares a connector. |
 | Tool list | Filtered per key: a named key only sees tools whose scope it holds (Inbox never sees `start_objective`). The guard on the forwarded REST call remains the authority. |
-| Discovery | `GET /api/agent` → `mcp` block (url, transport, tools, aliases) |
+| Discovery | `GET /api/agent` → `mcp` block (url, transport, tools, aliases, kb usage guide) |
 | Setup | [bots/SETUP.md](./bots/SETUP.md) |
+
+### Knowledge-base usage guide
+
+`initialize` appends each workspace's knowledge-base usage guide to `instructions`, for the workspaces that key can access, so a bot does not need the guide pasted into its own prompt. The stock instructions (board etiquette, read-before-write, `done` is a human signature) are unchanged. When no guide file exists, the `instructions` string and the `capabilities` object are exactly what they were before this feature: tools only.
+
+Put the guide in the workspace's knowledge folder:
+
+| Layout | File |
+| --- | --- |
+| Vault (`SECOND_BRAIN_ROOT` / `vault_path`) | `workspaces/<slug>/topics/agent-kb-usage-guide.md` |
+| No vault (`/app/data/knowledge-base/<slug>/`) | `<slug>/topics/agent-kb-usage-guide.md` |
+
+The path is relative to that workspace's knowledge folder (`vault_path` when the workspace row sets one, otherwise the default folder above). A missing, empty, or unreadable file is skipped. A key pinned to one workspace does not receive another workspace's guide. Admins and keys with no workspace pin receive a guide per workspace they can access. The text is connection instructions, not a `vault:read` call, so a board-only key receives it too — do not put secrets in the file.
+
+To point every workspace at a different relative path, set `CC_MCP_KB_GUIDE_PATH` (for example `guides/kb-usage.md`). `off` disables the default. One workspace overrides that with the settings key `mcp_kb_guide_path:<slug>` (same values: a relative `*.md` path, or `off`). An empty or unsafe value (absolute, `..`, not markdown) is ignored and the next source is used. The server never follows a symlink that leaves the workspace knowledge folder.
+
+The appendix is capped (about 4,000 characters per workspace, 8,000 across the handshake). A longer guide is cut and the `initialize` text names the file so the bot can `read_file` the rest. With at least one guide, `initialize` also advertises prompts and resources:
+
+| Method | What it returns |
+| --- | --- |
+| `prompts/list` | `kb_usage_guide` when a guide exists, otherwise `[]` |
+| `prompts/get` | The guide. Optional argument `workspace`. A slug this key cannot access is an error and does not reveal other guides. |
+| `resources/list` | One resource per guide: `operationkit://kb-guide/<slug>` |
+| `resources/read` | That guide (up to 20,000 characters). Anything else is "Resource not found". |
+
+`resources/subscribe` stays unsupported.
 
 Every tool runs **as the key**, through the REST route in the table below. The call is re-issued over loopback with
 the same Bearer key, so the agent-key guard (scopes + workspace allowlist + audit), workspace membership, status
@@ -383,7 +409,7 @@ Every **write** answers with a short receipt: `{ confirmation: "Created #1234 \"
 url: "https://cc.example.com/o/1234", title, status, workspace }`. The base URL follows `APP_BASE_URL` if the app
 moves hosts.
 
-Outputs are trimmed to save tokens: slim rows, long prose clipped, and tool payloads stripped from thread output. A REST error comes back as a tool result with `isError: true` and text `Error <status>: <message>`, so the model can see a `409` and react to it. A scope refusal adds ` (missing_scope: board:done)` to that text and `structuredContent: { error, status, missing_scope }`. The server `instructions` and tool descriptions carry the bot rules: **attention → changes, not the board**, **always an idempotency_key on create**, **read before you write**, and **`done` is a human signature (Mike's)**.
+Outputs are trimmed to save tokens: slim rows, long prose clipped, and tool payloads stripped from thread output. A REST error comes back as a tool result with `isError: true` and text `Error <status>: <message>`, so the model can see a `409` and react to it. A scope refusal adds ` (missing_scope: board:done)` to that text and `structuredContent: { error, status, missing_scope }`. The server `instructions` and tool descriptions carry the bot rules: **attention → changes, not the board**, **always an idempotency_key on create**, **read before you write**, and **`done` is a human signature (Mike's)**. When a workspace has a knowledge-base usage guide, `initialize` appends it after those rules (see [Knowledge-base usage guide](#knowledge-base-usage-guide)).
 
 ### xAI API (Grok) — remote MCP tool
 

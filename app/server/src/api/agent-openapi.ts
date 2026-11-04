@@ -1181,11 +1181,14 @@ export const AGENT_OPENAPI = {
         tags: ['control'],
         summary: 'Remote MCP server — knowledge + board in one connector (stateless Streamable HTTP, JSON-RPC 2.0)',
         description:
-          'initialize / ping / tools/list / tools/call. Bearer only (cookies ignored). Each tools/call re-issues the REST ' +
+          'initialize / ping / tools/list / tools/call, plus prompts and resources for the workspace knowledge-base usage guide. ' +
+          'Bearer only (cookies ignored). Each tools/call re-issues the REST ' +
           'route it wraps with the same key, so scopes, workspace allowlist, transitions and the session cap apply ' +
           'unchanged; a refused call returns isError with structuredContent { error, status, missing_scope }. ' +
           'Write tools need a named agent key (the legacy full-access key is read-only over MCP). ' +
-          'tools/list hides tools whose scope a named key lacks. GET → 405. Tool ↔ REST parity table: docs/api/README.md#mcp-server.',
+          'tools/list hides tools whose scope a named key lacks. initialize appends workspaces/<slug>/topics/agent-kb-usage-guide.md ' +
+          '(or CC_MCP_KB_GUIDE_PATH / settings mcp_kb_guide_path:<slug>) for workspaces the key can access, when the file exists. ' +
+          'GET → 405. Tool ↔ REST parity table: docs/api/README.md#mcp-server.',
         requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', description: 'JSON-RPC 2.0 message or batch' } } } },
         responses: {
           '200': { description: 'JSON-RPC response (or batch)' },
@@ -1244,5 +1247,13 @@ export const AGENT_DISCOVERY = {
       'fulfill_secret_request', 'stop_objective',
     ],
     aliases: { get_card: 'get_objective', search_cards: 'search_objectives' },
+    kb_usage_guide: {
+      conventional_path: 'topics/agent-kb-usage-guide.md',
+      env: 'CC_MCP_KB_GUIDE_PATH',
+      setting: 'mcp_kb_guide_path:<slug>',
+      prompt: 'kb_usage_guide',
+      resource_uri: 'operationkit://kb-guide/<slug>',
+      docs: '/docs/api/README.md#knowledge-base-usage-guide',
+    },
   },
 } as const

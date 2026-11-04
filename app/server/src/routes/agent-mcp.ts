@@ -12,8 +12,14 @@
  * No new npm dependency: `@modelcontextprotocol/sdk` is not installed in the
  * image, and adding one is a host-side image rebuild (which kills every tmux
  * session). The stateless JSON-RPC surface — initialize / ping / tools/list /
- * tools/call — is small enough to implement here and is covered end to end by
+ * tools/call, plus prompts and resources for the knowledge-base usage guide —
+ * is small enough to implement here and is covered end to end by
  * `agent-mcp.test.ts`.
+ *
+ * `initialize` appends each accessible workspace's knowledge-base usage guide
+ * (see `services/mcp-kb-guide.ts`) when that file exists. The read is not a
+ * tool call: the handshake must not depend on loopback, and a missing file
+ * must leave the stock instructions unchanged. Tools stay REST adapters.
  *
  * ── Same business logic, by construction ──────────────────────────────────
  * A tool NEVER touches the DB or a service directly. Each one is a thin adapter
@@ -44,6 +50,17 @@
 import { Router, type NextFunction, type Response } from 'express'
 import type { AgentScope } from '@operationkit/shared'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import {
+  KB_GUIDE_EXPLICIT_CHARS,
+  KB_GUIDE_PROMPT,
+  clipGuideText,
+  formatKbGuideBlock,
+  kbGuideUri,
+  loadKbGuides,
+  workspaceFromKbGuideUri,
+  workspaceSlugsForMcp,
+  type LoadedGuide,
+} from '../services/mcp-kb-guide.js'
 
 export const MCP_PATH = '/api/mcp'
 /** Header stamped on forwarded REST calls so attribution can tell MCP traffic apart. */
@@ -862,6 +879,26 @@ export const MCP_TOOLS: McpTool[] = [
 
 const TOOLS_BY_NAME = new Map(MCP_TOOLS.map(t => [t.name, t]))
 
+/** Guides for this caller. A read failure leaves the handshake on the stock text. */
+function kbGuidesFor(req: AuthRequest): LoadedGuide[] {
+  try {
+    return loadKbGuides(workspaceSlugsForMcp(req))
+  } catch {
+    return []
+  }
+}
+
+const KB_GUIDE_PROMPT_DEF = {
+  name: KB_GUIDE_PROMPT,
+  title: 'Knowledge-base usage guide',
+  description: 'When to read and write the knowledge base and the board, and what never to write, for the workspace(s) this key can access.',
+  arguments: [{
+    name: 'workspace',
+    description: 'Workspace slug. Omit for every workspace this key can access that has a guide.',
+    required: false,
+  }],
+} as const
+
 /**
  * Pre-forward check. Return an error string to refuse the call. Scope and
  * workspace enforcement deliberately do NOT live here — they happen on the
@@ -939,11 +976,19 @@ async function handleMessage(msg: JsonRpcMessage, req: AuthRequest, rest: RestCa
       const legacy = req.authVia === 'legacy_api_key'
         ? '\nTHIS CONNECTOR USES THE LEGACY KEY: read tools work, write tools are refused. Ask Mike for a named agent key to enable writes.'
         : ''
+      const guides = kbGuidesFor(req)
+      // Advertise prompts/resources only when a guide exists, so an install
+      // with no guide keeps the same initialize result as before.
+      const capabilities: Record<string, unknown> = { tools: { listChanged: false } }
+      if (guides.length > 0) {
+        capabilities.prompts = { listChanged: false }
+        capabilities.resources = { subscribe: false, listChanged: false }
+      }
       return rpcResult(id, {
         protocolVersion,
-        capabilities: { tools: { listChanged: false } },
+        capabilities,
         serverInfo: MCP_SERVER_INFO,
-        instructions: SERVER_INSTRUCTIONS + legacy,
+        instructions: SERVER_INSTRUCTIONS + legacy + formatKbGuideBlock(guides),
       })
     }
     case 'ping':
@@ -994,6 +1039,57 @@ async function handleMessage(msg: JsonRpcMessage, req: AuthRequest, rest: RestCa
           : {}
         return rpcResult(id, { content: [{ type: 'text', text }], ...structured, isError: true })
       }
+    }
+    case 'prompts/list': {
+      const guides = kbGuidesFor(req)
+      return rpcResult(id, { prompts: guides.length > 0 ? [KB_GUIDE_PROMPT_DEF] : [] })
+    }
+    case 'prompts/get': {
+      if (msg.params?.name !== KB_GUIDE_PROMPT) return rpcError(id, -32602, `Unknown prompt: ${String(msg.params?.name)}`)
+      const args = msg.params?.arguments
+      if (args !== undefined && (typeof args !== 'object' || args === null || Array.isArray(args))) {
+        return rpcError(id, -32602, 'arguments must be an object')
+      }
+      const rawWs = (args as { workspace?: unknown } | undefined)?.workspace
+      if (rawWs !== undefined && typeof rawWs !== 'string') return rpcError(id, -32602, 'workspace must be a string')
+      const ws = typeof rawWs === 'string' ? rawWs.trim() : ''
+      const allowed = workspaceSlugsForMcp(req)
+      if (ws && !allowed.includes(ws)) return rpcError(id, -32602, `Unknown workspace: ${ws}`)
+      const guides = kbGuidesFor(req).filter(g => !ws || g.workspace === ws)
+      const text = guides.length > 0
+        ? formatKbGuideBlock(guides, { perGuide: KB_GUIDE_EXPLICIT_CHARS, total: KB_GUIDE_EXPLICIT_CHARS }).replace(/^\n+/, '')
+        : ws
+          ? `No knowledge-base usage guide for workspace '${ws}'.`
+          : 'No knowledge-base usage guide is set for the workspaces this key can access.'
+      return rpcResult(id, {
+        description: KB_GUIDE_PROMPT_DEF.description,
+        messages: [{ role: 'user', content: { type: 'text', text } }],
+      })
+    }
+    case 'resources/list': {
+      const guides = kbGuidesFor(req)
+      return rpcResult(id, {
+        resources: guides.map(g => ({
+          uri: kbGuideUri(g.workspace),
+          name: `${g.workspace} knowledge-base usage guide`,
+          description: g.displayPath,
+          mimeType: 'text/markdown',
+        })),
+      })
+    }
+    case 'resources/read': {
+      const uri = typeof msg.params?.uri === 'string' ? msg.params.uri : ''
+      const slug = workspaceFromKbGuideUri(uri)
+      // Same error for a bad uri, a workspace this key cannot access, and a
+      // workspace with no guide — do not reveal which other guides exist.
+      const guide = slug && workspaceSlugsForMcp(req).includes(slug)
+        ? kbGuidesFor(req).find(g => g.workspace === slug)
+        : undefined
+      if (!guide) return rpcError(id, -32602, 'Resource not found')
+      const clipped = clipGuideText(guide.content, KB_GUIDE_EXPLICIT_CHARS, guide.absolutePath, guide.fileTruncated)
+      return rpcResult(id, {
+        contents: [{ uri: kbGuideUri(guide.workspace), mimeType: 'text/markdown', text: clipped.text }],
+      })
     }
     default:
       return rpcError(id, -32601, `Method not found: ${msg.method}`)
