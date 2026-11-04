@@ -28,6 +28,10 @@ import fs from 'fs'
 import path from 'path'
 import jwt from 'jsonwebtoken'
 import { getDb } from '../db/index.js'
+import { checkConnectorCredential, type ConnectorActor } from './connector-guard.js'
+
+/** Connector id this grant belongs to — the key the owner guard is asked about. */
+export const CONNECTOR_ID = 'google-workspace'
 import { getJwtSecret } from '../middleware/auth.js'
 import { encryptField, decryptField } from './crypto.js'
 import type { UserGoogleConnectionSummary } from '@operationkit/shared'
@@ -272,7 +276,10 @@ export function recordError(userId: number, message: string): void {
  * response or a log line — the return value goes straight into a spawned child
  * process env.
  */
-export function getDecryptedRefreshToken(userId: number): string | null {
+export function getDecryptedRefreshToken(userId: number, actor: ConnectorActor): string | null {
+  if (!checkConnectorCredential({ connectorId: CONNECTOR_ID, ownerUserId: userId, actor }).allowed) {
+    return null
+  }
   const row = getDb()
     .prepare('SELECT refresh_token_encrypted FROM user_google_connections WHERE user_id = ?')
     .get(userId) as { refresh_token_encrypted: string } | undefined
@@ -356,7 +363,10 @@ export async function fetchUserInfo(
  * Returns null when the user has no connection or the refresh fails (the
  * failure is recorded on the row as `last_error`, never thrown at the caller).
  */
-export async function getAccessTokenForUser(userId: number): Promise<string | null> {
+export async function getAccessTokenForUser(userId: number, actor: ConnectorActor): Promise<string | null> {
+  if (!checkConnectorCredential({ connectorId: CONNECTOR_ID, ownerUserId: userId, actor }).allowed) {
+    return null
+  }
   const row = getDb()
     .prepare('SELECT * FROM user_google_connections WHERE user_id = ?')
     .get(userId) as ConnectionRow | undefined
@@ -436,7 +446,7 @@ export async function disconnect(userId: number): Promise<{ removed: boolean; re
   let revoked = false
   let refreshToken: string | null = null
   try {
-    refreshToken = getDecryptedRefreshToken(userId)
+    refreshToken = getDecryptedRefreshToken(userId, { kind: 'server', reason: 'revoke-on-disconnect' })
   } catch {
     refreshToken = null
   }
@@ -465,10 +475,10 @@ export async function disconnect(userId: number): Promise<{ removed: boolean; re
  * can send as the other person. We write a private dir with that user's file
  * only. Returns null when the user has no usable grant.
  */
-export function writeIsolatedGoogleCredsDir(userId: number): string | null {
+export function writeIsolatedGoogleCredsDir(userId: number, actor: ConnectorActor): string | null {
   try {
     const summary = getForUser(userId)
-    const refresh = getDecryptedRefreshToken(userId)
+    const refresh = getDecryptedRefreshToken(userId, actor)
     if (!summary?.google_email || !refresh) return null
     const client = getOAuthClientById(summary.client_id)
     const root = process.env.CC_SCRIPT_DIR || '/tmp/cc-scripts'

@@ -9,6 +9,10 @@ import {
 import { GIT_SSH_COMMAND } from '../config.js'
 import type { Objective } from '@operationkit/shared'
 
+// These tests exercise the owner's own credential, so they read it as the
+// server acting for that owner (services/connector-guard.ts).
+const SERVER_ACTOR = { kind: 'server' as const }
+
 // obj-2202 / onboarding gate B1–B4 — spawn-env scoping refactor.
 //
 // THE load-bearing guarantee: with both scoping flags OFF (the committed default)
@@ -128,9 +132,9 @@ describe('userGitIdentityEnv — W4 hook, UNLINKED-owner fallback (filled by obj
   // present ⇒ GH_TOKEN + per-user GIT_AUTHOR_*/GIT_COMMITTER_*) is proven in
   // session-user-git-identity.test.ts against a seeded, encrypted token row.
   it('the hook still returns {} for an owner with no linked token (fallback is applied by buildSpawnEnv, not here)', () => {
-    expect(userGitIdentityEnv(7)).toEqual({})
-    expect(userGitIdentityEnv(null)).toEqual({})
-    expect(userGitIdentityEnv(undefined)).toEqual({})
+    expect(userGitIdentityEnv(7, SERVER_ACTOR)).toEqual({})
+    expect(userGitIdentityEnv(null, SERVER_ACTOR)).toEqual({})
+    expect(userGitIdentityEnv(undefined, SERVER_ACTOR)).toEqual({})
   })
 
   it('spawn env for an unlinked owner carries the linked noreply git-author fallback, NOT a token or dev@example.com', () => {

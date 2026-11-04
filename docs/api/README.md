@@ -57,15 +57,20 @@ The key above is the **legacy full-access key**: it acts as you everywhere and k
   New keys default to **everything except `board:done` and `board:delete`** — done is a human signature. A call the key is not scoped for returns `403 { "error": "…", "missing_scope": "board:done" }`. Anything outside this surface (admin, secrets, the secrets broker, internal, key management) returns `403` with `missing_scope: null` — an agent key can never mint itself another key.
 - **Workspaces** — optional allowlist. A key pinned to `["example"]` only lists, reads, creates and edits cards in `example`; asking for another workspace returns `403 { "error": "…", "workspace": "example2" }`. A create with no `workspace` lands in the key's only workspace (a `?workspace=` query param now counts too — it used to be ignored and the card went to `example`). The changes feed and attention brief are filtered to the allowlist **in SQL**, so a pinned key never sees another workspace's events, counts or items. The allowlist covers board cards and the files API (an agent key must pass `workspace` there unless pinned to one, and cannot read system roots); markdown vault access is governed by `vault:read` / `vault:write`.
 - **MCP** — `/api/mcp` itself only needs a valid key; every tool call is re-issued to the REST route it wraps **with the same key**, so it gets exactly the scope + workspace checks above. MCP write tools need a named agent key — the legacy key is read-only there (see [MCP server](#mcp-server)).
+- **Connectors** — a per-key allow-list of the connected accounts (Google Workspace, GitHub, …) the key may use. **A new key gets none**: until its owner ticks a connector in Settings → You → Agent keys → *Connectors*, the key reaches no connected account at all. A ticked connector grants only the KEY OWNER's own connection — never another person's, and an admin's key is no exception. Keys that existed before the allow-list shipped were migrated to their previous reach and are shown as *all connectors (legacy)*; narrow them. Cards a key files inherit its list, so a key cannot reach through a card it created to a connector it was not granted.
 - **Last used** and **revoke** per key on the Settings card. A revoked key gets `401` immediately; other keys keep working.
 
-`GET /api/auth/me` called with any key returns an `api_key` block — `{ kind: "agent"|"legacy", id, label, scopes, workspaces }` — so a bot can check who it is and what it may do before acting.
+`GET /api/auth/me` called with any key returns an `api_key` block — `{ kind: "agent"|"legacy", id, label, scopes, workspaces, connectors }` — so a bot can check who it is and what it may do before acting. No response on this surface ever contains a credential.
 
 | Method | Path | Why |
 | --- | --- | --- |
 | GET | `/api/auth/agent-keys` | List your agent keys (no secrets) |
-| POST | `/api/auth/agent-keys` | `{ label, scopes?, workspaces? }` → key + plaintext `token` (once) |
+| POST | `/api/auth/agent-keys` | `{ label, scopes?, workspaces?, connectors? }` → key + plaintext `token` (once). `connectors` omitted = none |
+| PATCH | `/api/auth/agent-keys/:id` | `{ connectors }` — replace the key's connector allow-list. The key's owner, or an admin for any key. Never returns a token |
 | DELETE | `/api/auth/agent-keys/:id` | Revoke one key |
+
+Key management needs a signed-in session or the legacy full-access key — an agent key cannot mint,
+widen or revoke a key, including itself.
 
 ## What a card is
 

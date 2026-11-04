@@ -3,6 +3,10 @@ import os from 'os'
 import path from 'path'
 import type { Objective } from '@operationkit/shared'
 
+// These tests exercise the owner's own credential, so they read it as the
+// server acting for that owner (services/connector-guard.ts).
+const SERVER_ACTOR = { kind: 'server' as const }
+
 // obj-706070 — the ACTING-USER resolution proof for per-user Google Workspace.
 //
 // Command Center used to hand every spawned session ONE shared Google credential
@@ -28,6 +32,7 @@ delete process.env.SCOPE_SUPABASE_ACCESS_TOKEN
 const { initDb, getDb } = await import('../db/index.js')
 const google = await import('./user-google-connections.js')
 const { userGoogleCredentialEnv, buildSpawnEnv } = await import('./session-manager.js')
+const { setAccess } = await import('../connectors/access.js')
 
 const MIKE = { id: 1, username: 'mike', email: 'dev@example.com', refresh: '1//0gMIKE_refresh_secret_AAA111' }
 const AVA = { id: 2, username: 'ava', email: 'ava@example.com', refresh: '1//0gAVA_refresh_secret_BBB222' }
@@ -65,6 +70,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   getDb().exec('DELETE FROM user_google_connections; DELETE FROM users;')
+  try { getDb().exec('DELETE FROM connector_access') } catch { /* created lazily */ }
   seedUser(MIKE.id, MIKE.username)
   seedUser(AVA.id, AVA.username)
 })
@@ -77,7 +83,7 @@ describe('userGoogleCredentialEnv — resolves the ACTING USER, two distinct con
   it('owner 1 (mike) gets mike’s token + email, marked as a user connection', () => {
     connect(MIKE)
     connect(AVA)
-    const env = userGoogleCredentialEnv(MIKE.id)
+    const env = userGoogleCredentialEnv(MIKE.id, SERVER_ACTOR)
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('user')
     expect(env.GOOGLE_REFRESH_TOKEN).toBe(MIKE.refresh)
     expect(env.USER_GOOGLE_EMAIL).toBe(MIKE.email)
@@ -88,7 +94,7 @@ describe('userGoogleCredentialEnv — resolves the ACTING USER, two distinct con
   it('owner 2 (ava) gets ava’s token + email from the same DB', () => {
     connect(MIKE)
     connect(AVA)
-    const env = userGoogleCredentialEnv(AVA.id)
+    const env = userGoogleCredentialEnv(AVA.id, SERVER_ACTOR)
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('user')
     expect(env.GOOGLE_REFRESH_TOKEN).toBe(AVA.refresh)
     expect(env.USER_GOOGLE_EMAIL).toBe(AVA.email)
@@ -138,7 +144,11 @@ describe('buildSpawnEnv — CROSS-USER ISOLATION PROOF (the whole point of obj-7
     expect(a.USER_GOOGLE_EMAIL).not.toBe(b.USER_GOOGLE_EMAIL)
   })
 
-  it('assigned user wins over created_by (Ava assigned to Mike’s card sends as Ava)', () => {
+  // A card one person files and assigns to ANOTHER runs as the assignee — but
+  // it does not reach into the assignee's connected account, because the person
+  // who chose the assignee would then be acting as them. The assignee opts in
+  // per connector; until they do, the session sees plain absence.
+  it('a card assigned by someone else runs as the assignee WITHOUT their Google credential', () => {
     connect(MIKE)
     connect(AVA)
     const env = buildSpawnEnv({
@@ -147,6 +157,22 @@ describe('buildSpawnEnv — CROSS-USER ISOLATION PROOF (the whole point of obj-7
       sessionKind: 'worker',
     })
     expect(env.CC_ACTING_USER_ID).toBe(String(AVA.id))
+    expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('absent')
+    expect(env.GOOGLE_REFRESH_TOKEN).toBeUndefined()
+    // Emphatically not a fallback to the person who filed the card, either.
+    expect(env.USER_GOOGLE_EMAIL).toBeUndefined()
+    expect(Object.values(env)).not.toContain(MIKE.refresh)
+  })
+
+  it('the same card DOES get the credential once the assignee allows delegated work', () => {
+    connect(MIKE)
+    connect(AVA)
+    setAccess('google-workspace', AVA.id, { agents: null, workspaces: null, allow_delegated: true })
+    const env = buildSpawnEnv({
+      objective: { ...objectiveOwnedBy(MIKE.id), assigned_user_id: AVA.id } as Objective,
+      homeDir: '/home/ccuser-a',
+      sessionKind: 'worker',
+    })
     expect(env.USER_GOOGLE_EMAIL).toBe(AVA.email)
     expect(env.GOOGLE_REFRESH_TOKEN).toBe(AVA.refresh)
     expect(env.GOOGLE_REFRESH_TOKEN).not.toBe(MIKE.refresh)
@@ -183,12 +209,12 @@ describe('EXPLICIT ABSENCE — no silent fallback to the old shared (Mike) crede
     const env = envFor(null)
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('absent')
     expect(env.GOOGLE_REFRESH_TOKEN).toBeUndefined()
-    expect(userGoogleCredentialEnv(null)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
-    expect(userGoogleCredentialEnv(undefined)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
+    expect(userGoogleCredentialEnv(null, SERVER_ACTOR)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
+    expect(userGoogleCredentialEnv(undefined, SERVER_ACTOR)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
   })
 
   it('an owner id that does not exist at all ⇒ ‘absent’', () => {
-    expect(userGoogleCredentialEnv(999999)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
+    expect(userGoogleCredentialEnv(999999, SERVER_ACTOR)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
   })
 
   it('NEVER THROWS when the OAuth client env vars are unset ⇒ ‘absent’ (spawn is never blocked)', () => {
@@ -198,8 +224,8 @@ describe('EXPLICIT ABSENCE — no silent fallback to the old shared (Mike) crede
     delete process.env.GOOGLE_OAUTH_CLIENT_ID
     delete process.env.GOOGLE_OAUTH_CLIENT_SECRET
     try {
-      expect(() => userGoogleCredentialEnv(MIKE.id)).not.toThrow()
-      expect(userGoogleCredentialEnv(MIKE.id)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
+      expect(() => userGoogleCredentialEnv(MIKE.id, SERVER_ACTOR)).not.toThrow()
+      expect(userGoogleCredentialEnv(MIKE.id, SERVER_ACTOR)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
       const env = envFor(MIKE.id)
       expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('absent')
       expect(env.GOOGLE_REFRESH_TOKEN).toBeUndefined()

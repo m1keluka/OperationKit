@@ -40,7 +40,7 @@ describe('senderFromRequest', () => {
     const s = senderFromRequest(req({
       user: mike,
       authVia: 'agent_api_key',
-      agentKey: { id: 7, label: 'Example Client Data', scopes: [], workspaces: null },
+      agentKey: { id: 7, label: 'Example Client Data', scopes: [], workspaces: null, connectors: [] },
     }))
     expect(senderStamp(s)).toBe('AGENT: Example Client Data (relayed, not verified)')
     expect(isVerifiedOwner(s)).toBe(false)

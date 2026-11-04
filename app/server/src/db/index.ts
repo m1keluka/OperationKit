@@ -22,6 +22,7 @@ import { initLiveProgressSchema } from './schema/live-progress.js'
 import { initModelsSchema } from './schema/models.js'
 import { initTokensSchema } from './schema/tokens.js'
 import { initContentSchema } from './schema/content.js'
+import { initPostHogHotOwnerSchema } from './schema/posthog-hot-owner.js'
 import { initAgentKeysSchema } from './schema/agent-keys.js'
 import { initNeedsSecretSchema, initSecretRotationFlagsSchema, initSecretUploadTokensSchema } from './schema/needs-secret.js'
 import { initAgentControlSchema } from './schema/agent-control.js'
@@ -959,6 +960,10 @@ export function initDb(): Database.Database {
   initContentSchema(db)
 
   initSecretsSchema(db)
+
+  // PostHog hot_owner sync run log + undo log (obj 900091). Additive, no FK onto
+  // objectives/users, so order relative to the other schema inits doesn't matter.
+  initPostHogHotOwnerSchema(db)
 
   // Agent API keys (obj 714090): named/scoped per-bot keys + the
   // objectives.agent_key_id / agent_key_label attribution columns. Additive.

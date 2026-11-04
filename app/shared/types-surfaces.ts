@@ -552,6 +552,13 @@ export const AGENT_SCOPE_DESCRIPTIONS: Record<AgentScope, string> = {
 }
 
 /** GET /api/auth/agent-keys row. Never carries the secret. */
+/**
+ * Legacy marker in `AgentApiKeySummary.connectors`: this key predates the
+ * allow-list and was migrated to its previous behaviour (every connector its
+ * owner has). Settings shows it as a prompt to narrow the key.
+ */
+export const LEGACY_ALL_CONNECTORS = '*'
+
 export interface AgentApiKeySummary {
   id: number
   label: string
@@ -559,6 +566,12 @@ export interface AgentApiKeySummary {
   scopes: AgentScope[]
   /** null = every workspace the owning user can see. */
   workspaces: string[] | null
+  /**
+   * Connector ids this key may use, and only ever its OWNER's copy of them.
+   * null or empty = none, which is the default for a newly created key.
+   * `['*']` = the migrated legacy keys (see LEGACY_ALL_CONNECTORS).
+   */
+  connectors: string[] | null
   created_at: string
   last_used_at: string | null
   revoked_at: string | null
@@ -573,6 +586,13 @@ export interface CreateAgentApiKeyRequest {
   label: string
   scopes?: AgentScope[]
   workspaces?: string[] | null
+  /** Connector ids the key may use. Omitted = none. */
+  connectors?: string[] | null
+}
+
+/** PATCH /api/auth/agent-keys/:id — the owner or an admin narrowing a key. */
+export interface UpdateAgentApiKeyRequest {
+  connectors?: string[] | null
 }
 
 /** GET /api/auth/me `api_key` block when the caller authenticated with a key. */
@@ -582,6 +602,12 @@ export interface ApiKeyIdentity {
   label: string
   scopes: AgentScope[]
   workspaces: string[] | null
+  /**
+   * Connector ids this key may use — always only the KEY OWNER's own
+   * connections. `['*']` on the legacy full-access key, which is the owner
+   * themselves. Never a credential, only ids.
+   */
+  connectors: string[]
 }
 
 export interface CreateObjectiveRequest {

@@ -198,6 +198,29 @@ export function normalizeAssignees(
   return null
 }
 
+/**
+ * May this caller route work to these people?
+ *
+ * A card's assignee decides whose identity the session runs as, so "assign" is
+ * an impersonation primitive unless it is bounded. A non-admin may only name
+ * themselves. An admin may name anyone — routing work is their job — but that
+ * grants no credentials: the assignee's connectors stay absent in the spawned
+ * session unless the assignee opted that connector in to delegated work
+ * (services/connector-guard.ts, services/session-spawn-env.ts isDelegatedCard).
+ *
+ * Returns null when allowed, or a sentence to put in a 403.
+ */
+export function checkAssigneesAllowed(
+  user: { id: number; role: string },
+  requested: number[] | null,
+): string | null {
+  if (requested === null || requested.length === 0) return null
+  if (user.role === 'admin') return null
+  const others = requested.filter(id => id !== user.id)
+  if (others.length === 0) return null
+  return 'You can only assign objectives to yourself'
+}
+
 /** Check if a non-admin user owns an objective (created it or is assigned to it) */
 export function userOwnsObjective(userId: number, objective: Objective): boolean {
   if (objective.created_by === userId) return true

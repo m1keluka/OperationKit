@@ -8,6 +8,53 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### A connected account belongs to one person — owner-scoped credentials and a per-key connector list (obj 900089)
+
+When someone connects their Google or GitHub account in **Settings → Connectors**, that connection
+is now usable only by them, and by the API keys and card sessions acting for them. Cross-user
+access is refused by default rather than permitted by accident.
+
+**What changed, and what you may need to do.**
+
+- **An administrator role no longer reaches another person's connected account.** Administering the
+  install and being every user are different things. Nothing a person connects is readable by an
+  admin through any route, key or card. If an install was relying on an admin reading a colleague's
+  connection, it must now be that colleague's own key or a separate connection.
+
+- **Every API key is granted connectors one at a time, and gets none by default.** A newly created
+  key reaches no connected account until its owner ticks one in *Settings → You → Agent keys →
+  Connectors*. A ticked connector grants only that key owner's own connection.
+
+  **Action for existing installs:** keys that existed before this change kept their previous reach
+  and are listed as **"all connectors (legacy)"**. Nothing breaks, but each one is worth opening and
+  narrowing to the connectors it actually needs. New keys do not get the legacy marker.
+
+- **Assigning work no longer lends out the assignee's accounts.** A non-admin can only assign cards
+  to themselves. An admin can still route a card to anyone — that is ordinary — but the session
+  then runs as the assignee with their connections marked **absent**, unless the assignee has
+  ticked *"let cards someone else assigned to me use this connection"* for that connector in
+  Settings → Connectors. It is off by default. A job that needs a connection it cannot see says so
+  rather than silently acting as somebody else.
+
+- **Shared server credentials stop reaching AI jobs.** Credentials the install itself needs for
+  background work (the OAuth client behind the per-user connectors, service-account and shared
+  mailbox tokens) are now marked **server-only**: still loaded by the server, never injected into a
+  session's environment. The flag is applied automatically to those names at global scope on first
+  start; no data edit is needed, and an operator can clear it per secret in Settings → Secrets if
+  their install genuinely needs one in sessions. Secrets stored for agents are untouched.
+
+- **Every refusal is recorded.** A withheld credential writes an entry naming who asked, whose
+  connection, which connector, the key's label and the reason — never a value. Admins read the
+  tail at `GET /api/secrets/connector-denials`, beside the existing secrets access log.
+
+**For anyone writing a connector:** credential reads go through one check
+(`services/connector-guard.ts`) and the connector contract now carries `readCredential`, called
+only after that check passes. See [docs/connectors/README.md](docs/connectors/README.md).
+
+No configuration is required and no manual migration step exists; both schema changes apply on
+first start.
+
+
 ### Installer: the API bypass steps around paths another Access app owns, and verify stops colliding with itself (obj 900069)
 
 Two bugs found while deploying the step below on a client install.

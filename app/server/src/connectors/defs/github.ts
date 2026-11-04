@@ -75,7 +75,7 @@ const github: ConnectorDefinition = {
   },
 
   async check(ctx) {
-    const raw = getDecryptedForUser(ctx.userId)
+    const raw = getDecryptedForUser(ctx.userId, { kind: 'user', userId: ctx.userId })
     if (!raw) return { ok: false, error: 'GitHub is not connected.' }
     return saveValidated(ctx.userId, raw)
   },

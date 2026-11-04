@@ -14,7 +14,7 @@ async function flush() {
 }
 
 const { apiMock } = vi.hoisted(() => ({
-  apiMock: { get: vi.fn(), post: vi.fn(), del: vi.fn() },
+  apiMock: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() },
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -44,9 +44,19 @@ const EXISTING = {
   last4: 'AbCd',
   scopes: ['board:read', 'board:write'],
   workspaces: ['example'],
+  // A key that has not been granted any connected account yet.
+  connectors: [],
   created_at: '2026-10-01 10:00:00',
   last_used_at: '2026-10-04 09:30:00',
   revoked_at: null,
+}
+
+/** The connector catalogue the picker offers — names only, never credentials. */
+const CONNECTOR_LIST = {
+  connectors: [
+    { id: 'github', name: 'GitHub' },
+    { id: 'google-workspace', name: 'Google Workspace' },
+  ],
 }
 
 function button(container: HTMLElement, text: string): HTMLButtonElement {
@@ -66,8 +76,10 @@ describe('AgentKeysSection', () => {
   let container: HTMLDivElement
 
   beforeEach(() => {
-    apiMock.get.mockReset().mockResolvedValue({ keys: [EXISTING] })
+    apiMock.get.mockReset().mockImplementation(async (p: string) =>
+      p === '/connectors' ? CONNECTOR_LIST : { keys: [EXISTING] })
     apiMock.post.mockReset()
+    apiMock.patch.mockReset().mockResolvedValue({ ...EXISTING, connectors: ['github'] })
     apiMock.del.mockReset().mockResolvedValue({ ok: true })
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -122,6 +134,8 @@ describe('AgentKeysSection', () => {
       label: 'Grok: Inbox',
       scopes: ['board:read', 'board:write', 'board:start', 'board:cancel', 'board:done', 'vault:read', 'vault:write'],
       workspaces: ['example2'],
+      // A key reaches no connected account until its owner ticks one.
+      connectors: [],
     })
     const shown = container.querySelector('input[readonly]') as HTMLInputElement
     expect(shown.value).toBe('cc_live_PLAINTEXT_ONCE_ZZ99')
@@ -131,6 +145,32 @@ describe('AgentKeysSection', () => {
     await flush()
     expect(container.querySelector('input[readonly]')).toBeNull()
     expect(container.textContent).not.toContain('cc_live_PLAINTEXT_ONCE_ZZ99')
+  })
+
+  it('shows that a key holds no connected account until one is granted', async () => {
+    flushSync(() => root.render(<AgentKeysSection />))
+    await flush()
+    expect(container.textContent).toContain('no connectors')
+  })
+
+  it('grants one of the owner\'s own connectors to an existing key', async () => {
+    flushSync(() => root.render(<AgentKeysSection />))
+    await flush()
+    button(container, 'Connectors').click()
+    await flush()
+    button(container, 'GitHub').click()
+    await flush()
+    button(container, 'Save').click()
+    await flush()
+    expect(apiMock.patch).toHaveBeenCalledWith('/auth/agent-keys/7', { connectors: ['github'] })
+  })
+
+  it('labels a migrated legacy key so its reach is visible and narrowable', async () => {
+    apiMock.get.mockImplementation(async (p: string) =>
+      p === '/connectors' ? CONNECTOR_LIST : { keys: [{ ...EXISTING, connectors: ['*'] }] })
+    flushSync(() => root.render(<AgentKeysSection />))
+    await flush()
+    expect(container.textContent).toContain('all connectors (legacy)')
   })
 
   it('revokes a key', async () => {

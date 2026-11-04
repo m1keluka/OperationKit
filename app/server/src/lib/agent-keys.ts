@@ -16,6 +16,7 @@ import { getUserWorkspaces } from '../middleware/workspace.js'
 import {
   AGENT_SCOPES,
   DEFAULT_AGENT_SCOPES,
+  LEGACY_ALL_CONNECTORS,
   type AgentApiKeyIssued,
   type AgentApiKeySummary,
   type AgentScope,
@@ -34,6 +35,12 @@ export interface AgentKeyPrincipal {
   scopes: AgentScope[]
   /** null = every workspace the owning user can see. */
   workspaces: string[] | null
+  /**
+   * Connector ids this key may use — and only its OWNER's connections, which
+   * services/connector-guard.ts enforces separately. [] = none, which is what a
+   * key created after this shipped gets unless its owner says otherwise.
+   */
+  connectors: string[]
 }
 
 interface AgentKeyRow {
@@ -43,6 +50,7 @@ interface AgentKeyRow {
   last4: string
   scopes: string
   workspaces: string | null
+  connectors: string | null
   created_at: string
   last_used_at: string | null
   revoked_at: string | null
@@ -68,6 +76,36 @@ function parseWorkspaces(raw: string | null): string[] | null {
   }
 }
 
+/**
+ * Connector allow-list for a stored row. NULL (a key created after the
+ * allow-list shipped, or one whose list was cleared) and anything unparseable
+ * both mean NO connectors — this list only ever widens access, so it fails
+ * closed.
+ */
+export function parseConnectors(raw: string | null): string[] {
+  if (raw == null) return []
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+const CONNECTOR_ID = /^[a-z0-9][a-z0-9-]{0,40}$/
+
+/** Validate a caller-supplied connector list. Returns a sentence on bad input. */
+export function parseConnectorsInput(value: unknown): string[] | { error: string } {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value)) return { error: 'connectors must be an array of connector ids, or null for none' }
+  const ids = [...new Set(value.map(v => (typeof v === 'string' ? v.trim() : '')).filter(Boolean))]
+  // The legacy wildcard is written only by the migration. A caller that wants a
+  // key to reach everything names the connectors, so the grant stays readable.
+  const bad = ids.filter(id => id === LEGACY_ALL_CONNECTORS || !CONNECTOR_ID.test(id))
+  if (bad.length > 0) return { error: `invalid connector id(s): ${bad.join(', ')}` }
+  return ids.sort()
+}
+
 function toSummary(row: AgentKeyRow): AgentApiKeySummary {
   return {
     id: row.id,
@@ -75,6 +113,7 @@ function toSummary(row: AgentKeyRow): AgentApiKeySummary {
     last4: row.last4,
     scopes: parseScopes(row.scopes),
     workspaces: parseWorkspaces(row.workspaces),
+    connectors: parseConnectors(row.connectors),
     created_at: row.created_at,
     last_used_at: row.last_used_at,
     revoked_at: row.revoked_at,
@@ -104,7 +143,7 @@ export type CreateAgentKeyResult =
  */
 export function createAgentKey(
   user: Pick<User, 'id' | 'role'>,
-  input: { label?: unknown; scopes?: unknown; workspaces?: unknown },
+  input: { label?: unknown; scopes?: unknown; workspaces?: unknown; connectors?: unknown },
 ): CreateAgentKeyResult {
   const label = typeof input.label === 'string' ? input.label.trim() : ''
   if (!label) return { ok: false, status: 400, error: 'label is required' }
@@ -151,6 +190,14 @@ export function createAgentKey(
     return { ok: false, status: 400, error: 'workspaces must be an array of slugs or null' }
   }
 
+  // A new key reaches NO connector until its owner names one. The whole point of
+  // the list is that a key is not a copy of its owner.
+  const connectorsParsed = parseConnectorsInput(input.connectors)
+  if (!Array.isArray(connectorsParsed)) {
+    return { ok: false, status: 400, error: connectorsParsed.error }
+  }
+  const connectors = connectorsParsed
+
   const db = getDb()
   const active = db
     .prepare('SELECT COUNT(*) AS n FROM agent_api_keys WHERE user_id = ? AND revoked_at IS NULL')
@@ -162,12 +209,48 @@ export function createAgentKey(
   const token = mintApiKey()
   const result = db
     .prepare(
-      `INSERT INTO agent_api_keys (user_id, label, key_hash, last4, scopes, workspaces)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO agent_api_keys (user_id, label, key_hash, last4, scopes, workspaces, connectors)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(user.id, label, hashApiKey(token), token.slice(-4), JSON.stringify(scopes), workspaces ? JSON.stringify(workspaces) : null)
+    .run(
+      user.id,
+      label,
+      hashApiKey(token),
+      token.slice(-4),
+      JSON.stringify(scopes),
+      workspaces ? JSON.stringify(workspaces) : null,
+      JSON.stringify(connectors),
+    )
   const row = db.prepare('SELECT * FROM agent_api_keys WHERE id = ?').get(result.lastInsertRowid) as AgentKeyRow
   return { ok: true, key: { ...toSummary(row), token } }
+}
+
+export type UpdateAgentKeyResult =
+  | { ok: true; key: AgentApiKeySummary }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Replace a key's connector allow-list. `ownerId` is null when an admin is
+ * editing somebody else's key, which is allowed (an admin administers the
+ * install's keys) — note that it still grants the admin nothing: the key keeps
+ * reaching only its OWN owner's connections.
+ */
+export function updateAgentKeyConnectors(
+  keyId: number,
+  connectors: unknown,
+  ownerId: number | null,
+): UpdateAgentKeyResult {
+  const parsed = parseConnectorsInput(connectors)
+  if (!Array.isArray(parsed)) return { ok: false, status: 400, error: parsed.error }
+  const db = getDb()
+  const row = db.prepare('SELECT * FROM agent_api_keys WHERE id = ?').get(keyId) as AgentKeyRow | undefined
+  if (!row) return { ok: false, status: 404, error: 'Agent key not found' }
+  if (ownerId != null && row.user_id !== ownerId) {
+    return { ok: false, status: 404, error: 'Agent key not found' }
+  }
+  db.prepare('UPDATE agent_api_keys SET connectors = ? WHERE id = ?').run(JSON.stringify(parsed), keyId)
+  const updated = db.prepare('SELECT * FROM agent_api_keys WHERE id = ?').get(keyId) as AgentKeyRow
+  return { ok: true, key: toSummary(updated) }
 }
 
 /** Revoke one of the caller's keys. Returns false when it is not theirs / not found. */
@@ -231,6 +314,7 @@ export function resolveAgentKey(token: string): AgentKeyResolution {
       label: row.label,
       scopes: parseScopes(row.scopes),
       workspaces: parseWorkspaces(row.workspaces),
+      connectors: parseConnectors(row.connectors),
     },
   }
 }

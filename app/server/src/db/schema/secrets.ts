@@ -3,6 +3,7 @@
  * (behavior frozen). Additive CREATE TABLE only.
  */
 import type Database from 'better-sqlite3'
+import { SERVICE_ONLY_BY_DEFAULT } from '../../services/secrets-store-keys.js'
 
 export function initSecretsSchema(db: Database.Database): void {
   // ── Native scoped secrets store (obj-2353 / W1 foundation) ───────────────
@@ -66,6 +67,33 @@ export function initSecretsSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_secret_access_log_at ON secret_access_log(at DESC);
     CREATE INDEX IF NOT EXISTS idx_secret_access_log_actor ON secret_access_log(actor_user_id);
   `)
+
+  // ── Service-only secrets ─────────────────────────────────────────────────
+  // A secret at global scope is shared by definition, so injecting every one of
+  // them into every spawned session handed each session the server's own
+  // credentials — including the OAuth client secret and the shared mailbox
+  // tokens behind the per-user connectors. Those exist for server-side jobs and
+  // for nothing else.
+  //
+  // service_only = 1 means "server process only": still hydrated into the
+  // server's own env at boot, never injected into a session. Default 0, so
+  // nothing an operator stored for their agents changes.
+  //
+  // Migration is automatic and reversible from the UI: the shared credentials
+  // the per-user connectors are built on (SERVICE_ONLY_BY_DEFAULT in
+  // services/secrets-store.ts) are flipped once, when the column is created.
+  // No install has to edit data by hand, and a key that is NOT on that list is
+  // left exactly as it was.
+  const secretCols = new Set(
+    (db.prepare('PRAGMA table_info(secrets)').all() as { name: string }[]).map(c => c.name),
+  )
+  if (!secretCols.has('service_only')) {
+    db.exec('ALTER TABLE secrets ADD COLUMN service_only INTEGER NOT NULL DEFAULT 0')
+    const list = SERVICE_ONLY_BY_DEFAULT.map(() => '?').join(',')
+    db.prepare(
+      `UPDATE secrets SET service_only = 1 WHERE scope_type = 'global' AND key IN (${list})`,
+    ).run(...SERVICE_ONLY_BY_DEFAULT)
+  }
 
   // ── Scoped agent/skill assignment (obj-2388) ─────────────────────────────
   // One row = "resource R (an agent or a skill) is assigned at scope S". Reuses

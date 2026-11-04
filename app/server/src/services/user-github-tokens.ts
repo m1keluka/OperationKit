@@ -25,6 +25,10 @@
  * and deliberately NOT implemented here.
  */
 import { getDb } from '../db/index.js'
+import { checkConnectorCredential, type ConnectorActor } from './connector-guard.js'
+
+/** Connector id this token belongs to — the key the owner guard is asked about. */
+export const CONNECTOR_ID = 'github'
 import { encryptField, decryptField } from './crypto.js'
 import type { GithubTokenType, UserGithubTokenSummary } from '@operationkit/shared'
 
@@ -151,8 +155,17 @@ export function deleteForUser(userId: number): boolean {
  * This is the seam W4's per-session env injection calls. It must NEVER feed an
  * API response or a log line — the return value goes straight into a spawned
  * child process env.
+ *
+ * `actor` is who is asking. The read is refused unless that principal is the
+ * token's owner (or an internal job acting for them) — a `userId` on its own is
+ * an address, not an authorisation, which is how a caller that passed the wrong
+ * id used to walk off with the wrong person's token. See
+ * services/connector-guard.ts; refusals are audited there.
  */
-export function getDecryptedForUser(userId: number): string | null {
+export function getDecryptedForUser(userId: number, actor: ConnectorActor): string | null {
+  if (!checkConnectorCredential({ connectorId: CONNECTOR_ID, ownerUserId: userId, actor }).allowed) {
+    return null
+  }
   const row = getDb()
     .prepare('SELECT token_encrypted FROM user_github_tokens WHERE user_id = ?')
     .get(userId) as { token_encrypted: string } | undefined

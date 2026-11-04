@@ -2,6 +2,10 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import os from 'os'
 import path from 'path'
 
+// These tests exercise the owner's own credential, so they read it as the
+// server acting for that owner (services/connector-guard.ts).
+const SERVER_ACTOR = { kind: 'server' as const }
+
 // Encryption key + isolated DB must be set BEFORE importing the modules that
 // read them at import/first-use time. Mirrors the existing route tests.
 process.env.TEST_CRED_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64')
@@ -40,7 +44,7 @@ describe('user-github-tokens storage', () => {
       scopes: null,
       tokenType: 'pat_fine',
     })
-    expect(svc.getDecryptedForUser(1)).toBe(raw)
+    expect(svc.getDecryptedForUser(1, SERVER_ACTOR)).toBe(raw)
   })
 
   it('masked summary exposes only last-4 and resolved identity, never the raw token', () => {
@@ -71,14 +75,14 @@ describe('user-github-tokens storage', () => {
     svc.upsert(1, { rawToken: 'ghp_second111bbbb', login: 'a2', githubUserId: 2, email: 'a2@x.com', scopes: null, tokenType: 'pat_classic' })
     const rows = getDb().prepare('SELECT COUNT(*) AS n FROM user_github_tokens WHERE user_id = 1').get() as { n: number }
     expect(rows.n).toBe(1)
-    expect(svc.getDecryptedForUser(1)).toBe('ghp_second111bbbb')
+    expect(svc.getDecryptedForUser(1, SERVER_ACTOR)).toBe('ghp_second111bbbb')
     expect(svc.getForUser(1)!.github_login).toBe('a2')
   })
 
   it('getForUser / getDecryptedForUser return null when nothing is linked', () => {
     seedUser(2, 'bob')
     expect(svc.getForUser(2)).toBeNull()
-    expect(svc.getDecryptedForUser(2)).toBeNull()
+    expect(svc.getDecryptedForUser(2, SERVER_ACTOR)).toBeNull()
   })
 
   it('deleteForUser revokes the row', () => {

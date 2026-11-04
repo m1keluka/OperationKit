@@ -34,6 +34,7 @@ import {
   mapObjective,
   setAssignees,
   normalizeAssignees,
+  checkAssigneesAllowed,
   checkAgentInWorkspacePool,
   defaultAgentForWorkspace,
   requireOwnership,
@@ -310,6 +311,13 @@ router.post('/', async (req: AuthRequest, res) => {
   // Resolve the canonical assignee list. Multi-assign payload wins; fall back
   // to the legacy single-id field; members default to self when nothing's set.
   const requested = normalizeAssignees(assigned_user_id, assigned_user_ids)
+  // A card's assignee is who the session runs as, so a non-admin naming someone
+  // else is an impersonation request, not a routing request.
+  const assigneeError = checkAssigneesAllowed(user, requested)
+  if (assigneeError) {
+    res.status(403).json({ error: assigneeError })
+    return
+  }
   let assigneeIds: number[]
   if (requested && requested.length > 0) {
     assigneeIds = requested
@@ -501,6 +509,11 @@ router.put('/:id', (req: AuthRequest, res) => {
 
   // Resolve the new assignee list. null = caller didn't touch assignment.
   const requestedAssignees = normalizeAssignees(assigned_user_id, assigned_user_ids)
+  const reassignError = checkAssigneesAllowed(req.user!, requestedAssignees)
+  if (reassignError) {
+    res.status(403).json({ error: reassignError })
+    return
+  }
   // assigned_user_id column tracks the primary (first) assignee for spawn.
   // When caller didn't touch assignment, keep the existing column value.
   const newPrimary = requestedAssignees === null
