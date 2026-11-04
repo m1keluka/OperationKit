@@ -77,6 +77,17 @@ admin_email() {
   printf '%s' "$e" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'
 }
 
+# one_login_on — does this install sign people in at the Cloudflare Access door?
+# True only when Access is actually configured (the app has a team + AUD to
+# verify against) AND there is an admin email for Access to match on. The first
+# admin is then not forced to change a password they never had (obj 900108).
+one_login_on() {
+  [ -n "$(env_get "$OK_SECRETS_ENV" OK_CF_ACCESS_AUD)" ] || return 1
+  [ -n "$(env_get "$OK_SECRETS_ENV" OK_CF_ACCESS_TEAM)" ] || return 1
+  [ -n "$(admin_email)" ] || return 1
+  return 0
+}
+
 # local_mode — is this a local-only install (--skip-cloudflare)? Set by the
 # caller (OK_LOCAL_ONLY=1), or remembered in install.env by install.sh so the
 # other scripts (verify, admin-password, claude-login, update) agree with it.

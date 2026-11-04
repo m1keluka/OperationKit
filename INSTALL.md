@@ -255,8 +255,12 @@ The installer:
    It also stores the Zero Trust team domain and the Access app's AUD tag
    (`OK_CF_ACCESS_TEAM`, `OK_CF_ACCESS_AUD` in `secrets/stack.env`), which
    switches on one login.
-5. **Starts the app**, then creates the client's workspace and the first admin
-   with a one-time setup password, linked to `ADMIN_EMAIL`.
+5. **Starts the app**, then creates the client's workspace and the first admin,
+   linked to `ADMIN_EMAIL`, with a one-time setup password. With one login on,
+   that password is **break-glass only** and the admin is never asked to change
+   it — they sign in through the Access door. Without one login (or with no
+   admin email to match on) they must replace it at first sign-in. Either way
+   it expires.
 6. **Switches on the starter packs** in `STARTER_PACKS` (by default the
    knowledge base import). If one cannot be switched on, the install **stops**
    with the reason; fix it and re-run.
@@ -347,12 +351,21 @@ verify.
 2. That is it: the app opens, signed in as the admin. There is no second
    sign-in page.
 
+**The app never asks them for a password.** Cloudflare is what verifies them,
+so there is no password page and no "choose a new password" step — including
+for someone who used the break-glass password earlier, and including their API
+keys and the live board. If a person is ever shown a password page on a one-login
+install, the app could not verify Cloudflare's token on that request: see
+[When something goes wrong](#when-something-goes-wrong).
+
 The one-time setup password is only needed for the break-glass path below. If
 they want to use it, they read it in their own terminal
-(`ssh -t root@<IP address> cat /opt/operationkit/secrets/first-admin-setup-password`),
-sign in with the admin username and it, and choose a new password (12+
-characters). It stops working after 72 hours. To issue a new one:
-`bash install/admin-password.sh --config client.conf`.
+(`ssh -t root@<IP address> cat /opt/operationkit/secrets/first-admin-setup-password`)
+and sign in with the admin username and it. **It stops working after 72 hours**,
+whether or not anybody used it. To issue a new one:
+`bash install/admin-password.sh --config client.conf`. On an install *without*
+one login, the same password must be replaced with a real one (12+ characters)
+before anything else in the app works.
 
 ### One login: how it works and what to tell the client
 
@@ -376,7 +389,15 @@ characters). It stops working after 72 hours. To issue a new one:
   the Cloudflare token cannot be checked, and from the "No account" page
   ("Sign in with a username and password"). API keys and agent keys work
   exactly as before; agent passes (Cloudflare service tokens) carry no email,
-  so they never sign anyone in.
+  so they never sign anyone in. The first admin's break-glass password expires
+  on its own schedule even though no change is forced.
+- **No password prompts, ever.** A person Cloudflare verified is never asked to
+  set or change a password, and the stored "must change password" marker never
+  blocks their API keys or their live board. This is decided per request from
+  Cloudflare's signed token: it has to verify (signature, AUD tag, issuer,
+  expiry) *and* its email has to belong to exactly one user — the same one the
+  request is already acting as. A token that fails any of those changes
+  nothing, so the ordinary password rules still apply underneath.
 - **Off switch.** `--skip-cloudflare` (local / SSH-tunnel installs) leaves both
   settings empty, so the app keeps its own password sign-in.
   `cloudflare.sh down` empties them too. After changing them by hand, restart
@@ -793,6 +814,8 @@ They are harmless, and they make the next install faster.
 | `the image build failed` | The last 40 build lines are printed; the whole log is in `/opt/operationkit/logs/build-<time>.log`. |
 | `detected dubious ownership in repository` | See step 3: `git config --global --add safe.directory /opt/operationkit-src`. |
 | `This setup password has expired` | `bash install/admin-password.sh --config client.conf` |
+| verify: `this admin was created before one login was switched on` | The admin row predates one login. `bash install/admin-password.sh --config client.conf` issues a fresh break-glass password and clears the forced change. Their sign-in through Access already works. |
+| On a one-login install, someone is shown **"choose a new password"** | The app could not verify Cloudflare's token on that request. Check `OK_CF_ACCESS_TEAM` and `OK_CF_ACCESS_AUD` in `secrets/stack.env` and restart the app, then confirm the person's **Sign-in email** in *Settings → Users* matches the address Cloudflare verified, exactly and on only one user. `install/verify.sh` checks both. |
 | `resolveWorkdir: … no workspace in workspaces.json maps it to an existing checkout` | The card's project is not registered with a `repo_path`, or that folder does not exist: [Cards that work on code](#cards-that-work-on-code-github-and-repositories), points 2-3. |
 | `All Claude seats are unavailable … queued for auto-retry` | Every seat is cooling down or parked. The card starts by itself when one frees up; add a seat in **Settings → Seats** if it happens often ([Seats](#connect-subscription-seats)). |
 | A card looks stuck, or (on installs before the 2026-11-01 update) shows **review** with no session while work continues | Its sandbox may still be working: `docker ps \| grep ok-jail` shows it. Wait for it before restarting anything; update older installs. |

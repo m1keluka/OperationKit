@@ -14,6 +14,7 @@ import {
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { isContentOwner } from '../services/content-owners.js'
 import { CF_ACCESS_HEADER, CF_ACCESS_LOGOUT_PATH, getCfAccessVerifier } from '../lib/cf-access.js'
+import { cfAccessIdentifies } from '../lib/cf-access-identity.js'
 import type { LoginRequest, TokenResponse, User } from '@operationkit/shared'
 
 const TOKEN_EXPIRES_IN_SEC = 7 * 24 * 60 * 60
@@ -63,8 +64,12 @@ async function authenticatePassword(
 
   // obj 719935: a one-time setup password stops working at its expiry, even if
   // nobody used it. The installer re-issues one: install/admin-password.sh.
+  // obj 900108: keyed off the expiry column alone, not off must_change_password.
+  // On a Cloudflare Access install the first admin is NOT forced to change a
+  // password (they sign in through Access), but the installer's break-glass
+  // password still has an expiry and must still stop working when it passes.
   const mustChange = Number(row.must_change_password) > 0
-  if (mustChange && isSetupExpired(row.password_setup_expires_at)) {
+  if (isSetupExpired(row.password_setup_expires_at)) {
     recordLoginFailure(ip, username)
     return { ok: false, status: 401, error: 'This setup password has expired. Ask your installer for a new one.' }
   }
@@ -349,7 +354,7 @@ router.delete('/agent-keys/:id', requireAuth, (req: AuthRequest, res) => {
   res.json({ ok: true })
 })
 
-router.get('/me', requireAuth, (req: AuthRequest, res) => {
+router.get('/me', requireAuth, async (req: AuthRequest, res) => {
   const db = getDb()
   const user = db
     .prepare('SELECT id, username, role, created_at, must_change_password FROM users WHERE id = ?')
@@ -363,7 +368,14 @@ router.get('/me', requireAuth, (req: AuthRequest, res) => {
   // carries `pwc` and is still gated, so the client must keep showing the form.
   // A Cloudflare Access session (obj 720332) never typed the setup password, so
   // it is not held on the change-password page; the setup password still expires.
-  if (!req.viaCfAccess && (Number(user.must_change_password) > 0 || req.user!.must_change_password)) user.must_change_password = true
+  const flagged = Number(user.must_change_password) > 0 || !!req.user!.must_change_password
+  // obj 900108: the row's flag also reaches sessions whose cookie carries no
+  // `pwc` claim (an operator re-armed it, or the cookie predates the flag), and
+  // the client turns it into the change-password page. A person Cloudflare
+  // Access verified on this request has no password to change, so ask the
+  // header — only here, where the answer would otherwise be a prompt.
+  if (flagged && !req.viaCfAccess && (await cfAccessIdentifies(req.headers, user.id))) req.viaCfAccess = true
+  if (flagged && !req.viaCfAccess) user.must_change_password = true
   else delete user.must_change_password
 
   user.workspaces = getUserWorkspaces(user.id)

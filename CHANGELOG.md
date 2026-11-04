@@ -8,6 +8,48 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Signing in through Cloudflare Access never asks for a password change (obj 900108)
+
+On an install where people sign in at the Cloudflare Access door (an email one-time PIN,
+Google or Microsoft), the app could still stop them on its "choose a new password" page —
+for a password they have never had. Three separate things caused it, and all three are fixed.
+
+**What changed.**
+
+- **A leftover session no longer traps anyone.** If a person had ever used the installer's
+  one-time setup password, their browser session was marked "must change password" and stayed
+  that way. The app now accepts Cloudflare's signed identity on the request itself: when it
+  verifies and the email belongs to that same user, the session is treated as an Access
+  session and the prompt is gone. The browser also trades the old session for an Access-backed
+  one, so it does not come back.
+
+- **The stored flag no longer blocks API keys or the live board.** `must_change_password` on the
+  user row is only ever cleared by an actual password change, so someone who signs in through
+  Access could never clear it — and it was refusing their API keys with
+  `password_change_required` and refusing their websocket. Both now allow a request that
+  carries a verified Access identity for that user.
+
+- **The installer stops forcing a change that cannot happen.** When the install is set up for
+  Access sign-in *and* the first admin is linked to an Access email, that admin is no longer
+  created with a forced password change. The one-time setup password stays as a **break-glass**
+  login and **still expires** (72 hours by default, re-issued with
+  `install/admin-password.sh`). If the email cannot be linked, the forced change is kept —
+  nobody ends up with a credential that never has to be replaced.
+
+**What did not change.** An install without Access configured behaves exactly as before: the
+first admin must replace the setup password before anything else works, and the setup password
+expires. Nothing here can sign anybody in — a missing, expired, wrongly-signed, wrong-audience
+or wrong-issuer token, an email no user has, and an email two users share all leave the old
+behaviour in place. No user is ever created or altered from a token.
+
+**Action for existing installs:** none required for the app, the API keys or the live board —
+an admin already stuck on the password page can simply reload after updating. One leftover is
+worth clearing on a one-login install whose first admin was created *before* one login was
+switched on: their row still carries the forced change, so exchanging their username and
+password for a bearer token (`POST /api/auth/token`) is still refused. `install/verify.sh`
+reports this by name, and `bash install/admin-password.sh --config client.conf` issues a fresh
+break-glass password and clears it.
+
 ### A connected account belongs to one person — owner-scoped credentials and a per-key connector list (obj 900089)
 
 When someone connects their Google or GitHub account in **Settings → Connectors**, that connection
