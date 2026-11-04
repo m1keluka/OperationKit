@@ -7,13 +7,20 @@
  *
  *   {"client_slug","client_name","admin_username","setup_password",
  *    "setup_hours"?: 72, "agents"?: ["general","coo"], "reset"?: false,
- *    "admin_email"?: "alex@client.com"}
+ *    "admin_email"?: "alex@client.com", "access_one_login"?: false}
  *
  * Effects (idempotent):
  *   - creates the client workspace if it does not exist
  *   - creates the admin user if it does not exist, with the one-time setup
  *     password, must_change_password=1 and an expiry; grants workspace admin.
  *     An existing admin is left alone unless `reset` is true (install/admin-password.sh).
+ *   - `access_one_login` (obj 900108): this install signs people in at the
+ *     Cloudflare Access door and the admin is being linked to their Access
+ *     email, so they have no password to change — the forced change is NOT set.
+ *     The setup password stays as a break-glass login and still EXPIRES at
+ *     password_setup_expires_at. If the email link is refused (someone else
+ *     holds it) the admin has no Access identity, so the forced change is put
+ *     back: nobody ends up with a permanent, unchangeable setup password.
  *   - links the admin to `admin_email` (obj 720332): behind Cloudflare Access the
  *     verified Access email signs that user in without the password page. Refused
  *     (warning, not an error) if another user already holds the email.
@@ -39,6 +46,8 @@ export interface BootstrapInput {
   agents?: string[]
   reset?: boolean
   admin_email?: string
+  /** This install uses Cloudflare Access one-login (obj 900108). */
+  access_one_login?: boolean
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/
@@ -57,6 +66,7 @@ export function validateBootstrapInput(raw: unknown): BootstrapInput {
     agents: Array.isArray(v.agents) ? v.agents.filter((a): a is string => typeof a === 'string') : undefined,
     reset: v.reset === true,
     admin_email: str('admin_email').toLowerCase() || undefined,
+    access_one_login: v.access_one_login === true,
   }
   if (!SLUG.test(input.client_slug)) throw new Error('client_slug invalid')
   if (!input.client_name) throw new Error('client_name required')
@@ -64,6 +74,9 @@ export function validateBootstrapInput(raw: unknown): BootstrapInput {
   if (input.setup_password.length < 16) throw new Error('setup_password must be at least 16 characters')
   if (input.admin_email && !EMAIL.test(input.admin_email)) throw new Error('admin_email invalid')
   if (!(input.setup_hours! > 0 && input.setup_hours! <= 24 * 30)) throw new Error('setup_hours out of range')
+  // One login needs an email to sign in WITH. Without one there is no Access
+  // identity for this admin, so the forced change stays on.
+  if (!input.admin_email) input.access_one_login = false
   return input
 }
 
@@ -84,22 +97,33 @@ export async function runBootstrap(input: BootstrapInput, log: (s: string) => vo
   }
 
   const expires = new Date(Date.now() + input.setup_hours! * 3600_000).toISOString()
+  // obj 900108: with one login there is no password for this person to change,
+  // so do not force a change they can never perform. The setup password is kept
+  // as break-glass and still expires.
+  const oneLogin = input.access_one_login === true
+  const forceChange = oneLogin ? 0 : 1
+  const howTheySignIn = oneLogin
+    ? 'signs in through the Access door; the setup password is break-glass only and expires'
+    : 'must choose a new password at first sign-in; setup password expires'
   const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(input.admin_username) as { id: number } | undefined
   let userId: number
+  let created = false
   if (!existing) {
     const hash = await bcrypt.hash(input.setup_password, 12)
     const r = db.prepare(
       `INSERT INTO users (username, password_hash, role, must_change_password, password_setup_expires_at)
-       VALUES (?, ?, 'admin', 1, ?)`,
-    ).run(input.admin_username, hash, expires)
+       VALUES (?, ?, 'admin', ?, ?)`,
+    ).run(input.admin_username, hash, forceChange, expires)
     userId = Number(r.lastInsertRowid)
-    log(`admin ${input.admin_username}: created (must choose a new password at first sign-in; setup password expires ${expires})`)
+    created = true
+    log(`admin ${input.admin_username}: created (${howTheySignIn} ${expires})`)
   } else if (input.reset) {
     const hash = await bcrypt.hash(input.setup_password, 12)
     db.prepare(
-      `UPDATE users SET password_hash = ?, role = 'admin', must_change_password = 1, password_setup_expires_at = ? WHERE id = ?`,
-    ).run(hash, expires, existing.id)
+      `UPDATE users SET password_hash = ?, role = 'admin', must_change_password = ?, password_setup_expires_at = ? WHERE id = ?`,
+    ).run(hash, forceChange, expires, existing.id)
     userId = existing.id
+    created = true
     log(`admin ${input.admin_username}: new one-time setup password issued (expires ${expires})`)
   } else {
     userId = existing.id
@@ -111,6 +135,12 @@ export async function runBootstrap(input: BootstrapInput, log: (s: string) => vo
       .get(input.admin_email, userId) as { username: string } | undefined
     if (holder) {
       log(`admin ${input.admin_username}: NOT linked to ${input.admin_email} — user ${holder.username} already has that email`)
+      if (oneLogin && created) {
+        // No Access identity after all — put the forced change back rather than
+        // leave an admin whose only credential never has to be replaced.
+        db.prepare('UPDATE users SET must_change_password = 1 WHERE id = ?').run(userId)
+        log(`admin ${input.admin_username}: must choose a new password at first sign-in (no Access email to sign in with)`)
+      }
     } else {
       db.prepare('UPDATE users SET email = ? WHERE id = ?').run(input.admin_email, userId)
       log(`admin ${input.admin_username}: linked to ${input.admin_email} (Cloudflare Access sign-in)`)

@@ -188,15 +188,26 @@ else
   fail "password sign-in failed ($(code))"
 fi
 
-# 7. first admin forced to change the setup password
+# 7. the first admin's setup password. With one login (obj 900108) the admin
+# signs in through Cloudflare Access and has no password to change, so the
+# setup password is a working break-glass login that expires. Without one
+# login it must still force a change before anything else works.
 if [ -s "$OK_ADMIN_SETUP_FILE" ]; then
   admin_body=$(jq -nc --arg u "$(conf ADMIN_USERNAME admin)" --rawfile p "$OK_ADMIN_SETUP_FILE" '{username:$u, password:($p|rtrimstr("\n"))}')
   saved=${AUTH_HDR-}; AUTH_HDR=
   err=$(api POST /api/auth/token "$admin_body" | jq -r '.code // .error // empty')
   AUTH_HDR=$saved
-  if [ "$(code)" = 403 ] && [ "$err" = password_change_required ]; then pass "first admin must choose a new password before using the app"
-  elif [ "$(code)" = 401 ]; then pass "first admin has already replaced the setup password"
-  else fail "setup password check: unexpected $(code) $err"; fi
+  if one_login_on; then
+    if [ "$(code)" = 200 ]; then pass "first admin is not asked for a password change (one login); setup password is break-glass"
+    elif [ "$(code)" = 401 ]; then pass "first admin's setup password has expired or been replaced (one login)"
+    elif [ "$(code)" = 403 ] && [ "$err" = password_change_required ]; then
+      fail "one login: this admin was created before one login was switched on, so they are still marked 'must change password' — issue a fresh break-glass password to clear it: bash install/admin-password.sh --config <config>"
+    else fail "one login: the first admin should not be forced to change a password — got $(code) $err"; fi
+  else
+    if [ "$(code)" = 403 ] && [ "$err" = password_change_required ]; then pass "first admin must choose a new password before using the app"
+    elif [ "$(code)" = 401 ]; then pass "first admin has already replaced the setup password"
+    else fail "setup password check: unexpected $(code) $err"; fi
+  fi
 fi
 
 # 8. a test card end to end

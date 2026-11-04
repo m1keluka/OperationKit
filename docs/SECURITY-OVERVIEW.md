@@ -61,7 +61,10 @@ jobs can work in it. That connection is theirs alone:
    email. The email must match an existing Operation Kit user; an unknown email gets a "no
    account" page and is never given a new account. The username and password sign-in (stored
    only as a one-way hash, repeated wrong passwords slowed down) stays as a break-glass way in;
-   a one-time setup password must be replaced before anything else works.
+   a one-time setup password expires on its own, and on an install that does not use one login it
+   must also be replaced before anything else works. Someone one login verifies is never asked to
+   set or change a password — they have none — and that is decided per request from Cloudflare's
+   signed token, never from the request simply claiming it.
 4. **Every AI job runs in its own sandbox.** Each board card gets a fresh, locked-down container
    that can see only its own work folder. It runs as an ordinary (non-administrator) user, with
    extra system permissions removed, and it cannot see other jobs, the database or the server's

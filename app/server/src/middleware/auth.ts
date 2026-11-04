@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import type { User } from '@operationkit/shared'
 import { isApiKey, userFromApiKey } from '../lib/api-keys.js'
 import { resolveAgentKey, touchAgentKey, type AgentKeyPrincipal } from '../lib/agent-keys.js'
+import { cfAccessIdentifies } from '../lib/cf-access-identity.js'
 import { getDb } from '../db/index.js'
 
 const TOKEN_EXPIRY = '7d'
@@ -46,7 +47,12 @@ export interface AuthRequest extends Request {
   agentKey?: AgentKeyPrincipal
   /** How the caller authenticated. Absent before requireAuth / the agent-key guard ran. */
   authVia?: 'session' | 'legacy_api_key' | 'agent_api_key'
-  /** The session cookie was minted from a verified Cloudflare Access identity (obj 720332). */
+  /**
+   * This request is backed by a verified Cloudflare Access identity — either the
+   * cookie was minted from one (`cfa`, obj 720332), or the request itself still
+   * carries a valid Access assertion for this user (obj 900108). Either way the
+   * person was verified by Cloudflare and is never asked for a password.
+   */
   viaCfAccess?: boolean
 }
 
@@ -136,7 +142,7 @@ export function extractToken(req: AuthRequest): string | undefined {
   return undefined
 }
 
-export function requireAuth(req: AuthRequest, res: Response, next: NextFunction): void {
+export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const token = extractToken(req)
   if (!token) {
     res.status(401).json({ error: 'Authentication required' })
@@ -148,7 +154,10 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     // Grok Bots use it). Then the named/scoped agent keys (obj 714090).
     const apiUser = userFromApiKey(token)
     if (apiUser) {
-      if (userMustChangePassword(apiUser.id)) {
+      // obj 900108: a person Cloudflare Access verified never typed a password,
+      // so a `must_change_password` row they can never clear must not lock their
+      // keys out. With no verified assertion this is exactly the old 403.
+      if (userMustChangePassword(apiUser.id) && !(await cfAccessIdentifies(req.headers, apiUser.id))) {
         res.status(403).json({ error: 'Password change required', code: 'password_change_required' })
         return
       }
@@ -166,7 +175,7 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
       res.status(401).json({ error: 'Invalid or expired token' })
       return
     }
-    if (userMustChangePassword(agent.user.id)) {
+    if (userMustChangePassword(agent.user.id) && !(await cfAccessIdentifies(req.headers, agent.user.id))) {
       res.status(403).json({ error: 'Password change required', code: 'password_change_required' })
       return
     }
@@ -184,6 +193,16 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     return
   }
 
+  // obj 900108: a stale `pwc` cookie — minted when the person last used the
+  // one-time setup password — must not gate someone Cloudflare Access has
+  // verified on THIS request. Checked before the fail-closed branch, because a
+  // cleared flag would otherwise 401 them out of a session they never asked for.
+  let viaCfAccess = !!user.via_cf_access
+  if (user.must_change_password && !viaCfAccess && (await cfAccessIdentifies(req.headers, user.id))) {
+    viaCfAccess = true
+    delete (user as { must_change_password?: boolean }).must_change_password
+  }
+
   if (user.must_change_password) {
     // Fail closed on a stale setup-password token (see the comment above).
     const state = readPasswordState(user.id)
@@ -198,10 +217,10 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     }
   }
 
-  const { via_cf_access, ...sessionUser } = user
+  const { via_cf_access: _cfaClaim, ...sessionUser } = user
   req.user = sessionUser
   req.authVia = 'session'
-  if (via_cf_access) req.viaCfAccess = true
+  if (viaCfAccess) req.viaCfAccess = true
   next()
 }
 

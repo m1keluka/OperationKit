@@ -2,9 +2,8 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { Server } from 'http'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
-import { parse as parseCookie } from 'cookie'
 import { spawn, type IPty } from 'node-pty'
-import { verifyToken } from '../middleware/auth.js'
+import { authorizeUpgrade } from './upgrade-auth.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { getDb } from '../db/index.js'
 import type { ServerMessage, ClientMessage, User, UserRole } from '@operationkit/shared'
@@ -51,39 +50,40 @@ export function initWebSocket(server: Server): void {
 
   // Route upgrade requests by path
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const cookies = parseCookie(req.headers.cookie || '')
-    const user = verifyToken(cookies.token || '')
-
-    // A one-time-setup-password session (obj 719935) gets no live board or shell.
-    if (!user || user.must_change_password) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
-    }
-
-    // The URL may carry a query string (e.g. `/ws?workspace=example2`), so route on
-    // the pathname only — `req.url === '/ws'` would miss a scoped connection.
-    const path = (req.url || '').split('?')[0]
-
-    if (path === '/ws/shell') {
-      if (user.role !== 'admin') {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+    // Async because a stale setup-password cookie may still be redeemed by a
+    // Cloudflare Access assertion on this very upgrade (obj 900108).
+    void (async () => {
+      const user = await authorizeUpgrade(req.headers).catch(() => null)
+      if (!user) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
         socket.destroy()
         return
       }
-      shellWss.handleUpgrade(req, socket, head, (ws) => {
-        shellWss.emit('connection', ws, req)
-      })
-    } else if (path === '/ws') {
-      // Stash the verified user on the request so the connection handler
-      // can attach a per-socket scope without re-verifying the cookie.
-      ;(req as IncomingMessage & { _user?: User })._user = user
-      mainWss.handleUpgrade(req, socket, head, (ws) => {
-        mainWss.emit('connection', ws, req)
-      })
-    } else {
-      socket.destroy()
-    }
+
+      // The URL may carry a query string (e.g. `/ws?workspace=example2`), so route on
+      // the pathname only — `req.url === '/ws'` would miss a scoped connection.
+      const path = (req.url || '').split('?')[0]
+
+      if (path === '/ws/shell') {
+        if (user.role !== 'admin') {
+          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+          socket.destroy()
+          return
+        }
+        shellWss.handleUpgrade(req, socket, head, (ws) => {
+          shellWss.emit('connection', ws, req)
+        })
+      } else if (path === '/ws') {
+        // Stash the verified user on the request so the connection handler
+        // can attach a per-socket scope without re-verifying the cookie.
+        ;(req as IncomingMessage & { _user?: User })._user = user
+        mainWss.handleUpgrade(req, socket, head, (ws) => {
+          mainWss.emit('connection', ws, req)
+        })
+      } else {
+        socket.destroy()
+      }
+    })()
   })
 
   // Main WS: kanban state broadcasts only

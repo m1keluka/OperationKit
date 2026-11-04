@@ -27,6 +27,12 @@ USERNAME=${USERNAME:-$(conf ADMIN_USERNAME admin)}
 (umask 077; openssl rand -base64 18 | tr -d '/+=' | cut -c1-20 > "$OK_ADMIN_SETUP_FILE")
 jq -nc --arg slug "$(conf CLIENT_SLUG)" --arg name "$(conf CLIENT_NAME)" --arg user "$USERNAME" \
     --rawfile pw "$OK_ADMIN_SETUP_FILE" \
-    '{client_slug:$slug, client_name:$name, admin_username:$user, setup_password:($pw|rtrimstr("\n")), setup_hours:72, reset:true}' \
+    --arg email "$(admin_email)" --argjson one_login "$(one_login_on && echo true || echo false)" \
+    '{client_slug:$slug, client_name:$name, admin_username:$user, setup_password:($pw|rtrimstr("\n")), setup_hours:72, reset:true, access_one_login:$one_login}
+     + (if $email == "" then {} else {admin_email:$email} end)' \
   | docker exec -i command-center tsx server/src/scripts/install-bootstrap.ts
 log "New one-time setup password for '$USERNAME' is in $OK_ADMIN_SETUP_FILE (valid 72 hours)."
+if one_login_on; then
+  log "One login is on: '$USERNAME' signs in at the Cloudflare Access door and is never asked for a password."
+  log "This password is break-glass only and stops working after 72 hours."
+fi

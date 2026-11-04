@@ -82,7 +82,7 @@ function workerOrOwner(req: NeedsSecretRequest, res: Response, next: NextFunctio
     next()
     return
   }
-  requireAuth(req, res, () => {
+  void requireAuth(req, res, () => {
     const objective = loadObjective(String(req.params.id))
     if (!objective) {
       res.status(404).json({ error: 'Objective not found' })

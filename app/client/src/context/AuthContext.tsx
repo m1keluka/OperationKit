@@ -48,7 +48,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return null
       }
     }
+    /**
+     * We have a session, but it says "choose a new password" (obj 900108).
+     * Behind Cloudflare Access that is a leftover: the cookie was minted from
+     * the one-time setup password, and the person signs in at the Access door
+     * now. Trade it for an Access-backed session so the prompt is gone for
+     * good. Anything else — Access off, no header, email not linked — keeps the
+     * session it has and the change-password page shows, exactly as before. No
+     * accessDenied page from here: they are already signed in.
+     */
+    async function upgradeForcedChangeSession(me: User): Promise<User> {
+      try {
+        const { user } = await api.post<{ user: User }>('/auth/cloudflare-access')
+        return user
+      } catch {
+        return me
+      }
+    }
     api.get<User>('/auth/me')
+      .then(me => (me?.must_change_password ? upgradeForcedChangeSession(me) : me))
       .catch(() => signInViaCloudflare())
       .then(data => setUser(data))
       .catch(() => setUser(null))

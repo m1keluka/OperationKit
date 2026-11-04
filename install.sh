@@ -234,9 +234,11 @@ if [ "$DRY_RUN" -eq 1 ]; then
 else
   [ -s "$OK_ADMIN_SETUP_FILE" ] || (umask 077; openssl rand -base64 18 | tr -d '/+=' | cut -c1-20 > "$OK_ADMIN_SETUP_FILE")
   # The password reaches the container on stdin (inside JSON), never on argv.
+  one_login=false; one_login_on && one_login=true
   if ! jq -nc --arg slug "$SLUG" --arg name "$(conf CLIENT_NAME)" --arg user "$(conf ADMIN_USERNAME admin)" \
       --rawfile pw "$OK_ADMIN_SETUP_FILE" --argjson agents "$agents_json" --arg email "$(admin_email)" \
-      '{client_slug:$slug, client_name:$name, admin_username:$user, setup_password:($pw|rtrimstr("\n")), setup_hours:72, agents:$agents}
+      --argjson one_login "$one_login" \
+      '{client_slug:$slug, client_name:$name, admin_username:$user, setup_password:($pw|rtrimstr("\n")), setup_hours:72, agents:$agents, access_one_login:$one_login}
        + (if $email == "" then {} else {admin_email:$email} end)' \
     | docker exec -i command-center tsx server/src/scripts/install-bootstrap.ts 2>&1 | sed 's/^/  /'; then
     die "creating the workspace and first admin failed (message above)"
@@ -319,8 +321,10 @@ cat <<EOF
   Backups:     nightly into $OK_DIR/backups$([ -n "$(conf BACKUP_TARGET)" ] && echo " and off the server ($(conf BACKUP_TARGET))" || echo " — on THIS server only: set BACKUP_TARGET for an off-server copy (INSTALL.md, Backups)")
   First admin: $(conf ADMIN_USERNAME admin) — break-glass one-time setup password is in
                $OK_ADMIN_SETUP_FILE (read it in YOUR terminal:
-               ssh -t <server> sudo cat $OK_ADMIN_SETUP_FILE). It expires in 72 hours and
-               must be changed at first sign-in.
+               ssh -t <server> sudo cat $OK_ADMIN_SETUP_FILE). It expires in 72 hours.
+               $(one_login_on \
+                 && echo "They sign in through the Access door, so the app never asks them for a password." \
+                 || echo "It must be changed at first sign-in.")
 EOF
 if [ "$claude_ready" -eq 0 ]; then
   cat <<EOF
