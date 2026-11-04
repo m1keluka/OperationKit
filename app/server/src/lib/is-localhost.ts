@@ -78,11 +78,44 @@ export function socketRemoteAddress(req: Request): string {
   return raw.replace(/^::ffff:/, '')
 }
 
-/** Loopback or Docker-bridge-gateway peer address. */
-export function isTrustedPeerAddress(addr: string): boolean {
+function ipv4ToInt(addr: string): number | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(addr)
+  if (!m) return null
+  const o = m.slice(1).map(Number)
+  if (o.some((x) => x > 255)) return null
+  return ((o[0] << 24) >>> 0) + (o[1] << 16) + (o[2] << 8) + o[3]
+}
+
+/**
+ * obj 900113: extra IPv4 CIDRs whose peers count as on-box. Client installs set
+ * this to the `ok-jails` docker network subnet, a bridge shared ONLY by the app
+ * container and the per-session sandboxes, so a jailed session calling
+ * `localhost:3002` (forwarded to the app) gets the same internal-API trust a
+ * tmux-mode session has. Unset = no extra trust. Malformed entries are ignored
+ * (never widen trust on a typo); a /0 is refused outright.
+ */
+export function trustedPeerCidrs(env: NodeJS.ProcessEnv = process.env): Array<[number, number]> {
+  return (env.INTERNAL_TRUSTED_PEER_CIDRS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .flatMap((cidr): Array<[number, number]> => {
+      const [ip, bitsRaw] = cidr.split('/')
+      const base = ipv4ToInt(ip)
+      const bits = Number(bitsRaw)
+      if (base === null || !/^\d{1,2}$/.test(bitsRaw || '') || bits < 8 || bits > 32) return []
+      const mask = bits === 32 ? 0xffffffff : (~((1 << (32 - bits)) - 1)) >>> 0
+      return [[(base & mask) >>> 0, mask]]
+    })
+}
+
+/** Loopback, Docker-bridge-gateway, or configured jail-network peer address. */
+export function isTrustedPeerAddress(addr: string, env: NodeJS.ProcessEnv = process.env): boolean {
   if (addr === '::1') return true
   if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(addr)) return true
   if (/^172\.\d{1,3}\.0\.1$/.test(addr)) return true
+  const n = ipv4ToInt(addr)
+  if (n !== null && trustedPeerCidrs(env).some(([net, mask]) => ((n & mask) >>> 0) === net)) return true
   return false
 }
 

@@ -31,6 +31,7 @@ import {
   hasForwardingHeaders,
   isTrustedPeerAddress,
   socketRemoteAddress,
+  trustedPeerCidrs,
 } from '../lib/is-localhost.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -89,6 +90,34 @@ describe('isLocalhost (socket-based)', () => {
       expect(isTrustedPeerAddress(a), a).toBe(false)
     }
     expect(isTrustedPeerAddress('127.0.0.1')).toBe(true)
+  })
+
+  it('obj 900113: trusts the configured jail-network CIDR, and nothing else, only when set', () => {
+    const env = { INTERNAL_TRUSTED_PEER_CIDRS: '172.30.250.0/24' } as NodeJS.ProcessEnv
+    expect(isTrustedPeerAddress('172.30.250.7', env)).toBe(true)
+    expect(isTrustedPeerAddress('172.30.250.254', env)).toBe(true)
+    expect(isTrustedPeerAddress('172.30.251.7', env)).toBe(false)
+    expect(isTrustedPeerAddress('10.0.0.1', env)).toBe(false)
+    // unset = previous behaviour
+    expect(isTrustedPeerAddress('172.30.250.7', {} as NodeJS.ProcessEnv)).toBe(false)
+    // malformed / overly broad entries never widen trust
+    for (const bad of ['0.0.0.0/0', '10.0.0.0/4', 'garbage', '172.30.250.0', '300.1.1.1/24']) {
+      expect(isTrustedPeerAddress('172.30.250.7', { INTERNAL_TRUSTED_PEER_CIDRS: bad } as NodeJS.ProcessEnv), bad).toBe(false)
+    }
+    expect(trustedPeerCidrs({ INTERNAL_TRUSTED_PEER_CIDRS: '10.9.8.7/32, 172.30.250.0/24' } as NodeJS.ProcessEnv)).toHaveLength(2)
+  })
+
+  it('obj 900113: a jail-subnet peer that was proxied is still NOT local', () => {
+    const prev = process.env.INTERNAL_TRUSTED_PEER_CIDRS
+    process.env.INTERNAL_TRUSTED_PEER_CIDRS = '172.30.250.0/24'
+    try {
+      expect(isLocalhost(fakeReq('172.30.250.9'))).toBe(true)
+      expect(isLocalhost(fakeReq('::ffff:172.30.250.9'))).toBe(true)
+      expect(isLocalhost(fakeReq('172.30.250.9', { 'x-forwarded-for': '1.2.3.4' }))).toBe(false)
+    } finally {
+      if (prev === undefined) delete process.env.INTERNAL_TRUSTED_PEER_CIDRS
+      else process.env.INTERNAL_TRUSTED_PEER_CIDRS = prev
+    }
   })
 
   it('helpers behave', () => {

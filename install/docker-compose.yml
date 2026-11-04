@@ -15,6 +15,12 @@
 # Network: the app listens on 127.0.0.1:3002 only (for install/verify.sh on the
 # server). The public way in is the cloudflared connector below, which dials OUT
 # to Cloudflare — the firewall keeps 80/443 closed.
+#
+# Sandboxes (obj 900113): per-session sandbox containers join the `ok-jails`
+# bridge, which only the app container shares. Each sandbox forwards its own
+# localhost:3002 to command-center:3002 over it, so the ~60 prompt/script call
+# sites that say "curl localhost:3002" (AI review criteria, pr-created, ...)
+# reach the app. The app treats that subnet as on-box (INTERNAL_TRUSTED_PEER_CIDRS).
 # ==============================================================================
 name: operationkit
 
@@ -34,6 +40,9 @@ services:
     init: true
     ports:
       - "127.0.0.1:3002:3002"
+    networks:
+      - default
+      - jails
     volumes:
       - ${OK_STATE:?run ./install.sh}/data:/app/data
       - ${OK_STATE}/home:${OK_APP_HOME:?run ./install.sh}
@@ -59,6 +68,10 @@ services:
       SESSION_ISOLATION: ${OK_SESSION_ISOLATION:-docker}
       SESSION_JAIL_IMAGE: ok-jail:local
       SESSION_JAIL_HOST_PATH_MAP: /tmp=${OK_STATE}/tmp,/app/data=${OK_STATE}/data,${OK_APP_HOME}=${OK_STATE}/home
+      # Sandboxes reach this app over the ok-jails network (see header, obj 900113).
+      SESSION_JAIL_NETWORK: ok-jails
+      SESSION_JAIL_CC_UPSTREAM: command-center:3002
+      INTERNAL_TRUSTED_PEER_CIDRS: ${OK_JAIL_SUBNET:-172.30.250.0/24}
       # How sandboxed sessions sign in to Claude (sandbox-claude-auth.ts). One of
       # the two is set by install/claude-login.sh; both empty = sessions queue.
       SESSION_JAIL_CLAUDE_OAUTH_TOKEN: ${SESSION_JAIL_CLAUDE_OAUTH_TOKEN:-}
@@ -87,3 +100,14 @@ services:
       - command-center
     # Started only when Cloudflare is set up (install.sh enables the profile).
     profiles: ["tunnel"]
+
+networks:
+  # Shared ONLY by the app container and the per-session sandboxes (obj 900113).
+  # Fixed name: the app passes it to `docker run --network` for each sandbox.
+  # Fixed subnet: the app trusts exactly this range as on-box callers.
+  jails:
+    name: ok-jails
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${OK_JAIL_SUBNET:-172.30.250.0/24}
