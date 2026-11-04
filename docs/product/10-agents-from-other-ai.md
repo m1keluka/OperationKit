@@ -65,6 +65,16 @@ So a question asked in Claude, a request typed into Grok and a message in the bu
 - **Knowledge folders are followed, not forced.** In the built-in chat the server blocks any note outside the agent's folders. An outside AI reads the agent's folders from `get_chat_agent` and is told to stay inside them, but the hard limit is the key: give each AI app a key limited to the workspace it needs.
 - **Which AI answers** is whatever app you are using.
 
+## Knowledge-base usage guide
+
+You do not paste knowledge-base rules into each AI app. Put them in one page per workspace:
+
+`topics/agent-kb-usage-guide.md` inside that workspace's knowledge-base folder (on a vault install that is `workspaces/<the workspace>/topics/agent-kb-usage-guide.md`).
+
+The next time an AI app connects, Operation Kit adds that page to the instructions it sends, for the workspaces that app's key is allowed to use. A workspace with no such page is unchanged. Keep secrets out of the page — every key for that workspace receives it, including a key that cannot edit notes.
+
+To use a different file, or to turn this off, your consultant sets `CC_MCP_KB_GUIDE_PATH` for the whole install or the setting `mcp_kb_guide_path:<workspace>` for one workspace (`off` disables it). Details: [Agent API reference](../api/README.md#knowledge-base-usage-guide).
+
 ## Good practice
 
 - One key per AI app (and per person), named clearly. You can revoke a key at any time in Settings → You → Agent keys.

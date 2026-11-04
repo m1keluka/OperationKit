@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -43,6 +43,11 @@ const { default: briefingRouter } = await import('./briefing.js')
 const { default: agentControlRouter } = await import('./agent-control.js')
 const { default: agentChatRouter } = await import('./agent-chat.js')
 const { default: agentMcpRouter, MCP_TOOLS, ToolError, patchStatus, cardUrl } = await import('./agent-mcp.js')
+const {
+  KB_GUIDE_PER_WORKSPACE_CHARS,
+  KB_GUIDE_PROMPT,
+  KB_GUIDE_SETTING_PREFIX,
+} = await import('../services/mcp-kb-guide.js')
 const { AGENT_DISCOVERY } = await import('../api/agent-openapi.js')
 
 const ADMIN_ID = 1
@@ -106,6 +111,13 @@ beforeAll(async () => {
   // so docs.ts getDocRoots() resolves inside TMP_VAULT for this test process.
   getDb().prepare('UPDATE workspaces SET doc_read_roots = ?, doc_write_roots = ? WHERE slug = ?')
     .run(JSON.stringify([wsDocDir]), JSON.stringify([wsDocDir]), WS)
+  // The usage-guide reader follows vault_path. Point every workspace at the
+  // temp vault so a guide lookup can never touch the host second-brain.
+  for (const row of getDb().prepare('SELECT slug FROM workspaces').all() as { slug: string }[]) {
+    const dir = path.join(TMP_VAULT, 'workspaces', row.slug)
+    fs.mkdirSync(dir, { recursive: true })
+    getDb().prepare('UPDATE workspaces SET vault_path = ? WHERE slug = ?').run(dir, row.slug)
+  }
   invalidateWorkspacesCache()
 
   // Non-markdown file fixture (PR #533 files API).
@@ -198,6 +210,9 @@ describe('MCP handshake', () => {
     expect(instr).toMatch(/HUMAN SIGNATURE/)
     // A legacy-key caller is told up front that writes need a named key.
     expect(instr).toMatch(/LEGACY KEY/)
+    // No workspace guide is installed: instructions and capabilities stay as they were.
+    expect(instr).not.toMatch(/Knowledge-base usage guide/)
+    expect(r.json.result.capabilities).toEqual({ tools: { listChanged: false } })
   })
 
   it('answers an unknown protocol version with the newest supported one', async () => {
@@ -246,6 +261,201 @@ describe('MCP handshake', () => {
   it('GET is 405 (stateless: no SSE stream)', async () => {
     const res = await fetch(`${baseUrl}/api/mcp`, { headers: { Authorization: `Bearer ${memberKey}` } })
     expect(res.status).toBe(405)
+  })
+})
+
+describe('MCP knowledge-base usage guide', () => {
+  const OPERATOR = 'operator'
+
+  function writeGuide(slug: string, content: string, rel = 'topics/agent-kb-usage-guide.md'): string {
+    const file = path.join(TMP_VAULT, 'workspaces', slug, rel)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, content)
+    return file
+  }
+
+  function setGuideSetting(slug: string, value: string | null): void {
+    const key = KB_GUIDE_SETTING_PREFIX + slug
+    if (value == null) getDb().prepare('DELETE FROM settings WHERE key = ?').run(key)
+    else {
+      getDb().prepare(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      ).run(key, value)
+    }
+  }
+
+  async function initialize(auth: string = memberKey) {
+    const r = await rpc('initialize', {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'vitest', version: '0' },
+    }, auth)
+    expect(r.status).toBe(200)
+    return r.json.result as { instructions: string; capabilities: Record<string, unknown> }
+  }
+
+  afterEach(() => {
+    delete process.env.CC_MCP_KB_GUIDE_PATH
+    getDb().prepare("DELETE FROM settings WHERE key LIKE 'mcp_kb_guide_path:%'").run()
+    for (const slug of [WS, OPERATOR, 'example-project', 'example5']) {
+      for (const sub of ['topics', 'notes', 'guides']) {
+        fs.rmSync(path.join(TMP_VAULT, 'workspaces', slug, sub), { recursive: true, force: true })
+      }
+    }
+    fs.rmSync(path.join(TMP_VAULT, 'secret.md'), { force: true })
+  })
+
+  it('prompts/list and resources/list are empty when no guide file exists', async () => {
+    expect((await rpc('prompts/list', {})).json.result).toEqual({ prompts: [] })
+    expect((await rpc('resources/list', {})).json.result).toEqual({ resources: [] })
+    expect((await rpc('resources/subscribe', {})).json.error.code).toBe(-32601)
+    const result = await initialize()
+    expect(result.capabilities).toEqual({ tools: { listChanged: false } })
+    expect(result.instructions).not.toContain('Knowledge-base usage guide')
+  })
+
+  it('appends the guide after the stock instructions, only for workspaces the key can access', async () => {
+    const before = await initialize()
+    writeGuide(WS, 'EXAMPLE_GUIDE never write index.md\n')
+    writeGuide(OPERATOR, 'OPERATOR_GUIDE not for the example key\n')
+    const after = await initialize()
+    expect(after.instructions.startsWith(before.instructions)).toBe(true)
+    expect(after.instructions.indexOf('LEGACY KEY')).toBeLessThan(after.instructions.indexOf('Knowledge-base usage guide'))
+    expect(after.instructions).toContain('EXAMPLE_GUIDE never write index.md')
+    expect(after.instructions).toContain('workspaces/example/topics/agent-kb-usage-guide.md')
+    expect(after.instructions).not.toContain('OPERATOR_GUIDE')
+    expect(after.capabilities).toEqual({
+      tools: { listChanged: false },
+      prompts: { listChanged: false },
+      resources: { subscribe: false, listChanged: false },
+    })
+
+    const operatorKey = mint('guide-operator', ['board:read', 'vault:read'], [OPERATOR])
+    const op = await initialize(operatorKey.token)
+    expect(op.instructions).toContain('OPERATOR_GUIDE')
+    expect(op.instructions).not.toContain('EXAMPLE_GUIDE')
+    expect(op.instructions).not.toMatch(/LEGACY KEY/)
+
+    // A named key with no workspace pin sees every workspace guide. An admin session does too.
+    const unpinned = mint('guide-unpinned', ['vault:read'])
+    const all = await initialize(unpinned.token)
+    expect(all.instructions).toContain('EXAMPLE_GUIDE')
+    expect(all.instructions).toContain('OPERATOR_GUIDE')
+    const admin = await initialize(adminJwt())
+    expect(admin.instructions).toContain('EXAMPLE_GUIDE')
+    expect(admin.instructions).toContain('OPERATOR_GUIDE')
+
+    // The guide is connection text, not a vault read: a board-only key still receives it.
+    const boardOnly = mint('guide-board-only', ['board:read'], [WS])
+    expect((await initialize(boardOnly.token)).instructions).toContain('EXAMPLE_GUIDE')
+  })
+
+  it('truncates a long guide and points at the file', async () => {
+    const body = `START_GUIDE\n${'x'.repeat(KB_GUIDE_PER_WORKSPACE_CHARS + 800)}\nEND_GUIDE_TAIL`
+    const file = writeGuide(WS, body)
+    const result = await initialize()
+    expect(result.instructions).toContain('START_GUIDE')
+    expect(result.instructions).not.toContain('END_GUIDE_TAIL')
+    expect(result.instructions).toContain(`read_file: ${file}`)
+  })
+
+  it('uses the per-workspace path, then the env path, then the conventional file', async () => {
+    writeGuide(WS, 'FROM_DEFAULT')
+    writeGuide(WS, 'FROM_ENV', 'guides/usage.md')
+    writeGuide(WS, 'FROM_SETTING', 'notes/from-setting.md')
+    process.env.CC_MCP_KB_GUIDE_PATH = 'guides/usage.md'
+    let result = await initialize()
+    expect(result.instructions).toContain('FROM_ENV')
+    expect(result.instructions).not.toContain('FROM_DEFAULT')
+    expect(result.instructions).toContain('workspaces/example/guides/usage.md')
+
+    setGuideSetting(WS, 'notes/from-setting.md')
+    result = await initialize()
+    expect(result.instructions).toContain('FROM_SETTING')
+    expect(result.instructions).not.toContain('FROM_ENV')
+    expect(result.instructions).toContain('workspaces/example/notes/from-setting.md')
+  })
+
+  it('turns the guide off without changing the stock instructions', async () => {
+    const before = await initialize()
+    writeGuide(WS, 'SHOULD_NOT_APPEAR')
+    setGuideSetting(WS, 'off')
+    const result = await initialize()
+    expect(result.instructions).toBe(before.instructions)
+    expect(result.capabilities).toEqual({ tools: { listChanged: false } })
+
+    setGuideSetting(WS, null)
+    process.env.CC_MCP_KB_GUIDE_PATH = 'off'
+    expect((await initialize()).instructions).toBe(before.instructions)
+
+    // A workspace setting still wins over an install-wide off.
+    writeGuide(WS, 'STILL_ON', 'notes/on.md')
+    setGuideSetting(WS, 'notes/on.md')
+    expect((await initialize()).instructions).toContain('STILL_ON')
+  })
+
+  it('ignores an unsafe path and a symlink that leaves the workspace folder', async () => {
+    const secret = path.join(TMP_VAULT, 'secret.md')
+    fs.writeFileSync(secret, 'SUPER_SECRET_OUTSIDE')
+    writeGuide(WS, 'SAFE_DEFAULT')
+    setGuideSetting(WS, '../../secret.md')
+    let result = await initialize()
+    expect(result.instructions).toContain('SAFE_DEFAULT')
+    expect(result.instructions).not.toContain('SUPER_SECRET_OUTSIDE')
+
+    setGuideSetting(WS, null)
+    const link = path.join(TMP_VAULT, 'workspaces', WS, 'topics', 'agent-kb-usage-guide.md')
+    fs.rmSync(link)
+    fs.symlinkSync(secret, link)
+    result = await initialize()
+    expect(result.instructions).not.toContain('SUPER_SECRET_OUTSIDE')
+    expect(result.instructions).not.toContain('Knowledge-base usage guide')
+    expect(result.capabilities).toEqual({ tools: { listChanged: false } })
+  })
+
+  it('exposes the guide as a prompt and a resource, scoped to the key', async () => {
+    writeGuide(WS, 'EXAMPLE_GUIDE read before write\n')
+    writeGuide(OPERATOR, 'OPERATOR_GUIDE\n')
+
+    const prompts = await rpc('prompts/list', {})
+    expect(prompts.json.result.prompts.map((p: { name: string }) => p.name)).toEqual([KB_GUIDE_PROMPT])
+
+    const one = await rpc('prompts/get', { name: KB_GUIDE_PROMPT, arguments: { workspace: WS } })
+    expect(one.json.result.messages[0].content.text).toContain('EXAMPLE_GUIDE')
+    expect(one.json.result.messages[0].content.text).not.toContain('OPERATOR_GUIDE')
+
+    const all = await rpc('prompts/get', { name: KB_GUIDE_PROMPT })
+    expect(all.json.result.messages[0].content.text).toContain('EXAMPLE_GUIDE')
+    expect(all.json.result.messages[0].content.text).not.toContain('OPERATOR_GUIDE')
+
+    const denied = await rpc('prompts/get', { name: KB_GUIDE_PROMPT, arguments: { workspace: OPERATOR } })
+    expect(denied.json.error.code).toBe(-32602)
+    expect(JSON.stringify(denied.json)).not.toContain('OPERATOR_GUIDE')
+    expect((await rpc('prompts/get', { name: 'not-a-prompt' })).json.error.code).toBe(-32602)
+
+    const listed = await rpc('resources/list', {})
+    expect(listed.json.result.resources).toEqual([
+      expect.objectContaining({
+        uri: 'operationkit://kb-guide/example',
+        mimeType: 'text/markdown',
+        description: 'workspaces/example/topics/agent-kb-usage-guide.md',
+      }),
+    ])
+    const read = await rpc('resources/read', { uri: 'operationkit://kb-guide/example' })
+    expect(read.json.result.contents[0].text).toContain('EXAMPLE_GUIDE read before write')
+    expect(read.json.result.contents[0].mimeType).toBe('text/markdown')
+
+    const other = await rpc('resources/read', { uri: 'operationkit://kb-guide/operator' })
+    expect(other.json.error.code).toBe(-32602)
+    expect(JSON.stringify(other.json)).not.toContain('OPERATOR_GUIDE')
+    expect((await rpc('resources/read', { uri: 'file:///etc/passwd' })).json.error.code).toBe(-32602)
+
+    const both = mint('guide-both', ['vault:read'], [WS, OPERATOR])
+    const bothList = await rpc('resources/list', {}, both.token)
+    expect(bothList.json.result.resources.map((r: { uri: string }) => r.uri)).toEqual([
+      'operationkit://kb-guide/example',
+      'operationkit://kb-guide/operator',
+    ])
   })
 })
 
