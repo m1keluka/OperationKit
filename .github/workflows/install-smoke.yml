@@ -117,6 +117,24 @@ jobs:
           sudo docker image ls operationkit-app --format '{{.Tag}}' | grep -q '^pre-update-'
           grep -q 'To go back to the version' update.log
           sudo bash install/verify.sh --config ci.conf --local-only --skip-card
+      - name: After update.sh, 3002 is on 127.0.0.1 + the Docker bridge only, and the bridge gets 200 (obj 900185)
+        run: |
+          bip=$(sudo grep '^OK_DOCKER_BRIDGE_IP=' /opt/operationkit/install.env | cut -d= -f2)
+          echo "bridge ip: $bip"; test -n "$bip"
+          sudo ss -lntp | grep ':3002 ' | tee ss.txt
+          ! grep -qE '(0\.0\.0\.0|\[::\]|\*):3002 ' ss.txt
+          grep -q '127.0.0.1:3002 ' ss.txt
+          grep -qF "$bip:3002 " ss.txt
+          host=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3002/api/health); echo "host: $host"; test "$host" = 200
+          bridge=$(sudo docker run --rm curlimages/curl -s -o /dev/null -m 10 -w '%{http_code}' "http://$bip:3002/api/health" || true)
+          echo "bridge: $bridge"; test "$bridge" = 200
+          sudo ufw status | tee ufw.txt
+          grep -q 'Status: active' ufw.txt
+          grep -qE "^$bip 3002/tcp on docker0 +ALLOW" ufw.txt
+          ! grep -qE '^3002(/tcp)? ' ufw.txt
+          pub=$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+          nic=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://$pub:3002/api/health" || true)
+          echo "primary NIC $pub:3002 -> $nic"; test "$nic" = 000
       - name: Sandbox smoke (jail image runs non-root, no docker socket)
         run: |
           sudo docker run --rm ok-jail:local bash -lc 'id -u; test ! -S /var/run/docker.sock; command -v claude'

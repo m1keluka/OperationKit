@@ -128,6 +128,8 @@ conf_validate() {
     case "$a" in general|cto|cmo|coo|cfo) ;; *) die "AGENTS_ENABLED: unknown agent '$a' (allowed: general, cto, cmo, coo, cfo)" ;; esac
   done
   [[ "$(conf INSTALL_DIR /opt/operationkit)" == /* ]] || die "INSTALL_DIR must be an absolute path"
+  [ -z "$(conf DOCKER_BRIDGE_IP)" ] || private_ipv4 "$(conf DOCKER_BRIDGE_IP)" \
+    || die "DOCKER_BRIDGE_IP must be a private (RFC 1918) IPv4 address — the app must never be published on a public address"
   local k
   for k in BACKUP_KEEP_LOCAL BACKUP_KEEP_DAILY BACKUP_KEEP_WEEKLY BACKUP_KEEP_MONTHLY; do
     [ -z "$(conf "$k")" ] || [[ "$(conf "$k")" =~ ^[0-9]{1,3}$ ]] || die "$k must be a whole number (got '$(conf "$k")')"
@@ -290,6 +292,51 @@ wait_healthy() {
 # repo_sha — the commit of this copy of the code. safe.directory: the repo is
 # often cloned by one user and the installer run as root (git refuses otherwise).
 repo_sha() { git -c safe.directory='*' -C "$OK_REPO_DIR" rev-parse HEAD 2>/dev/null || echo unknown; }
+
+# docker_bridge_ip — IPv4 gateway of the default Docker bridge (docker0): where
+# containers on that bridge (card sandboxes) reach the host, so the app is also
+# published there (obj 900185). DOCKER_BRIDGE_IP in client.conf wins. Prints
+# nothing when no private IPv4 is found.
+docker_bridge_ip() {
+  local ip
+  ip=$(conf DOCKER_BRIDGE_IP)
+  [ -n "$ip" ] || ip=$(docker network inspect bridge -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null \
+    | tr ' ' '\n' | grep -m1 -E '^[0-9]+(\.[0-9]+){3}$' || true)
+  [ -n "$ip" ] || ip=$(ip -4 -o addr show dev docker0 2>/dev/null | awk '{split($4,a,"/"); print a[1]; exit}')
+  if private_ipv4 "$ip"; then printf '%s' "$ip"; fi
+}
+
+# private_ipv4 IP — true only for an RFC 1918 address (never the public NIC).
+private_ipv4() {
+  [[ "${1-}" =~ ^(10|172|192)\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+  case "${BASH_REMATCH[1]}" in
+    10) return 0 ;;
+    172) [ "${BASH_REMATCH[2]}" -ge 16 ] && [ "${BASH_REMATCH[2]}" -le 31 ] ;;
+    192) [ "${BASH_REMATCH[2]}" = 168 ] ;;
+  esac
+}
+
+# bridge_firewall_open IP — let containers on docker0 (and only docker0) reach
+# the app's bridge publish IP:3002. A container -> host-gateway connection is
+# INPUT traffic on the host, which `ufw default deny incoming` drops otherwise.
+# The public NIC stays closed. Idempotent (ufw skips an existing rule).
+bridge_firewall_open() {
+  local ip=$1
+  if ufw status 2>/dev/null | grep -q 'Status: active'; then
+    run ufw allow in on docker0 to "$ip" port 3002 proto tcp comment 'OperationKit: sandboxes on docker0 -> app' | sed 's/^/    /'
+    log "  firewall: 3002 allowed only in on docker0 to $ip (public NIC stays closed)"
+  else
+    log "  firewall (ufw) not active — nothing to open for the Docker bridge"
+  fi
+}
+
+# bridge_health IP — HTTP code a container on the default bridge gets from
+# http://IP:3002/api/health (000 = unreachable). Uses the sandbox image, which
+# is always built by install.sh and has curl.
+bridge_health() {
+  docker run --rm --network bridge --entrypoint curl ok-jail:local \
+    -s -o /dev/null -m 10 -w '%{http_code}' "http://$1:3002/api/health" 2>/dev/null || true
+}
 
 # docker compose for this install (project name pinned so uninstall finds it).
 dc() {

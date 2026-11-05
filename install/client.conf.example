@@ -134,3 +134,8 @@ TIMEZONE="America/New_York"
 # Per-session sandbox. Leave on "docker" for client installs: every AI session
 # runs in its own locked-down container that can only see its own work folder.
 SESSION_ISOLATION="docker"
+
+# Address sandboxes use to reach the app from the default Docker bridge. Leave
+# empty: the installer detects docker0's gateway (normally 172.17.0.1). Must be a
+# private address — the app is never published on the server's public address.
+DOCKER_BRIDGE_IP=""

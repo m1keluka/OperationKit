@@ -120,10 +120,19 @@ else
 fi
 if ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE '^(0\.0\.0\.0|\[::\]|\*):(3002|80|443)$'; then
   fail "a web port is listening on all interfaces"
-else pass "app only listens on 127.0.0.1"; fi
+else pass "app only listens on 127.0.0.1 and the Docker bridge (no public address)"; fi
 
 # 3. local health
 curl -fsS "$LOCAL/api/health" >/dev/null 2>&1 && pass "app healthy on the server" || fail "app not answering on $LOCAL"
+# 3b. card sandboxes on the default Docker bridge reach the app (obj 900185)
+BRIDGE_IP=$(env_get "$OK_SETTINGS_ENV" OK_DOCKER_BRIDGE_IP 2>/dev/null || true)
+if [ -z "$BRIDGE_IP" ]; then
+  fail "no OK_DOCKER_BRIDGE_IP in $OK_SETTINGS_ENV — re-run install.sh (or update.sh)"
+else
+  bcode=$(bridge_health "$BRIDGE_IP")
+  [ "$bcode" = 200 ] && pass "sandboxes reach the app on the Docker bridge (http://$BRIDGE_IP:3002 -> 200)" \
+    || fail "a container on the Docker bridge got ${bcode:-000} from http://$BRIDGE_IP:3002/api/health"
+fi
 
 # 4-5. Cloudflare
 if [ "$LOCAL_ONLY" -eq 0 ]; then

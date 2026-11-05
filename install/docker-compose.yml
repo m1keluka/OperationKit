@@ -12,9 +12,15 @@
 #                                       back to host paths for the sandbox via
 #                                       SESSION_JAIL_HOST_PATH_MAP
 #
-# Network: the app listens on 127.0.0.1:3002 only (for install/verify.sh on the
-# server). The public way in is the cloudflared connector below, which dials OUT
-# to Cloudflare — the firewall keeps 80/443 closed.
+# Network: the app is published on two PRIVATE addresses, never 0.0.0.0:
+#   127.0.0.1:3002           install/verify.sh and scripts on the server
+#   <docker0 gateway>:3002   containers on the default Docker bridge, e.g.
+#                            http://172.17.0.1:3002 from a card sandbox (obj 900185)
+# install.sh writes OK_DOCKER_BRIDGE_IP (docker0's IPv4; DOCKER_BRIDGE_IP in
+# client.conf overrides) and opens 3002 in ufw ONLY for traffic arriving on
+# docker0. The docker0 address is not routable from the internet. The public way
+# in is the cloudflared connector below, which dials OUT to Cloudflare — the
+# firewall keeps 80/443 (and 3002) closed on the public NIC.
 #
 # Sandboxes (obj 900113): per-session sandbox containers join the `ok-jails`
 # bridge, which only the app container shares. Each sandbox forwards its own
@@ -40,6 +46,8 @@ services:
     init: true
     ports:
       - "127.0.0.1:3002:3002"
+      # Default Docker bridge gateway (obj 900185) — see header. Private, not public.
+      - "${OK_DOCKER_BRIDGE_IP:-172.17.0.1}:3002:3002"
     networks:
       - default
       - jails
