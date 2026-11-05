@@ -148,6 +148,14 @@ secret_ensure TEST_CRED_ENCRYPTION_KEY rand_b64
 secret_ensure OK_BACKUP_PASSWORD rand_hex
 [ "$DRY_RUN" -eq 1 ] || chmod 600 "$OK_SECRETS_ENV"
 
+# Card sandboxes on the default Docker bridge reach the app at <docker0 gateway>:3002
+# (obj 900185). Private address only — see install/docker-compose.yml.
+BRIDGE_IP=$(docker_bridge_ip)
+if [ -z "$BRIDGE_IP" ]; then
+  [ "$DRY_RUN" -eq 1 ] || die "could not find the Docker bridge (docker0) IPv4 address — set DOCKER_BRIDGE_IP in $(basename "$CONFIG") (usually 172.17.0.1)"
+  BRIDGE_IP=172.17.0.1; log "  [dry-run] Docker bridge address not found; assuming $BRIDGE_IP"
+fi
+
 # Non-secret settings compose reads (install/docker-compose.yml).
 write_settings() {
   local profiles=""
@@ -162,6 +170,7 @@ OK_GIT_SHA=$(repo_sha)
 OK_BRAND_NAME=$(conf BRAND_NAME OperationKit)
 OK_TIMEZONE=$(conf TIMEZONE UTC)
 OK_SESSION_ISOLATION=$(conf SESSION_ISOLATION docker)
+OK_DOCKER_BRIDGE_IP=$BRIDGE_IP
 COMPOSE_PROFILES=$profiles
 EOF
 }
@@ -219,10 +228,14 @@ mark "5 cloudflare"
 
 # ── 6. Start ──────────────────────────────────────────────────────────────────
 step "6. Starting the app"
-if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] docker compose up -d"; else
+bridge_firewall_open "$BRIDGE_IP"
+if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] docker compose up -d (app on 127.0.0.1:3002 and $BRIDGE_IP:3002)"; else
   dc up -d --remove-orphans
   waited=$(wait_healthy 240) || die "the app did not become healthy in 4 minutes — see: docker logs --tail 100 command-center"
   log "  app healthy after ${waited}s"
+  bcode=$(bridge_health "$BRIDGE_IP")
+  if [ "$bcode" = 200 ]; then log "  card sandboxes reach the app at http://$BRIDGE_IP:3002 (Docker bridge)"
+  else warn "a container on the Docker bridge got ${bcode:-000} from http://$BRIDGE_IP:3002/api/health — AI reviews in sandboxes will fail"; fi
 fi
 mark "6 app started"
 
