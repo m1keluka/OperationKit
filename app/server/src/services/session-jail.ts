@@ -23,7 +23,11 @@
  *   - caps        --cap-drop ALL --security-opt no-new-privileges
  *                 never --privileged / --pid=host / --network=host
  *   - network     default bridge; outbound is allowed. This is NOT a network
- *                 jail and must not be described as one.
+ *                 jail and must not be described as one. When
+ *                 `SESSION_JAIL_NETWORK` is set (client installs: `ok-jails`, a
+ *                 bridge shared only with the app container) the jail joins it
+ *                 and runs a loopback forwarder so `localhost:3002` reaches the
+ *                 control plane (obj 900113).
  *
  * Why a sibling container at all: worktrees + worktree-guard.sh only constrain
  * Claude's Edit/Write tools. A plain `bash` in the shared container still sees
@@ -48,6 +52,75 @@ export const JAIL_HOME_PATH = '/home/jailuser'
  * `SESSION_JAIL_IMAGE`; pin by digest in any real deployment.
  */
 export const DEFAULT_JAIL_IMAGE = 'ok-jail:local'
+
+/**
+ * obj 900113 — how a jailed session reaches the control-plane API.
+ *
+ * Prompts, skills and scripts tell sessions to call
+ * `http://localhost:3002/api/internal/...` (the reviewer's criteria URL, the
+ * pr-created callback, objective create, ...). In tmux mode the session runs
+ * inside the app container, so that is the app. In a jail on the default bridge
+ * `localhost` is the jail itself and the app only publishes 127.0.0.1:3002 on
+ * the host, so every such call got ECONNREFUSED. On the first OVH client install
+ * that made every AI review come back `blocked`.
+ *
+ * Fix: when `SESSION_JAIL_NETWORK` names a docker network the app container is
+ * also on, the jail joins it and starts a small Node TCP forwarder on
+ * 127.0.0.1:3002 → `SESSION_JAIL_CC_UPSTREAM` (default `command-center:3002`).
+ * The app trusts that network's subnet as on-box via `INTERNAL_TRUSTED_PEER_CIDRS`
+ * (lib/is-localhost.ts), which matches tmux mode, where every session was a
+ * loopback caller. Unset = previous behaviour exactly.
+ */
+export const JAIL_CC_LOOPBACK_PORT = 3002
+export const DEFAULT_JAIL_CC_UPSTREAM = 'command-center:3002'
+
+const DOCKER_NET_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/
+/** Never a namespace-sharing or "default" mode: the jail must be on a user-defined bridge. */
+const DISALLOWED_JAIL_NETWORKS = ['host', 'none', 'bridge', 'default']
+
+function assertJailNetwork(net: string): void {
+  if (!DOCKER_NET_NAME.test(net) || DISALLOWED_JAIL_NETWORKS.includes(net) || net.startsWith('container:')) {
+    throw new Error(`jail network must be a user-defined docker network name, got ${JSON.stringify(net)}`)
+  }
+}
+
+/** Docker network the jail joins, or '' for the daemon default bridge. */
+export function resolveJailNetwork(env: NodeJS.ProcessEnv = process.env): string {
+  const net = (env.SESSION_JAIL_NETWORK || '').trim()
+  if (!net) return ''
+  assertJailNetwork(net)
+  return net
+}
+
+/** `host:port` the in-jail forwarder dials. */
+export function resolveJailCcUpstream(env: NodeJS.ProcessEnv = process.env): { host: string; port: number } {
+  const raw = (env.SESSION_JAIL_CC_UPSTREAM || DEFAULT_JAIL_CC_UPSTREAM).trim()
+  const m = /^([A-Za-z0-9][A-Za-z0-9_.-]*):(\d{1,5})$/.exec(raw)
+  if (!m || Number(m[2]) < 1 || Number(m[2]) > 65535) {
+    throw new Error(`SESSION_JAIL_CC_UPSTREAM must be host:port, got ${JSON.stringify(raw)}`)
+  }
+  return { host: m[1], port: Number(m[2]) }
+}
+
+/**
+ * Shell prefix (ends with `& `) that starts the loopback forwarder in the
+ * background before tmux. Node ships in the jail image (node:22 base), so no
+ * image rebuild is needed. It is a pure TCP splice that adds no headers, so the
+ * "no forwarding headers" half of `isLocalhost` still holds.
+ */
+export function buildJailCcForwarderPrefix(upstream: { host: string; port: number }): string {
+  if (!DOCKER_NET_NAME.test(upstream.host) || !Number.isInteger(upstream.port)) {
+    throw new Error(`invalid jail CC upstream ${JSON.stringify(upstream)}`)
+  }
+  // Double quotes only, so the single-quoted shell word below needs no escaping.
+  const js =
+    `const n=require("net");` +
+    `n.createServer(c=>{const u=n.connect(${upstream.port},"${upstream.host}");` +
+    `c.pipe(u).pipe(c);u.on("error",()=>c.destroy());c.on("error",()=>u.destroy())})` +
+    `.on("error",e=>{console.error("[jail-cc-forwarder]",e.message);process.exit(1)})` +
+    `.listen(${JAIL_CC_LOOPBACK_PORT},"127.0.0.1")`
+  return `node -e '${js}' >/tmp/jail-cc-forwarder.log 2>&1 & `
+}
 
 /** Flags that would defeat the jail. Asserted against in the unit tests. */
 export const FORBIDDEN_RUN_FLAGS = [
@@ -116,6 +189,8 @@ export interface CreateJailOpts {
    * exactly two binds.
    */
   seatMount?: { source: string; target: string }
+  /** obj 900113: user-defined docker network to join. Absent = default bridge. */
+  network?: string
 }
 
 /** Ordered `[containerPrefix, hostPrefix]` pairs; first (longest) match wins. */
@@ -200,6 +275,7 @@ export function buildJailRunArgv(opts: CreateJailOpts): string[] {
     command,
     hostPathMap = [],
     seatMount,
+    network,
   } = opts
   const name = jailName(objectiveId)
   assertJailId(sessionId)
@@ -235,6 +311,10 @@ export function buildJailRunArgv(opts: CreateJailOpts): string[] {
     }
     if (seatMount.source.includes('docker.sock')) throw new Error('seatMount.source may not be the docker socket')
     argv.push('--mount', `type=bind,source=${toHostPath(seatMount.source, hostPathMap)},target=${seatMount.target},bind-propagation=rprivate`)
+  }
+  if (network) {
+    assertJailNetwork(network)
+    argv.push('--network', network)
   }
   if (envFilePath) argv.push('--env-file', envFilePath)
   argv.push('-w', JAIL_WORKSPACE_PATH, image)

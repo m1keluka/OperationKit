@@ -16,6 +16,9 @@ import {
   renderEnvFile,
   createSessionJailSync,
   destroyJailSync,
+  resolveJailNetwork,
+  resolveJailCcUpstream,
+  buildJailCcForwarderPrefix,
 } from './session-jail'
 
 const base = {
@@ -191,5 +194,78 @@ describe('destroyJailSync', () => {
     expect(calls).toEqual([['rm', '-f', 'ok-jail-709080']])
     // already gone → swallowed, still reports it ran
     expect(destroyJailSync(709080, env, () => { throw new Error('No such container') })).toBe(true)
+  })
+})
+
+// ── obj 900113: jailed sessions must reach the app at localhost:3002 ──────────
+describe('session-jail CC reachability (obj 900113)', () => {
+  it('joins SESSION_JAIL_NETWORK when given, default bridge otherwise', () => {
+    expect(buildJailRunArgv(base)).not.toContain('--network')
+    const argv = buildJailRunArgv({ ...base, network: 'ok-jails' })
+    expect(argv[argv.indexOf('--network') + 1]).toBe('ok-jails')
+    // still never host networking
+    for (const f of FORBIDDEN_RUN_FLAGS) expect(argv).not.toContain(f)
+  })
+
+  it('refuses namespace-sharing or default networks', () => {
+    for (const bad of ['host', 'none', 'bridge', 'default', 'container:command-center', 'a b', '']) {
+      if (bad === '') { expect(resolveJailNetwork({ SESSION_JAIL_NETWORK: bad })).toBe(''); continue }
+      expect(() => resolveJailNetwork({ SESSION_JAIL_NETWORK: bad }), bad).toThrow()
+      expect(() => buildJailRunArgv({ ...base, network: bad }), bad).toThrow()
+    }
+    expect(resolveJailNetwork({ SESSION_JAIL_NETWORK: ' ok-jails ' })).toBe('ok-jails')
+    expect(resolveJailNetwork({})).toBe('')
+  })
+
+  it('resolves the forwarder upstream (default command-center:3002)', () => {
+    expect(resolveJailCcUpstream({})).toEqual({ host: 'command-center', port: 3002 })
+    expect(resolveJailCcUpstream({ SESSION_JAIL_CC_UPSTREAM: 'cc.internal:8080' })).toEqual({ host: 'cc.internal', port: 8080 })
+    for (const bad of ['command-center', 'x:0', 'x:99999', 'a;b:1', 'http://x:1']) {
+      expect(() => resolveJailCcUpstream({ SESSION_JAIL_CC_UPSTREAM: bad }), bad).toThrow()
+    }
+  })
+
+  it('builds a backgrounded loopback forwarder that is a single safe shell word', () => {
+    const p = buildJailCcForwarderPrefix({ host: 'command-center', port: 3002 })
+    expect(p.startsWith("node -e '")).toBe(true)
+    expect(p.endsWith('& ')).toBe(true)
+    expect(p).toContain('n.connect(3002,"command-center")')
+    expect(p).toContain('.listen(3002,"127.0.0.1")')
+    // exactly the opening and closing quote of the -e word
+    expect(p.split("'").length - 1).toBe(2)
+    expect(() => buildJailCcForwarderPrefix({ host: "x'; rm -rf /", port: 1 })).toThrow()
+  })
+
+  it('the forwarder really splices localhost:3002 to the upstream', async () => {
+    const net = await import('node:net')
+    const { spawn } = await import('node:child_process')
+    // stand-in "command-center" on an ephemeral port
+    const upstream = net.createServer((s) => s.end('pong-from-cc'))
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()))
+    const port = (upstream.address() as { port: number }).port
+    const prefix = buildJailCcForwarderPrefix({ host: '127.0.0.1', port })
+    // `& ` → run in the foreground of our own shell, then probe it
+    const js = prefix.slice("node -e '".length, prefix.indexOf("' >"))
+    // Port 3002 may be taken on a dev box; rewrite only the LISTEN port for the test.
+    const testJs = js.replace('.listen(3002,', '.listen(0,').replace(
+      '.listen(0,"127.0.0.1")', '.listen(0,"127.0.0.1",function(){console.log(this.address().port)})')
+    const child = spawn(process.execPath, ['-e', testJs], { stdio: ['ignore', 'pipe', 'pipe'] })
+    try {
+      const listenPort = await new Promise<number>((res, rej) => {
+        child.stdout.once('data', (d) => res(Number(String(d).trim())))
+        child.once('exit', (c) => rej(new Error(`forwarder exited ${c}`)))
+      })
+      const got = await new Promise<string>((res, rej) => {
+        let buf = ''
+        const c = net.connect(listenPort, '127.0.0.1')
+        c.on('data', (d) => { buf += d })
+        c.on('end', () => res(buf))
+        c.on('error', rej)
+      })
+      expect(got).toBe('pong-from-cc')
+    } finally {
+      child.kill()
+      upstream.close()
+    }
   })
 })

@@ -18,6 +18,9 @@ import {
   jailName,
   JAIL_WORKSPACE_PATH,
   createSessionJailSync,
+  resolveJailNetwork,
+  resolveJailCcUpstream,
+  buildJailCcForwarderPrefix,
   jailEnabled,
   jailImage,
 } from './session-jail.js'
@@ -544,6 +547,8 @@ exit $EXIT_CODE
         `(${jailWorkspace!.reason}) - mounting per-card scratch ${jailWorkspace!.source} at ${JAIL_WORKSPACE_PATH}.`,
       )
     }
+    // obj 900113: on a shared jail network, `localhost:3002` must reach the app.
+    const jailNetwork = resolveJailNetwork()
     const handle = createSessionJailSync({
       objectiveId: objectiveId!,
       sessionId,
@@ -553,8 +558,10 @@ exit $EXIT_CODE
       envFilePath: path.join(scriptDirHost, `${sessionId}.env`),
       image: jailImage(),
       seatMount: seatMount || undefined,
+      network: jailNetwork || undefined,
       command: [
         'bash', '-lc',
+        (jailNetwork ? buildJailCcForwarderPrefix(resolveJailCcUpstream()) : '') +
         `tmux new-session -d -s ${JSON.stringify(tmuxName)} ${JSON.stringify(`bash ${scriptFileGuest}`)}; ` +
         `while tmux has-session -t ${JSON.stringify(tmuxName)} 2>/dev/null; do sleep 5; done`,
       ],

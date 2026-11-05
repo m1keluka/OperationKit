@@ -13,6 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Rows 11-13 load the server TS directly via Node 22 type stripping.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Create host decoy (must NOT leak into jail)
         run: |
           sudo mkdir -p /home/operator

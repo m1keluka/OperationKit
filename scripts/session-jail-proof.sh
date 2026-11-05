@@ -5,7 +5,10 @@
 # and asserts the isolation matrix: rows 1-7 are the original contract; rows
 # 8-10 (obj 900038) are the no-project-card mount rules — a bare 0750 operator
 # home is unusable as /workspace, a 0700 per-card scratch dir works, and that
-# scratch dir is unreadable by any other uid. This is evidence, not a mock: every row
+# scratch dir is unreadable by any other uid. Rows 11-13 (obj 900113): a jail on
+# the default bridge cannot reach the app at localhost:3002; on the shared jail
+# network with the generated forwarder it can, and the app trusts it only via
+# INTERNAL_TRUSTED_PEER_CIDRS. This is evidence, not a mock: every row
 # is the exit code of a command executed INSIDE a jail. Nothing here is stubbed —
 # if docker is unreachable the script fails LOUDLY at PRECHECK and prints the raw
 # daemon error rather than reporting a pass.
@@ -201,6 +204,54 @@ echo "exit code: $rc"
 [ "$rc" -ne 0 ] && ok 'another uid cannot list the per-card scratch dir' \
                  || bad 'per-card scratch dir is readable by a foreign uid'
 fi
+
+# ── obj 900113: a jailed session must reach the app at localhost:3002 ─────────
+# Real containers on a real user-defined bridge. The forwarder program is the one
+# the server generates (session-jail.ts, loaded with Node's type stripping), and
+# the trust decision is the server's own isTrustedPeerAddress(), so these rows
+# exercise the shipped code rather than a copy of it.
+NIMG=node:22-bookworm-slim
+NET=ok-jails-proof
+NSUB=172.30.251.0/24
+CCN=ok-proof-cc
+J1=ok-jail-w8n
+J0=ok-jail-w8d
+docker rm -f "$CCN" "$J1" "$J0" >/dev/null 2>&1 || true
+docker network rm "$NET" >/dev/null 2>&1 || true
+docker network create --driver bridge --subnet "$NSUB" "$NET" >/dev/null
+# Stand-in app: answers with the TCP peer address it saw.
+docker run -d --name "$CCN" --network "$NET" --network-alias command-center "$NIMG" \
+  node -e 'require("http").createServer((q,r)=>r.end("CC-OK peer="+q.socket.remoteAddress.replace(/^::ffff:/,""))).listen(3002,"0.0.0.0")' >/dev/null
+PREFIX=$(node --experimental-strip-types --no-warnings -e \
+  "import('./app/server/src/services/session-jail.ts').then(m=>process.stdout.write(m.buildJailCcForwarderPrefix(m.resolveJailCcUpstream({}))))")
+echo "forwarder prefix: $PREFIX"
+PROBE='sleep 2; node -e '"'"'require("http").get("http://localhost:3002/",r=>{let b="";r.on("data",d=>b+=d);r.on("end",()=>{console.log(b);process.exit(0)})}).on("error",e=>{console.log("ERR "+e.code);process.exit(7)})'"'"''
+
+row 11 'BUG REPRO: a jail on the default bridge cannot reach the app at localhost:3002'
+out=$(docker run --rm --name "$J0" --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges \
+  --read-only --tmpfs /tmp:rw,nosuid,nodev,size=16m "$NIMG" bash -lc "$PROBE" 2>&1); rc=$?
+echo "$out"; echo "exit code: $rc"
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q ECONNREFUSED && ok 'default bridge: localhost:3002 refused (the reported bug)' \
+  || bad 'expected ECONNREFUSED on the default bridge'
+
+row 12 'FIX: same hardened jail on the shared network + forwarder reaches the app at localhost:3002'
+out=$(docker run --rm --name "$J1" --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges \
+  --read-only --tmpfs /tmp:rw,nosuid,nodev,size=16m --network "$NET" "$NIMG" bash -lc "${PREFIX}${PROBE}" 2>&1); rc=$?
+echo "$out"; echo "exit code: $rc"
+PEER=$(printf '%s' "$out" | sed -n 's/.*CC-OK peer=\([0-9.]*\).*/\1/p' | head -1)
+[ "$rc" -eq 0 ] && [ -n "$PEER" ] && ok "jail reached the app via localhost:3002 (app saw peer $PEER)" \
+  || bad 'jail could not reach the app through the forwarder'
+
+row 13 'the app classifies that jail peer as on-box only when its subnet is configured'
+T=$(INTERNAL_TRUSTED_PEER_CIDRS="$NSUB" node --experimental-strip-types --no-warnings -e \
+  "import('./app/server/src/lib/is-localhost.ts').then(m=>process.stdout.write(String(m.isTrustedPeerAddress('$PEER'))))")
+U=$(node --experimental-strip-types --no-warnings -e \
+  "import('./app/server/src/lib/is-localhost.ts').then(m=>process.stdout.write(String(m.isTrustedPeerAddress('$PEER',{}))))")
+echo "trusted with CIDR=$T  without=$U"
+[ "$T" = true ] && [ "$U" = false ] && ok 'jail peer trusted only via INTERNAL_TRUSTED_PEER_CIDRS' \
+  || bad 'jail peer trust decision wrong'
+docker rm -f "$CCN" "$J1" "$J0" >/dev/null 2>&1 || true
+docker network rm "$NET" >/dev/null 2>&1 || true
 
 
 echo "==================== SUMMARY ===================="
