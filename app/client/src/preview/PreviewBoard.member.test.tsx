@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 /**
- * Tests that the PROJECT chip row (ProjectFilterBar) renders for a non-admin
- * member of exactly one org, and does NOT render for a genuine multi-org/All
- * view (obj 708893).
+ * The board's two filter rows: ORG (WorkspaceFilterBar) and PROJECT
+ * (ProjectFilterBar).
  *
- * The bug: projectWorkspace was `workspaces.length === 1 ? workspaces[0] : null`
- * — null when workspaces=[] (the All / brief-init window), which made the
- * PROJECT row invisible for single-org members.
+ * obj 708893 — the PROJECT row has to render for a non-admin member of exactly
+ * one org even while `workspaces` is still `[]` (the window after auth resolves
+ * but before App.tsx's clamp effect fires). `effectiveOrg` covers that.
  *
- * The fix: effectiveOrg checks user.workspaces when workspaces=[] for non-admins,
- * so the row appears immediately once user is known.
+ * obj 900197 — the PROJECT row must ALSO render in the All / multi-org view,
+ * which is where this file previously asserted the opposite. Hiding it there
+ * was the reported bug: the default admin board spans every org, so the filter
+ * was absent almost all the time. It now renders with org-prefixed chips. The
+ * ORG row is new and renders unconditionally.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushSync } from 'react-dom'
@@ -55,9 +57,27 @@ vi.mock('../hooks/useObjectives', () => ({
 }))
 
 vi.mock('../hooks/useProjects', () => ({
+  ALL_ORGS: '*',
   useProjects: () => ({
     projects: [], loading: false, refresh: vi.fn(),
     createProject: vi.fn(), renameProject: vi.fn(), deleteProject: vi.fn(),
+  }),
+}))
+
+vi.mock('../hooks/useWorkspaces', () => ({
+  invalidateWorkspacesCache: vi.fn(),
+  useWorkspaces: () => ({
+    workspaces: [
+      { slug: 'example', name: 'Example', short_label: 'Example' },
+      { slug: 'example2', name: 'Grass Fed', short_label: 'GF' },
+    ],
+    slugs: ['example', 'example2'],
+    loading: false,
+    refresh: vi.fn(),
+    labelOf: (s: string) => s,
+    shortOf: (s: string) => s,
+    badgeOf: () => null,
+    agentPoolOf: () => [],
   }),
 }))
 
@@ -111,7 +131,7 @@ import { PreviewBoard } from './PreviewBoard'
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('PreviewBoard — PROJECT row visibility (obj 708893)', () => {
+describe('PreviewBoard — filter row visibility (obj 708893, obj 900197)', () => {
   let container: HTMLElement
   let root: Root
 
@@ -123,6 +143,10 @@ describe('PreviewBoard — PROJECT row visibility (obj 708893)', () => {
 
   function hasProjectBar(): boolean {
     return !!container.querySelector('[data-testid="project-filter-bar"]')
+  }
+
+  function hasOrgBar(): boolean {
+    return !!container.querySelector('[data-testid="workspace-filter-bar"]')
   }
 
   it('PROJECT row renders for a single-org member even when workspaces=[]', async () => {
@@ -149,7 +173,9 @@ describe('PreviewBoard — PROJECT row visibility (obj 708893)', () => {
     expect(hasProjectBar()).toBe(true)
   })
 
-  it('PROJECT row is hidden for admin in All-orgs view (workspaces=[])', async () => {
+  // obj 900197: this is the reported bug. The admin's default board is the
+  // All-orgs view, and the project filter used to be omitted there entirely.
+  it('PROJECT row ALSO renders for admin in the All-orgs view (workspaces=[])', async () => {
     mockUser = {
       id: 1, username: 'mike', role: 'admin',
       workspaces: [],
@@ -157,10 +183,10 @@ describe('PreviewBoard — PROJECT row visibility (obj 708893)', () => {
     }
     flushSync(() => root.render(<PreviewBoard workspaces={[]} />))
     await flush()
-    expect(hasProjectBar()).toBe(false)
+    expect(hasProjectBar()).toBe(true)
   })
 
-  it('PROJECT row is hidden in genuine multi-org view (workspaces has 2)', async () => {
+  it('PROJECT row renders in a genuine multi-org view (workspaces has 2)', async () => {
     mockUser = {
       id: 1, username: 'mike', role: 'admin',
       workspaces: [],
@@ -170,6 +196,49 @@ describe('PreviewBoard — PROJECT row visibility (obj 708893)', () => {
       <PreviewBoard workspaces={['example' as Workspace, 'example2' as Workspace]} />
     ))
     await flush()
-    expect(hasProjectBar()).toBe(false)
+    expect(hasProjectBar()).toBe(true)
+  })
+
+  it('ORG row renders on the board in every view', async () => {
+    mockUser = {
+      id: 1, username: 'mike', role: 'admin',
+      workspaces: [],
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    flushSync(() => root.render(<PreviewBoard workspaces={[]} onWorkspacesChange={vi.fn()} />))
+    await flush()
+    expect(hasOrgBar()).toBe(true)
+    flushSync(() => root.render(<PreviewBoard workspaces={['example' as Workspace]} onWorkspacesChange={vi.fn()} />))
+    await flush()
+    expect(hasOrgBar()).toBe(true)
+  })
+
+  it('an admin can pick an org straight from the board row', async () => {
+    mockUser = {
+      id: 1, username: 'mike', role: 'admin',
+      workspaces: [],
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    const onWorkspacesChange = vi.fn()
+    flushSync(() => root.render(
+      <PreviewBoard workspaces={[]} onWorkspacesChange={onWorkspacesChange} />
+    ))
+    await flush()
+    const chip = container.querySelector('[data-workspace="example2"]')
+    expect(chip).toBeTruthy()
+    flushSync(() => chip?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(onWorkspacesChange).toHaveBeenCalledWith(['example2'])
+  })
+
+  it('a member only sees the orgs they belong to in the ORG row', async () => {
+    mockUser = {
+      id: 2, username: 'ava', role: 'member',
+      workspaces: [{ workspace: 'example', role: 'member' }],
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    flushSync(() => root.render(<PreviewBoard workspaces={['example' as Workspace]} onWorkspacesChange={vi.fn()} />))
+    await flush()
+    expect(container.querySelector('[data-workspace="example"]')).toBeTruthy()
+    expect(container.querySelector('[data-workspace="example2"]')).toBeNull()
   })
 })

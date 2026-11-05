@@ -166,11 +166,45 @@ describe('C. secret names in the prompt + broker via session token', () => {
     expect(block).toContain(`/api/objectives/${objId}/request-secret`)
   })
 
-  it('flags off → prompt unchanged (empty block)', () => {
+  // obj 900189 — this assertion INVERTED on purpose. It used to require an empty
+  // block with both flags off, and that was the bug Mike hit on card #900184: the
+  // spawn env already held GETLEADS_API_KEY / LOCALPIPE_API_KEY (buildSpawnEnv
+  // injects unconditionally), but with session_secret_access off — its default —
+  // nothing told the session, so the worker reported both as having "no reachable
+  // API endpoint" while holding working keys. Naming what the env already contains
+  // is not a privilege, so the inventory is no longer flag-gated. The PRIVILEGE half
+  // (broker + request-secret, which need CC_SESSION_TOKEN) still is — asserted here.
+  it('flags off → the secret inventory is STILL listed (the 900189 fix)', () => {
     setFlag(trust.VERIFIED_SENDER_FLAG, false)
     setFlag(trust.SESSION_SECRET_ACCESS_FLAG, false)
     const obj = getDb().prepare('SELECT * FROM objectives WHERE id = ?').get(objId) as any
-    expect(buildSessionTrustBlock(obj)).toEqual([])
+    const block = buildSessionTrustBlock(obj).join('\n')
+    expect(block).toContain('Secrets available to this session')
+    expect(block).toContain('`EXAMPLE_SLACK_TOKEN`')
+    // ...but no privilege it does not have, and still never a value.
+    expect(block).not.toContain('CC_SESSION_TOKEN')
+    expect(block).not.toContain('secrets-broker')
+    expect(block).not.toContain('request-secret')
+    expect(block).not.toContain('example_slack_value_zzz')
+    expect(block).not.toContain('EXAMPLE2_ONLY_KEY')
+    // the verified-sender half IS still flag-gated
+    expect(block).not.toContain('VERIFIED: … (owner, typed in UI)')
+  })
+
+  it('names a companion *_BASE_URL next to its key so the endpoint is not guessed', () => {
+    setFlag(trust.SESSION_SECRET_ACCESS_FLAG, false)
+    setSecret({ scope: { scopeType: 'workspace', workspace: WS }, key: 'GETLEADS_API_KEY', value: 'glb_live_must_never_leak' })
+    setSecret({ scope: { scopeType: 'workspace', workspace: WS }, key: 'GETLEADS_BASE_URL', value: 'https://app.getleads.io/api/v1' })
+    setSecret({ scope: { scopeType: 'workspace', workspace: WS }, key: 'LONELY_API_KEY', value: 'no_companion_value' })
+    const obj = getDb().prepare('SELECT * FROM objectives WHERE id = ?').get(objId) as any
+    const block = buildSessionTrustBlock(obj).join('\n')
+    expect(block).toContain('`GETLEADS_API_KEY` (endpoint: $GETLEADS_BASE_URL)')
+    expect(block).toContain('`LONELY_API_KEY`')
+    expect(block).not.toContain('`LONELY_API_KEY` (endpoint')
+    // the URL is a stored secret like any other: the NAME is shown, never the value
+    expect(block).not.toContain('https://app.getleads.io/api/v1')
+    expect(block).not.toContain('glb_live_must_never_leak')
+    expect(block).toContain('Do NOT invent a hostname')
   })
 
   it("session token lists only its own workspace's names; other workspace → 403", async () => {

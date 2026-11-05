@@ -26,6 +26,10 @@ beforeAll(() => {
 beforeEach(() => {
   setFlag(trust.VERIFIED_SENDER_FLAG, false)
   setFlag(trust.SESSION_SECRET_ACCESS_FLAG, false)
+  // obj 900204 added a THIRD flag that, unlike these two, defaults ON. The
+  // original "all flags off" cases below are about the obj-718944 flags, so
+  // they pin it off explicitly; the new cases exercise the default.
+  setFlag(trust.SESSION_KB_ACCESS_FLAG, false)
 })
 
 describe('session token', () => {
@@ -59,7 +63,7 @@ describe('session token', () => {
 describe('applySessionTrustEnv', () => {
   const obj = { id: 9, workspace: 'example' }
 
-  it('flags off: env is untouched (JWT_SECRET stays, no token)', () => {
+  it('every flag off: env is untouched (JWT_SECRET stays, no token)', () => {
     const env: Record<string, string> = { JWT_SECRET: 'x', A: '1' }
     applySessionTrustEnv(env, obj, 1)
     expect(env).toEqual({ JWT_SECRET: 'x', A: '1' })
@@ -82,5 +86,35 @@ describe('applySessionTrustEnv', () => {
     expect(env.JWT_SECRET).toBeUndefined()
     expect(env.CC_OBJECTIVE_ID).toBe('9')
     expect(trust.verifySessionToken(env.CC_SESSION_TOKEN)).toEqual({ objectiveId: 9, workspace: 'example', actingUserId: 3 })
+  })
+
+  // ── obj 900204: knowledge-base access ─────────────────────────────────────
+
+  it('kb-access flag DEFAULTS ON, so a plain spawn carries the scoped token', () => {
+    getDb().prepare('DELETE FROM settings WHERE key = ?').run(trust.SESSION_KB_ACCESS_FLAG)
+    expect(trust.sessionKbAccessEnabled()).toBe(true)
+    const env: Record<string, string> = { JWT_SECRET: 'x', CC_JWT_SECRET: 'y', A: '1' }
+    applySessionTrustEnv(env, obj, 7)
+    expect(trust.verifySessionToken(env.CC_SESSION_TOKEN)).toEqual({ objectiveId: 9, workspace: 'example', actingUserId: 7 })
+    expect(env.CC_OBJECTIVE_ID).toBe('9')
+    expect(env.A).toBe('1')
+  })
+
+  it('and ALWAYS drops the signing key alongside it — otherwise the scope is forgeable', () => {
+    // A session holding JWT_SECRET could mint itself a token for ANY workspace,
+    // which would defeat the whole point of scoping /api/files + /api/docs.
+    getDb().prepare('DELETE FROM settings WHERE key = ?').run(trust.SESSION_KB_ACCESS_FLAG)
+    const env: Record<string, string> = { JWT_SECRET: 'x', CC_JWT_SECRET: 'y' }
+    applySessionTrustEnv(env, obj, 7)
+    expect(env.JWT_SECRET).toBeUndefined()
+    expect(env.CC_JWT_SECRET).toBeUndefined()
+    expect(env.CC_STRIP_SIGNING_SECRETS).toBe('1')
+  })
+
+  it('turning the flag off restores the previous no-token spawn env', () => {
+    setFlag(trust.SESSION_KB_ACCESS_FLAG, false)
+    const env: Record<string, string> = { JWT_SECRET: 'x', A: '1' }
+    applySessionTrustEnv(env, obj, 7)
+    expect(env).toEqual({ JWT_SECRET: 'x', A: '1' })
   })
 })

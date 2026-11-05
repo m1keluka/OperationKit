@@ -29,6 +29,13 @@ process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'GOCSPX-test-client-secret-zzz'
 delete process.env.USE_SCOPED_DOPPLER_TOKENS
 delete process.env.SCOPE_SUPABASE_ACCESS_TOKEN
 
+// obj 900204: `session_kb_access` defaults ON and adds CC_SESSION_TOKEN /
+// CC_OBJECTIVE_ID / CC_STRIP_SIGNING_SECRETS to every spawn env. These cases are
+// about the obj-718944 flags and the legacy base block, so pin it OFF; the
+// default-ON behaviour is covered in lib/session-trust.test.ts and by the
+// dedicated describe in session-spawn-env.test.ts.
+process.env.CC_SESSION_KB_ACCESS = '0'
+
 const { initDb, getDb } = await import('../db/index.js')
 const google = await import('./user-google-connections.js')
 const { userGoogleCredentialEnv, buildSpawnEnv } = await import('./session-manager.js')

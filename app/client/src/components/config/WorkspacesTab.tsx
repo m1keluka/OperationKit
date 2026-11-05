@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Boxes, FileText, KeyRound, FolderGit2, Plug, Plus, Trash2, ChevronRight, Check, Sparkles, GitBranch, Activity, Unplug,
+  Boxes, FileText, KeyRound, FolderGit2, Plug, Plus, Trash2, ChevronRight, Check, Sparkles, GitBranch, Activity, Unplug, RotateCcw,
 } from 'lucide-react'
 import {
   Card, CardHeader, Button, Badge, Alert, EmptyState, Skeleton, useConfirm, cn,
@@ -148,6 +148,29 @@ export function WorkspacesTab() {
     }
   }
 
+  /**
+   * Un-archive an organization — obj 900197.
+   *
+   * Archiving is a soft delete (`DELETE /api/admin/workspaces/:slug` sets
+   * `archived = 1`), and `GET /api/workspaces` filters archived rows out. This
+   * page used to render ONLY that filtered list, so an archived org vanished
+   * from the product with no way back: example and operationkit had to be
+   * un-archived straight in SQLite plus a restart. The admin list
+   * (`/admin/workspaces`) has always included archived rows and PATCH has
+   * always accepted `archived: false` — the gap was purely this UI.
+   */
+  async function restoreWorkspace(slug: string) {
+    setWsBusy(slug)
+    try {
+      await api.patch(`/admin/workspaces/${slug}`, { archived: false })
+      await Promise.all([refreshWorkspaces(), loadAdminRecords()])
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to restore organization')
+    } finally {
+      setWsBusy(null)
+    }
+  }
+
   async function removeWorkspace(slug: string, name: string) {
     if (!(await confirm({
       title: 'Remove organization?',
@@ -249,6 +272,12 @@ export function WorkspacesTab() {
     }]
   })
 
+  // Archived orgs are invisible to /api/workspaces, so they come from the
+  // admin list — which is the only place they can be seen or restored.
+  const archivedWorkspaces = Object.values(adminRecords)
+    .filter(r => r.archived)
+    .sort((a, b) => a.sort_order - b.sort_order || a.slug.localeCompare(b.slug))
+
   function draftFor(slug: string) {
     return repoDraft[slug] || { name: '', github: '', stack: '' }
   }
@@ -317,6 +346,36 @@ export function WorkspacesTab() {
       {workspaces.length === 0 && (
         <Card>
           <EmptyState icon={<Boxes className="h-5 w-5" />} title="No organizations" description="Create one to get started." />
+        </Card>
+      )}
+
+      {/* Archived organizations (admin) — obj 900197. Without this an archived
+          org is unreachable from the UI entirely. */}
+      {isAdmin && archivedWorkspaces.length > 0 && (
+        <Card inset data-testid="archived-organizations">
+          <CardHeader title="Archived organizations" eyebrow="Hidden from the board" />
+          <div className="divide-y divide-line">
+            {archivedWorkspaces.map(r => (
+              <div key={r.slug} className="flex items-center gap-2 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-display text-[14px] font-semibold text-fg-2">{r.name || r.slug}</h3>
+                    <Badge mono>{r.slug}</Badge>
+                    <Badge tone="neutral">archived</Badge>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
+                  disabled={wsBusy === r.slug}
+                  onClick={() => restoreWorkspace(r.slug)}
+                >
+                  {wsBusy === r.slug ? 'Restoring…' : 'Restore'}
+                </Button>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 

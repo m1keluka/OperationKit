@@ -4,15 +4,28 @@ import type { Project } from '@operationkit/shared'
 import { useConfirm } from './ui'
 import { ALL_PROJECTS, UNASSIGNED_PROJECT, type ProjectSelection } from '../lib/projectFilter'
 
+export interface OrgOption {
+  slug: string
+  label: string
+}
+
 interface ProjectFilterBarProps {
-  /** Projects belonging to the currently-open organization. */
+  /** Projects in scope. In a single-org view that is one org's roster; in the
+   *  All/multi-org view it is the union across every org on the board. */
   projects: Project[]
   selection: ProjectSelection
   onSelect: (selection: ProjectSelection) => void
-  /** Null when the board is showing All / multiple organizations — a project
-   *  lives inside exactly one org, so CRUD is disabled in that view. */
+  /** The single open organization, or null when the board spans All/multiple.
+   *  A project lives inside exactly one org, so in the null case each chip is
+   *  prefixed with its org and creating one needs an explicit org pick. */
   workspace: string | null
-  onCreate: (name: string) => Promise<unknown>
+  /** Organizations a new project may be created in. Supplied in the cross-org
+   *  view so "New project" still works there (obj 900197); when `workspace` is
+   *  set the create form targets that org and this is unused. */
+  orgOptions?: OrgOption[]
+  /** Short label for an org slug, used to prefix chips in the cross-org view. */
+  orgLabelOf?: (slug: string) => string
+  onCreate: (name: string, workspace?: string) => Promise<unknown>
   onRename: (id: number, name: string) => Promise<unknown>
   onDelete: (id: number) => Promise<{ detached_objectives: number }>
 }
@@ -31,12 +44,14 @@ const chipOff = 'border-line text-fg-2 hover:border-line-strong hover:text-fg-1'
  * to a settings page or curl the API to make a folder.
  */
 export function ProjectFilterBar({
-  projects, selection, onSelect, workspace, onCreate, onRename, onDelete,
+  projects, selection, onSelect, workspace, orgOptions, orgLabelOf, onCreate, onRename, onDelete,
 }: ProjectFilterBarProps) {
   const { confirm, confirmDialog } = useConfirm()
   // null = no inline editor open; 'new' = create; a number = rename that project.
   const [editing, setEditing] = useState<'new' | number | null>(null)
   const [draft, setDraft] = useState('')
+  // Org the create form will write into — only meaningful in the cross-org view.
+  const [draftOrg, setDraftOrg] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -45,11 +60,20 @@ export function ProjectFilterBar({
   // Close any open editor when the organization changes underneath us.
   useEffect(() => { setEditing(null); setError(null) }, [workspace])
 
-  const canManage = !!workspace && workspace !== 'all'
+  const singleOrg = workspace && workspace !== 'all' ? workspace : null
+  // In the cross-org view there is no implicit org, so creating needs a picker;
+  // with no orgs to pick from, creating is genuinely impossible and is hidden.
+  const orgChoices = singleOrg ? [] : (orgOptions ?? [])
+  const canManage = !!singleOrg || orgChoices.length > 0
+  const needsOrgPick = !singleOrg
   const selected = typeof selection === 'number' ? projects.find(p => p.id === selection) : undefined
+  // Prefix a chip with its org only when the board spans more than one.
+  const chipLabel = (p: Project) =>
+    singleOrg ? p.name : `${orgLabelOf ? orgLabelOf(p.workspace) : p.workspace} · ${p.name}`
 
   function openCreate() {
     setDraft('')
+    setDraftOrg(orgChoices[0]?.slug ?? '')
     setError(null)
     setEditing('new')
   }
@@ -68,7 +92,12 @@ export function ProjectFilterBar({
     setError(null)
     try {
       if (editing === 'new') {
-        const created = await onCreate(name) as Project
+        if (needsOrgPick && !draftOrg) {
+          setError('Pick an organization for this project')
+          setBusy(false)
+          return
+        }
+        const created = await onCreate(name, needsOrgPick ? draftOrg : undefined) as Project
         // Opening a folder you just made is the obvious next step.
         if (created && typeof created.id === 'number') onSelect(created.id)
       } else {
@@ -134,7 +163,7 @@ export function ProjectFilterBar({
             data-project-id={p.id}
             className={`${chipCls} ${selection === p.id ? chipOn : chipOff}`}
           >
-            {p.name}
+            {chipLabel(p)}
             {typeof p.objective_count === 'number' && (
               <span className="ml-1.5 font-mono text-[10.5px] text-fg-3">{p.objective_count}</span>
             )}
@@ -156,6 +185,18 @@ export function ProjectFilterBar({
       {/* Inline create / rename — the picker is also the management surface. */}
       {canManage && editing !== null ? (
         <form onSubmit={submitEditor} className="flex shrink-0 items-center gap-1">
+          {editing === 'new' && needsOrgPick && (
+            <select
+              value={draftOrg}
+              onChange={e => setDraftOrg(e.target.value)}
+              aria-label="Organization for the new project"
+              className="rounded-md border border-line bg-surface-2 px-2 py-1 text-[12px] text-fg-0 focus:border-accent focus:outline-none"
+            >
+              {orgChoices.map(o => (
+                <option key={o.slug} value={o.slug}>{o.label}</option>
+              ))}
+            </select>
+          )}
           <input
             ref={inputRef}
             value={draft}

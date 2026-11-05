@@ -29,6 +29,7 @@ import fs from 'fs'
 import path from 'path'
 import { getDb } from '../db/index.js'
 import { redactEnvFile, redactText } from './secret-redaction.js'
+import { isVaultLayout, knowledgeBaseRoot } from '../lib/knowledge-base-root.js'
 
 export type RootKind = 'vault' | 'uploads' | 'admin'
 
@@ -41,37 +42,73 @@ export interface FileRoot {
    * admin   — whole root is admin-only.
    */
   kind: RootKind
+  /**
+   * `vault` roots only. Where a workspace's subtree sits under the root:
+   *   nested (default) — `<root>/workspaces/<slug>`, the Obsidian vault layout;
+   *   flat             — `<root>/<slug>`, the `/app/data/knowledge-base` layout
+   *                      a client install with no vault uses (obj 719936).
+   * Mirrors `defaultWorkspaceKbDir()` so /api/files and /api/docs agree.
+   */
+  layout?: 'nested' | 'flat'
 }
 
+/**
+ * obj 900204 — the vault root follows `knowledgeBaseRoot()`, the ONE knowledge
+ * base every other surface resolves (obj 720348), instead of the hard-coded
+ * `/home/operator/second-brain`. On an install whose vault is elsewhere (the OVH
+ * host keeps it at `/opt/operationkit/state/home/second-brain`, surfaced in the
+ * container under a different path, and a fresh client install has no vault at
+ * all) the old constant pointed at a directory that does not exist, so
+ * `buildScope` produced ZERO vault entries and /api/files could not see a
+ * single knowledge-base file. That is half of "the card cannot find
+ * Connections.csv": the other half was that no card could authenticate at all.
+ *
+ * `isVaultLayout()` also tells us which layout the root uses, so a flat
+ * `/app/data/knowledge-base/<slug>` install scopes correctly too.
+ */
+export function defaultFileRoots(): FileRoot[] {
+  return [
+    { id: 'vault', path: knowledgeBaseRoot(), kind: 'vault', layout: isVaultLayout() ? 'nested' : 'flat' },
+    { id: 'uploads', path: '/app/data/uploads', kind: 'uploads' },
+  ]
+}
+
+/** @deprecated Use {@link defaultFileRoots}; kept so existing importers/tests keep compiling. */
 export const DEFAULT_FILE_ROOTS: FileRoot[] = [
   { id: 'vault', path: '/home/operator/second-brain', kind: 'vault' },
   { id: 'uploads', path: '/app/data/uploads', kind: 'uploads' },
 ]
 
+export function defaultSharedPaths(): string[] {
+  return [path.join(knowledgeBaseRoot(), 'shared')]
+}
+
+/** @deprecated Use {@link defaultSharedPaths}. */
 export const DEFAULT_SHARED_PATHS = ['/home/operator/second-brain/shared']
 
 export const DEFAULT_MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
 
 export function getFileRoots(): FileRoot[] {
   const raw = process.env.CC_FILE_ROOTS
-  if (!raw) return DEFAULT_FILE_ROOTS
+  if (!raw) return defaultFileRoots()
   try {
     const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return DEFAULT_FILE_ROOTS
+    if (!Array.isArray(parsed)) return defaultFileRoots()
     return parsed
       .filter((r): r is FileRoot =>
         !!r && typeof r.id === 'string' && typeof r.path === 'string' && path.isAbsolute(r.path) &&
-        ['vault', 'uploads', 'admin'].includes(r.kind))
+        ['vault', 'uploads', 'admin'].includes(r.kind) &&
+        (r.layout === undefined || r.layout === 'nested' || r.layout === 'flat'))
   } catch {
     // A malformed override must not silently widen access — fall back to the
     // narrow built-in defaults rather than to "everything".
-    return DEFAULT_FILE_ROOTS
+    return defaultFileRoots()
   }
 }
 
 export function getSharedPaths(): string[] {
   const raw = process.env.CC_FILE_SHARED_PATHS
-  if (raw === undefined) return DEFAULT_SHARED_PATHS
+  if (raw === undefined) return defaultSharedPaths()
   return raw.split(',').map(s => s.trim()).filter(s => path.isAbsolute(s))
 }
 
@@ -323,7 +360,7 @@ export function buildScope(isAdmin: boolean, workspaces: string[], only?: string
     if (root.kind === 'vault') {
       for (const ws of wsSet) {
         if (!/^[a-z0-9][a-z0-9_-]*$/i.test(ws)) continue
-        const sub = real(path.join(rootReal, 'workspaces', ws))
+        const sub = real(root.layout === 'flat' ? path.join(rootReal, ws) : path.join(rootReal, 'workspaces', ws))
         if (sub && isUnder(sub, rootReal)) entries.push({ prefix: sub, rootId: root.id, workspace: ws })
       }
     } else if (root.kind === 'uploads') {
@@ -443,7 +480,14 @@ export function resolveFile(requested: unknown, scope: Scope): ResolvedFile | { 
   // Which denylist applies depends on the root the string claims to be under.
   if (deniedFor(requested, lexicalEntry(requested, scope))) return { error: 'denied' }
   const abs = real(requested)
-  if (!abs) return { error: 'not_found' }
+  if (!abs) {
+    // obj 900204 — a path that does not resolve is only "not found" if the
+    // caller could have seen it in the first place. Returning 404 for an
+    // unresolvable path and 403 for a resolvable one made the pair an existence
+    // oracle across workspaces: probe `<other-ws>/x` and the status told you
+    // whether x exists. Judged lexically, since there is no real path to judge.
+    return { error: lexicalEntry(requested, scope) ? 'not_found' : 'forbidden' }
+  }
   const entry = labelFor(abs, scope)
   if (!entry) return { error: 'forbidden' }
   // Re-judge by where the path REALLY landed (a symlink from a system root into

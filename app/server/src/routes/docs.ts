@@ -1,14 +1,17 @@
 import { Router } from 'express'
 import fs from 'fs'
 import path from 'path'
-import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { type AuthRequest } from '../middleware/auth.js'
+import { sessionFileWorkspace, sessionOrRequireAuth } from '../middleware/session-file-access.js'
 import { getUserWorkspaces } from '../middleware/workspace.js'
 import { getDocRoots, getWorkspaceSlugs } from '../services/workspaces.js'
 import { searchKnowledge } from '../services/knowledge-search.js'
 import { allWorkspaceKbRoots, knowledgeBaseRoot, workspaceKbRoot } from '../services/doc-ingest/kb-paths.js'
 
 const router = Router()
-router.use(requireAuth)
+// obj 900204: card sessions authenticate with their objective-scoped
+// CC_SESSION_TOKEN. No token present → no-op, requireAuth behaves as before.
+router.use(sessionOrRequireAuth)
 
 // Admin file access. The Knowledge base page no longer offers these as
 // "sources" (obj 720348): the page shows ONE tree, the knowledge base. The
@@ -47,6 +50,16 @@ function adminRoots(fixed: string[], kind: 'read' | 'write'): string[] {
   return roots
 }
 
+/** The doc roots of ONE workspace: its configured roots plus its KB folder. */
+function workspaceRoots(workspace: string, kind: 'read' | 'write'): string[] {
+  const roots: string[] = [...getDocRoots(workspace)[kind]]
+  try {
+    const kb = workspaceKbRoot(workspace)
+    if (!resolveUnder(roots, kb) && fs.existsSync(kb)) roots.push(kb)
+  } catch { /* bad slug */ }
+  return roots
+}
+
 /** A member's workspace roots plus the workspace's own knowledge folder. */
 function memberRoots(req: AuthRequest, kind: 'read' | 'write'): string[] {
   const roots: string[] = []
@@ -60,12 +73,20 @@ function memberRoots(req: AuthRequest, kind: 'read' | 'write'): string[] {
   return roots
 }
 
+/**
+ * obj 900204 — a card session is confined to its OWN objective's workspace,
+ * whatever the acting user could otherwise see, and never gets the admin roots.
+ */
 function getReadRoots(req: AuthRequest): string[] {
+  const ws = sessionFileWorkspace(req)
+  if (ws) return workspaceRoots(ws, 'read')
   if (req.user!.role === 'admin') return adminRoots(ADMIN_READ_ROOTS, 'read')
   return memberRoots(req, 'read')
 }
 
 function getWriteRoots(req: AuthRequest): string[] {
+  const ws = sessionFileWorkspace(req)
+  if (ws) return workspaceRoots(ws, 'write')
   if (req.user!.role === 'admin') return adminRoots(ADMIN_WRITE_ROOTS, 'write')
   return memberRoots(req, 'write')
 }
@@ -88,7 +109,12 @@ export function knowledgeFolders(req: AuthRequest): string[] {
   const kbRoot = knowledgeBaseRoot()
   const wsKb = allWorkspaceKbRoots().map(w => path.resolve(w.dir))
   let candidates: string[]
-  if (req.user!.role === 'admin') {
+  const sessionWs = sessionFileWorkspace(req)
+  if (sessionWs) {
+    // obj 900204 — exactly this card's workspace folder. No admin branch, no
+    // other membership, no shared sibling folders.
+    candidates = allWorkspaceKbRoots().filter(w => w.workspace === sessionWs).map(w => path.resolve(w.dir))
+  } else if (req.user!.role === 'admin') {
     candidates = [kbRoot, ...wsKb]
   } else {
     const mine = new Set(getUserWorkspaces(req.user!.id).map(uw => uw.workspace))
@@ -117,18 +143,47 @@ function folderLabel(dir: string, kbRoot: string): string {
 
 const EXCLUDE_DIRS = new Set(['.git', 'node_modules', '.obsidian', 'dist', '.next', '.cache', '.vite'])
 
+/**
+ * realpath of `p`, or of its nearest existing ancestor with the missing tail
+ * re-appended (so a not-yet-created file still resolves through its real
+ * parent). Returns null if nothing on the path can be resolved.
+ */
+function realDeep(p: string): string | null {
+  let cur = p
+  const tail: string[] = []
+  for (let i = 0; i < 64; i++) {
+    try {
+      return path.join(fs.realpathSync(cur), ...tail.reverse())
+    } catch {
+      const parent = path.dirname(cur)
+      if (parent === cur) return null
+      tail.push(path.basename(cur))
+      cur = parent
+    }
+  }
+  return null
+}
+
+/**
+ * Is `requested` inside one of `roots`? Returns the canonical absolute path.
+ *
+ * obj 900204 — this used to compare `path.resolve()` output only, which the
+ * comment above it claimed was "traversal trickery handled by realpath". It was
+ * not: a SYMLINK placed inside a doc root (`<ws>/notes/x.md -> /etc/passwd`, or
+ * a linked directory) resolved lexically inside the root and was then read or
+ * WRITTEN through. Harmless-ish while every caller was a logged-in human; a
+ * real escape now that card sessions reach this router. Both sides are
+ * realpath'd — matching what services/file-access.ts already does for
+ * /api/files — so a link that leaves the root is rejected.
+ */
 function resolveUnder(roots: string[], requested: string): string | null {
   if (!requested) return null
-  // Normalise: reject NUL bytes and absolute path traversal trickery handled by realpath
   if (requested.includes('\0')) return null
-  let resolved: string
-  try {
-    resolved = path.resolve(requested)
-  } catch {
-    return null
-  }
+  const resolved = realDeep(path.resolve(requested))
+  if (!resolved) return null
   for (const root of roots) {
-    const rootResolved = path.resolve(root)
+    const rootResolved = realDeep(path.resolve(root))
+    if (!rootResolved) continue
     if (resolved === rootResolved || resolved.startsWith(rootResolved + path.sep)) {
       return resolved
     }
@@ -285,7 +340,13 @@ router.get('/file', (req: AuthRequest, res) => {
 // PUT /api/docs/file  body: { path, content }
 router.put('/file', (req: AuthRequest, res) => {
   const writeRoots = getWriteRoots(req)
-  const { path: filePath, content } = req.body as { path?: string; content?: string }
+  const { path: filePath, content, create_dirs: createDirs } = req.body as {
+    path?: string
+    content?: string
+    /** obj 900204: create missing parents INSIDE the write root. A card doing
+     *  vault capture is usually the first writer of `<ws>/decisions/`. */
+    create_dirs?: boolean
+  }
   if (!filePath || typeof content !== 'string') {
     res.status(400).json({ error: 'path and content required' })
     return
@@ -302,8 +363,13 @@ router.put('/file', (req: AuthRequest, res) => {
   try {
     const dir = path.dirname(resolved)
     if (!fs.existsSync(dir)) {
-      res.status(404).json({ error: 'Parent directory does not exist' })
-      return
+      // `resolved` is already proven to be inside a write root, so creating the
+      // intermediate directories cannot widen where the write lands.
+      if (!createDirs) {
+        res.status(404).json({ error: 'Parent directory does not exist', code: 'no_parent_dir', hint: 'pass create_dirs: true to create it' })
+        return
+      }
+      fs.mkdirSync(dir, { recursive: true })
     }
     fs.writeFileSync(resolved, content, 'utf-8')
     const stat = fs.statSync(resolved)

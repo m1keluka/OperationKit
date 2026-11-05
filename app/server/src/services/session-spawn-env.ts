@@ -35,6 +35,7 @@ import {
   readSettingFlag,
   stripServerSigningSecrets,
 } from '../lib/session-trust.js'
+import { sessionKbAccessEnabled } from '../lib/session-trust.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Spawn-env construction (obj-2202 / onboarding gate B1–B4)
@@ -486,10 +487,18 @@ export function applySessionTrustEnv(
 ): void {
   const stamps = readSettingFlag(VERIFIED_SENDER_FLAG)
   const secretAccess = readSettingFlag(SESSION_SECRET_ACCESS_FLAG)
-  if (!stamps && !secretAccess) return
+  // obj 900204 — knowledge-base access needs the SAME objective-scoped token.
+  // Unlike the obj-718944 flags this one defaults ON: a jailed card that cannot
+  // read its own workspace's KB is the bug being fixed. It is NOT a secrets
+  // grant — the token only unlocks /api/files + /api/docs scoped to this card's
+  // workspace; the broker/needs-secret routes still require `session_secret_access`.
+  const kbAccess = sessionKbAccessEnabled()
+  if (!stamps && !secretAccess && !kbAccess) return
+  // Mandatory whenever a derived token exists: a session holding JWT_SECRET
+  // could mint its own token for ANY workspace and defeat the scoping entirely.
   stripServerSigningSecrets(env)
   env.CC_STRIP_SIGNING_SECRETS = '1'
-  if (secretAccess) {
+  if (secretAccess || kbAccess) {
     try {
       env.CC_OBJECTIVE_ID = String(objective.id)
       env.CC_SESSION_TOKEN = mintSessionToken({

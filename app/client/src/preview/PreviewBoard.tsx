@@ -29,8 +29,10 @@ import {
   saveProjectSelection,
   type ProjectSelection,
 } from '../lib/projectFilter'
-import { useProjects } from '../hooks/useProjects'
+import { useProjects, ALL_ORGS } from '../hooks/useProjects'
+import { useWorkspaces, invalidateWorkspacesCache } from '../hooks/useWorkspaces'
 import { ProjectFilterBar } from '../components/ProjectFilterBar'
+import { WorkspaceFilterBar } from '../components/WorkspaceFilterBar'
 import { api } from '../lib/api'
 import { STATUS_META } from '../components/design/primitives'
 import { SessionViewer } from '../components/SessionViewer'
@@ -38,7 +40,16 @@ import { ObjectiveModal } from '../components/ObjectiveModal'
 import { ObjectiveSearchPanel } from '../components/ObjectiveSearchPanel'
 import { PreviewCard } from './PreviewCard'
 
-export function PreviewBoard({ workspaces }: { workspaces: Workspace[] }) {
+interface PreviewBoardProps {
+  /** Selected org slugs. Empty = All organizations. */
+  workspaces: Workspace[]
+  /** Lets the on-board org filter drive the same selection the top bar does.
+   *  Optional so existing render sites (tests, storybook) keep working — the
+   *  org row simply becomes read-only without it. */
+  onWorkspacesChange?: (next: Workspace[]) => void
+}
+
+export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardProps) {
   const {
     objectives, loading, error, changeStatus, connectionState,
     createObjective, updateObjective, deleteObjective,
@@ -81,9 +92,15 @@ export function PreviewBoard({ workspaces }: { workspaces: Workspace[] }) {
   // which is also what makes it reset on an org switch: the new org reads its
   // own (usually empty) slot and falls back to All projects.
   const projectWorkspace = effectiveOrg
+  // obj 900197: the project row used to vanish whenever the board spanned more
+  // than one org (`projectWorkspace` null), which is the default
+  // All-Organizations view — so most of the time there was no project filter at
+  // all. Now the scope follows the board: one org → that org, a multi-select →
+  // those orgs, All → every org the caller can access.
+  const projectScope = projectWorkspace ?? (workspaces.length > 0 ? workspaces : ALL_ORGS)
   const {
     projects, refresh: refreshProjects, createProject, renameProject, deleteProject,
-  } = useProjects(projectWorkspace)
+  } = useProjects(projectScope)
   const [projectSel, setProjectSel] = useState<ProjectSelection>(
     () => loadProjectSelection(wsKey || 'all') ?? ALL_PROJECTS
   )
@@ -114,6 +131,28 @@ export function PreviewBoard({ workspaces }: { workspaces: Workspace[] }) {
     if (projects.length === 0) return
     if (!projects.some(p => p.id === projectSel)) selectProject(ALL_PROJECTS)
   }, [projects, projectSel, selectProject])
+
+  // ── Organization filter row (obj 900197) ────────────────────────────────
+  // Admins see every active org; a member sees only the ones they belong to.
+  const { workspaces: orgRecords, loading: orgsLoading, refresh: refreshOrgs, shortOf: orgShortOf } =
+    useWorkspaces()
+  const isAdmin = user?.role === 'admin'
+  const orgOptions = useMemo(() => {
+    const memberSlugs = new Set((user?.workspaces ?? []).map(w => w.workspace))
+    return orgRecords
+      .filter(w => isAdmin || memberSlugs.has(w.slug))
+      .map(w => ({ slug: w.slug, label: w.name || w.slug }))
+  }, [orgRecords, isAdmin, user?.workspaces])
+  const createOrg = useCallback(async (name: string, slug: string) => {
+    await api.post('/admin/workspaces', { slug, name })
+    // The hook caches the roster process-wide, so a fresh org is invisible
+    // until the cache is dropped.
+    invalidateWorkspacesCache()
+    await refreshOrgs()
+  }, [refreshOrgs])
+  const changeOrgs = useCallback((next: string[]) => {
+    onWorkspacesChange?.(next as Workspace[])
+  }, [onWorkspacesChange])
 
   const toggleAssignee = useCallback((token: string) => {
     setAssigneeSel(prev => {
@@ -286,19 +325,30 @@ export function PreviewBoard({ workspaces }: { workspaces: Workspace[] }) {
           </button>
         </div>
       </div>
-      {/* Project (org subfolder) picker — hidden for All / multi-org, where a
-          project has nothing to scope. Also the create/rename/delete surface. */}
-      {projectWorkspace && (
-        <ProjectFilterBar
-          projects={projects}
-          selection={projectSel}
-          onSelect={selectProject}
-          workspace={projectWorkspace}
-          onCreate={createProject}
-          onRename={renameProject}
-          onDelete={deleteProject}
-        />
-      )}
+      {/* Organization filter — always on the board, so segmenting by org never
+          depends on finding a dropdown in the top bar (obj 900197). */}
+      <WorkspaceFilterBar
+        organizations={orgOptions}
+        selected={workspaces}
+        onChange={changeOrgs}
+        canCreate={!!isAdmin && !!onWorkspacesChange}
+        onCreate={createOrg}
+        loading={orgsLoading}
+      />
+      {/* Project (org subfolder) picker — also the create/rename/delete
+          surface. In a cross-org view each chip carries its org and the create
+          form gains an org picker, so "New project" works from any view. */}
+      <ProjectFilterBar
+        projects={projects}
+        selection={projectSel}
+        onSelect={selectProject}
+        workspace={projectWorkspace}
+        orgOptions={orgOptions}
+        orgLabelOf={orgShortOf}
+        onCreate={(name, ws) => createProject(name, ws ? { workspace: ws } : undefined)}
+        onRename={renameProject}
+        onDelete={deleteProject}
+      />
       <div className="flex items-center gap-2 overflow-x-auto border-b border-line px-4 py-2">
         <span className="shrink-0 text-[11px] font-medium uppercase tracking-[0.1em] text-fg-3">Owner</span>
         <div className="flex shrink-0 items-center gap-1">

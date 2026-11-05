@@ -23,6 +23,10 @@ const ALLOWED_CONTACT_DIRS = [
   'contacts',
   'personal/contacts',
   'workspaces/example/contacts',
+  // obj 900206: 'example' is being folded into 'your-org'. BOTH are listed so
+  // the surface works before, during and after the vault fold — the pre-merge
+  // tree still exists on disk and the post-merge one is where new writes land.
+  'workspaces/your-org/contacts',
   'workspaces/example-project/contacts',
   'workspaces/operator/contacts',
   'workspaces/personal/contacts',
@@ -103,6 +107,7 @@ function frontmatterDirsForWorkspace(ws: string): string {
   switch (ws) {
     case 'personal': return 'personal/contacts'
     case 'example': return 'workspaces/example/contacts'
+    case 'your-org': return 'workspaces/your-org/contacts'
     case 'example-project': return 'workspaces/example-project/contacts'
     case 'operator': return 'workspaces/operator/contacts'
     case 'example2': return 'workspaces/example2/contacts'

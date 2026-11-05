@@ -514,7 +514,7 @@ export function KanbanBoard({ workspaces }: KanbanBoardProps) {
           selection={projectSel}
           onSelect={selectProject}
           workspace={projectWorkspace}
-          onCreate={createProject}
+          onCreate={(name, ws) => createProject(name, ws ? { workspace: ws } : undefined)}
           onRename={renameProject}
           onDelete={deleteProject}
         />

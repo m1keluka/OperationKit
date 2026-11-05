@@ -13,6 +13,12 @@ import type { Objective } from '@operationkit/shared'
 // server acting for that owner (services/connector-guard.ts).
 const SERVER_ACTOR = { kind: 'server' as const }
 
+// obj 900204: `session_kb_access` defaults ON and adds CC_SESSION_TOKEN /
+// CC_OBJECTIVE_ID / CC_STRIP_SIGNING_SECRETS to the spawn env. The base-block
+// no-regression cases below are about the LEGACY block, so pin it off here and
+// cover the default-ON shape in its own describe at the bottom of this file.
+process.env.CC_SESSION_KB_ACCESS = '0'
+
 // obj-2202 / onboarding gate B1–B4 — spawn-env scoping refactor.
 //
 // THE load-bearing guarantee: with both scoping flags OFF (the committed default)
@@ -239,5 +245,44 @@ describe('buildSpawnEnv — flags ON cutover behavior (member scoped, admin unch
     const env = sm.buildSpawnEnv({ objective: obj, homeDir: '/home/ccuser-a', sessionKind: 'worker', isAdminSpawn: true })
     expect(env.DOPPLER_TOKEN).toBeUndefined()
     expect(env.SUPABASE_ACCESS_TOKEN).toBe('org-supabase-token-xyz')
+  })
+})
+
+// ── obj 900204 — knowledge-base access rides on the spawn env ───────────────
+
+describe('buildSpawnEnv — session_kb_access (obj 900204)', () => {
+  afterEach(() => { process.env.CC_SESSION_KB_ACCESS = '0' })
+
+  it('ON: adds exactly the objective-scoped token keys, and drops the signing keys', async () => {
+    const { verifySessionToken } = await import('../lib/session-trust.js')
+    process.env.CC_SESSION_KB_ACCESS = '1'
+    const on = buildSpawnEnv({ objective: fakeObjective(), homeDir: '/home/ccuser-a', sessionKind: 'worker', isAdminSpawn: true })
+    process.env.CC_SESSION_KB_ACCESS = '0'
+    const base = buildSpawnEnv({ objective: fakeObjective(), homeDir: '/home/ccuser-a', sessionKind: 'worker', isAdminSpawn: true })
+
+    const added = Object.keys(on).filter(k => !(k in base))
+    expect(added.sort()).toEqual(['CC_OBJECTIVE_ID', 'CC_SESSION_TOKEN', 'CC_STRIP_SIGNING_SECRETS'])
+    expect(on.CC_OBJECTIVE_ID).toBe('42')
+    expect(verifySessionToken(on.CC_SESSION_TOKEN)).toMatchObject({ objectiveId: 42, workspace: 'example' })
+    // A session that still held the signing key could mint a token for ANY
+    // workspace, so the scope only holds while these are absent.
+    expect(on.JWT_SECRET).toBeUndefined()
+    expect(on.CC_JWT_SECRET).toBeUndefined()
+  })
+
+  it('the token is scoped to THIS card, so two cards never share one', async () => {
+    const { verifySessionToken } = await import('../lib/session-trust.js')
+    process.env.CC_SESSION_KB_ACCESS = '1'
+    const a = buildSpawnEnv({ objective: fakeObjective({ id: 1, workspace: 'example' }), homeDir: '/h', sessionKind: 'worker', isAdminSpawn: true })
+    const b = buildSpawnEnv({ objective: fakeObjective({ id: 2, workspace: 'example2' }), homeDir: '/h', sessionKind: 'worker', isAdminSpawn: true })
+    expect(verifySessionToken(a.CC_SESSION_TOKEN)).toMatchObject({ objectiveId: 1, workspace: 'example' })
+    expect(verifySessionToken(b.CC_SESSION_TOKEN)).toMatchObject({ objectiveId: 2, workspace: 'example2' })
+  })
+
+  it('OFF: the spawn env is exactly what it was before this card', () => {
+    const env = buildSpawnEnv({ objective: fakeObjective(), homeDir: '/home/ccuser-a', sessionKind: 'worker', isAdminSpawn: true })
+    expect(env.CC_SESSION_TOKEN).toBeUndefined()
+    expect(env.CC_OBJECTIVE_ID).toBeUndefined()
+    expect(env.CC_STRIP_SIGNING_SECRETS).toBeUndefined()
   })
 })
