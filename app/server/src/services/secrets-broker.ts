@@ -22,6 +22,7 @@
  */
 import { getDb } from '../db/index.js'
 import { decryptSecret } from './secrets-crypto.js'
+import { isServerOnlySecretKey } from './secrets-store.js'
 import { redactText } from './secret-redaction.js'
 import { isSeatSecretKey } from './secrets-store.js'
 
@@ -134,6 +135,7 @@ export function listForCaller(caller: Caller, opts: { workspace?: string } = {})
     .all() as Row[]
   return rows
     .filter(r => !isSeatSecretKey(r.key)) // seat credentials never go through the broker
+    .filter(r => !isServerOnlySecretKey(r.key))
     .filter(r => visibleTo(r, caller, policy))
     .filter(r => !opts.workspace || r.workspace === opts.workspace || r.scope_type === 'global' || r.scope_type === 'user')
     .map(r => {
@@ -157,6 +159,7 @@ const SPECIFICITY: Record<Row['scope_type'], number> = { global: 0, workspace: 1
  * optionally pinned to one workspace. Returns the plaintext ONLY to executeHttp.
  */
 function resolveForUse(name: string, caller: Caller, policy: BrokerPolicy, workspace?: string): { value: string; scope: string; workspace: string | null } | null {
+  if (isServerOnlySecretKey(name)) return null
   const rows = (getDb()
     .prepare('SELECT key, scope_type, workspace, user_id, value_encrypted FROM secrets WHERE key = ?')
     .all(name) as Row[])

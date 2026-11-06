@@ -348,6 +348,27 @@ nobody is assigned, the person who created it. Their token is handed to the sess
 Without one, the session falls back to the install's shared bot identity, if there is one; on a fresh
 install there is none, so pushing fails.
 
+**One connection covers chat and coding.** The GitHub connection in Settings → Connectors is the
+same credential chat agents use; coding and sandboxed (jail) sessions get it too, as `GH_TOKEN` /
+`GITHUB_TOKEN`, with a git credential helper set in the session env so plain `git push` over https
+works without any per-checkout setup. You do **not** need a separate `GH_TOKEN` in Settings → Secrets.
+A `GH_TOKEN` secret is still honoured as an **optional override** (for example a bot token for one
+workspace): when present it wins over the connection.
+
+Who the session acts for, and when the connection is withheld:
+
+- **Child cards** (fan-out workers, delegated sub-cards created through `POST /api/internal/objectives`)
+  inherit the parent's owner and, if the parent was filed by an API key, that key's connector limits.
+  A child filed into a different workspace than its parent gets no owner, so no token crosses
+  workspaces.
+- **Cards filed by an API key** reach GitHub only if that key's connector list includes GitHub
+  (Settings → API keys).
+- **Cards assigned to you by someone else** use your GitHub only if you allowed it in
+  Settings → Connectors → GitHub ("allow on work assigned by others").
+
+Every session's prompt states which of these applies, so a card that cannot reach GitHub names the
+setting to change instead of asking for a secret.
+
 1. On GitHub: *Settings → Developer settings → Personal access tokens*. Prefer a **fine-grained**
    token: *Repository access*: **only the repositories** the agents should work in;
    *Permissions*: **Contents: Read and write** and **Pull requests: Read and write**. Set an

@@ -12,6 +12,7 @@ import { resolveObjectiveModel } from '../services/model-registry.js'
 import type { Objective } from '@operationkit/shared'
 import { hasValidObjectivesToken } from '../middleware/objectives-token.js'
 import { depthForParent } from '../lib/objective-depth.js'
+import { inheritedOwnership } from '../lib/objective-ownership.js'
 import { getEffectiveGateMode, isRegisteredFrontendRepo, criteriaHaveUiBar, buildDsConformanceCriteria, repoHasE2eSuite, criteriaHaveQaBar, buildQaConformanceCriteria } from '../services/design-context.js'
 import { isBlockedRegistryEnabled, isBlockedRegistryKilled, findBlockingRule } from '../services/governance.js'
 import {
@@ -363,8 +364,8 @@ router.post('/objectives', async (req, res) => {
     // below), so both fell through to their `NOT NULL DEFAULT 0` column
     // definitions no matter what the caller posted. Boolean->integer coercion
     // mirrors the authenticated sibling route (objectives.ts `create_pr ? 1 : 0`).
-    `INSERT INTO objectives (title, description, agent_context, workspace, project, project_id, category, parent_id, depth, completion_goal, workflow_hint, effort, model, type, acceptance_criteria, source_job_id, origin, strategy_id, create_pr, delegate_mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO objectives (title, description, agent_context, workspace, project, project_id, category, parent_id, depth, completion_goal, workflow_hint, effort, model, type, acceptance_criteria, source_job_id, origin, strategy_id, create_pr, delegate_mode, created_by, assigned_user_id, agent_key_id, agent_key_label)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
 
   // ── KL-11 blocked-combos registry (obj-2509) ─────────────────────────────
@@ -508,6 +509,9 @@ router.post('/objectives', async (req, res) => {
         const parentRow = db.prepare('SELECT project_id FROM objectives WHERE id = ?').get(item.parent_id) as { project_id: number | null } | undefined
         itemProjectId = parentRow?.project_id ?? null
       }
+      // obj 900208 — a child acts for its parent's owner (and under its key's
+      // connector limits) so it gets the same GitHub connection. See lib/objective-ownership.ts.
+      const owner = inheritedOwnership(db, item.parent_id ?? null, itemWorkspace)
       const result = insert.run(
         item.title.trim(),
         item.description || '',
@@ -539,6 +543,10 @@ router.post('/objectives', async (req, res) => {
         // delegator is legitimate and ungated. Until now the guard ran, allowed
         // the row, and then threw the value away.
         item.delegate_mode ? 1 : 0,
+        owner.created_by,
+        owner.assigned_user_id,
+        owner.agent_key_id,
+        owner.agent_key_label,
       )
       created.push({ id: result.lastInsertRowid as number, title: item.title.trim() })
       if (forcedOverId != null) {

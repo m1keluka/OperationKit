@@ -447,6 +447,17 @@ export function rollbackSecret(
 
 // ── Scoped resolution (the injection primitive W3 consumes) ────────────────────
 
+/**
+ * obj 719278: keys the SERVER uses on a user's behalf and no session may hold —
+ * an agent key's webhook sender key would let a session forge "card changed"
+ * calls to the owner's bot. Kept in the store (encrypted, versioned, masked in
+ * Settings → Secrets) but never resolved into a spawn env or the broker.
+ */
+export const SERVER_ONLY_SECRET_PREFIX = 'CC_AGENT_WEBHOOK_KEY_'
+export function isServerOnlySecretKey(key: string): boolean {
+  return key.startsWith(SERVER_ONLY_SECRET_PREFIX)
+}
+
 export interface ResolveOptions {
   workspace?: string | null
   userId?: number | null
@@ -514,6 +525,7 @@ export function resolveSecrets(opts: ResolveOptions = {}): Record<string, string
     if (isSeatSecretKey(r.key)) continue
     // Server-process credentials are not an agent's to hold.
     if (!opts.includeServiceOnly && Number(r.service_only) > 0) continue
+    if (isServerOnlySecretKey(r.key)) continue
     const cur = winners.get(r.key)
     if (!cur || PRECEDENCE[r.scope_type] >= PRECEDENCE[cur.scope_type]) {
       winners.set(r.key, r)
@@ -554,6 +566,7 @@ export function resolveSecretNames(opts: { workspace?: string | null; userId?: n
     .filter(r => Number(r.service_only) === 0)
     .map(r => r.key)
     .filter(k => !isSeatSecretKey(k))
+    .filter(k => !isServerOnlySecretKey(k))
 }
 
 /**

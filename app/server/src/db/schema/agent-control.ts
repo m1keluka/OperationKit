@@ -98,6 +98,30 @@ export function initAgentControlSchema(db: Database.Database): void {
       VALUES (NEW.id, NEW.workspace, 'session_ended', substr(NEW.last_session_summary, 1, 400));
     END;
 
+    -- obj 719278: a worker asked for a secret (the request list GREW — clearing
+    -- one of two names is not a new ask). Names live on the card; no value ever does.
+    CREATE TRIGGER IF NOT EXISTS trg_objective_events_needs_secret
+    AFTER UPDATE OF needs_secret ON objectives
+    WHEN json_valid(COALESCE(NEW.needs_secret, '[]'))
+     AND json_valid(COALESCE(OLD.needs_secret, '[]'))
+     AND json_array_length(COALESCE(NEW.needs_secret, '[]')) > json_array_length(COALESCE(OLD.needs_secret, '[]'))
+    BEGIN
+      INSERT INTO objective_events (objective_id, workspace, kind, to_value)
+      VALUES (NEW.id, NEW.workspace, 'needs_secret', CAST(json_array_length(NEW.needs_secret) AS TEXT));
+    END;
+
+    -- obj 719278: a blocker was raised. Skipped when the SAME update parks the
+    -- card with verdict 'blocked' (delegator backstop) — the verdict event
+    -- already reports that move, so it is not counted twice.
+    CREATE TRIGGER IF NOT EXISTS trg_objective_events_blocker
+    AFTER UPDATE OF has_blockers ON objectives
+    WHEN COALESCE(NEW.has_blockers, 0) > 0 AND COALESCE(OLD.has_blockers, 0) = 0
+     AND NOT (NEW.ai_review_verdict IS 'blocked' AND OLD.ai_review_verdict IS NOT 'blocked')
+    BEGIN
+      INSERT INTO objective_events (objective_id, workspace, kind)
+      VALUES (NEW.id, NEW.workspace, 'blocked');
+    END;
+
     CREATE TRIGGER IF NOT EXISTS trg_objective_events_soft_delete
     AFTER UPDATE OF deleted_at ON objectives
     WHEN NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL
