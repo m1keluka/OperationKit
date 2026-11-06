@@ -15,8 +15,10 @@ import {
 } from '../config.js'
 import { getDecryptedForUser, getForUser } from './user-github-tokens.js'
 import {
+  canUseConnectorCredential,
   checkConnectorCredential,
   type ConnectorActor,
+  type ConnectorDenyReason,
 } from './connector-guard.js'
 import { CONNECTOR_ID as GITHUB_CONNECTOR } from './user-github-tokens.js'
 import { CONNECTOR_ID as GOOGLE_CONNECTOR } from './user-google-connections.js'
@@ -468,9 +470,80 @@ export function buildSpawnEnv(opts: {
   // unauthorized_client. A connected user's grant must win as one unit.
   if (googleEnv.GOOGLE_WORKSPACE_CONNECTION === 'user') Object.assign(env, googleEnv)
 
+  // obj 900208 — `git push` over https with the GitHub connection. GH_TOKEN alone
+  // only authenticates `gh`; plain git asks a credential helper, and a session
+  // (above all a jailed one, whose checkout carries no repo-local helper) has
+  // none, so the push died with "could not read Username" and the worker asked
+  // for a GH_TOKEN secret it was already holding. Applied AFTER the secrets
+  // store so a Settings → Secrets GH_TOKEN override is used the same way.
+  Object.assign(env, githubPushHelperEnv(env))
+
   applySessionTrustEnv(env, objective, actingUserId)
 
   return env
+}
+
+/** git config key for the github.com https credential helper (obj 900208). */
+export const GITHUB_HELPER_CONFIG_KEY = 'credential.https://github.com.helper'
+/** `gh` answers git's credential `get` from GH_TOKEN / GITHUB_TOKEN in its env.
+ *  Deliberately contains no `$`: the tmux wrapper exports values inside double
+ *  quotes, which would expand a shell variable at export time. The token itself
+ *  is never written into git config or onto disk — `gh` reads it from the env. */
+export const GITHUB_HELPER_CONFIG_VALUE = '!gh auth git-credential'
+
+/**
+ * Env-scoped git config that lets plain `git push/fetch` to github.com use the
+ * session's GitHub token. Only when one is present; {} otherwise, so a spawn
+ * with no GitHub token is unchanged. Uses GIT_CONFIG_COUNT/KEY_n/VALUE_n
+ * (git ≥ 2.31), the env equivalent of `git -c`, so nothing is written to the
+ * session's HOME or the checkout. Appends after any GIT_CONFIG_* already set.
+ */
+export function githubPushHelperEnv(env: Record<string, string>): Record<string, string> {
+  if (!env.GH_TOKEN && !env.GITHUB_TOKEN) return {}
+  const existing = Number.parseInt(env.GIT_CONFIG_COUNT || '0', 10)
+  const n = Number.isFinite(existing) && existing > 0 ? existing : 0
+  return {
+    GIT_CONFIG_COUNT: String(n + 1),
+    [`GIT_CONFIG_KEY_${n}`]: GITHUB_HELPER_CONFIG_KEY,
+    [`GIT_CONFIG_VALUE_${n}`]: GITHUB_HELPER_CONFIG_VALUE,
+  }
+}
+
+/** Why a session does or does not hold its owner's GitHub connection. */
+export type GithubSessionAccess =
+  | { state: 'connected'; login: string; ownerUserId: number }
+  | {
+      state: 'unavailable'
+      reason: ConnectorDenyReason | 'not_connected'
+      ownerUserId: number | null
+      keyLabel: string | null
+    }
+
+/**
+ * The same decision buildSpawnEnv makes for the GitHub connector, as a value
+ * the prompt can explain (obj 900208). PURE: uses the non-auditing
+ * canUseConnectorCredential (buildSpawnEnv already audits the real read), reads
+ * only the masked summary (never decrypts), and never throws.
+ */
+export function githubSessionAccess(objective: Objective): GithubSessionAccess {
+  const ownerUserId = resolveActingUserId(objective)
+  const keyLabel = (objective as { agent_key_label?: string | null }).agent_key_label ?? null
+  try {
+    const actor = spawnActor(objective, ownerUserId)
+    const decision = canUseConnectorCredential({
+      connectorId: GITHUB_CONNECTOR,
+      ownerUserId,
+      actor,
+      use: { agent: objective.agent_context, workspace: objective.workspace },
+      delegated: isDelegatedCard(objective),
+    })
+    if (!decision.allowed) return { state: 'unavailable', reason: decision.reason, ownerUserId, keyLabel }
+    const summary = ownerUserId != null ? getForUser(ownerUserId) : null
+    if (!summary || !summary.github_login) return { state: 'unavailable', reason: 'not_connected', ownerUserId, keyLabel }
+    return { state: 'connected', login: summary.github_login, ownerUserId: ownerUserId as number }
+  } catch {
+    return { state: 'unavailable', reason: 'not_connected', ownerUserId, keyLabel }
+  }
 }
 
 /**

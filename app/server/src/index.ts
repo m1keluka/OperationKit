@@ -11,6 +11,8 @@ import { startPoller } from './services/state-poller.js'
 import { logPreviewSpoolHealth } from './services/preview-spool.js'
 import authRouter from './routes/auth.js'
 import brandingRouter from './routes/branding.js'
+import agentKeyWebhooksRouter from './routes/agent-key-webhooks.js'
+import { startAgentWebhooks } from './services/agent-webhooks.js'
 import { agentKeyGuard } from './middleware/agent-key-guard.js'
 import objectivesRouter from './routes/objectives.js'
 import needsSecretRouter from './routes/objective-needs-secret.js'
@@ -203,6 +205,7 @@ app.use(agentKeyGuard)
 
 // API routes
 app.use('/api/auth', authRouter)
+app.use('/api/auth/agent-keys', agentKeyWebhooksRouter)  // obj 719278: per-key outbound webhook config, test, delivery log
 app.use('/api/llm/v1', createLlmGatewayRouter())  // OpenAI-compatible LLM gateway on pool accounts (bearer TWENTY_LLM_GATEWAY_KEY, not CC auth; obj 713794)
 app.use('/api/objectives/search', objectivesSearchRouter)  // server-side objective search (keyword+fuzzy + AI); before objectivesRouter so /search isn't captured by GET /:id (obj 702388)
 app.use('/api/secret-upload', secretUploadRouter)  // obj 719065: one-time write-only upload (token is the capability; no login)
@@ -457,6 +460,9 @@ startDevFeedbackBridge()
 startDriftGuard()
 // Objectives blast-radius safety net (15-min snapshots + 60s drop-guard). See objectives-safety.ts.
 startObjectivesSafety()
+// Agent-key webhooks (obj 719278, 5s tick): objective_events → signed POST to the
+// managing bot's URL, with retries. Off the card write path — never blocks a move.
+startAgentWebhooks()
 
 // PR-health watchdog (obj 704700, 10-min sweep). The RECONCILER under the event-driven
 // remediation loop: enumerates every open PR across the tracked repos and guarantees a

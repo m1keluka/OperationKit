@@ -105,6 +105,13 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
     }
   }
 
+  // obj 719278: a card an agent key STARTS is that key's card from here on (if no
+  // key created it), so its webhook is woken for the moves that follow.
+  if (status === 'working' && req.agentKey) {
+    db.prepare('UPDATE objectives SET agent_key_id = ?, agent_key_label = ? WHERE id = ? AND agent_key_id IS NULL')
+      .run(req.agentKey.id, req.agentKey.label, existing.id)
+  }
+
   // Handle session lifecycle
   try {
     const startsFromReviewLike =

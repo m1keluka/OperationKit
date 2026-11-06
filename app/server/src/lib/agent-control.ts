@@ -94,6 +94,10 @@ export type ChangeType =
   | 'pr_merged'
   | 'pr_closed'
   | 'deleted'
+  /** obj 719278: a worker asked for a secret (names only, on the card). */
+  | 'needs_secret'
+  /** obj 719278: a blocker was raised on the card. */
+  | 'blocked'
 
 export interface ChangeEvent {
   cursor: string

@@ -27,6 +27,7 @@ import { initAgentKeysSchema } from './schema/agent-keys.js'
 import { initNeedsSecretSchema, initSecretRotationFlagsSchema, initSecretUploadTokensSchema } from './schema/needs-secret.js'
 import { initAgentControlSchema } from './schema/agent-control.js'
 import { initAgentChatSchema } from './schema/agent-chat.js'
+import { initAgentWebhooksSchema } from './schema/agent-webhooks.js'
 import { installWriteScrubber } from './write-scrubber.js'
 import { redactForStorage } from '../services/secret-redaction.js'
 
@@ -1045,6 +1046,8 @@ export function initDb(): Database.Database {
   // triggers attach to the final objectives / objective_prs shape.
   initAgentControlSchema(db)
   initAgentChatSchema(db)
+  // Agent-key webhooks outbox (obj 719278) — reads objective_events, so after it.
+  initAgentWebhooksSchema(db)
   // ── Secret scrubbing on persistence (obj 715532) ──────────────────────────
   // Installed LAST so migrations above run unwrapped. From here on, writes to
   // activity_log / objectives / session_events / … have known secret values and

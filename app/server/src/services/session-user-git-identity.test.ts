@@ -139,7 +139,9 @@ describe('buildSpawnEnv — attribution rides on the spawn env, flags OFF (decou
     // the linked side loses its 6 per-user keys, the unlinked side loses its 4
     // fallback keys, and what remains is byte-identical.
     const unlinked = buildSpawnEnv({ objective: objectiveOwnedBy(8), homeDir: '/home/ccuser-a', sessionKind: 'worker' })
-    const perUser = ['GH_TOKEN', 'GITHUB_TOKEN', 'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'CC_ACTING_USER_ID', 'WORKSPACE_MCP_CREDENTIALS_DIR']
+    // obj 900208: a linked owner's spawn also carries the env-scoped github.com
+    // https credential helper (GIT_CONFIG_*), so plain `git push` uses the token.
+    const perUser = ['GH_TOKEN', 'GITHUB_TOKEN', 'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'CC_ACTING_USER_ID', 'WORKSPACE_MCP_CREDENTIALS_DIR', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']
     const fallbackKeys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'CC_ACTING_USER_ID', 'WORKSPACE_MCP_CREDENTIALS_DIR']
     const strippedLinked = { ...linked }
     for (const k of perUser) delete strippedLinked[k]

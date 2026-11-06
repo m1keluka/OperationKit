@@ -8,6 +8,7 @@
 import { useNavigate } from '../context/nav'
 import { ApiKeySection } from './account-settings/ApiKeySection'
 import { AgentKeysSection } from './account-settings/AgentKeysSection'
+import { AgentWebhooksSection } from './account-settings/AgentWebhooksSection'
 import { MySecretsSection } from './account-settings/MySecretsSection'
 
 function ConnectorsPointer() {
@@ -46,6 +47,8 @@ export function AccountSettings({ embedded = false }: { embedded?: boolean }) {
         <ApiKeySection />
 
         <AgentKeysSection />
+
+        <AgentWebhooksSection />
 
         <ConnectorsPointer />
 

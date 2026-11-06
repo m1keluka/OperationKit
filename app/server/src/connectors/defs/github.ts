@@ -48,7 +48,7 @@ const github: ConnectorDefinition = {
   name: 'GitHub',
   order: 10,
   description:
-    'Lets agents open pull requests and push code as you, so the work is credited to your GitHub account.',
+    'Lets agents — in chat and on coding cards — open pull requests and push code as you, so the work is credited to your GitHub account. No separate GH_TOKEN secret is needed.',
   products: [
     { id: 'repos', name: 'Repositories', description: 'Read and change code in the repositories the token can reach.' },
     { id: 'pull-requests', name: 'Pull requests', description: 'Open and update pull requests under your name.' },

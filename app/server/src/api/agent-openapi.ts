@@ -406,7 +406,7 @@ export const AGENT_OPENAPI = {
           workspace: { type: ['string', 'null'] },
           type: {
             type: 'string',
-            enum: ['created', 'status', 'entered_review', 'verdict', 'session_ended', 'pr_opened', 'pr_merged', 'pr_closed', 'deleted'],
+            enum: ['created', 'status', 'entered_review', 'verdict', 'session_ended', 'pr_opened', 'pr_merged', 'pr_closed', 'deleted', 'needs_secret', 'blocked'],
             description: 'entered_review = moved into review (Needs You). verdict = AI review landed (to=pass|fail).',
           },
           from: { type: 'string' },

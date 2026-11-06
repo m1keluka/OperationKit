@@ -211,7 +211,8 @@ Fan-out creates the children through `POST /api/internal/objectives` (every dele
 
 - `type`: `created` · `status` (`from`/`to`) · `entered_review` (moved into **Needs You**) · `verdict` (AI review landed,
   `to` = pass/fail, `detail` = first line of findings) · `session_ended` (`detail` = first line of the summary) ·
-  `pr_opened` / `pr_merged` / `pr_closed` (`detail` = PR URL) · `deleted`.
+  `pr_opened` / `pr_merged` / `pr_closed` (`detail` = PR URL) · `deleted` · `needs_secret` (the worker asked for a
+  secret; `to` = how many names are pending — names via `get_attention`) · `blocked` (a blocker was raised).
 - The cursor is the event id: strictly increasing, never reused, no gaps or duplicates across pages. Always send back
   `next_cursor` — it advances even when `events` is empty (past rows you cannot see), so an idle poll is cheap.
 - Omit `since` on the very first call → the last 24h. `since=0` → everything retained (30 days).
@@ -236,6 +237,13 @@ Ordered most-urgent first: `failed_review` → `blocked` → `review` → `stuck
 Titles ≤70 chars, `why` one line ≤140 chars. `counts` are complete even when `items` is truncated. Without `?workspace=`,
 each item carries `ws`. Needs `board:read`; a pinned key's items and counts cover only its workspaces. A typical
 workspace is about 1–4 KB, against tens to hundreds of KB for `/api/briefing/briefing` + `/api/objectives`.
+
+### Push instead of poll: agent-key webhooks + the `needs_agent` wake
+
+An agent key can have one outbound webhook (Settings → You → Agent webhooks): Command Center POSTs a small JSON
+event to the bot when a card that key owns changes (signed, retried, deduped by `event_id`). The `needs_agent` event
+(pilot, **General key only**) wakes the bot once when its card actually needs it (blocked, failed review,
+waiting on a Mike decision) instead of on every move. Setup, payload and rules: [bots/cos-card-wake.md](./bots/cos-card-wake.md).
 
 ### `Idempotency-Key` header — `POST /api/objectives`, `POST /api/objectives/:id/message`
 

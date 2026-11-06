@@ -699,3 +699,132 @@ export interface ApiError {
   error: string
 }
 
+
+// ── Agent-key webhooks (obj 719278) ──────────────────────────────────────────
+
+/** Event types an agent key's webhook can be sent. One per card change. */
+export const AGENT_WEBHOOK_EVENTS = [
+  'created',
+  'working',
+  'pr_opened',
+  'ai_review',
+  'entered_review',
+  'needs_secret',
+  'failed',
+  'stalled',
+  'done',
+  'cancelled',
+  'merged',
+  'pr_closed',
+  'status_changed',
+  'needs_agent',
+] as const
+export type AgentWebhookEvent = (typeof AGENT_WEBHOOK_EVENTS)[number]
+
+/** What a new webhook subscribes to until the owner changes it. */
+export const DEFAULT_AGENT_WEBHOOK_EVENTS: AgentWebhookEvent[] = [
+  'pr_opened',
+  'ai_review',
+  'entered_review',
+  'needs_secret',
+  'failed',
+  'stalled',
+  'done',
+]
+
+export const AGENT_WEBHOOK_EVENT_DESCRIPTIONS: Record<AgentWebhookEvent, string> = {
+  created: 'Card created',
+  working: 'A session started (status → working)',
+  pr_opened: 'A PR was linked to the card',
+  ai_review: 'AI review passed (payload carries the verdict)',
+  entered_review: 'Moved to Needs You (review)',
+  needs_secret: 'The worker asked for a secret',
+  failed: 'AI review failed',
+  stalled: 'Blocked: backstop parked it, or a blocker was raised',
+  done: 'Signed off (status → done)',
+  cancelled: 'Cancelled',
+  merged: 'Its PR merged',
+  pr_closed: 'Its PR closed without merging',
+  status_changed: 'Any other status move (queue, planning, ai_review)',
+  needs_agent: 'Pilot (General key only): the card needs this agent — blocked, failed review, waiting on a Mike decision. Once per need, not per status move',
+}
+
+/**
+ * obj 900214 pilot: `needs_agent` may only be switched on for these agent keys
+ * (matched on the key label). General first; other bots after the pilot.
+ */
+export const NEEDS_AGENT_PILOT_KEY_LABELS: readonly string[] = ['Grok: General']
+
+export function isNeedsAgentPilotKey(label: string | null | undefined): boolean {
+  return !!label && NEEDS_AGENT_PILOT_KEY_LABELS.includes(label.trim())
+}
+
+/** Why a card needs its agent (most urgent first). Mirrors get_attention's kinds, minus the time-based `stuck`. */
+export type AgentNeedKind = 'needs_secret' | 'failed_review' | 'blocked' | 'review'
+/** The pilot's three buckets: blocked · waiting on the agent · a Grok-only action (a Mike decision). */
+export type AgentNeedCategory = 'blocked' | 'waiting_on_agent' | 'mike_decision'
+
+export interface AgentNeed {
+  kind: AgentNeedKind
+  category: AgentNeedCategory
+  /** One line built from card state only — never the description, a transcript, or a secret value. */
+  why: string
+}
+
+/** The JSON body POSTed to a webhook. No secret values, no transcript text. */
+export interface AgentWebhookPayload {
+  /** Stable per (card change, key) — use it to dedupe retries. */
+  event_id: string
+  event: AgentWebhookEvent
+  test?: boolean
+  objective: {
+    id: number
+    workspace: string | null
+    title: string | null
+    status: string | null
+    pr_url: string | null
+    url: string
+  }
+  /** Present on status moves. */
+  from_status?: string
+  /** Present on ai_review / failed / stalled-from-review. */
+  verdict?: string
+  /** event `needs_agent` only: why the card needs the agent. */
+  need?: AgentNeed
+  /** event `needs_agent` only: short status, e.g. "review · AI review fail". */
+  status_summary?: string
+  /** event `needs_agent` only: one line a Bot can act on without parsing ("Card #12 (example) needs General: …"). */
+  summary?: string
+  occurred_at: string
+  sent_at: string
+  agent_key: { id: number; label: string }
+}
+
+/** GET /api/auth/agent-keys/:id/webhook. The sender key itself is never returned. */
+export interface AgentWebhookConfig {
+  key_id: number
+  url: string
+  header_name: string
+  header_prefix: string
+  events: AgentWebhookEvent[]
+  enabled: boolean
+  /** true once a sender key is stored in Secrets (value never returned). */
+  has_secret: boolean
+  secret_name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentWebhookDelivery {
+  id: number
+  event_id: string
+  event: AgentWebhookEvent
+  objective_id: number | null
+  status: 'pending' | 'delivered' | 'failed'
+  attempts: number
+  last_status_code: number | null
+  last_error: string | null
+  next_attempt_at: string | null
+  created_at: string
+  delivered_at: string | null
+}

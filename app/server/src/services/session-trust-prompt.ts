@@ -28,7 +28,7 @@ import { SENDER_MARKER } from '../lib/message-provenance.js'
 import { SESSION_SECRET_ACCESS_FLAG, VERIFIED_SENDER_FLAG, readSettingFlag } from '../lib/session-trust.js'
 import { listForCaller } from './secrets-broker.js'
 import { resolveSecretNames } from './secrets-store.js'
-import { resolveActingUserId } from './session-spawn-env.js'
+import { githubSessionAccess, resolveActingUserId } from './session-spawn-env.js'
 
 const MAX_LISTED = 150
 
@@ -137,6 +137,7 @@ export function buildSecretsInventoryBlock(objective: Objective): string[] {
       )
     }
   }
+  lines.push('', ...buildGithubAccessLines(objective, available))
   lines.push(
     '',
     'How to use one:',
@@ -164,6 +165,46 @@ export function buildSecretsInventoryBlock(objective: Objective): string[] {
     )
   }
   return lines
+}
+
+/**
+ * GitHub access, stated outright (obj 900208).
+ *
+ * The connector token (Settings → Connectors → GitHub) reaches the session as
+ * GH_TOKEN/GITHUB_TOKEN, but it is not a Secrets-store row, so the name list
+ * above never showed it — and the rule "if a secret you need is NOT listed, name
+ * the variable" then sent coding cards to ask for a `GH_TOKEN` secret they were
+ * already holding (Example Project, 2026-11-05). When it really is missing, the
+ * fix is almost never a secret, so say which setting is.
+ */
+export function buildGithubAccessLines(objective: Objective, secretNames: Set<string>): string[] {
+  const head = '**GitHub (push + pull requests):**'
+  if (secretNames.has('GH_TOKEN') || secretNames.has('GITHUB_TOKEN')) {
+    return [
+      `${head} a \`GH_TOKEN\`/\`GITHUB_TOKEN\` secret from Settings → Secrets is set for this workspace and overrides any GitHub connection. It is in your env; \`gh pr create\` and \`git push\` over https use it (a git credential helper is pre-configured). Do not ask for another GitHub token.`,
+    ]
+  }
+  const access = githubSessionAccess(objective)
+  if (access.state === 'connected') {
+    return [
+      `${head} connected as \`${access.login}\` through the card owner's GitHub connection (Settings → Connectors). \`GH_TOKEN\` and \`GITHUB_TOKEN\` are already in your env even though they are not in the secrets list above. \`gh pr create\` and \`git push\` over https work as \`${access.login}\` (a git credential helper is pre-configured). Do NOT ask for a \`GH_TOKEN\` secret.`,
+    ]
+  }
+  const fix: Record<typeof access.reason, string> = {
+    no_owner:
+      'this card has no owner, so nobody\'s GitHub connection applies. Ask on the card for an owner to be assigned (the person whose GitHub should open the PR).',
+    not_connected:
+      'the card owner has not connected GitHub. The fix is Settings → Connectors → GitHub — one connection serves chat and coding sessions alike.',
+    key_connector: `this card was filed by the API key${access.keyLabel ? ` "${access.keyLabel}"` : ''}, which is not allowed to use GitHub. Its owner can add GitHub to that key in Settings → API keys.`,
+    delegated_card:
+      'this card was assigned to its owner by someone else, and the owner has not allowed GitHub on work assigned by others. The owner can turn that on in Settings → Connectors → GitHub.',
+    access_rule:
+      'the owner limited their GitHub connection to other agents or workspaces in Settings → Connectors → GitHub.',
+    cross_user: 'the GitHub connection belongs to someone else.',
+  }
+  return [
+    `${head} not available to this session — ${fix[access.reason]} When you report it, name THAT fix. A \`GH_TOKEN\` in Settings → Secrets is only an optional override, not the required path; do not ask for one first. (If \`gh auth status\` succeeds anyway, this install has a shared bot login configured and you may use it.)`,
+  ]
 }
 
 /** @deprecated Kept as the old name; the inventory is no longer flag-gated. */
