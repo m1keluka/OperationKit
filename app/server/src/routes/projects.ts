@@ -56,32 +56,72 @@ function canAccessWorkspace(req: AuthRequest, workspace: string): boolean {
 const router = Router()
 router.use(requireAuth)
 
-// GET /api/projects?workspace=<slug>[&include_archived=1]
-// Returns all projects in the workspace visible to the caller, with an
-// objective count per project (how many non-deleted objectives are associated).
+/**
+ * Resolve which workspaces a GET should cover.
+ *
+ * - `?workspace=example`               → that one org (classic single-org board).
+ * - `?workspace=example,operationkit`  → exactly those orgs.
+ * - omitted / empty / `all` / `*`   → EVERY org the caller can access.
+ *
+ * The cross-org form is what makes the board's project filter work in the
+ * "All Organizations" view (obj 900197). A project still belongs to exactly one
+ * org, but a board showing three orgs at once needs all three rosters to build
+ * its chip row. Returns `null` when a named slug is off-limits so the caller
+ * answers 403 rather than silently narrowing the result.
+ */
+function resolveScope(req: AuthRequest, raw: string | undefined): string[] | null | 'all' {
+  const requested = (raw ?? '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+  if (requested.length === 0 || requested.some(w => w === 'all' || w === '*')) return 'all'
+  if (requested.some(w => !canAccessWorkspace(req, w))) return null
+  return [...new Set(requested)]
+}
+
+// GET /api/projects[?workspace=<slug>[,<slug>…]][&include_archived=1]
+// Projects visible to the caller, with an objective count per project (how many
+// non-deleted objectives are associated). With no `workspace` (or `all`) this
+// spans every workspace the caller can access.
 router.get('/', (req: AuthRequest, res) => {
-  const workspace = req.query.workspace as string | undefined
-  if (!workspace) {
-    res.status(400).json({ error: 'workspace query param is required' })
-    return
-  }
-  if (!canAccessWorkspace(req, workspace)) {
-    res.status(403).json({ error: `No access to workspace '${workspace}'` })
+  const scope = resolveScope(req, req.query.workspace as string | undefined)
+  if (scope === null) {
+    res.status(403).json({ error: 'No access to one or more of the requested workspaces' })
     return
   }
   const includeArchived = req.query.include_archived === '1'
   const db = getDb()
+
+  // 'all' for an admin means "no workspace predicate". For a member it means
+  // "the orgs they belong to" — and an empty membership must return [], never
+  // the whole table, so the IN-list is built explicitly rather than skipped.
+  let where = ''
+  let params: string[] = []
+  if (scope !== 'all') {
+    where = `AND p.workspace IN (${scope.map(() => '?').join(', ')})`
+    params = scope
+  } else if (req.user!.role !== 'admin') {
+    const mine = [...new Set(getUserWorkspaces(req.user!.id).map(m => m.workspace))]
+    if (mine.length === 0) {
+      res.json([])
+      return
+    }
+    where = `AND p.workspace IN (${mine.map(() => '?').join(', ')})`
+    params = mine
+  }
+
   const rows = db.prepare(`
     SELECT p.*,
            COUNT(o.id) AS objective_count
       FROM projects p
       LEFT JOIN objectives o
              ON o.project_id = p.id AND o.deleted_at IS NULL
-     WHERE p.workspace = ?
+     WHERE 1 = 1
+       ${where}
        ${includeArchived ? '' : 'AND p.archived = 0'}
      GROUP BY p.id
-     ORDER BY p.sort_order ASC, p.name ASC
-  `).all(workspace) as Record<string, unknown>[]
+     ORDER BY p.workspace ASC, p.sort_order ASC, p.name ASC
+  `).all(...params) as Record<string, unknown>[]
   res.json(rows.map(mapProject))
 })
 

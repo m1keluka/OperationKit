@@ -46,7 +46,7 @@ export interface AuthRequest extends Request {
   /** Set when the request authenticated with a named agent API key (obj 714090). */
   agentKey?: AgentKeyPrincipal
   /** How the caller authenticated. Absent before requireAuth / the agent-key guard ran. */
-  authVia?: 'session' | 'legacy_api_key' | 'agent_api_key'
+  authVia?: 'session' | 'legacy_api_key' | 'agent_api_key' | 'session_token'
   /**
    * This request is backed by a verified Cloudflare Access identity — either the
    * cookie was minted from one (`cfa`, obj 720332), or the request itself still
@@ -229,6 +229,13 @@ export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction
   // admin powers, even if a route slipped past the agent-key guard.
   if (req.agentKey) {
     res.status(403).json({ error: 'Agent keys cannot call admin endpoints', missing_scope: null })
+    return
+  }
+  // Same defense for a card session's CC_SESSION_TOKEN (obj 900204). The
+  // principal is already de-escalated to 'member', so this is belt-and-braces:
+  // a card must never reach an admin endpoint even if the acting user is Mike.
+  if (req.sessionFile) {
+    res.status(403).json({ error: 'Session tokens cannot call admin endpoints', missing_scope: null })
     return
   }
   if (req.user?.role !== 'admin') {

@@ -94,3 +94,38 @@ export function sessionTokenFromHeaders(headers: Record<string, string | string[
   if (typeof auth === 'string' && auth.startsWith(`Bearer ${SESSION_TOKEN_PREFIX}`)) return auth.slice(7).trim()
   return null
 }
+
+// ── Knowledge-base access (obj 900204) ──────────────────────────────────────
+
+/**
+ * Settings flag for card-session knowledge-base access.
+ *
+ * Unlike the two obj-718944 trust flags this one defaults **ON**: a jailed card
+ * that cannot read its own workspace's knowledge base is the bug this exists to
+ * fix, so an install must not have to opt in to working. Set the row to '0' to
+ * turn it back off.
+ *
+ * It is NOT a secrets grant. It only lets a session present its spawn-minted
+ * `CC_SESSION_TOKEN` to `/api/files` and `/api/docs`, scoped to that card's ONE
+ * workspace. The secrets broker and the needs-secret route are still gated on
+ * `session_secret_access`.
+ */
+export const SESSION_KB_ACCESS_FLAG = 'session_kb_access'
+
+export function sessionKbAccessEnabled(db?: Database.Database, env: NodeJS.ProcessEnv = process.env): boolean {
+  // Env override first, so an install (and a unit test with no DB) can pin the
+  // behaviour without a settings row. '0' = off, '1' = on, unset = DB / default.
+  const override = (env.CC_SESSION_KB_ACCESS || '').trim()
+  if (override === '0') return false
+  if (override === '1') return true
+  try {
+    const row = (db ?? getDb()).prepare('SELECT value FROM settings WHERE key = ?').get(SESSION_KB_ACCESS_FLAG) as
+      | { value: string }
+      | undefined
+    return row?.value !== '0'
+  } catch {
+    // An uninitialised DB reads as the documented default (ON). The token is
+    // still required on every request, so this cannot open the door by itself.
+    return true
+  }
+}

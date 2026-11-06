@@ -192,6 +192,10 @@ const CONTACT_DIRS = [
   'contacts',
   'personal/contacts',
   'workspaces/example/contacts',
+  // obj 900206: both the pre- and post-merge Example trees are scanned, so the
+  // contacts index survives the example -> your-org fold in either direction.
+  // Missing directories are skipped by scanContactsDir, so listing both is free.
+  'workspaces/your-org/contacts',
   'workspaces/example-project/contacts',
   'workspaces/operator/contacts',
   'workspaces/personal/contacts',

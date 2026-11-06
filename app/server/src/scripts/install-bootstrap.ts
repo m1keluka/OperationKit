@@ -26,9 +26,11 @@
  *     (warning, not an error) if another user already holds the email.
  *   - sets the workspace's default agent pool to `agents` when given, and
  *     archives every other agent so the board only offers the enabled ones
- *   - archives every other workspace (the code base seeds sample workspaces on
- *     boot; a client should only ever see its own). Archive, never delete:
- *     boot-time seeding is INSERT OR IGNORE, so archived rows stay archived.
+ *   - archives every other EMPTY workspace (the code base seeds sample
+ *     workspaces on boot; a client should only ever see its own). A workspace
+ *     that holds cards is a real business and is left visible — see
+ *     `archiveSampleWorkspaces`. Archive, never delete: boot-time seeding is
+ *     INSERT OR IGNORE, so archived rows stay archived.
  *
  * Prints only non-secret status lines. Never prints the password.
  */
@@ -36,6 +38,7 @@ import fs from 'fs'
 import bcrypt from 'bcrypt'
 import { getDb, initDb } from '../db/index.js'
 import { createWorkspace, getWorkspace, updateWorkspace } from '../services/workspaces.js'
+import { archiveSampleWorkspaces } from '../services/install-sample-workspaces.js'
 
 export interface BootstrapInput {
   client_slug: string
@@ -147,8 +150,9 @@ export async function runBootstrap(input: BootstrapInput, log: (s: string) => vo
     }
   }
 
-  const others = db.prepare('UPDATE workspaces SET archived = 1 WHERE slug != ? AND archived = 0').run(input.client_slug)
-  if (others.changes) log(`archived ${others.changes} sample workspace(s) — only ${input.client_slug} is visible`)
+  const sample = archiveSampleWorkspaces(db, input.client_slug)
+  if (sample.archived.length) log(`archived ${sample.archived.length} empty sample workspace(s): ${sample.archived.join(', ')}`)
+  if (sample.kept.length) log(`left visible (not samples — they hold cards): ${sample.kept.map(k => `${k.slug} (${k.cards} card(s))`).join(', ')}`)
   if (input.agents?.length) {
     const marks = input.agents.map(() => '?').join(',')
     db.prepare(`UPDATE agents SET archived = 0 WHERE slug IN (${marks})`).run(...input.agents)

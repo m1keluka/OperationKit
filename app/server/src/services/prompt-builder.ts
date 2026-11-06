@@ -16,6 +16,7 @@ import { isStrategyNode } from './delegation.js'
 import { resolveAgentPromptFile } from './agent-registry.js'
 import { isStrategyTierEnabled } from './strategy-governance.js'
 import { HUMAN_VOICE } from '../lib/human-voice.js'
+import { buildKbAccessBlock, buildVaultCaptureBlock } from './kb-access-prompt.js'
 import {
   readAgentInstructions,
   resolveOnBehalfUser,
@@ -585,29 +586,12 @@ export function buildPrompt(objective: Objective): string {
     parts.push('', ...buildDesignContextBlock(objective))
   }
 
-  parts.push('', 'Knowledge base is at ~/second-brain/ for reference.')
-
-  // Vault Capture (MANDATORY) — workspace-aware path, forced "no capture" escape clause.
-  // Without this block in the spawn prompt, sessions skip Phase 6 of the pipeline silently.
-  const vaultDir = !workspace || workspace === 'personal'
-    ? '~/second-brain/personal/decisions/'
-    : `~/second-brain/workspaces/${workspace}/decisions/`
-  parts.push(
-    '',
-    '## Vault Capture (MANDATORY before you finish)',
-    '',
-    'If this session produced any architectural decision, evaluation outcome, research finding,',
-    'tradeoff resolved, or non-obvious learning that future sessions would benefit from, you MUST',
-    `write a decision doc to ${vaultDir}YYYY-MM-DD-<slug>.md before ending the session.`,
-    '',
-    'Use the template at ~/ai-workspace/protocols/vault-capture.md (frontmatter + Decision /',
-    'Context / Rationale / Alternatives / Implications sections).',
-    '',
-    'If nothing in this session qualifies (e.g. routine bug fix, mechanical cleanup, no choices',
-    'made), explicitly state in your final response: "No vault capture: <one-line reason>".',
-    'Do NOT silently skip — the orchestrator now flags `capture-gap` when decisions are claimed',
-    'in the summary but no `/decisions/*.md` write occurred.',
-  )
+  // obj 900204 — the knowledge-base pointer and the vault-capture path must name
+  // something THIS session can actually reach. In tmux mode that is still
+  // `~/second-brain/` (byte-identical to before). In a docker jail neither path
+  // exists, so both blocks point at the permission-checked control-plane API.
+  parts.push(...buildKbAccessBlock({ id: objective.id, workspace }))
+  parts.push(...buildVaultCaptureBlock({ id: objective.id, workspace }))
 
   // Jobs disposition — routine-spawned objectives ("jobs") must record an
   // end-of-run disposition so they land in the right lane on the Jobs board.

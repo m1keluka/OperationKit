@@ -203,8 +203,8 @@ function AppContent() {
       <PageTransition routeKey={routeKey}>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route path="/" element={<BoardShell><PreviewBoard workspaces={selectedWorkspaces} /></BoardShell>} />
-          <Route path="/w/:ws" element={<BoardShell><PreviewBoard workspaces={selectedWorkspaces} /></BoardShell>} />
+          <Route path="/" element={<BoardShell><PreviewBoard workspaces={selectedWorkspaces} onWorkspacesChange={handleWorkspacesChange} /></BoardShell>} />
+          <Route path="/w/:ws" element={<BoardShell><PreviewBoard workspaces={selectedWorkspaces} onWorkspacesChange={handleWorkspacesChange} /></BoardShell>} />
           <Route path="/archive" element={<BoardShell><PreviewArchive workspaces={selectedWorkspaces} /></BoardShell>} />
           <Route path="/o/:id" element={<BoardShell><PreviewWorkspace workspaces={selectedWorkspaces} /></BoardShell>} />
           <Route path="/preview/o/:id" element={<PreviewObjectiveRedirect />} />

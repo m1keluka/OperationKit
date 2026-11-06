@@ -13,7 +13,8 @@ import { Router, type Response } from 'express'
 import fs from 'fs'
 import path from 'path'
 import { createHash } from 'crypto'
-import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { type AuthRequest } from '../middleware/auth.js'
+import { sessionFileWorkspace, sessionOrRequireAuth } from '../middleware/session-file-access.js'
 import { getUserWorkspaces, userHasWorkspace } from '../middleware/workspace.js'
 import { getDb } from '../db/index.js'
 import { isApiKey } from '../lib/api-keys.js'
@@ -34,13 +35,22 @@ import {
 } from '../services/file-access.js'
 
 const router = Router()
-router.use(requireAuth)
+// obj 900204: a card session authenticates with its objective-scoped
+// CC_SESSION_TOKEN. No token → no-op, and `requireAuth` behaves exactly as before.
+router.use(sessionOrRequireAuth)
 
 const SEARCH_RATE = () => Number(process.env.CC_FILES_RATE_PER_MIN) || 60
 const DOWNLOAD_RATE = () => Number(process.env.CC_FILES_DOWNLOAD_RATE_PER_MIN) || 20
 
+/** Rate-limit identity. A card session keys on its OWN objective, not on the
+ *  acting user — otherwise every concurrent card of the same person (and every
+ *  card with no acting user, id 0) would share one bucket. */
+function principalKey(req: AuthRequest): string {
+  return req.sessionFile ? `obj${req.sessionFile.objectiveId}` : String(req.user!.id)
+}
+
 function limited(req: AuthRequest, res: Response, bucket: string, limit: number): boolean {
-  const retry = rateLimit(`${bucket}:${req.user!.id}`, limit)
+  const retry = rateLimit(`${bucket}:${principalKey(req)}`, limit)
   if (retry === null) return false
   res.setHeader('Retry-After', String(retry))
   res.status(429).json({ error: 'Rate limit exceeded', retry_after: retry })
@@ -49,8 +59,22 @@ function limited(req: AuthRequest, res: Response, bucket: string, limit: number)
 
 /** Resolve the caller's scope, honouring ?workspace=. Sends 403 and returns null on a bad workspace. */
 function scopeFor(req: AuthRequest, res: Response): Scope | null {
-  const isAdmin = req.user!.role === 'admin'
   const raw = typeof req.query.workspace === 'string' ? req.query.workspace.trim() : ''
+
+  // obj 900204 — card session. Its scope is EXACTLY its objective's workspace:
+  // never admin-wide, never a `?workspace=` of its choosing, and never a SYSTEM
+  // root (service configs / logs / crontabs are not workspace knowledge).
+  const sessionWs = sessionFileWorkspace(req)
+  if (sessionWs) {
+    if (raw && raw !== 'all' && raw !== sessionWs) {
+      res.status(403).json({ error: `No access to workspace '${raw}'` })
+      return null
+    }
+    const scope = buildScope(false, [sessionWs], sessionWs)
+    return { isAdmin: false, entries: scope.entries.filter(e => !e.system) }
+  }
+
+  const isAdmin = req.user!.role === 'admin'
   const only = raw && raw !== 'all' ? raw : undefined
   if (only && !isAdmin && !userHasWorkspace(req.user!.id, only)) {
     res.status(403).json({ error: `No access to workspace '${only}'` })
@@ -221,7 +245,9 @@ function auditDownload(
   const header = req.headers.authorization
   const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : ''
   const viaKey = isApiKey(bearer)
+  const session = req.sessionFile
   const metadata = {
+    objective_id: session?.objectiveId ?? null,
     path: file.path,
     root: file.rootId,
     workspace: file.workspace,
@@ -230,8 +256,8 @@ function auditDownload(
     complete,
     user_id: req.user!.id,
     username: req.user!.username,
-    auth: viaKey ? 'api_key' : 'session',
-    key_last4: viaKey ? bearer.slice(-4) : null,
+    auth: session ? 'session_token' : viaKey ? 'api_key' : 'session',
+    key_last4: viaKey && !session ? bearer.slice(-4) : null,
     redacted: !!redaction,
     redaction_count: redaction?.count ?? 0,
     serve_mode: redaction?.mode ?? 'raw',

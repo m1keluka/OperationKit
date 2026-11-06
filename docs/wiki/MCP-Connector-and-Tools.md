@@ -49,28 +49,6 @@ its key's scopes allow. Every write answers with a one-line confirmation plus th
 
 If the agent reports zero tools from the connector, the most common cause is the custom `Authorization` header not saving, or the agent not being reopened in a fresh session after the connector was added. If a call 403s, the key's workspace scope doesn't include the content being asked for — that's the connector correctly inheriting the same scoping the REST API would enforce, not a bug.
 
-## Knowledge-base usage guide
-
-A connected agent receives the workspace's knowledge-base usage guide in the MCP `initialize` instructions. That is the place for "when to read, when to write the knowledge base and the board, and what never to write", so it does not have to be pasted into each bot.
-
-Create the file inside the workspace's knowledge folder:
-
-- Vault layout: `workspaces/<slug>/topics/agent-kb-usage-guide.md` (Weight Supply's guide already lives at `workspaces/weightsupply/topics/agent-kb-usage-guide.md`).
-- An install with no vault: `<knowledge-base>/<slug>/topics/agent-kb-usage-guide.md`.
-
-Nothing else is required. A workspace with no such file keeps the stock instructions exactly. The key's workspace allowlist applies: a bot pinned to one workspace does not see another's guide. The appendix is size-capped; the bot is told the path and can `read_file` the rest.
-
-Optional overrides, if the file should live somewhere else under that same folder:
-
-| | |
-| --- | --- |
-| Every workspace | Environment variable `CC_MCP_KB_GUIDE_PATH` — a relative path such as `guides/kb-usage.md`, or `off` |
-| One workspace | Settings key `mcp_kb_guide_path:<slug>` — the same kind of value, and it wins over the environment variable |
-
-Paths must be relative markdown (`*.md`) with no `..`. The guide is sent to every key that can access the workspace, including keys without `vault:read`, so it must not contain secrets.
-
-When a guide exists, the server also lists it as the MCP prompt `kb_usage_guide` and the resource `operationkit://kb-guide/<slug>`. Full request shapes are in the [Agent API reference](../api/README.md#knowledge-base-usage-guide).
-
 **Never share one key across two agents or paste a key into an agent's instruction text** — each key already carries its own workspace scope, and a leaked key is a workspace-wide read exposure until it's revoked.
 
 ## What this is not

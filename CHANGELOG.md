@@ -8,6 +8,72 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Card sessions can read their own workspace's knowledge base again (obj 900204)
+
+**The bug.** With `SESSION_ISOLATION=docker` a session runs in a sibling container whose
+only bind mounts are its own worktree (`/workspace`) and its own HOME (`/home/jailuser`).
+The spawn prompt nevertheless told every session "Knowledge base is at `~/second-brain/`"
+and "write a decision doc to `~/second-brain/workspaces/<ws>/decisions/`". Neither path
+exists inside the jail. Cards therefore reported knowledge-base files "missing" when they
+were plainly there (the LinkedIn `Connections.csv` report that opened this card), and the
+MANDATORY vault-capture step failed silently on every jailed run.
+
+**What changed.**
+
+- **Nothing new serves bytes.** `/api/files` (non-markdown: csv, xlsx, pdf, pptx, images —
+  read-only) and `/api/docs` (markdown: tree / file / search, and `PUT /file`) already
+  implemented workspace-scoped, permission-checked file access. They were simply unreachable
+  without a login. They now also accept a card's spawn-minted `CC_SESSION_TOKEN`
+  (`X-CC-Session-Token:` or `Authorization: Bearer ccs_…`), which a jailed session can
+  present over its existing loopback forwarder at `http://localhost:3002`.
+
+- **The scope is the card's ONE workspace**, read from the objective row at request time —
+  never from the token claim, never from `?workspace=`. An admin acting user grants no
+  admin-wide access: the principal is de-escalated to `member` and system roots (service
+  configs, logs, crontabs, `.env*`) are stripped from it. Admin endpoints hard-deny the
+  principal. A card whose acting user is not a member of that workspace is refused.
+
+- **The spawn prompt now tells the truth.** In `docker` isolation it prints the curl
+  recipes above instead of `~/second-brain/`, says out loud that no vault path exists, and
+  teaches the error codes: **404** = inside your workspace and genuinely absent; **403** =
+  out of scope, and NOT evidence about whether the file exists. Vault capture writes through
+  `PUT /api/docs/file` (with `create_dirs: true`). In `tmux` isolation both blocks are
+  byte-identical to before.
+
+- **Two bugs fixed on the way.** (1) `/api/files`' vault root was the hard-coded
+  `/home/operator/second-brain` instead of `knowledgeBaseRoot()`, so on any install whose
+  vault lives elsewhere — or has none — the scope contained zero vault entries and the route
+  could not see a single knowledge-base file. It now follows the one knowledge base, and
+  handles the flat `/app/data/knowledge-base/<slug>` layout. (2) `/api/docs` compared paths
+  lexically, so a symlink planted inside a doc root was read and **written** through. Both
+  sides are now realpath'd, matching what `/api/files` already did.
+
+**Operator notes.**
+
+- **ON by default.** A card that cannot read its own workspace's KB is the bug. Turn it off
+  with the `session_kb_access` settings row set to `0`, or `CC_SESSION_KB_ACCESS=0`.
+
+- **The spawn env changed.** Because the token is now minted for every spawn, every session
+  env gains `CC_SESSION_TOKEN`, `CC_OBJECTIVE_ID` and `CC_STRIP_SIGNING_SECRETS`, and
+  **loses `JWT_SECRET` / `CC_JWT_SECRET`**. Dropping the signing key is not optional: a
+  session that still held it could mint itself a token for any workspace and the scoping
+  would be decorative. If some script of yours read `JWT_SECRET` from a session env, it
+  must move to `scripts/mint-service-token.sh` on the host.
+
+- **How already-running sessions get the change.** They do not. Both halves are baked in at
+  spawn time: the prompt text is written into the session's prompt file, and
+  `CC_SESSION_TOKEN` into its `--env-file` (which `docker run` reads once, at container
+  create). A session that started before the deploy has the old prompt and no token, and
+  will keep looking for `~/second-brain`. **Re-run the card** (or send a follow-up, which
+  re-spawns through `sendFollowUp` → `buildPrompt`) to pick it up. Sessions spawned after
+  the backend restart get it automatically; no re-login, no re-upload, no migration.
+
+- **Deploy is two steps and neither is automatic here.** Merging this PR does not make it
+  live: the live checkout must be at `origin/main` AND the Node process must have restarted
+  after the merge (`tsx` does not hot-reload). Verify both, then
+  `POST /api/internal/deploy {"mode":"both"}`. Client installs additionally need the public
+  `m1keluka/OperationKit` sync plus their own `install/update.sh`.
+
 ### Signing in through Cloudflare Access never asks for a password change (obj 900108)
 
 On an install where people sign in at the Cloudflare Access door (an email one-time PIN,

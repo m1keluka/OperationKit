@@ -84,9 +84,12 @@ afterAll(async () => {
 })
 
 describe('GET /api/projects', () => {
-  it('requires workspace param', async () => {
-    const { status } = await req('GET', '/api/projects')
-    expect(status).toBe(400)
+  // obj 900197: the board's All-Organizations view needs a cross-org roster,
+  // so an omitted workspace is no longer a 400 — it means "every org I can see".
+  it('with no workspace param returns every accessible org', async () => {
+    const { status, json } = await req('GET', '/api/projects')
+    expect(status).toBe(200)
+    expect(Array.isArray(json)).toBe(true)
   })
 
   it('returns empty list for new workspace', async () => {
@@ -94,6 +97,48 @@ describe('GET /api/projects', () => {
     expect(status).toBe(200)
     expect(Array.isArray(json)).toBe(true)
     expect(json.length).toBe(0)
+  })
+})
+
+describe('GET /api/projects — cross-org scope (obj 900197)', () => {
+  beforeAll(async () => {
+    await req('POST', '/api/projects', { workspace: 'ws-a', name: 'Scope A' })
+    await req('POST', '/api/projects', { workspace: 'ws-b', name: 'Scope B' })
+  })
+
+  it('a comma-separated list spans exactly those orgs', async () => {
+    const { status, json } = await req('GET', '/api/projects?workspace=ws-a,ws-b')
+    expect(status).toBe(200)
+    const spaces = new Set(json.map((p: { workspace: string }) => p.workspace))
+    expect(spaces.has('ws-a')).toBe(true)
+    expect(spaces.has('ws-b')).toBe(true)
+  })
+
+  it('an admin with no workspace param sees both orgs', async () => {
+    const { json } = await req('GET', '/api/projects')
+    const names = json.map((p: { name: string }) => p.name)
+    expect(names).toContain('Scope A')
+    expect(names).toContain('Scope B')
+  })
+
+  it('workspace=all is the same as omitting it', async () => {
+    const { status, json } = await req('GET', '/api/projects?workspace=all')
+    expect(status).toBe(200)
+    expect(json.map((p: { name: string }) => p.name)).toContain('Scope B')
+  })
+
+  // The member user (id 2) belongs to ws-a only.
+  it('a member with no workspace param sees ONLY their own org', async () => {
+    const { status, json } = await req('GET', '/api/projects', undefined, memberCookie)
+    expect(status).toBe(200)
+    const spaces = new Set(json.map((p: { workspace: string }) => p.workspace))
+    expect(spaces.has('ws-a')).toBe(true)
+    expect(spaces.has('ws-b')).toBe(false)
+  })
+
+  it('a member naming an org they are not in gets 403, not a narrowed list', async () => {
+    const { status } = await req('GET', '/api/projects?workspace=ws-a,ws-b', undefined, memberCookie)
+    expect(status).toBe(403)
   })
 })
 
