@@ -113,6 +113,7 @@ check "both apps deleted" "$(st '.result.apps|length')" 0
 check "service tokens deleted (verify + agent passes)" "$(st '.result.svc|length')" 0
 check "agent pass header file deleted" "$(test -e "$WORK/ok/secrets/agent-pass-claude-code.env" && echo present || echo gone)" gone
 check "login method kept (shared)" "$(st '.result.idps|length')" 1
+check "down also removes the browser-integrity exception" "$(st '[.result.rulesets[]|select(.phase=="http_config_settings")][0].rules|map(select(.description=="Operation Kit: API key auth (no browser integrity check)"))|length // 0')" 0
 check "one login switched off after down" "$(grep -c '^OK_CF_ACCESS_AUD=.\+' "$WORK/ok/secrets/stack.env" || true)" 0
 
 echo "== zero trust not enabled -> plain-language stop"
@@ -176,5 +177,150 @@ cfapi PUT "/accounts/acct1/access/apps/$OURS_ID/policies/$OURS_POL" \
 bash "$CF" api-bypass --config "$WORK/client.conf" >/dev/null 2>&1
 check "still exactly one policy on our app" "$(st "[.result.policies[\"$OURS_ID\"][]]|length")" 1
 check "and it is still Bypass/Everyone" "$(st "[.result.policies[\"$OURS_ID\"][]|[.decision,(.include[0]|keys[0])]]")" '[["bypass","everyone"]]'
+
+# ── obj 900259: the narrow Browser Integrity Check exception ─────────────────
+# Cloudflare Access stepping aside (step 8 above) is not enough on its own:
+# Browser Integrity Check refuses a non-browser caller for its own reasons and
+# answers error 1010. `api-bic` adds ONE Configuration Rule to fix exactly that.
+# These checks hold it to "one rule, one setting, one hostname, one path prefix,
+# and nothing of the client's is read, moved or rewritten".
+echo "== browser-integrity exception: scope, idempotency, other rules, rollback (obj 900259)"
+kill $MOCK; wait $MOCK 2>/dev/null || true
+PORT=$PORT node "$HERE/cloudflare-mock.mjs" > "$WORK/mock.log" 2>&1 & MOCK=$!
+for _ in $(seq 50); do curl -fs "http://127.0.0.1:$PORT/__state" >/dev/null 2>&1 && break; sleep 0.1; done
+rawst() { curl -fs "http://127.0.0.1:$PORT/__state" | jq -r "$1"; }
+BIC_DESC='Operation Kit: API key auth for ops.example-capital.com/api/ (no browser integrity check)'
+PHASE='[.result.rulesets[]|select(.phase=="http_config_settings")][0]'
+# "ours" is matched the way a reader would check it: a rule that switches the
+# browser integrity check off for THIS install's hostname.
+MINE="$PHASE|.rules|map(select(.description==\"$BIC_DESC\"))"
+ANY_OURS="$PHASE|.rules|map(select((.description // \"\")|startswith(\"Operation Kit: API key auth for\")))"
+WANT_EXPR='(http.host eq "ops.example-capital.com" and starts_with(http.request.uri.path, "/api/"))'
+
+# The client already runs a Configuration Rule of their own, on another
+# hostname in the same zone. It must come out of all of this byte-identical.
+cfapi() { curl -s -X "$1" -H 'Authorization: Bearer mock-token' -H 'content-type: application/json' ${3:+--data "$3"} "$CF_API_BASE$2"; }
+cfapi PUT /zones/zone1/rulesets/phases/http_config_settings/entrypoint \
+  '{"name":"Client configuration rules","rules":[{"action":"set_config","action_parameters":{"ssl":"strict","rocket_loader":true},"expression":"(http.host eq \"shop.example-capital.com\")","description":"client: strict SSL on the shop"}]}' >/dev/null
+CLIENT_RULE=$(st "$PHASE|.rules[0]")
+
+bash "$CF" api-bic --config "$WORK/client.conf" > "$WORK/out" 2>&1 || true
+sed 's/^/    /' "$WORK/out"
+check "no second phase ruleset is created" "$(st '.result.rulesets|length')" 1
+check "exactly one rule of ours" "$(st "$MINE|length")" 1
+check "its action is set_config" "$(rawst "$MINE|.[0].action")" set_config
+check "its ONLY action parameter is bic:false" "$(st "$MINE|.[0].action_parameters")" '{"bic":false}'
+check "it matches this install's host and /api/ only" "$(rawst "$MINE|.[0].expression")" "$WANT_EXPR"
+check "it is enabled" "$(rawst "$MINE|.[0].enabled")" true
+check "the client's own rule is untouched" "$(st "$PHASE|.rules[0]")" "$CLIENT_RULE"
+check "the phase holds exactly two rules" "$(st "$PHASE|.rules|length")" 2
+check "nothing changed the zone-wide browser integrity setting" "$(rawst '[.result.calls[]|select(test("/settings"))]|length')" 0
+check "a before-state snapshot was written" "$([ "$(find "$WORK/ok/backups" -name 'cloudflare-bic-*-before-up.json' | wc -l)" -ge 1 ] && echo yes || echo no)" yes
+check "the snapshot is mode 600" "$(stat -c %a "$(find "$WORK/ok/backups" -name 'cloudflare-bic-*-before-up.json' | head -1)")" 600
+
+echo "== re-running it is a no-op"
+MINE_ID=$(rawst "$MINE|.[0].id")
+bash "$CF" api-bic --config "$WORK/client.conf" > "$WORK/out" 2>&1
+check "says it is already right" "$(grep -c 'already exactly right' "$WORK/out")" 1
+check "still exactly one rule of ours" "$(st "$MINE|length")" 1
+check "same rule, not a replacement" "$(rawst "$MINE|.[0].id")" "$MINE_ID"
+check "no mutating call was made on the re-run" "$(grep -cE 'PATCH|POST|PUT' <<<"$(rawst '.result.calls[-3:][]')" || true)" 0
+check "the client's rule is still untouched" "$(st "$PHASE|.rules[0]")" "$CLIENT_RULE"
+
+echo "== a rule edited in the dashboard is corrected in place, never duplicated"
+RSID=$(rawst "$PHASE|.id")
+# (a) somebody widened the settings and the path in the dashboard, keeping the name
+cfapi PATCH "/zones/zone1/rulesets/$RSID/rules/$MINE_ID" \
+  "$(jq -nc --arg d "$BIC_DESC" '{action:"set_config", action_parameters:{bic:false, security_level:"under_attack"}, expression:"(http.host eq \"ops.example-capital.com\")", description:$d}')" >/dev/null
+bash "$CF" api-bic --config "$WORK/client.conf" > "$WORK/out" 2>&1
+check "corrected in place" "$(grep -c 'corrected in place' "$WORK/out")" 1
+check "still exactly one rule of ours" "$(st "$MINE|length")" 1
+check "the stray extra setting is gone" "$(st "$MINE|.[0].action_parameters")" '{"bic":false}'
+check "the widened expression is narrowed back" "$(rawst "$MINE|.[0].expression")" "$WANT_EXPR"
+check "the client's rule is STILL untouched" "$(st "$PHASE|.rules[0]")" "$CLIENT_RULE"
+# (b) somebody RENAMED it in the dashboard: it is still recognised by shape
+#     (set_config, bic-only, about this hostname) and corrected, not duplicated
+cfapi PATCH "/zones/zone1/rulesets/$RSID/rules/$MINE_ID" \
+  '{"action":"set_config","action_parameters":{"bic":false},"expression":"(http.host eq \"ops.example-capital.com\" and starts_with(http.request.uri.path, \"/\"))","description":"renamed in the dashboard"}' >/dev/null
+bash "$CF" api-bic --config "$WORK/client.conf" > "$WORK/out" 2>&1
+check "a renamed rule is reused, not duplicated" "$(st "$PHASE|.rules|length")" 2
+check "its name and scope are restored" "$(rawst "$MINE|.[0].expression")" "$WANT_EXPR"
+check "the client's rule is STILL untouched after the rename" "$(st "$PHASE|.rules[0]")" "$CLIENT_RULE"
+
+echo "== the hostname comes from the config, never from the code"
+sed -i 's#^DOMAIN=.*#DOMAIN="board.example-capital.com"#' "$WORK/client.conf"
+bash "$CF" api-bic --config "$WORK/client.conf" >/dev/null 2>&1
+check "a second install in the same zone gets its own rule" "$(st "$ANY_OURS|length")" 2
+check "and that rule names ITS hostname, not the first one's" \
+  "$(rawst "$ANY_OURS|map(select(.expression|contains(\"board.\")))|.[0].expression")" \
+  '(http.host eq "board.example-capital.com" and starts_with(http.request.uri.path, "/api/"))'
+bash "$CF" api-bic remove --config "$WORK/client.conf" >/dev/null 2>&1
+sed -i 's#^DOMAIN=.*#DOMAIN="ops.example-capital.com"#' "$WORK/client.conf"
+check "removing one install's rule leaves the other install's rule" "$(st "$MINE|length")" 1
+check "and removes only that one" "$(st "$ANY_OURS|length")" 1
+
+echo "== dry-run changes nothing"
+bash "$CF" api-bic remove --config "$WORK/client.conf" >/dev/null 2>&1
+check "removed for the dry-run check" "$(st "$MINE|length")" 0
+bash "$CF" api-bic --config "$WORK/client.conf" --dry-run > "$WORK/out" 2>&1
+check "dry-run prints the exact expression it would add" "$(grep -c "starts_with(http.request.uri.path, \"/api/\")" "$WORK/out")" 1
+check "dry-run prints the one setting it would set" "$(grep -c '{"bic": false}' "$WORK/out")" 1
+check "dry-run added nothing" "$(st "$MINE|length")" 0
+check "dry-run left the client's rule alone" "$(st "$PHASE|.rules|length")" 1
+
+echo "== rollback removes our rule and only our rule"
+bash "$CF" api-bic --config "$WORK/client.conf" >/dev/null 2>&1
+check "back in place" "$(st "$MINE|length")" 1
+bash "$CF" api-bic remove --config "$WORK/client.conf" > "$WORK/out" 2>&1
+sed 's/^/    /' "$WORK/out"
+check "our rule is gone" "$(st "$MINE|length")" 0
+check "the phase ruleset itself is NOT deleted" "$(st '.result.rulesets|length')" 1
+check "the client's rule survives the rollback" "$(st "$PHASE|.rules[0]")" "$CLIENT_RULE"
+check "removing twice is harmless" "$(bash "$CF" api-bic remove --config "$WORK/client.conf" 2>&1 | grep -c 'exception: none')" 1
+check "a before-state snapshot was written for the removal" "$([ "$(find "$WORK/ok/backups" -name 'cloudflare-bic-*-before-remove.json' | wc -l)" -ge 1 ] && echo yes || echo no)" yes
+
+echo "== API_BROWSER_INTEGRITY_EXCEPTION=off skips the step and says so"
+sed -i 's/^API_BROWSER_INTEGRITY_EXCEPTION=.*/API_BROWSER_INTEGRITY_EXCEPTION="off"/' "$WORK/client.conf"
+bash "$CF" up --config "$WORK/client.conf" > "$WORK/out" 2>&1
+check "off is honoured" "$(st "$MINE|length")" 0
+check "off warns about error 1010" "$(grep -c 'Cloudflare error 1010' "$WORK/out")" 1
+sed -i 's/^API_BROWSER_INTEGRITY_EXCEPTION=.*/API_BROWSER_INTEGRITY_EXCEPTION="on"/' "$WORK/client.conf"
+if sed -i 's/^API_BROWSER_INTEGRITY_EXCEPTION=.*/API_BROWSER_INTEGRITY_EXCEPTION="maybe"/' "$WORK/client.conf" \
+   && bash "$CF" api-bic --config "$WORK/client.conf" >/dev/null 2>&1; then check "a typo in the switch is refused" accepted refused
+else check "a typo in the switch is refused" refused refused; fi
+sed -i 's/^API_BROWSER_INTEGRITY_EXCEPTION=.*/API_BROWSER_INTEGRITY_EXCEPTION="on"/' "$WORK/client.conf"
+
+echo "== a token without Config Rules permission names the permission, and changes nothing"
+kill $MOCK; wait $MOCK 2>/dev/null || true
+MOCK_NO_CONFIG_RULES_PERM=1 PORT=$PORT node "$HERE/cloudflare-mock.mjs" > "$WORK/mock.log" 2>&1 & MOCK=$!
+for _ in $(seq 50); do curl -fs "http://127.0.0.1:$PORT/__state" >/dev/null 2>&1 && break; sleep 0.1; done
+if bash "$CF" api-bic --config "$WORK/client.conf" > "$WORK/out" 2>&1; then check "a refused token stops the step" ran-ok refused
+else check "a refused token stops the step" refused refused; fi
+check "it names the exact permission to add" "$(grep -c 'Config Rules' "$WORK/out")" 1
+check "it says nothing was changed" "$(grep -c 'Nothing was changed' "$WORK/out")" 1
+check "it does not claim success" "$(grep -c 'done: Browser Integrity Check no longer applies' "$WORK/out" || true)" 0
+check "nothing reached Cloudflare" "$(st '.result.rulesets|length')" 0
+
+echo "== a zone with no room for another Configuration Rule says so"
+kill $MOCK; wait $MOCK 2>/dev/null || true
+MOCK_CONFIG_RULES_PLAN_LIMIT=1 PORT=$PORT node "$HERE/cloudflare-mock.mjs" > "$WORK/mock.log" 2>&1 & MOCK=$!
+for _ in $(seq 50); do curl -fs "http://127.0.0.1:$PORT/__state" >/dev/null 2>&1 && break; sleep 0.1; done
+cfapi PUT /zones/zone1/rulesets/phases/http_config_settings/entrypoint \
+  '{"name":"Client configuration rules","rules":[{"action":"set_config","action_parameters":{"ssl":"strict"},"expression":"(http.host eq \"shop.example-capital.com\")","description":"client: strict SSL on the shop"}]}' >/dev/null
+if bash "$CF" api-bic --config "$WORK/client.conf" > "$WORK/out" 2>&1; then check "a full zone stops the step" ran-ok refused
+else check "a full zone stops the step" refused refused; fi
+check "it explains the plan limit and the way out" "$(grep -c 'Configuration Rule (plan limit' "$WORK/out")" 1
+check "it offers the off switch" "$(grep -c 'API_BROWSER_INTEGRITY_EXCEPTION' "$WORK/out")" 1
+check "the client's rule survived the failure" "$(st "$PHASE|.rules|length")" 1
+
+echo "== a zone with no Configuration Rules at all, where the entry-point PUT is refused"
+kill $MOCK; wait $MOCK 2>/dev/null || true
+MOCK_NO_PUT_ENTRYPOINT=1 PORT=$PORT node "$HERE/cloudflare-mock.mjs" > "$WORK/mock.log" 2>&1 & MOCK=$!
+for _ in $(seq 50); do curl -fs "http://127.0.0.1:$PORT/__state" >/dev/null 2>&1 && break; sleep 0.1; done
+bash "$CF" api-bic --config "$WORK/client.conf" > "$WORK/out" 2>&1 || true
+check "it still gets created (explicit-create fallback)" "$(st "$MINE|length")" 1
+check "in the right phase" "$(rawst "$PHASE|.phase")" http_config_settings
+check "with the one setting" "$(st "$MINE|.[0].action_parameters")" '{"bic":false}'
+check "and it did not report success before trying the fallback" "$(grep -c 'Nothing was changed' "$WORK/out" || true)" 0
 
 echo; [ "$fails" -eq 0 ] && echo "cloudflare mock test: ALL PASS" || { echo "cloudflare mock test: $fails FAIL"; exit 1; }

@@ -7,6 +7,7 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../.
 const files = process.argv.slice(2).length ? process.argv.slice(2) : [
   'README.md', 'INSTALL.md', 'CHANGELOG.md', 'docs/RECOMMENDED-STACK.md',
   'docs/migration/ovh-rise4.md', 'docs/product/06-operating.md',
+  'docs/CLOUDFLARE-API-ACCESS.md',
 ]
 const slug = (h) => h.trim().toLowerCase().replace(/[^\p{L}\p{N}\- _]/gu, '').replace(/ /g, '-')
 const anchorsCache = new Map()

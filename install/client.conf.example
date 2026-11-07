@@ -77,6 +77,17 @@ ACCESS_SESSION_DURATION="24h"
 # answer; only turn it off if no bot or AI tool will ever call this install.
 API_KEY_AUTH_BYPASS="on"
 
+# Stop Cloudflare's Browser Integrity Check from refusing your own API calls
+# ("on", the default). Browser Integrity Check turns away anything that does not
+# look like a browser, so a bot holding a perfectly good Operation Kit key gets
+# Cloudflare error 1010 (HTTP 403, an HTML page) instead of an answer — even
+# with API_KEY_AUTH_BYPASS="on", because that is a different layer. The
+# installer adds ONE Cloudflare Configuration Rule that switches the check off
+# for this install's own hostname under /api/ and nothing else. Your zone-wide
+# Browser Integrity Check setting, your WAF rules, your rate limits and your
+# other Configuration Rules are not touched. "off" skips the step.
+API_BROWSER_INTEGRITY_EXCEPTION="on"
+
 # ── AI accounts ───────────────────────────────────────────────────────────────
 # How the server's worker sessions sign in to Claude:
 #   login    — a Claude subscription (Pro / Max / Team). Someone signs in once in
