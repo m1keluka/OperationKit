@@ -124,16 +124,20 @@ them.
    | Account | Access: Apps and Policies | Edit |
    | Account | Access: Organizations, Identity Providers, and Groups | Edit |
    | Account | Access: Service Tokens | Edit |
+   | Zone | Config Rules | Edit |
 
    Under *Zone Resources*, pick the client's domain. Under *Account
    Resources*, pick the client's account. Copy the token and give it to Claude
    Code as an environment variable (`export CF_API_TOKEN=...` in the terminal
    where Claude Code runs). Do not paste it into the chat.
 
-   All six lines matter. The one most often missed is **Access: Organizations,
+   All seven lines matter. The one most often missed is **Access: Organizations,
    Identity Providers, and Groups**: without it the installer stops with
    *"the Cloudflare API token cannot read the Zero Trust organization"*. Edit
-   the token, add it, re-run.
+   the token, add it, re-run. **Zone → Config Rules → Edit** is the newest one:
+   without it the browser-integrity step stops (and changes nothing) with
+   *"the Cloudflare API token cannot write Configuration Rules"*. See
+   [Browser Integrity Check](#and-not-getting-turned-away-by-browser-integrity-check-error-1010).
 
 Nothing else needs copying out of Cloudflare:
 
@@ -150,6 +154,9 @@ Nothing else needs copying out of Cloudflare:
 - **Bots and AI tools:** the installer also makes a second, path-limited Access
   application so a bot can reach the API with its Operation Kit key. Nothing to
   click — see [Letting bots reach the API with their key](#letting-bots-reach-the-api-with-their-key).
+- **Bots and error 1010:** the installer also adds one narrow Configuration Rule
+  so Cloudflare's Browser Integrity Check stops refusing your own API callers.
+  Nothing to click — see [Browser Integrity Check](#and-not-getting-turned-away-by-browser-integrity-check-error-1010).
 
 If they chose **Google** or **Microsoft** sign-in (step 4), they also need an
 OAuth app from Google Cloud or Microsoft Entra. Cloudflare's guide covers it:
@@ -510,6 +517,100 @@ curl -si https://<DOMAIN>/api/objectives | head -1     # HTTP/2 401  + JSON body
 curl -si https://<DOMAIN>/api/internal/objectives | head -1   # 302 to …cloudflareaccess.com ✅
 curl -si https://<DOMAIN>/ | head -1                   # 302 to …cloudflareaccess.com ✅
 ```
+
+
+### …and not getting turned away by Browser Integrity Check (error 1010)
+
+**A second, separate problem.** Suppose you did everything above and the bypass
+app is in place. A bot calling the API can still get this:
+
+```
+HTTP/2 403
+<html>… error code: 1010 … the owner of this website has banned your access
+based on your browser's signature …</html>
+```
+
+That is **not** Access. It is **Browser Integrity Check**, a different Cloudflare
+layer that inspects how the request was made and refuses anything that does not
+look like a browser. A script holding a perfectly valid Operation Kit key is
+exactly what it refuses. Telling the two apart is the whole trick:
+
+| What the bot gets back | Who said no | What to do |
+|---|---|---|
+| `302` to `<team>.cloudflareaccess.com`, or an HTML sign-in page | **Cloudflare Access** | `cloudflare.sh api-bypass` |
+| `403` + HTML saying **error 1010** / "browser's signature" | **Cloudflare Browser Integrity Check** | `cloudflare.sh api-bic` |
+| `401` + **JSON** `{"error":…}` | **Operation Kit** — the key is missing, wrong or expired | issue a key in *Settings → You* |
+| `403` + **JSON** | **Operation Kit** — the key is real but lacks that ability or workspace | widen the key's scopes |
+
+The rule of thumb: **Operation Kit always answers JSON. Cloudflare never does.**
+
+**What the installer does.** Step 10 of `cloudflare.sh up` adds **one**
+Cloudflare *Configuration Rule* in this zone's `http_config_settings` phase:
+
+- action `set_config`, with **exactly one** action parameter — `bic: false`;
+- expression `(http.host eq "<your DOMAIN>" and starts_with(http.request.uri.path, "/api/"))`.
+
+So the check is switched off for **this install's own hostname, under `/api/`
+only**. Everything else is deliberately left alone: your **zone-wide Browser
+Integrity Check setting**, every **WAF rule** and **rate limit**, the **Access
+applications** and the sign-in UI, every **other Configuration Rule** in the
+same phase, and **every other hostname in the zone**. The rule is added,
+corrected and deleted by its own id, so the rest of the list is never rewritten.
+
+**Why that is safe.** Browser Integrity Check is a heuristic about the *shape*
+of the request, not a credential. Switching it off on `/api/` does not open
+anything: those routes still need an Operation Kit key or a signed-in session,
+and every operator route (`/api/internal`, `/api/admin`, `/api/secrets`, …) is
+*also* still behind the Access sign-in, because it was never in the bypass list.
+The sign-in UI itself — which is where a browser goes, and where the check is
+actually worth having — keeps it.
+
+**The extra token permission.** Configuration Rules need **Zone → Config Rules →
+Edit** on top of the five permissions in [Step 2](#step-2-cloudflare--you-about-5-minutes-one-time-per-client).
+Without it the step stops and says exactly that; it changes nothing.
+
+**Before it changes anything** it writes the phase's current contents to
+`/opt/operationkit/backups/cloudflare-bic-<UTC time>.json` (mode 600), and after
+the change it re-reads the phase and refuses to report success unless the rule
+reads back exactly right *and* every rule that was not ours is unchanged.
+
+**Run it on its own** (no re-install; nothing else is touched):
+
+```bash
+ssh SERVER 'sudo bash /opt/operationkit-src/install/cloudflare.sh api-bic \
+  --config /opt/operationkit-src/client.conf --dry-run'   # see the plan first
+ssh SERVER 'sudo bash /opt/operationkit-src/install/cloudflare.sh api-bic \
+  --config /opt/operationkit-src/client.conf'
+```
+
+Re-running is free: a rule that is already right costs no change at all.
+
+**Rollback** — deletes that one rule by id and leaves the phase and every other
+rule in it alone:
+
+```bash
+ssh SERVER 'sudo bash /opt/operationkit-src/install/cloudflare.sh api-bic remove \
+  --config /opt/operationkit-src/client.conf'
+```
+
+`cloudflare.sh down` removes it too, and `cloudflare.sh status` shows whether it
+is present. To stop the installer adding it at all, set
+`API_BROWSER_INTEGRITY_EXCEPTION="off"` in `client.conf` — then switch Browser
+Integrity Check off for the zone by hand, or accept that bots get 1010.
+
+**Existing installs:** pulling new code does **not** change anything in your
+Cloudflare account. See [Reconciling an existing install](docs/CLOUDFLARE-API-ACCESS.md#reconciling-an-existing-install).
+
+**Checking it by hand:**
+
+```bash
+curl -si https://<DOMAIN>/api/objectives | head -1                    # 401 + JSON   ✅ (the APP refused)
+curl -si -H "Authorization: Bearer cc_live_…" https://<DOMAIN>/api/objectives | head -1   # 200 + JSON ✅
+curl -si https://<DOMAIN>/ | head -1                                  # 302 to …cloudflareaccess.com ✅ (UI still protected)
+```
+
+If the first line comes back `403` with HTML, Browser Integrity Check is still
+on for that path — run `cloudflare.sh api-bic`.
 
 ### Step 10: Report
 

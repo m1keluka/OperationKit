@@ -55,6 +55,19 @@ mistake there stops the step instead of opening anything. Full explanation, incl
 safe and how to roll it back:
 [INSTALL.md → Letting bots reach the API with their key](../INSTALL.md#letting-bots-reach-the-api-with-their-key).
 
+**If you get `403` and an HTML page mentioning "error 1010" or "your browser's signature"**, that is
+a different Cloudflare layer — **Browser Integrity Check** — refusing your bot for being a script
+rather than a browser. Your key was never looked at. One idempotent command fixes it, and it is
+scoped to this install's own `/api/` paths only:
+
+```bash
+sudo bash /opt/operationkit-src/install/cloudflare.sh api-bic \
+  --config /opt/operationkit-src/client.conf
+```
+
+Which refusal is which, what the rule does and does not change, and how to undo it:
+[docs/CLOUDFLARE-API-ACCESS.md](./CLOUDFLARE-API-ACCESS.md).
+
 ### If you want the door shut to everyone but one tool
 
 The bypass above is per-route, not per-tool: any AI app with a valid key can use those routes. If
@@ -320,6 +333,7 @@ Grok](./product/10-agents-from-other-ai.md) and the [Agent API reference](./api/
 | `403` with `workspace` | The key is not allowed in that workspace. |
 | The app's "add connector" screen fails | It needs OAuth. Use the configuration-file method or the `mcp-remote` bridge above. |
 | A Cloudflare sign-in page, a redirect, or HTML instead of a reply | Cloudflare Access stopped the request. Do Step 0, or check the two `CF-Access-…` headers are spelled exactly. |
+| `403` + HTML saying **error 1010** / "your browser's signature" | Cloudflare **Browser Integrity Check** stopped it — not Access, and not your key. The server runs `cloudflare.sh api-bic`; see [docs/CLOUDFLARE-API-ACCESS.md](./CLOUDFLARE-API-ACCESS.md). |
 | Tools appear but every write fails | The key is the older full-access **API key**, which is read-only over MCP. Use an **agent key**. |
 
 ## Good habits

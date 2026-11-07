@@ -8,6 +8,76 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Bots stop getting Cloudflare error 1010: a narrow browser-integrity exception, in the installer (obj 900259)
+
+**The bug.** Letting Cloudflare *Access* step aside on the bot-facing API routes
+(obj 900028) is necessary and not sufficient. **Browser Integrity Check** is a
+separate Cloudflare layer that refuses anything whose request does not look like
+it came from a browser — which is every bot, script and AI tool. So a caller
+holding a perfectly valid `cc_live_` key got `403` and Cloudflare's **error 1010**
+HTML page ("banned your access based on your browser's signature"), and the app
+never saw the request. The fix had to be made by hand, per install, in the
+Cloudflare dashboard.
+
+**What changed.**
+
+- **One new step in `cloudflare.sh up` (step 10), and a standalone command.**
+  `cloudflare.sh api-bic [remove] --config client.conf [--dry-run]` adds, corrects
+  or removes **one** Cloudflare Configuration Rule in the zone's
+  `http_config_settings` phase: action `set_config`, action parameters **exactly**
+  `{"bic": false}`, expression
+  `(http.host eq "<your DOMAIN>" and starts_with(http.request.uri.path, "/api/"))`.
+  The hostname always comes from your `client.conf`; nothing is hard-coded.
+
+- **It is narrow by construction, not by care.** The zone-wide Browser Integrity
+  Check setting is never written. No WAF rule, rate limit, security level, Access
+  application or sign-in is touched. Other Configuration Rules in the same phase
+  are never read-modify-written — ours is added, patched and deleted *by id*
+  through the per-rule endpoints — and the step compares the other rules before
+  and after, refusing to report success if they differ. The rule's description
+  carries the hostname, so two installs sharing one Cloudflare zone own one rule
+  each and neither can touch the other's.
+
+- **Idempotent, with a dry run and a real rollback.** A rule that is already
+  exactly right costs no mutating call at all; one edited or renamed in the
+  dashboard is corrected in place rather than duplicated. `--dry-run` prints the
+  exact expression and setting and changes nothing. Before any change the phase's
+  current contents are written to
+  `/opt/operationkit/backups/cloudflare-bic-<UTC time>-before-*.json` (mode 600).
+  `api-bic remove` deletes that one rule; `cloudflare.sh down` removes it too;
+  `cloudflare.sh status` shows whether it is present.
+
+- **👤 One new Cloudflare API token permission: `Zone → Config Rules → Edit`.**
+  Existing tokens do not have it. Without it the step stops with that exact
+  sentence and changes nothing — it never half-applies and never reports success
+  it cannot back. A zone with no room for another Configuration Rule gets its own
+  message, naming the two ways out.
+
+- **`install/verify.sh` now tells the three refusals apart.** A keyless call to a
+  bot-facing route must come back `401` **JSON** (the app refused). A `302` to
+  `…cloudflareaccess.com` names Access and prints the `api-bypass` command; a
+  `403` HTML/1010 page names Browser Integrity Check and prints the `api-bic`
+  command. It also proves the other direction: an authenticated caller sending no
+  Cloudflare headers gets `200` JSON, while `/` and `/api/internal` stay behind
+  the sign-in.
+
+- **Off switch:** `API_BROWSER_INTEGRITY_EXCEPTION="off"` in `client.conf`.
+
+**👤 Existing installs must reconcile — pulling code is not enough.** The rule
+lives in *your Cloudflare account*, so `git pull` + restart changes nothing there.
+`install/update.sh` re-runs the installer and therefore reconciles it for you;
+if you updated by hand, run `cloudflare.sh api-bic` once. Step-by-step (with
+backup, dry run, rollback and a paste-ready prompt for an AI assistant with SSH
+access): **[docs/CLOUDFLARE-API-ACCESS.md](docs/CLOUDFLARE-API-ACCESS.md)**.
+
+**Tests.** `install/test/bic-lib-test.sh` (new, no network: scope, one-setting,
+hostname refusals, our-rule matching, other-rule preservation, 1010 vs Access vs
+app JSON, error messages) and 50+ new checks in
+`install/test/cloudflare-mock-test.sh` (idempotency, a client's own rule coming
+through byte-identical, dashboard edits corrected in place, two installs in one
+zone, dry run, rollback, permission and plan failures). Both run in CI
+(`.github/workflows/install-smoke.yml`), and `bic-lib.sh` is now shellchecked.
+
 ### Card sessions can read their own workspace's knowledge base again (obj 900204)
 
 **The bug.** With `SESSION_ISOLATION=docker` a session runs in a sibling container whose

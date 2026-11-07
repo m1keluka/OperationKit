@@ -14,8 +14,15 @@
 #      belongs to a normal user (e.g. cloned as `ubuntu`) git runs as that user,
 #      so the folder never ends up owned by root; safe.directory is set either way
 #   4. re-runs ./install.sh --config client.conf (it lives at the REPO ROOT) —
-#      with --skip-cloudflare again if the install was made that way
-#   5. prints the exact rollback steps (also on failure)
+#      with --skip-cloudflare again if the install was made that way. This is
+#      also what RECONCILES Cloudflare: pulling new code changes nothing in your
+#      Cloudflare account on its own, so anything the newer version wants there
+#      — the key-auth Access app, the narrow browser-integrity exception — is
+#      brought into line here. Every step is idempotent and looks its object up
+#      before touching it, so an install that is already correct is unchanged.
+#   5. prints the exact rollback steps (also on failure). Those cover the code,
+#      the images and the database. The Cloudflare side is rolled back with its
+#      own commands, which are printed at the end of the run.
 # Nothing in INSTALL_DIR is deleted. Re-running is safe.
 set -euo pipefail
 # shellcheck source=install/lib.sh
@@ -130,4 +137,12 @@ fi
 
 step "Updated: $(cut -c1-12 <<<"$OLD_SHA") → $(cut -c1-12 <<<"$NEW_SHA")"
 log "  pre-update backup: ${BACKUP_DIR:-none (--skip-backup)}"
+if ! local_mode; then
+  log "  Cloudflare was reconciled by the installer above. To re-run just that part:"
+  log "    sudo bash $OK_LIB_DIR/cloudflare.sh api-bypass --config $CONFIG   # Access steps aside on the bot API routes"
+  log "    sudo bash $OK_LIB_DIR/cloudflare.sh api-bic    --config $CONFIG   # no Browser Integrity Check on $(conf DOMAIN)/api/"
+  log "    sudo bash $OK_LIB_DIR/cloudflare.sh status     --config $CONFIG   # what is in place now"
+  log "  and to undo only the browser-integrity exception:"
+  log "    sudo bash $OK_LIB_DIR/cloudflare.sh api-bic remove --config $CONFIG"
+fi
 rollback_help

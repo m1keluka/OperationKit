@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 const TOKEN = process.env.MOCK_CF_TOKEN || 'mock-token'
 const state = {
   zones: [{ id: 'zone1', name: 'example-capital.com', account: { id: 'acct1' } }],
-  tunnels: [], dns: [], apps: [], policies: {}, idps: [], svc: [],
+  tunnels: [], dns: [], apps: [], policies: {}, idps: [], svc: [], rulesets: [],
   org: process.env.MOCK_NO_ORG ? null : { auth_domain: 'example-capital.cloudflareaccess.com' },
   configs: {}, calls: [],
 }
@@ -96,6 +96,47 @@ http.createServer((req, res) => {
         state.apps[i] = { id: appId, aud: state.apps[i].aud, ...json }; return ok(res, state.apps[i])
       }
       if (m === 'DELETE') { state.apps.splice(i, 1); delete state.policies[appId]; return ok(res, {}) }
+    }
+    // ── Rulesets (Configuration Rules; obj 900259) ──────────────────────────
+    // Enough of the Ruleset Engine for install/cloudflare.sh's api-bic step:
+    // the zone's http_config_settings phase entry point, plus the per-rule
+    // add / update / delete endpoints it uses so unrelated rules are never
+    // rewritten. Two failure modes are reproducible on demand, because the
+    // script promises a different, actionable message for each.
+    if (p.startsWith('/zones/zone1/rulesets')) {
+      if (process.env.MOCK_NO_CONFIG_RULES_PERM) return err(res, 403, 10000, 'Authentication error')
+      const phase = (ph) => state.rulesets.find(r => r.phase === ph)
+      if ((mm = p.match(/^\/zones\/zone1\/rulesets\/phases\/([^/]+)\/entrypoint$/))) {
+        const existing = phase(mm[1])
+        if (m === 'GET') return existing ? ok(res, existing) : err(res, 404, 1001, 'could not find a ruleset: ruleset not found')
+        // Some accounts refuse the entry-point PUT; install/cloudflare.sh then
+        // falls back to an explicit "create a zone ruleset" POST.
+        if (m === 'PUT' && process.env.MOCK_NO_PUT_ENTRYPOINT && !existing) return err(res, 400, 10021, 'cannot create ruleset through this endpoint')
+        if (m === 'PUT') {
+          const rs = existing || { id: randomUUID(), phase: mm[1], kind: 'zone', rules: [] }
+          rs.name = json.name || rs.name
+          rs.rules = (json.rules || []).map(r => ({ id: randomUUID(), version: '1', ...r }))
+          if (!existing) state.rulesets.push(rs)
+          return ok(res, rs)
+        }
+      }
+      if (p === '/zones/zone1/rulesets' && m === 'POST') {
+        const rs = { id: randomUUID(), phase: json.phase, kind: json.kind, name: json.name,
+                     rules: (json.rules || []).map(r => ({ id: randomUUID(), version: '1', ...r })) }
+        state.rulesets.push(rs); return ok(res, rs)
+      }
+      if ((mm = p.match(/^\/zones\/zone1\/rulesets\/([^/]+)\/rules(?:\/([^/]+))?$/))) {
+        const rs = state.rulesets.find(r => r.id === mm[1])
+        if (!rs) return bad(res, 404, 'no such ruleset')
+        if (m === 'POST') {
+          if (process.env.MOCK_CONFIG_RULES_PLAN_LIMIT) return err(res, 400, 20062, 'rules quota exceeded: your plan does not allow more rules')
+          rs.rules.push({ id: randomUUID(), version: '1', ...json }); return ok(res, rs)
+        }
+        const i = rs.rules.findIndex(r => r.id === mm[2])
+        if (i < 0) return bad(res, 404, 'no such rule')
+        if (m === 'PATCH') { rs.rules[i] = { ...rs.rules[i], ...json }; return ok(res, rs) }
+        if (m === 'DELETE') { rs.rules.splice(i, 1); return ok(res, rs) }
+      }
     }
     bad(res, 404, `mock: unhandled ${m} ${p}`)
   })

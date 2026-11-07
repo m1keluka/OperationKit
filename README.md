@@ -83,6 +83,7 @@ list and keep both locks:
 | Setting up from nothing: server size, OVH, Cloudflare, B2 backups, seats, GitHub, updates | [docs/RECOMMENDED-STACK.md](./docs/RECOMMENDED-STACK.md) |
 | Installing for a client | [INSTALL.md](./INSTALL.md) |
 | Connecting Claude, ChatGPT, Grok or another AI app | [docs/CONNECT-YOUR-AGENT.md](./docs/CONNECT-YOUR-AGENT.md) |
+| A bot gets a Cloudflare sign-in page or error 1010 instead of an answer | [docs/CLOUDFLARE-API-ACCESS.md](./docs/CLOUDFLARE-API-ACCESS.md) |
 | "Where does our data go?" (plain-language, one page) | [docs/SECURITY-OVERVIEW.md](./docs/SECURITY-OVERVIEW.md) |
 | Running a live demo | [docs/DEMO-RUNBOOK.md](./docs/DEMO-RUNBOOK.md) |
 | Using it day to day | [docs/product/README.md](./docs/product/README.md) |

@@ -14,6 +14,10 @@
 #      away by it (401 JSON) instead of being redirected to the Cloudflare
 #      sign-in, while an operator route (/api/internal) still gets the
 #      redirect. A bypass that is missing, too wide or too narrow fails here.
+#      The same check names Cloudflare error 1010 separately when Browser
+#      Integrity Check — a different layer, with a different fix — is what
+#      turned the caller away, and then proves the other direction: an
+#      authenticated caller sending NO Cloudflare headers gets 200 JSON.
 #   5. through Cloudflare, with the install's robot pass (Access service token),
 #      the site loads and shows the client's brand name
 #   6. password sign-in works (a throw-away `ok-verify` admin, removed after)
@@ -34,6 +38,8 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # shellcheck source=install/api-bypass-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/api-bypass-lib.sh"
+# shellcheck source=install/bic-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/bic-lib.sh"
 
 CONFIG=
 LOCAL_ONLY=0
@@ -100,8 +106,13 @@ code() { cat "$TMPD/code"; }
 # "<http code>|<redirect url>|<content type>". This is exactly what a bot that
 # only has an Operation Kit API key looks like to Cloudflare.
 nokey() { curl -sS -o "$TMPD/nokey" -w '%{http_code}|%{redirect_url}|%{content_type}' "https://$DOMAIN$1" 2>/dev/null || printf '000||'; }
-# at_cloudflare lives in install/api-bypass-lib.sh so it can be unit-tested.
+# at_cloudflare lives in install/api-bypass-lib.sh so it can be unit-tested;
+# is_bic lives in install/bic-lib.sh for the same reason. Between them they tell
+# the three look-alike refusals apart: the Cloudflare sign-in page, Cloudflare
+# error 1010, and the app's own JSON 401/403. Each has a different fix, so the
+# whole point is to never report one as another.
 at_cloudflare() { ok_api_bypass_at_cloudflare "$@"; }
+is_bic() { ok_bic_is_1010 "$@"; }
 
 step "Verifying $([ "$LOCAL_ONLY" -eq 1 ] && echo "$SLUG (local only)" || echo "https://$DOMAIN (through Cloudflare)")"
 
@@ -160,11 +171,28 @@ if [ "$LOCAL_ONLY" -eq 0 ]; then
     if [ "$rcode" = 000 ]; then
       fail "could not reach https://$DOMAIN$probe at all (network/tunnel problem, not the bypass)"
     elif [ "$rcode" = 401 ] && [[ "$rctype" == application/json* ]]; then
-      pass "bots can reach the API with just their key ($probe with no key -> 401 JSON from the app)"
+      pass "a missing key is refused by the APP, not by Cloudflare ($probe with no key -> 401 JSON)"
+    elif is_bic "$r" "$TMPD/nokey"; then
+      # Obj 900259. Access let it through and Browser Integrity Check still said
+      # no, because the caller is a script. Naming this separately matters: the
+      # fix is a different command from the one for a sign-in page.
+      fail "$probe got Cloudflare error 1010 ('banned … based on your browser's signature'): Browser Integrity Check is refusing your bots before the app sees them. Run: bash $OK_LIB_DIR/cloudflare.sh api-bic --config $CONFIG"
     elif at_cloudflare "$r"; then
       fail "$probe is still behind the Cloudflare sign-in (got $rcode) — a bot's key is never checked. Run: bash $OK_LIB_DIR/cloudflare.sh api-bypass --config $CONFIG"
     else
       fail "$probe with no key returned $rcode ($rctype) — expected 401 JSON from the app"
+    fi
+    # The other half of the same promise: a caller the app DOES accept gets a
+    # real answer, with no Cloudflare header of any kind on the request.
+    if [ -n "${AUTH_HDR-}" ]; then
+      akey=$(curl -sS -o "$TMPD/akey" -w '%{http_code}|%{content_type}' -H @"$AUTH_HDR" "https://$DOMAIN$probe" 2>/dev/null || printf '000|')
+      if [ "${akey%%|*}" = 200 ] && [[ "${akey##*|}" == application/json* ]]; then
+        pass "an authenticated caller gets a real answer through Cloudflare ($probe -> 200 JSON, no Cloudflare headers sent)"
+      elif is_bic "$akey|" "$TMPD/akey"; then
+        fail "$probe with a valid credential got Cloudflare error 1010 — Browser Integrity Check is refusing it. Run: bash $OK_LIB_DIR/cloudflare.sh api-bic --config $CONFIG"
+      else
+        fail "$probe with a valid credential returned ${akey%%|*} (${akey##*|}) — expected 200 JSON"
+      fi
     fi
     r=$(nokey /api/internal/objectives)
     if [ "${r%%|*}" = 000 ]; then fail "could not reach https://$DOMAIN/api/internal/objectives at all (network/tunnel problem)"

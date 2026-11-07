@@ -117,6 +117,7 @@ conf_validate() {
     || die "ADMIN_EMAIL does not look like an email address (got '$(conf ADMIN_EMAIL)')"
   case "$(conf ACCESS_LOGIN_METHOD otp)" in otp|google|microsoft) ;; *) die "ACCESS_LOGIN_METHOD must be otp, google or microsoft" ;; esac
   case "$(conf API_KEY_AUTH_BYPASS on)" in on|yes|1|true|off|no|0|false) ;; *) die "API_KEY_AUTH_BYPASS must be on or off (got '$(conf API_KEY_AUTH_BYPASS)')" ;; esac
+  case "$(conf API_BROWSER_INTEGRITY_EXCEPTION on)" in on|yes|1|true|off|no|0|false) ;; *) die "API_BROWSER_INTEGRITY_EXCEPTION must be on or off (got '$(conf API_BROWSER_INTEGRITY_EXCEPTION)')" ;; esac
   [ "$local_only" -eq 1 ] || [ -n "$(conf ACCESS_ALLOWED_EMAILS)$(conf ACCESS_ALLOWED_EMAIL_DOMAIN)" ] \
     || die "set ACCESS_ALLOWED_EMAILS or ACCESS_ALLOWED_EMAIL_DOMAIN — otherwise nobody could open the site"
   case "$(conf CLAUDE_AUTH login)" in login|api-key) ;; *) die "CLAUDE_AUTH must be login or api-key" ;; esac

@@ -7,6 +7,7 @@
 #   sudo bash install/cloudflare.sh agent-pass add|remove <name> --config client.conf
 #   sudo bash install/cloudflare.sh agent-pass list --config client.conf
 #   sudo bash install/cloudflare.sh api-bypass [remove] --config client.conf
+#   sudo bash install/cloudflare.sh api-bic    [remove] --config client.conf [--dry-run]
 #
 # `up` (idempotent — every object is looked up by name first and reused):
 #   1. finds the zone (ZONE) and its Cloudflare account: the account id comes
@@ -44,6 +45,16 @@
 #      secrets/stack.env as OK_CF_ACCESS_TEAM / OK_CF_ACCESS_AUD. The app uses
 #      them to verify Cloudflare's signed identity header and skip its own
 #      sign-in page (one login). Without them the password login is used.
+#  10. adds ONE narrow Cloudflare Configuration Rule that switches Browser
+#      Integrity Check OFF for this install's own API paths — and nothing else.
+#      Without it a bot that gets past step 8 still meets Cloudflare error 1010
+#      ("banned ... based on your browser's signature"), because a script is not
+#      a browser. The rule lives in the zone's http_config_settings phase, its
+#      action_parameters hold exactly one key (bic:false), and its expression
+#      matches only `http.host eq DOMAIN and starts_with(path, "/api/")`. The
+#      zone-wide Browser Integrity Check switch, every WAF rule, every rate
+#      limit and every other Configuration Rule are left exactly as they were.
+#      Set API_BROWSER_INTEGRITY_EXCEPTION="off" in client.conf to skip it.
 # `down` removes exactly what `up` created (app, service token, DNS record,
 # tunnel) plus every agent pass, and blanks OK_CF_ACCESS_TEAM/AUD. It never touches the zone, other DNS records
 # or the login methods.
@@ -68,10 +79,22 @@
 # API route back behind the Cloudflare sign-in immediately (bots then get the
 # sign-in page again). `down` removes it too. Nothing else is touched.
 #
+# `api-bic` re-runs step 10 on its own, in place, and is the reconcile path for
+# an install made before step 10 existed: pulling new code does NOT change
+# anything at Cloudflare, so an existing install must run this once (update.sh
+# does it for you by re-running the installer). It is idempotent — the rule is
+# looked up inside the phase, and a rule that is already exactly right costs no
+# mutating call at all. Before it changes anything it writes the phase's current
+# contents to INSTALL_DIR/backups/cloudflare-bic-<UTC time>.json (mode 600).
+# ROLLBACK: `api-bic remove` deletes just that one rule by id, leaving the phase
+# and every other rule in it untouched; `down` removes it too. Or restore the
+# snapshot by hand from the dashboard. Browser Integrity Check for the rest of
+# the zone was never changed, so there is nothing to put back.
+#
 # The API token is read from $INSTALL_DIR/secrets/cloudflare-api-token (one
 # line, mode 600). It is sent to Cloudflare in a header file, never on a command
 # line, and never printed. Token permissions needed (INSTALL.md lists them):
-#   Zone: Zone Read, DNS Edit · Account: Cloudflare Tunnel Edit,
+#   Zone: Zone Read, DNS Edit, Config Rules Edit · Account: Cloudflare Tunnel Edit,
 #   Access: Apps and Policies Edit, Access: Organizations, Identity Providers,
 #   and Groups Edit, Access: Service Tokens Edit
 set -euo pipefail
@@ -79,6 +102,8 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # shellcheck source=install/api-bypass-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/api-bypass-lib.sh"
+# shellcheck source=install/bic-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/bic-lib.sh"
 
 CF_API=${CF_API_BASE:-https://api.cloudflare.com/client/v4}
 ACTION=${1:-}; shift || true
@@ -100,6 +125,14 @@ if [ "$ACTION" = api-bypass ]; then
     *) echo "usage: cloudflare.sh api-bypass [remove] --config client.conf" >&2; exit 2 ;;
   esac
 fi
+BIC_CMD=
+if [ "$ACTION" = api-bic ]; then
+  case "${1:-}" in
+    remove) BIC_CMD=remove; shift ;;
+    ''|--*) BIC_CMD=up ;;
+    *) echo "usage: cloudflare.sh api-bic [remove] --config client.conf" >&2; exit 2 ;;
+  esac
+fi
 CONFIG=
 REPLACE_DNS=0
 while [ $# -gt 0 ]; do
@@ -111,7 +144,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-case "$ACTION" in up|down|status|agent-pass|api-bypass) ;; *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
+case "$ACTION" in up|down|status|agent-pass|api-bypass|api-bic) ;; *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
 [ -n "$CONFIG" ] || die "--config <file> is required"
 conf_load "$CONFIG"; conf_validate; ok_paths
 command -v jq >/dev/null || die "jq is required (install/bootstrap-host.sh installs it)"
@@ -272,6 +305,168 @@ api_bypass_down() {
   else log "'$API_APP_NAME': none"; fi
 }
 
+
+# ── Browser-integrity exception for this install's API paths (step 10) ───────
+# Step 8 above tells Cloudflare ACCESS to stop asking for a sign-in on the
+# bot-facing API routes. That is necessary and not sufficient: Browser Integrity
+# Check is a separate layer, and it refuses the request for a completely
+# different reason — the caller is a script, not a browser — with error 1010.
+# The caller sees HTTP 403 and an HTML page instead of the app's JSON, so a
+# perfectly good Operation Kit key looks broken.
+#
+# What goes in: ONE Configuration Rule, scoped to this install's hostname and
+# its /api/ paths, carrying one setting. What stays exactly as it was: the
+# zone's Browser Integrity Check switch, every WAF rule and rate limit, the
+# Access applications and the sign-in, every OTHER Configuration Rule in the
+# same phase (we add / patch / delete OUR rule by id, never rewriting the list),
+# and every other hostname in the zone. install/bic-lib.sh holds the pure parts
+# and install/test/bic-lib-test.sh proves each of those claims.
+
+# cf_try METHOD PATH [JSON] — like cf(), but never exits: prints the HTTP status
+# code on line 1 and Cloudflare's body after it, so a caller can tell "not there
+# yet" (404) apart from "your token may not" (403). Never prints the token.
+cf_try() {
+  local method=$1 path=$2 body=${3-} out
+  if [ -n "$body" ]; then
+    out=$(curl -sS --retry 3 -w '\n%{http_code}' -X "$method" -H @"$HDR" --data-binary @- "$CF_API$path" <<<"$body") || { printf '000\n{}'; return 0; }
+  else
+    out=$(curl -sS --retry 3 -w '\n%{http_code}' -X "$method" -H @"$HDR" "$CF_API$path") || { printf '000\n{}'; return 0; }
+  fi
+  printf '%s\n%s' "${out##*$'\n'}" "${out%$'\n'*}"
+}
+
+# bic_call METHOD PATH [JSON] — a rulesets call that must succeed. On refusal it
+# dies with the cause in plain language (token permission vs plan/limit vs
+# anything else) and says that nothing was changed, so a failure is never read
+# as a half-applied success.
+bic_call() {
+  local r code body hint
+  r=$(cf_try "$1" "$2" "${3-}")
+  code=${r%%$'\n'*}; body=${r#*$'\n'}
+  [ "$code" != 000 ] || die "browser-integrity exception: could not reach Cloudflare ($1 $2). Nothing was changed."
+  if [ "$(jq -r '.success' <<<"$body" 2>/dev/null)" != "true" ]; then
+    hint=$(ok_bic_error_hint "$body") || hint=
+    if [ -n "$hint" ]; then
+      die "browser-integrity exception: $hint (Cloudflare answered HTTP $code). Nothing was changed."
+    fi
+    die "browser-integrity exception: Cloudflare refused $1 $2 (HTTP $code): $(jq -c '[.errors[]?|{code,message}]' <<<"$body" 2>/dev/null || echo 'unreadable response'). Nothing was changed."
+  fi
+  printf '%s' "$body"
+}
+
+# bic_phase — prints the zone's http_config_settings phase ruleset (the JSON
+# `result`), or nothing at all when the zone has no Configuration Rules yet.
+# A refusal that is NOT "no such ruleset" stops the step with its own message.
+bic_phase() {
+  local r code body hint
+  r=$(cf_try GET "/zones/$ZONE_ID/rulesets/phases/$OK_BIC_PHASE/entrypoint")
+  code=${r%%$'\n'*}; body=${r#*$'\n'}
+  [ "$code" != 000 ] || die "browser-integrity exception: could not reach Cloudflare (reading the $OK_BIC_PHASE phase). Nothing was changed."
+  if [ "$(jq -r '.success' <<<"$body" 2>/dev/null)" = "true" ]; then jq -c '.result' <<<"$body"; return 0; fi
+  if [ "$code" = 404 ] || jq -e '[.errors[]? | select((.message // "") | test("not found|does not exist"; "i"))] | length > 0' <<<"$body" >/dev/null 2>&1; then
+    return 0   # this zone simply has no Configuration Rules yet
+  fi
+  hint=$(ok_bic_error_hint "$body") || hint=
+  [ -z "$hint" ] || die "browser-integrity exception: $hint (Cloudflare answered HTTP $code). Nothing was changed."
+  die "browser-integrity exception: Cloudflare refused to show this zone's Configuration Rules (HTTP $code): $(jq -c '[.errors[]?|{code,message}]' <<<"$body" 2>/dev/null || echo 'unreadable response'). Nothing was changed."
+}
+
+# bic_snapshot JSON LABEL — keep what the phase looked like BEFORE we touch it.
+# A ruleset body holds no secrets, but the file is written 600 like everything
+# else. This is the thing to read if a rollback ever has to be done by hand.
+bic_snapshot() {
+  local f
+  if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] would snapshot the $OK_BIC_PHASE phase under $OK_DIR/backups/"; return 0; fi
+  mkdir -p "$OK_DIR/backups"; chmod 700 "$OK_DIR/backups" 2>/dev/null || true
+  f=$OK_DIR/backups/cloudflare-bic-$(date -u +%Y%m%dT%H%M%SZ)-$2.json
+  (umask 077; printf '%s\n' "${1:-$OK_BIC_EMPTY}" > "$f")
+  log "  before-state saved: $f (restore by hand from the dashboard if ever needed)"
+}
+
+# bic_others JSON — the rules in the phase that are not ours, as text, so the
+# before/after comparison is one string equality.
+bic_others() { ok_bic_other_rules "${1:-$OK_BIC_EMPTY}" "$DOMAIN"; }
+
+api_bic_up() {
+  local phase rs_id before after rid rule n r
+  step "Cloudflare: browser-integrity exception for https://$DOMAIN/api/"
+  ok_bic_check_domain "$DOMAIN" || exit 1
+  rule=$(ok_bic_rule_body "$DOMAIN") || exit 1
+  phase=$(bic_phase)
+  rs_id=$(jq -r '.id // empty' <<<"${phase:-$OK_BIC_EMPTY}")
+  before=$(bic_others "$phase")
+  if [ -z "$before" ]; then n=0; else n=$(printf '%s\n' "$before" | wc -l | tr -d ' '); fi
+  log "this zone has $n other Configuration Rule(s) in the $OK_BIC_PHASE phase — none of them is edited or re-ordered"
+
+  if [ -n "$phase" ] && ok_bic_rule_is_current "$phase" "$DOMAIN"; then
+    log "the exception is already exactly right (one rule, bic:false, scoped to $DOMAIN and /api/) — nothing to change"
+    return 0
+  fi
+  if [ "$DRY_RUN" -eq 1 ]; then
+    if [ -z "$rs_id" ]; then log "  [dry-run] would create this zone's $OK_BIC_PHASE phase holding one rule:"
+    else log "  [dry-run] would add or correct exactly one rule in the existing $OK_BIC_PHASE phase:"; fi
+    log "  [dry-run]   expression: $(ok_bic_expression "$DOMAIN")"
+    log "  [dry-run]   action: set_config, action_parameters: {\"bic\": false} — and nothing else"
+    log "  [dry-run]   the other $n rule(s) in the phase would not be sent to Cloudflare at all"
+    return 0
+  fi
+  bic_snapshot "$phase" before-up
+
+  if [ -z "$rs_id" ]; then
+    # No Configuration Rules in this zone at all: create the phase holding only
+    # our rule. Nothing can be lost here — there was nothing to lose.
+    # Two documented ways to make a phase entry point exist; some accounts
+    # answer the first with a refusal, so fall back to the explicit create
+    # rather than stopping. Both send the same single rule.
+    r=$(cf_try PUT "/zones/$ZONE_ID/rulesets/phases/$OK_BIC_PHASE/entrypoint" \
+      "$(jq -nc --arg n "$OK_BIC_RULESET_NAME" --argjson r "$rule" '{name:$n, rules:[$r]}')")
+    if [ "$(jq -r '.success' <<<"${r#*$'\n'}" 2>/dev/null)" != "true" ]; then
+      bic_call POST "/zones/$ZONE_ID/rulesets" \
+        "$(jq -nc --arg n "$OK_BIC_RULESET_NAME" --arg p "$OK_BIC_PHASE" --argjson r "$rule" \
+           '{name:$n, kind:"zone", phase:$p, rules:[$r]}')" >/dev/null
+    fi
+    log "Configuration Rules created for this zone, holding the one exception rule"
+  else
+    rid=$(ok_bic_find_rule "$phase" "$DOMAIN") || exit 1
+    if [ -n "$rid" ]; then
+      bic_call PATCH "/zones/$ZONE_ID/rulesets/$rs_id/rules/$rid" "$rule" >/dev/null
+      log "the existing exception rule was corrected in place (no second rule added)"
+    else
+      bic_call POST "/zones/$ZONE_ID/rulesets/$rs_id/rules" "$rule" >/dev/null
+      log "exception rule added to the existing $OK_BIC_PHASE phase"
+    fi
+  fi
+
+  # Say it worked only when Cloudflare agrees it worked, and only when
+  # everything that was not ours came through unchanged.
+  phase=$(bic_phase)
+  ok_bic_rule_is_current "$phase" "$DOMAIN" \
+    || die "browser-integrity exception: Cloudflare accepted the change but the rule does not read back as expected. Check Rules -> Configuration Rules in the dashboard before trusting the API path."
+  after=$(bic_others "$phase")
+  [ "$before" = "$after" ] \
+    || die "browser-integrity exception: the other Configuration Rules in this zone are not what they were before the change. This script edits only its own rule — compare against the snapshot under $OK_DIR/backups/ and the dashboard."
+  log "done: Browser Integrity Check no longer applies to https://$DOMAIN/api/* — and to nothing else"
+  log "the zone-wide Browser Integrity Check setting, the WAF, rate limits, the sign-in UI and the other $n rule(s) are untouched"
+  log "to undo: sudo bash $OK_LIB_DIR/cloudflare.sh api-bic remove --config <your client.conf>"
+}
+
+api_bic_down() {
+  local phase rs_id rid before after
+  phase=$(bic_phase)
+  rs_id=$(jq -r '.id // empty' <<<"${phase:-$OK_BIC_EMPTY}")
+  if [ -z "$rs_id" ]; then log "browser-integrity exception: none (this zone has no Configuration Rules)"; return 0; fi
+  rid=$(ok_bic_find_rule "$phase" "$DOMAIN") || exit 1
+  if [ -z "$rid" ]; then log "browser-integrity exception: none"; return 0; fi
+  before=$(bic_others "$phase")
+  if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] would delete rule $rid from the $OK_BIC_PHASE phase and leave every other rule alone"; return 0; fi
+  bic_snapshot "$phase" before-remove
+  bic_call DELETE "/zones/$ZONE_ID/rulesets/$rs_id/rules/$rid" >/dev/null
+  phase=$(bic_phase)
+  after=$(bic_others "$phase")
+  [ "$before" = "$after" ] || warn "the other Configuration Rules in this zone changed during the removal — compare against the snapshot under $OK_DIR/backups/"
+  log "browser-integrity exception removed — Browser Integrity Check applies to $DOMAIN/api/ again (bots will get Cloudflare error 1010)"
+}
+
 if [ "$ACTION" = agent-pass ]; then
   a=$(find_app)
   [ -n "$a" ] || die "no Access app on $DOMAIN yet — run the installer (or 'cloudflare.sh up') first"
@@ -328,6 +523,18 @@ if [ "$ACTION" = api-bypass ]; then
   exit 0
 fi
 
+# The reconcile path for an install made before step 10 existed. On its own it
+# never touches the tunnel, DNS, Access, the app or any secret.
+if [ "$ACTION" = api-bic ]; then
+  if [ "$BIC_CMD" = remove ]; then
+    step "Cloudflare: removing the browser-integrity exception for $DOMAIN/api/"
+    api_bic_down
+  else
+    api_bic_up
+  fi
+  exit 0
+fi
+
 if [ "$ACTION" = status ]; then
   t=$(find_tunnel); d=$(find_dns); a=$(find_app); s=$(find_svc)
   have() { [ -n "$1" ] && echo present || echo MISSING; }
@@ -343,6 +550,12 @@ if [ "$ACTION" = status ]; then
   else
     printf '  API bypass app                MISSING (bots get the Cloudflare sign-in — run: cloudflare.sh api-bypass)\n'
   fi
+  bic_phase_json=$(bic_phase)
+  if [ -n "$bic_phase_json" ] && ok_bic_rule_is_current "$bic_phase_json" "$DOMAIN"; then
+    printf '  browser-integrity exception   present (%s/api/* only, bic:false)\n' "$DOMAIN"
+  else
+    printf '  browser-integrity exception   MISSING (bots get Cloudflare error 1010 — run: cloudflare.sh api-bic)\n'
+  fi
   printf '  verify service token          %s\n' "$(have "$s")"
   printf '  agent passes                  %s\n' "$(list_passes | wc -l | tr -d ' ')"
   printf '  one login (team + AUD stored) %s\n' "$([ -n "$(env_get "$OK_SECRETS_ENV" OK_CF_ACCESS_AUD)" ] && echo on || echo off)"
@@ -354,6 +567,7 @@ if [ "$ACTION" = down ]; then
   a=$(find_app)
   if [ -n "$a" ]; then mut DELETE "/accounts/$ACCOUNT_ID/access/apps/$a" >/dev/null; log "access app removed"; else log "access app: none"; fi
   api_bypass_down
+  api_bic_down
   s=$(find_svc)
   if [ -n "$s" ]; then mut DELETE "/accounts/$ACCOUNT_ID/access/service_tokens/$s" >/dev/null; log "verify service token removed"; else log "service token: none"; fi
   while read -r pass_id pass_name; do
@@ -505,6 +719,14 @@ fi
 case "$(conf API_KEY_AUTH_BYPASS on)" in
   off|no|0|false) warn "API_KEY_AUTH_BYPASS=off — bots calling the API with a key will get the Cloudflare sign-in page, not an answer" ;;
   *) api_bypass_up ;;
+esac
+
+# Step 10 (obj 900259): Access letting a bot through is not enough on its own —
+# Browser Integrity Check still refuses a request that is not from a browser
+# (error 1010). On by default; API_BROWSER_INTEGRITY_EXCEPTION="off" skips it.
+case "$(conf API_BROWSER_INTEGRITY_EXCEPTION on)" in
+  off|no|0|false) warn "API_BROWSER_INTEGRITY_EXCEPTION=off — if this zone has Browser Integrity Check on, bots calling the API with a key will get Cloudflare error 1010 instead of an answer" ;;
+  *) api_bic_up ;;
 esac
 
 # One login (obj 720332): the app verifies Cloudflare's signed identity header
