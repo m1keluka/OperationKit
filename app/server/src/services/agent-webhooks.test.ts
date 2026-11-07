@@ -25,7 +25,7 @@ const { default: webhookRouter } = await import('../routes/agent-key-webhooks.js
 const { agentKeyGuard } = await import('../middleware/agent-key-guard.js')
 const { resolveSecrets, resolveSecretNames } = await import('./secrets-store.js')
 const wh = await import('./agent-webhooks.js')
-const { DEFAULT_AGENT_WEBHOOK_EVENTS, AGENT_WEBHOOK_EVENTS } = await import('@operationkit/shared')
+const { DEFAULT_AGENT_WEBHOOK_EVENTS, AGENT_WEBHOOK_EVENTS, NEEDS_AGENT_PILOT_KEY_LABELS } = await import('@operationkit/shared')
 
 const USER_ID = 1
 const SECRET_A = 'sender-key-AAAA-0123456789'
@@ -642,4 +642,64 @@ describe('needs_agent pilot (General)', () => {
     expect((await call('DELETE', `/api/auth/agent-keys/${cos.id}/webhook`)).status).toBe(200)
     expect(getDb().prepare('SELECT COUNT(*) AS n FROM agent_webhook_need_state WHERE key_id = ?').get(cos.id)).toMatchObject({ n: 0 })
   })
+})
+
+// ── needs_agent pilot allowlist is exactly General + General (obj 900255) ──
+
+describe('needs_agent pilot allowlist (obj 900255)', () => {
+  const allowed: readonly string[] = ['Grok: General', 'Grok: Chief of Staff']
+  const denied: readonly string[] = ['Grok Bot', 'Unrelated Helper']
+  const hostFor = (label: string) => `${label.toLowerCase().replace(/[^a-z]+/g, '-')}.allow.example.com`
+  const keys: Record<string, { id: number; token: string }> = {}
+
+  beforeAll(async () => {
+    for (const label of [...allowed, ...denied]) keys[label] = await mintKey(label)
+  })
+
+  const ownedCard = (label: string) => {
+    const id = seedCard(keys[label].id, `allowlist card for ${label}`)
+    getDb().prepare('UPDATE objectives SET agent_key_label = ? WHERE id = ?').run(label, id)
+    return id
+  }
+
+  it('the shared list is exactly the two pilot labels', () => {
+    expect([...NEEDS_AGENT_PILOT_KEY_LABELS]).toEqual(allowed)
+  })
+
+  for (const label of allowed) {
+    it(`"${label}" can save needs_agent and the sender enqueues its wake`, async () => {
+      const r = await call('PUT', `/api/auth/agent-keys/${keys[label].id}/webhook`, {
+        body: { url: `https://${hostFor(label)}/wake`, secret: 'allowlist-sender-key-0123456789', events: ['needs_agent'] },
+      })
+      expect(r.status).toBe(200)
+      expect(r.json.webhook.events).toEqual(['needs_agent'])
+      const id = ownedCard(label)
+      getDb().prepare(`UPDATE objectives SET status = 'review', ai_review_verdict = 'fail' WHERE id = ?`).run(id)
+      await tick()
+      const wakes = bodies(sentTo(hostFor(label))).filter(b => b.event === 'needs_agent')
+      expect(wakes).toHaveLength(1)
+      expect(wakes[0]).toMatchObject({ objective: { id }, agent_key: { id: keys[label].id, label } })
+    })
+  }
+
+  for (const label of denied) {
+    it(`"${label}" is denied needs_agent (400) and the sender skips it; existing events still save`, async () => {
+      const bad = await call('PUT', `/api/auth/agent-keys/${keys[label].id}/webhook`, {
+        body: { url: `https://${hostFor(label)}/wake`, secret: 'allowlist-sender-key-0123456789', events: ['needs_agent', 'done'] },
+      })
+      expect(bad.status).toBe(400)
+      expect(bad.json.error).toBe(`needs_agent is a pilot: only the ${allowed.map(l => `"${l}"`).join(' and ')} keys can use it for now`)
+      const ok = await call('PUT', `/api/auth/agent-keys/${keys[label].id}/webhook`, {
+        body: { url: `https://${hostFor(label)}/wake`, secret: 'allowlist-sender-key-0123456789', events: ['done'] },
+      })
+      expect(ok.status).toBe(200)
+      expect(ok.json.webhook.events).toEqual(['done'])
+      // Even if a needs_agent subscription were planted directly in the DB, the sender skips a non-pilot key.
+      getDb().prepare(`UPDATE agent_key_webhooks SET events = ? WHERE key_id = ?`).run(JSON.stringify(['needs_agent', 'done']), keys[label].id)
+      const id = ownedCard(label)
+      getDb().prepare(`UPDATE objectives SET status = 'review', ai_review_verdict = 'fail' WHERE id = ?`).run(id)
+      await tick()
+      expect(bodies(sentTo(hostFor(label))).map(b => b.event)).not.toContain('needs_agent')
+    })
+  }
 })
