@@ -15,6 +15,7 @@ import type {
   User,
 } from '@operationkit/shared'
 import { fieldCls, labelCls } from './objective-modal/form-tokens'
+import { validateOwnerBot, OWNER_BOT_MAX_LENGTH } from '@operationkit/shared'
 import { FooterActions } from './objective-modal/FooterActions'
 import { parseDuplicateError, cardHref, type DuplicateCard } from '../lib/duplicateGuard'
 
@@ -60,6 +61,9 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
   const [models, setModels] = useState<ModelRow[]>([])
   const [defaultModel, setDefaultModel] = useState('')
   const [model, setModel] = useState(objective?.model || '')
+  // obj 900270: optional owning Grok bot. Blank = unowned.
+  const initialOwnerBot = objective?.owner_bot ?? ''
+  const [ownerBot, setOwnerBot] = useState(initialOwnerBot)
 
   // Delegator mode (admin-only)
   const [delegateMode, setDelegateMode] = useState(objective?.delegate_mode ?? false)
@@ -182,6 +186,13 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
       setError('Pick an organization')
       return
     }
+    const owner = validateOwnerBot(ownerBot)
+    if (!owner.ok) {
+      setError(owner.error)
+      return
+    }
+    // Only send owner_bot when it changed, so an edit never clears it by accident.
+    const ownerChanged = (owner.value ?? '') !== initialOwnerBot.trim()
     setLoading(true)
     setError('')
     setDuplicate(null)
@@ -196,6 +207,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
           model: model || undefined,
           delegate_mode: isAdmin ? delegateMode : undefined,
           assigned_user_ids: isAdmin ? assignedUserIds : undefined,
+          ...(ownerChanged ? { owner_bot: owner.value ?? null } : {}),
         })
         if (pendingFiles.length > 0) {
           setUploading(true)
@@ -211,6 +223,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
           model: model || undefined,
           delegate_mode: isAdmin ? delegateMode : undefined,
           assigned_user_ids: isAdmin ? assignedUserIds : undefined,
+          ...(owner.value ? { owner_bot: owner.value } : {}),
           ...(force ? { force: true } : {}),
         })
         if (pendingFiles.length > 0 && created?.id) {
@@ -431,6 +444,22 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
               </select>
             </div>
           )}
+
+          {/* Owner bot (obj 900270): which Grok bot owns this card. Optional; it rides
+              on the needs_agent webhook so the General can route the wake. */}
+          <div>
+            <label htmlFor="objective-owner-bot" className={labelCls}>Owner bot</label>
+            <input
+              id="objective-owner-bot"
+              type="text"
+              value={ownerBot}
+              onChange={e => setOwnerBot(e.target.value)}
+              maxLength={OWNER_BOT_MAX_LENGTH}
+              placeholder="Unowned — e.g. Grok: Research"
+              className={fieldCls}
+              autoComplete="off"
+            />
+          </div>
 
           {/* Assignee picker — admin-only, multi-owner ordered chip list */}
           {isAdmin && users.length > 0 && (

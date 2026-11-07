@@ -15,12 +15,21 @@
  * Both run on their own timer, never inside a card's write path: a slow or dead
  * receiver can delay only its own deliveries, never a status move.
  *
- * needs_agent (obj 900214 pilot, General key only): instead of one POST per
- * change, the enqueue tick classifies the card's CURRENT state (classifyNeed —
- * same conditions as get_attention) and wakes the key once per need: when the card
- * starts needing the agent, or escalates to a more urgent need. Status flicker
- * (queue → working → ai_review, a summary update, a PR link) never wakes it.
- * Delivery reuses the same outbox, retries, dedupe and auth header.
+ * needs_agent (obj 900214; opened to every key in obj 900270): instead of one POST
+ * per change, the enqueue tick classifies the card's CURRENT state (classifyNeed —
+ * same conditions as get_attention) and wakes once per CARD need: when the card
+ * starts needing an agent, or escalates to a more urgent need. Status flicker
+ * (queue → working → ai_review, a summary update, a PR link) never wakes it. The
+ * need state is per card (agent_webhook_card_need_state), not per key, so one need
+ * is one delivery however many keys could see it. Any key may opt in — the old
+ * label allowlist is gone — but the usual gates still apply: the key must be live,
+ * the webhook enabled and subscribed, and the card must be one the key filed or
+ * started AND inside the key's workspace scope. The payload carries the card's
+ * owner_bot (null = unowned) so one shared webhook can route the wake.
+ *
+ * Egress (obj 900270, covers #900244): every send resolves the host, refuses any
+ * non-public answer, pins the connection to the checked address and never follows
+ * a redirect — see webhook-egress.ts.
  *
  * The sender key lives in the Secrets store (user scope, CC_AGENT_WEBHOOK_KEY_<id>)
  * and is excluded from session envs and the broker (isServerOnlySecretKey). It is
@@ -47,9 +56,8 @@ import {
   type AgentWebhookPayload,
   type AgentNeed,
   type AgentNeedKind,
-  isNeedsAgentPilotKey,
-  NEEDS_AGENT_PILOT_KEY_LABELS,
 } from '@operationkit/shared'
+import { isBlockedAddress, pinnedHttpsPost, resolveWebhookDestination, type PinnedPostInit } from './webhook-egress.js'
 
 export const CURSOR_SETTING = 'agent_webhook_cursor'
 export const MAX_ATTEMPTS = 5
@@ -67,10 +75,16 @@ const RESERVED_HEADERS = new Set(['content-type', 'content-length', 'host', 'use
 
 // ── Fetch seam (tests) ───────────────────────────────────────────────────────
 
-type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal; redirect: 'manual' }) => Promise<{ status: number }>
-let fetchImpl: FetchLike = (url, init) => fetch(url, init)
+/**
+ * The transport. Called only AFTER resolveWebhookDestination accepted the host;
+ * `init.address` is the validated IP the connection must use. The default pins
+ * the socket to it (no second DNS lookup) and never follows redirects. Tests swap
+ * the transport only — the DNS check above it always runs.
+ */
+type FetchLike = (url: string, init: PinnedPostInit) => Promise<{ status: number }>
+let fetchImpl: FetchLike = pinnedHttpsPost
 export function setAgentWebhookFetch(f: FetchLike | null): void {
-  fetchImpl = f ?? ((url, init) => fetch(url, init))
+  fetchImpl = f ?? pinnedHttpsPost
 }
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
@@ -148,6 +162,9 @@ function parseEvents(raw: string | null): AgentWebhookEvent[] {
 function isPrivateHost(host: string): boolean {
   const h = host.replace(/^\[|\]$/g, '').toLowerCase()
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true
+  // obj 900270: IP literals also go through the send-time policy (CGNAT, TEST-NETs,
+  // multicast, NAT64/6to4, mapped IPv6 …). Additive — nothing below is relaxed.
+  if (net.isIP(h) && isBlockedAddress(h)) return true
   if (net.isIPv4(h)) {
     const [a, b] = h.split('.').map(Number)
     return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)
@@ -266,10 +283,6 @@ export function saveWebhookConfig(userId: number, keyId: number, input: SaveWebh
     return { ok: false, status: 400, error: 'events must be an array' }
   }
 
-  if (events.includes('needs_agent') && !isNeedsAgentPilotKey(key.label)) {
-    return { ok: false, status: 400, error: `needs_agent is a pilot: only the ${NEEDS_AGENT_PILOT_KEY_LABELS.map(l => `"${l}"`).join(' and ')} keys can use it for now` }
-  }
-
   const enabled = input.enabled === undefined ? (existing ? !!existing.enabled : true) : input.enabled
   if (typeof enabled !== 'boolean') return { ok: false, status: 400, error: 'enabled must be true or false' }
 
@@ -301,6 +314,7 @@ export function deleteWebhookConfig(userId: number, keyId: number): Result<true>
   if (!ownKey(db, userId, keyId)) return { ok: false, status: 404, error: 'Agent key not found' }
   db.prepare('DELETE FROM agent_key_webhooks WHERE key_id = ?').run(keyId)
   db.prepare('DELETE FROM agent_webhook_need_state WHERE key_id = ?').run(keyId)
+  db.prepare('DELETE FROM agent_webhook_card_need_state WHERE key_id = ?').run(keyId)
   db.prepare("UPDATE agent_webhook_deliveries SET status = 'failed', last_error = 'webhook removed', next_attempt_at = NULL WHERE key_id = ? AND status = 'pending'").run(keyId)
   deleteSecret(scopeFor(userId), secretNameFor(keyId), userId)
   return { ok: true, value: true }
@@ -335,10 +349,31 @@ interface EventJoinRow {
   blocked_reason: string | null
   needs_secret: string | null
   deleted_at: string | null
+  owner_bot: string | null
   key_id: number
   key_label: string
   key_workspaces: string | null
+  /** Key owner's role; 'admin' sees every workspace. */
+  owner_role: string | null
+  /** 1 when the key owner is a member of the card's CURRENT workspace. */
+  owner_member: number
   events: string
+}
+
+/**
+ * Is this card inside the key's authorized scope right now? Same two gates the
+ * REST surface applies to a key: its own workspace allowlist (NULL = all of the
+ * owner's) AND the owner's membership (an admin owner sees every workspace). A
+ * card moved out of scope after the key filed it is never disclosed.
+ */
+export function cardInKeyScope(row: Pick<EventJoinRow, 'workspace' | 'key_workspaces' | 'owner_role' | 'owner_member'>): boolean {
+  if (row.key_workspaces) {
+    let allow: unknown = null
+    try { allow = JSON.parse(row.key_workspaces) } catch { allow = [] }
+    if (!Array.isArray(allow) || !allow.includes(row.workspace)) return false
+  }
+  if (row.owner_role === 'admin') return true
+  return Number(row.owner_member) > 0
 }
 
 function sqliteNow(d: Date): string {
@@ -364,6 +399,8 @@ export function buildPayload(row: EventJoinRow, mapped: MappedEvent): Omit<Agent
     },
     occurred_at: toIso(row.created_at),
     agent_key: { id: row.key_id, label: row.key_label },
+    // obj 900270: the owning bot rides on every card event (null = unowned).
+    owner_bot: row.owner_bot ?? null,
   }
   if (mapped.from_status) payload.from_status = mapped.from_status
   if (mapped.verdict) payload.verdict = mapped.verdict
@@ -450,7 +487,8 @@ export function buildNeedPayload(row: EventJoinRow, need: AgentNeed): Omit<Agent
     event_id: `cc_need_${row.id}_k${row.key_id}`,
     need,
     status_summary: status,
-    summary: `Card #${row.objective_id}${row.workspace ? ` (${row.workspace})` : ''} needs ${agentName(row.key_label)}: ${need.why}. Status: ${status}.`,
+    // Owned card → name the owner bot; unowned → the key's agent, exactly as before.
+    summary: `Card #${row.objective_id}${row.workspace ? ` (${row.workspace})` : ''} needs ${agentName(row.owner_bot || row.key_label)}: ${need.why}. Status: ${status}.`,
   }
 }
 
@@ -484,12 +522,15 @@ export function enqueueAgentWebhookEvents(db: Database.Database = getDb(), now =
     const rows = db.prepare(
       `SELECT e.id, e.objective_id, e.kind, e.from_value, e.to_value, e.detail, e.created_at,
               o.title, o.status, o.workspace, o.pr_url,
-              o.has_blockers, o.ai_review_verdict, o.blocked_reason, o.needs_secret, o.deleted_at,
-              k.id AS key_id, k.label AS key_label, k.workspaces AS key_workspaces, w.events
+              o.has_blockers, o.ai_review_verdict, o.blocked_reason, o.needs_secret, o.deleted_at, o.owner_bot,
+              k.id AS key_id, k.label AS key_label, k.workspaces AS key_workspaces, w.events,
+              u.role AS owner_role,
+              EXISTS (SELECT 1 FROM user_workspaces uw WHERE uw.user_id = k.user_id AND uw.workspace = o.workspace) AS owner_member
          FROM objective_events e
          JOIN objectives o ON o.id = e.objective_id
          JOIN agent_key_webhooks w ON w.key_id = o.agent_key_id AND w.enabled = 1
          JOIN agent_api_keys k ON k.id = w.key_id AND k.revoked_at IS NULL
+         LEFT JOIN users u ON u.id = k.user_id
         WHERE e.id > ? AND e.id <= ?
         ORDER BY e.id ASC
         LIMIT ?`,
@@ -501,40 +542,38 @@ export function enqueueAgentWebhookEvents(db: Database.Database = getDb(), now =
       `INSERT OR IGNORE INTO agent_webhook_deliveries (event_id, key_id, objective_id, source_event_id, event, payload, next_attempt_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    const getNeed = db.prepare('SELECT kind FROM agent_webhook_need_state WHERE key_id = ? AND objective_id = ?')
-    const clearNeed = db.prepare('DELETE FROM agent_webhook_need_state WHERE key_id = ? AND objective_id = ?')
+    // Per CARD, not per key (obj 900270): one need → one delivery, even if the
+    // card's attribution moves or several keys could otherwise see it.
+    const getNeed = db.prepare('SELECT kind FROM agent_webhook_card_need_state WHERE objective_id = ?')
+    const clearNeed = db.prepare('DELETE FROM agent_webhook_card_need_state WHERE objective_id = ?')
     const setNeed = db.prepare(
-      `INSERT INTO agent_webhook_need_state (key_id, objective_id, kind) VALUES (?, ?, ?)
-       ON CONFLICT(key_id, objective_id) DO UPDATE SET kind = excluded.kind, updated_at = datetime('now')`,
+      `INSERT INTO agent_webhook_card_need_state (objective_id, kind, key_id) VALUES (?, ?, ?)
+       ON CONFLICT(objective_id) DO UPDATE SET kind = excluded.kind, key_id = excluded.key_id, updated_at = datetime('now')`,
     )
     /**
-     * One wake per need. Evaluated on the card's state NOW (not the event's), so a
+     * One wake per card need. Evaluated on the card's state NOW (not the event's), so a
      * burst of moves inside one tick collapses to a single decision. Wake when the
      * card starts needing the agent or escalates (NEED_ORDER); a de-escalation only
      * records the new kind; leaving the needing states re-arms the next wake.
      */
     const enqueueNeed = (row: EventJoinRow): number => {
       const need = classifyNeed(row)
-      const prev = (getNeed.get(row.key_id, row.objective_id) as { kind: AgentNeedKind } | undefined)?.kind
+      const prev = (getNeed.get(row.objective_id) as { kind: AgentNeedKind } | undefined)?.kind
       if (!need) {
-        if (prev) clearNeed.run(row.key_id, row.objective_id)
+        if (prev) clearNeed.run(row.objective_id)
         return 0
       }
       if (prev === need.kind) return 0
-      setNeed.run(row.key_id, row.objective_id, need.kind)
+      setNeed.run(row.objective_id, need.kind, row.key_id)
       if (prev && NEED_ORDER.indexOf(need.kind) > NEED_ORDER.indexOf(prev)) return 0
       const payload = buildNeedPayload(row, need)
       return insert.run(payload.event_id, row.key_id, row.objective_id, row.id, 'needs_agent', JSON.stringify(payload), sqliteNow(now)).changes
     }
     let queued = 0
     for (const row of page) {
-      // A workspace-restricted key is never told about a card outside its allowlist
-      // (e.g. the card was moved after the key created it).
-      if (row.key_workspaces) {
-        let allow: unknown = null
-        try { allow = JSON.parse(row.key_workspaces) } catch { allow = [] }
-        if (!Array.isArray(allow) || !allow.includes(row.workspace)) continue
-      }
+      // A key is never told about a card outside its scope (e.g. the card was moved
+      // after the key created it, or the owner lost the workspace).
+      if (!cardInKeyScope(row)) continue
       const subscribed = parseEvents(row.events)
       const mapped = mapChange(row.kind, row.from_value, row.to_value)
       if (mapped && subscribed.includes(mapped.event)) {
@@ -542,7 +581,7 @@ export function enqueueAgentWebhookEvents(db: Database.Database = getDb(), now =
         const r = insert.run(payload.event_id, row.key_id, row.objective_id, row.id, mapped.event, JSON.stringify(payload), sqliteNow(now))
         queued += r.changes
       }
-      if (subscribed.includes('needs_agent') && isNeedsAgentPilotKey(row.key_label)) {
+      if (subscribed.includes('needs_agent')) {
         queued += enqueueNeed(row)
       }
     }
@@ -577,6 +616,11 @@ async function sendOnce(target: SendTarget, secret: string, body: string, meta: 
     [SIGNATURE_HEADER]: signBody(secret, body),
     [target.header_name]: `${target.header_prefix}${secret}`,
   }
+  // obj 900270 / #900244: resolve + validate the destination NOW, every attempt.
+  // A refused host is a normal failed attempt (retried, then failed) — no request
+  // is made and the key is never sent.
+  const dest = await resolveWebhookDestination(target.url)
+  if (!dest.ok) return { ok: false, status: null, error: dest.error }
   try {
     const res = await fetchImpl(target.url, {
       method: 'POST',
@@ -584,6 +628,9 @@ async function sendOnce(target: SendTarget, secret: string, body: string, meta: 
       body,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       redirect: 'manual',
+      address: dest.address,
+      family: dest.family,
+      addresses: dest.addresses,
     })
     const ok = res.status >= 200 && res.status < 300
     return { ok, status: res.status, error: ok ? null : `HTTP ${res.status}` }
@@ -662,7 +709,7 @@ export async function sendTestEvent(userId: number, keyId: number): Promise<Resu
   const eventId = `cc_test_${crypto.randomUUID()}`
   const nowIso = new Date().toISOString()
   const cfg = db.prepare('SELECT events FROM agent_key_webhooks WHERE key_id = ?').get(keyId) as { events: string } | undefined
-  const payload: AgentWebhookPayload = parseEvents(cfg?.events ?? null).includes('needs_agent') && isNeedsAgentPilotKey(key.label)
+  const payload: AgentWebhookPayload = parseEvents(cfg?.events ?? null).includes('needs_agent')
     ? {
         event_id: eventId,
         event: 'needs_agent',
@@ -674,6 +721,7 @@ export async function sendTestEvent(userId: number, keyId: number): Promise<Resu
         occurred_at: nowIso,
         sent_at: nowIso,
         agent_key: { id: key.id, label: key.label },
+        owner_bot: null,
       }
     : {
         event_id: eventId,

@@ -25,7 +25,9 @@ const { default: webhookRouter } = await import('../routes/agent-key-webhooks.js
 const { agentKeyGuard } = await import('../middleware/agent-key-guard.js')
 const { resolveSecrets, resolveSecretNames } = await import('./secrets-store.js')
 const wh = await import('./agent-webhooks.js')
-const { DEFAULT_AGENT_WEBHOOK_EVENTS, AGENT_WEBHOOK_EVENTS, NEEDS_AGENT_PILOT_KEY_LABELS } = await import('@operationkit/shared')
+const egress = await import('./webhook-egress.js')
+const { initAgentWebhooksSchema, CARD_NEED_MIGRATED_SETTING } = await import('../db/schema/agent-webhooks.js')
+const { DEFAULT_AGENT_WEBHOOK_EVENTS, AGENT_WEBHOOK_EVENTS } = await import('@operationkit/shared')
 
 const USER_ID = 1
 const SECRET_A = 'sender-key-AAAA-0123456789'
@@ -53,17 +55,35 @@ async function call(method: string, p: string, opts: { bearer?: string; body?: u
 }
 
 // ── outbound recorder ────────────────────────────────────────────────────────
-interface Sent { url: string; headers: Record<string, string>; body: string }
+interface Sent { url: string; headers: Record<string, string>; body: string; address: string }
 let sent: Sent[] = []
 let responder: (s: Sent) => number | Error = () => 200
 
 function installRecorder() {
   wh.setAgentWebhookFetch(async (url, init) => {
-    const s = { url, headers: init.headers, body: init.body }
+    const s = { url, headers: init.headers, body: init.body, address: init.address }
     sent.push(s)
     const r = responder(s)
     if (r instanceof Error) throw r
     return { status: r }
+  })
+}
+
+/**
+ * Fake DNS (obj 900270): every *.example.com fixture host resolves to one public
+ * address; anything else is NXDOMAIN. Tests that exercise the SSRF guard swap
+ * entries in `dnsTable`.
+ */
+const PUBLIC_IP = '93.184.216.34'
+let dnsTable: Record<string, string[]> = {}
+let dnsCalls: string[] = []
+function installDns() {
+  egress.setWebhookDnsLookup(async host => {
+    dnsCalls.push(host)
+    const fixed = dnsTable[host]
+    const list = fixed ?? (host.endsWith('.example.com') ? [PUBLIC_IP] : null)
+    if (!list) throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), { code: 'ENOTFOUND' })
+    return list.map(address => ({ address, family: address.includes(':') ? 6 : 4 }))
   })
 }
 
@@ -117,6 +137,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   wh.setAgentWebhookFetch(null)
+  egress.setWebhookDnsLookup(null)
   await new Promise<void>(resolve => server.close(() => resolve()))
   try { fs.unlinkSync(TMP_DB) } catch { /* ignore */ }
 })
@@ -125,7 +146,10 @@ beforeEach(async () => {
   sent = []
   responder = () => 200
   installRecorder()
-  getDb().exec(`DELETE FROM agent_webhook_deliveries; DELETE FROM agent_key_webhooks; DELETE FROM agent_webhook_need_state; DELETE FROM settings WHERE key = '${wh.CURSOR_SETTING}';`)
+  dnsTable = {}
+  dnsCalls = []
+  installDns()
+  getDb().exec(`DELETE FROM agent_webhook_deliveries; DELETE FROM agent_key_webhooks; DELETE FROM agent_webhook_need_state; DELETE FROM agent_webhook_card_need_state; DELETE FROM settings WHERE key = '${wh.CURSOR_SETTING}';`)
   // Anchor the cursor at the current head (first run never replays history).
   wh.enqueueAgentWebhookEvents(getDb())
   for (const [k, secret, host] of [[keyA, SECRET_A, 'a.example.com'], [keyB, SECRET_B, 'b.example.com']] as const) {
@@ -354,7 +378,7 @@ describe('no secrets in the payload or the session env', () => {
       expect(s.body).not.toContain(SUMMARY_MARKER)
       expect(s.body).not.toContain('STRIPE_KEY')
       const b = JSON.parse(s.body)
-      expect(Object.keys(b).every(k => ['event_id', 'event', 'test', 'objective', 'from_status', 'verdict', 'occurred_at', 'sent_at', 'agent_key'].includes(k))).toBe(true)
+      expect(Object.keys(b).every(k => ['event_id', 'event', 'test', 'objective', 'from_status', 'verdict', 'occurred_at', 'sent_at', 'agent_key', 'owner_bot'].includes(k))).toBe(true)
       expect(Object.keys(b.objective).sort()).toEqual(['id', 'pr_url', 'status', 'title', 'url', 'workspace'])
     }
     // Stored payloads (the delivery log) are value-free too.
@@ -394,7 +418,12 @@ describe('settings routes', () => {
   })
 
   it('rejects non-https, private and credentialed URLs, reserved headers and unknown events', async () => {
-    for (const url of ['http://a.example.com/x', 'https://localhost/x', 'https://127.0.0.1/x', 'https://10.0.0.5/x', 'https://192.168.1.2/x', 'https://u:p@a.example.com/x', 'not a url']) {
+    for (const url of [
+      'http://a.example.com/x', 'https://localhost/x', 'https://127.0.0.1/x', 'https://10.0.0.5/x', 'https://192.168.1.2/x', 'https://u:p@a.example.com/x', 'not a url',
+      // obj 900270: literals the send-time policy refuses are refused at save too.
+      'https://169.254.169.254/latest', 'https://100.64.0.1/x', 'https://[::ffff:127.0.0.1]/x', 'https://[::1]/x', 'https://[fd00::1]/x',
+      'https://198.18.0.1/x', 'https://metadata.google.internal/x',
+    ]) {
       const r = await call('PUT', `/api/auth/agent-keys/${keyA.id}/webhook`, { body: { url } })
       expect(r.status, url).toBe(400)
     }
@@ -475,7 +504,7 @@ describe('objective_events triggers (shared with get_changes)', () => {
 
 // ── needs_agent pilot: wake General only when a card needs it (obj 900214) ──
 
-describe('needs_agent pilot (General)', () => {
+describe('needs_agent on the General key', () => {
   const COS_SECRET = 'cos-routine-sender-key-0123456789'
   const COS_HOST = 'cos.example.com'
   const FINDINGS_MARKER = 'REVIEW-FINDINGS-MARKER'
@@ -591,15 +620,15 @@ describe('needs_agent pilot (General)', () => {
     expect(new Set(w.map(b => b.event_id)).size).toBe(3)
   })
 
-  it('only the pilot key: other bots cannot subscribe and their webhooks never get needs_agent', async () => {
-    const bad = await call('PUT', `/api/auth/agent-keys/${keyA.id}/webhook`, { body: { events: ['needs_agent', 'done'] } })
-    expect(bad.status).toBe(400)
-    expect(bad.json.error).toMatch(/pilot/)
+  it('any key may opt in now (obj 900270), but each key is woken only for its own cards', async () => {
+    const ok = await call('PUT', `/api/auth/agent-keys/${keyA.id}/webhook`, { body: { events: ['needs_agent', 'done'] } })
+    expect(ok.status).toBe(200)
+    expect(ok.json.webhook.events).toEqual(['done', 'needs_agent'])
     const id = seedCard(keyA.id)
     upd(id, `status = 'review', ai_review_verdict = 'fail'`)
     await tick()
-    expect(bodies(sentTo('a.example.com')).map(b => b.event)).not.toContain('needs_agent')
-    expect(wakes()).toHaveLength(0)
+    expect(bodies(sentTo('a.example.com')).filter(b => b.event === 'needs_agent').map(b => b.objective.id)).toEqual([id])
+    expect(wakes()).toHaveLength(0) // CoS did not file it → CoS is not told
   })
 
   it('a card CoS does not own never wakes CoS', async () => {
@@ -638,68 +667,314 @@ describe('needs_agent pilot (General)', () => {
     const id = cosCard()
     upd(id, `status = 'review'`)
     await tick()
-    expect(getDb().prepare('SELECT COUNT(*) AS n FROM agent_webhook_need_state WHERE key_id = ?').get(cos.id)).toMatchObject({ n: 1 })
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM agent_webhook_card_need_state WHERE key_id = ?').get(cos.id)).toMatchObject({ n: 1 })
     expect((await call('DELETE', `/api/auth/agent-keys/${cos.id}/webhook`)).status).toBe(200)
-    expect(getDb().prepare('SELECT COUNT(*) AS n FROM agent_webhook_need_state WHERE key_id = ?').get(cos.id)).toMatchObject({ n: 0 })
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM agent_webhook_card_need_state WHERE key_id = ?').get(cos.id)).toMatchObject({ n: 0 })
   })
 })
 
-// ── needs_agent pilot allowlist is exactly General + General (obj 900255) ──
+// ── obj 900270: one shared needs_agent webhook ───────────────────────────────
 
-describe('needs_agent pilot allowlist (obj 900255)', () => {
-  const allowed: readonly string[] = ['Grok: General', 'Grok: Chief of Staff']
-  const denied: readonly string[] = ['Grok Bot', 'Unrelated Helper']
-  const hostFor = (label: string) => `${label.toLowerCase().replace(/[^a-z]+/g, '-')}.allow.example.com`
-  const keys: Record<string, { id: number; token: string }> = {}
+describe('shared needs_agent webhook (obj 900270)', () => {
+  const SHARED_SECRET = 'shared-connection-sender-key-0123456789'
+  const SHARED_HOST = 'shared.example.com'
+  let shared: { id: number; token: string }
+  let cosKey: { id: number; token: string }
 
   beforeAll(async () => {
-    for (const label of [...allowed, ...denied]) keys[label] = await mintKey(label)
+    shared = await mintKey('OpKit')
+    cosKey = await mintKey('Grok: General')
   })
 
-  const ownedCard = (label: string) => {
-    const id = seedCard(keys[label].id, `allowlist card for ${label}`)
-    getDb().prepare('UPDATE objectives SET agent_key_label = ? WHERE id = ?').run(label, id)
+  beforeEach(async () => {
+    const r = await call('PUT', `/api/auth/agent-keys/${shared.id}/webhook`, {
+      body: { url: `https://${SHARED_HOST}/card-wake`, secret: SHARED_SECRET, events: ['needs_agent'] },
+    })
+    expect(r.status).toBe(200)
+  })
+
+  const sharedCard = (title: string, ownerBot: string | null) => {
+    const id = seedCard(shared.id, title)
+    getDb().prepare('UPDATE objectives SET agent_key_label = ?, owner_bot = ? WHERE id = ?').run('OpKit', ownerBot, id)
     return id
   }
+  const upd = (id: number, set: string) => getDb().prepare(`UPDATE objectives SET ${set} WHERE id = ?`).run(id)
+  const allNeedWakes = () => bodies(sent).filter(b => b.event === 'needs_agent')
 
-  it('the shared list is exactly the two pilot labels', () => {
-    expect([...NEEDS_AGENT_PILOT_KEY_LABELS]).toEqual(allowed)
+  it('the label gate is gone: the shared key (label "OpKit") saves needs_agent', async () => {
+    const r = await call('GET', `/api/auth/agent-keys/${shared.id}/webhook`)
+    expect(r.json.webhook.events).toEqual(['needs_agent'])
+    for (const label of ['Grok Bot', 'Unrelated Helper', 'Grok: General']) {
+      const k = await mintKey(label)
+      const save = await call('PUT', `/api/auth/agent-keys/${k.id}/webhook`, {
+        body: { url: 'https://other.example.com/wake', secret: 'any-sender-key-0123456789', events: ['needs_agent', 'done'] },
+      })
+      expect(save.status, label).toBe(200)
+    }
   })
 
-  for (const label of allowed) {
-    it(`"${label}" can save needs_agent and the sender enqueues its wake`, async () => {
-      const r = await call('PUT', `/api/auth/agent-keys/${keys[label].id}/webhook`, {
-        body: { url: `https://${hostFor(label)}/wake`, secret: 'allowlist-sender-key-0123456789', events: ['needs_agent'] },
-      })
-      expect(r.status).toBe(200)
-      expect(r.json.webhook.events).toEqual(['needs_agent'])
-      const id = ownedCard(label)
-      getDb().prepare(`UPDATE objectives SET status = 'review', ai_review_verdict = 'fail' WHERE id = ?`).run(id)
+  it('payload carries owner_bot; the summary names the owner bot', async () => {
+    const id = sharedCard('Research the Example5 churn', 'Grok: Research')
+    upd(id, `status = 'review', ai_review_verdict = 'fail'`)
+    await tick()
+    const list = sentTo(SHARED_HOST)
+    expect(list).toHaveLength(1)
+    expect(list[0].headers.Authorization).toBe(`Bearer ${SHARED_SECRET}`)
+    expect(wh.verifySignature(SHARED_SECRET, list[0].body, list[0].headers[wh.SIGNATURE_HEADER])).toBe(true)
+    const b = JSON.parse(list[0].body)
+    expect(b).toMatchObject({
+      event: 'needs_agent',
+      owner_bot: 'Grok: Research',
+      objective: { id, workspace: 'operationkit', status: 'review' },
+      need: { kind: 'failed_review' },
+      agent_key: { id: shared.id, label: 'OpKit' },
+    })
+    expect(b.summary).toBe(`Card #${id} (operationkit) needs Research: ${b.need.why}. Status: review · AI review fail.`)
+    for (const leak of [SHARED_SECRET, shared.token, DESC_MARKER]) expect(list[0].body).not.toContain(leak)
+  })
+
+  it('unowned card: owner_bot is present and null', async () => {
+    const id = sharedCard('Nobody owns this', null)
+    upd(id, `status = 'working', has_blockers = 1`)
+    await tick()
+    const [b] = bodies(sentTo(SHARED_HOST))
+    expect(b).toHaveProperty('owner_bot', null)
+    expect(b.summary).toMatch(new RegExp(`^Card #${id} \\(operationkit\\) needs OpKit: `))
+  })
+
+  it('exactly one delivery per need — bursts, re-scans and other subscribed keys never add a second', async () => {
+    // Every other key is subscribed to needs_agent too.
+    for (const k of [keyA, keyB]) {
+      expect((await call('PUT', `/api/auth/agent-keys/${k.id}/webhook`, { body: { events: [...AGENT_WEBHOOK_EVENTS] } })).status).toBe(200)
+    }
+    const id = sharedCard('One need, one wake', 'grok-ops')
+    setStatus(id, 'working')
+    setStatus(id, 'ai_review')
+    upd(id, `status = 'review', ai_review_verdict = 'fail'`)
+    upd(id, `last_session_summary = 'first'`)
+    await tick()
+    upd(id, `last_session_summary = 'second'`)
+    await tick()
+    await tick()
+    // Re-scan the same events (crash between enqueue and cursor save).
+    getDb().prepare(`DELETE FROM settings WHERE key = ?`).run(wh.CURSOR_SETTING)
+    getDb().prepare(`INSERT INTO settings (key, value) VALUES (?, '0')`).run(wh.CURSOR_SETTING)
+    await tick()
+    // (The cursor rewind also replays older fixtures' events to A/B — only this card matters here.)
+    expect(allNeedWakes().filter(b => b.objective.id === id)).toHaveLength(1)
+    expect(sentTo(SHARED_HOST)).toHaveLength(1)
+    const rows = getDb().prepare(`SELECT COUNT(*) AS n FROM agent_webhook_deliveries WHERE event = 'needs_agent' AND objective_id = ?`).get(id)
+    expect(rows).toMatchObject({ n: 1 })
+  })
+
+  it('the need state is per card: moving the card to another key does not re-fire the same need', async () => {
+    expect((await call('PUT', `/api/auth/agent-keys/${cosKey.id}/webhook`, {
+      body: { url: 'https://cos-legacy.example.com/wake', secret: 'cos-legacy-sender-key-0123', events: ['needs_agent'] },
+    })).status).toBe(200)
+    const id = seedCard(cosKey.id, 'Filed by the old CoS key')
+    upd(id, `status = 'review', ai_review_verdict = 'pass'`)
+    await tick()
+    expect(bodies(sentTo('cos-legacy.example.com')).map(b => b.need.kind)).toEqual(['review'])
+    // Re-attributed to the shared key, same need → no second wake anywhere.
+    upd(id, `agent_key_id = ${shared.id}, last_session_summary = 'moved'`)
+    await tick()
+    expect(allNeedWakes()).toHaveLength(1)
+    // A NEW need (escalation) wakes once, on the key that now owns the card.
+    upd(id, `needs_secret = '[{"name":"EXAMPLE5_API_KEY","reason":"x"}]'`)
+    await tick()
+    expect(allNeedWakes()).toHaveLength(2)
+    expect(bodies(sentTo(SHARED_HOST)).map(b => b.need.kind)).toEqual(['needs_secret'])
+  })
+
+  it('never discloses a card outside the key\'s workspace scope', async () => {
+    // (a) the key's own allowlist: restricted to operationkit, card moved to example.
+    getDb().prepare(`UPDATE agent_api_keys SET workspaces = ? WHERE id = ?`).run(JSON.stringify(['operationkit']), shared.id)
+    try {
+      const inScope = sharedCard('In scope', 'grok-ops')
+      const moved = sharedCard('Moved out of scope', 'grok-ops')
+      upd(moved, `workspace = 'example'`)
+      upd(inScope, `status = 'review', ai_review_verdict = 'fail'`)
+      upd(moved, `status = 'review', ai_review_verdict = 'fail'`)
       await tick()
-      const wakes = bodies(sentTo(hostFor(label))).filter(b => b.event === 'needs_agent')
-      expect(wakes).toHaveLength(1)
-      expect(wakes[0]).toMatchObject({ objective: { id }, agent_key: { id: keys[label].id, label } })
+      expect(bodies(sentTo(SHARED_HOST)).map(b => b.objective.id)).toEqual([inScope])
+      expect(JSON.stringify(bodies(sent))).not.toContain('Moved out of scope')
+    } finally {
+      getDb().prepare(`UPDATE agent_api_keys SET workspaces = NULL WHERE id = ?`).run(shared.id)
+    }
+  })
+
+  it('never discloses a card in a workspace the key OWNER cannot see (member-owned key)', async () => {
+    const db = getDb()
+    db.prepare(`INSERT OR IGNORE INTO users (id, username, password_hash, role) VALUES (7, 'member7', 'x', 'member')`).run()
+    db.prepare(`INSERT OR IGNORE INTO user_workspaces (user_id, workspace, role) VALUES (7, 'operationkit', 'member')`).run()
+    const k = db.prepare(`INSERT INTO agent_api_keys (user_id, label, key_hash, last4, scopes) VALUES (7, 'Member bot', 'h-member7', 'mmmm', '[]')`).run()
+    const memberKeyId = Number(k.lastInsertRowid)
+    db.prepare(`INSERT INTO agent_key_webhooks (key_id, user_id, url, header_name, header_prefix, events, enabled) VALUES (?, 7, 'https://member.example.com/wake', 'Authorization', 'Bearer ', ?, 1)`)
+      .run(memberKeyId, JSON.stringify(['needs_agent', 'entered_review']))
+    const { setSecret } = await import('./secrets-store.js')
+    setSecret({ scope: { scopeType: 'user', userId: 7 }, key: wh.secretNameFor(memberKeyId), value: 'member-sender-key-0123456789', actorUserId: 7, via: 'test' })
+
+    const visible = seedCard(memberKeyId, 'Member can see this')
+    const hidden = seedCard(memberKeyId, 'Member cannot see this')
+    upd(hidden, `workspace = 'example'`) // owner 7 is not a member of example
+    for (const id of [visible, hidden]) upd(id, `status = 'review', ai_review_verdict = 'fail'`)
+    await tick()
+    const got = bodies(sentTo('member.example.com'))
+    expect(new Set(got.map(b => b.objective.id))).toEqual(new Set([visible]))
+    expect(JSON.stringify(got)).not.toContain('Member cannot see this')
+  })
+
+  it('a revoked shared key or a disabled shared webhook sends nothing', async () => {
+    getDb().prepare('UPDATE agent_key_webhooks SET enabled = 0 WHERE key_id = ?').run(shared.id)
+    const id = sharedCard('disabled', 'grok-ops')
+    upd(id, `status = 'review', ai_review_verdict = 'fail'`)
+    await tick()
+    expect(sentTo(SHARED_HOST)).toHaveLength(0)
+    getDb().prepare('UPDATE agent_key_webhooks SET enabled = 1 WHERE key_id = ?').run(shared.id)
+  })
+})
+
+describe('existing events are unaffected (obj 900270)', () => {
+  it('a status-event webhook still gets its moves, now with owner_bot alongside', async () => {
+    const id = seedCard(keyA.id)
+    getDb().prepare('UPDATE objectives SET owner_bot = ? WHERE id = ?').run('grok-a', id)
+    setStatus(id, 'working')
+    setStatus(id, 'review')
+    await tick()
+    const got = bodies(sentTo('a.example.com'))
+    expect(got.map(b => b.event)).toEqual(['working', 'entered_review'])
+    expect(got.every(b => b.owner_bot === 'grok-a')).toBe(true)
+    expect(got.map(b => b.event_id)).toEqual(got.map(b => expect.stringMatching(new RegExp(`^cc_evt_\\d+_k${keyA.id}$`))))
+  })
+})
+
+describe('key 4 compatibility: the live CoS needs_agent webhook keeps working (obj 900270)', () => {
+  const LEGACY_HOST = 'cos-key4.example.com'
+  const LEGACY_SECRET = 'cos-key4-sender-key-0123456789'
+  let k4: { id: number; token: string }
+
+  beforeAll(async () => {
+    k4 = await mintKey('Grok: General')
+  })
+
+  beforeEach(() => {
+    // Exactly the row shape the previous build (60b589561995) stored for key 4.
+    getDb().prepare(
+      `INSERT INTO agent_key_webhooks (key_id, user_id, url, header_name, header_prefix, events, enabled)
+       VALUES (?, ?, ?, 'Authorization', 'Bearer ', '["needs_agent"]', 1)`,
+    ).run(k4.id, USER_ID, `https://${LEGACY_HOST}/routines/card-wake`)
+  })
+
+  it('config reads back unchanged and survives a re-save that omits events/secret', async () => {
+    // The sender key was stored on the old build; store one the same way.
+    const { setSecret } = await import('./secrets-store.js')
+    setSecret({ scope: { scopeType: 'user', userId: USER_ID }, key: wh.secretNameFor(k4.id), value: LEGACY_SECRET, actorUserId: USER_ID, via: 'test' })
+    const g = await call('GET', `/api/auth/agent-keys/${k4.id}/webhook`)
+    expect(g.json.webhook).toMatchObject({ events: ['needs_agent'], header_name: 'Authorization', header_prefix: 'Bearer ', enabled: true, has_secret: true })
+    const re = await call('PUT', `/api/auth/agent-keys/${k4.id}/webhook`, { body: { enabled: true } })
+    expect(re.status).toBe(200)
+    expect(re.json.webhook.events).toEqual(['needs_agent'])
+  })
+
+  it('wakes exactly as before: same event id format, auth header, headers and summary; owner_bot added as null', async () => {
+    const { setSecret } = await import('./secrets-store.js')
+    setSecret({ scope: { scopeType: 'user', userId: USER_ID }, key: wh.secretNameFor(k4.id), value: LEGACY_SECRET, actorUserId: USER_ID, via: 'test' })
+    const id = seedCard(k4.id, 'Old CoS card')
+    getDb().prepare('UPDATE objectives SET agent_key_label = ? WHERE id = ?').run('Grok: General', id)
+    getDb().prepare(`UPDATE objectives SET status = 'review', ai_review_verdict = 'pass' WHERE id = ?`).run(id)
+    await tick()
+    const list = sentTo(LEGACY_HOST)
+    expect(list).toHaveLength(1)
+    expect(list[0].headers).toMatchObject({ Authorization: `Bearer ${LEGACY_SECRET}`, 'X-CC-Event': 'needs_agent', 'User-Agent': 'CommandCenter-Webhooks/1' })
+    const b = JSON.parse(list[0].body)
+    expect(b.event_id).toMatch(new RegExp(`^cc_need_\\d+_k${k4.id}$`))
+    expect(list[0].headers['X-CC-Event-Id']).toBe(b.event_id)
+    expect(b.summary).toBe(`Card #${id} (operationkit) needs General: ${b.need.why}. Status: review · AI review pass.`)
+    expect(b.owner_bot).toBeNull()
+    expect(Object.keys(b).sort()).toEqual(
+      ['agent_key', 'event', 'event_id', 'need', 'objective', 'occurred_at', 'owner_bot', 'sent_at', 'status_summary', 'summary'],
+    )
+  })
+
+  it('a need key 4 was already woken for (old per-key state) is carried over once, not re-fired after deploy', () => {
+    const db = getDb()
+    const id = seedCard(k4.id, 'Woken before the deploy')
+    db.prepare(`UPDATE objectives SET status = 'review' WHERE id = ?`).run(id)
+    db.prepare(`DELETE FROM settings WHERE key = ?`).run(CARD_NEED_MIGRATED_SETTING)
+    db.prepare(`INSERT INTO agent_webhook_need_state (key_id, objective_id, kind) VALUES (?, ?, 'review')`).run(k4.id, id)
+    initAgentWebhooksSchema(db)
+    expect(db.prepare('SELECT kind, key_id FROM agent_webhook_card_need_state WHERE objective_id = ?').get(id)).toEqual({ kind: 'review', key_id: k4.id })
+    // Once only: a stale per-key row never re-arms a cleared card state later.
+    db.prepare('DELETE FROM agent_webhook_card_need_state WHERE objective_id = ?').run(id)
+    initAgentWebhooksSchema(db)
+    expect(db.prepare('SELECT 1 FROM agent_webhook_card_need_state WHERE objective_id = ?').get(id)).toBeUndefined()
+  })
+})
+
+// ── obj 900270 / #900244: DNS-based SSRF guard at send time ──────────────────
+
+describe('send-time SSRF guard (#900244)', () => {
+  it('legit public host: resolved once per send and the transport is pinned to the checked address', async () => {
+    const id = seedCard(keyA.id)
+    setStatus(id, 'working')
+    await tick()
+    expect(sentTo('a.example.com')).toHaveLength(1)
+    expect(sent[0].address).toBe(PUBLIC_IP)
+    expect(dnsCalls).toEqual(['a.example.com'])
+  })
+
+  for (const [label, answers] of [
+    ['loopback', ['127.0.0.1']],
+    ['private', ['10.0.0.7']],
+    ['link-local / metadata', ['169.254.169.254']],
+    ['CGNAT', ['100.64.1.1']],
+    ['IPv6 loopback', ['::1']],
+    ['IPv4-mapped IPv6', ['::ffff:127.0.0.1']],
+    ['mixed public + private answers', [PUBLIC_IP, '192.168.0.10']],
+  ] as const) {
+    it(`refuses a saved host that now resolves to ${label}: no request, no key sent, retried later`, async () => {
+      dnsTable['a.example.com'] = [...answers]
+      const id = seedCard(keyA.id)
+      setStatus(id, 'working')
+      await tick()
+      expect(sentTo('a.example.com')).toHaveLength(0)
+      const row = getDb().prepare(`SELECT status, attempts, last_error FROM agent_webhook_deliveries WHERE objective_id = ?`).get(id) as Loose
+      expect(row).toMatchObject({ status: 'pending', attempts: 1 })
+      expect(row.last_error).toMatch(/^destination refused: /)
+      expect(row.last_error).not.toContain(SECRET_A)
     })
   }
 
-  for (const label of denied) {
-    it(`"${label}" is denied needs_agent (400) and the sender skips it; existing events still save`, async () => {
-      const bad = await call('PUT', `/api/auth/agent-keys/${keys[label].id}/webhook`, {
-        body: { url: `https://${hostFor(label)}/wake`, secret: 'allowlist-sender-key-0123456789', events: ['needs_agent', 'done'] },
-      })
-      expect(bad.status).toBe(400)
-      expect(bad.json.error).toBe(`needs_agent is a pilot: only the ${allowed.map(l => `"${l}"`).join(' and ')} keys can use it for now`)
-      const ok = await call('PUT', `/api/auth/agent-keys/${keys[label].id}/webhook`, {
-        body: { url: `https://${hostFor(label)}/wake`, secret: 'allowlist-sender-key-0123456789', events: ['done'] },
-      })
-      expect(ok.status).toBe(200)
-      expect(ok.json.webhook.events).toEqual(['done'])
-      // Even if a needs_agent subscription were planted directly in the DB, the sender skips a non-pilot key.
-      getDb().prepare(`UPDATE agent_key_webhooks SET events = ? WHERE key_id = ?`).run(JSON.stringify(['needs_agent', 'done']), keys[label].id)
-      const id = ownedCard(label)
-      getDb().prepare(`UPDATE objectives SET status = 'review', ai_review_verdict = 'fail' WHERE id = ?`).run(id)
-      await tick()
-      expect(bodies(sentTo(hostFor(label))).map(b => b.event)).not.toContain('needs_agent')
-    })
-  }
+  it('DNS rebinding: public at save time, private at send time → refused; public again → delivered', async () => {
+    const t0 = new Date()
+    dnsTable['a.example.com'] = ['127.0.0.1']
+    const id = seedCard(keyA.id)
+    setStatus(id, 'working')
+    await tick(t0)
+    expect(sent).toHaveLength(0)
+    dnsTable['a.example.com'] = [PUBLIC_IP]
+    await tick(new Date(t0.getTime() + wh.RETRY_BACKOFF_MS[0] + 1000))
+    expect(sentTo('a.example.com')).toHaveLength(1)
+    expect(sent[0].address).toBe(PUBLIC_IP)
+  })
+
+  it('redirects are refused: a 3xx is a failed attempt and the Location is never followed', async () => {
+    responder = () => 302
+    const id = seedCard(keyA.id)
+    setStatus(id, 'working')
+    await tick()
+    expect(sent).toHaveLength(1)
+    const row = getDb().prepare(`SELECT status, last_status_code, last_error FROM agent_webhook_deliveries WHERE objective_id = ?`).get(id)
+    expect(row).toMatchObject({ status: 'pending', last_status_code: 302, last_error: 'HTTP 302' })
+    expect(wh.validateWebhookUrl('https://a.example.com/x')).toMatchObject({ ok: true }) // save-time rules unchanged
+  })
+
+  it('Send test event goes through the same guard', async () => {
+    dnsTable['a.example.com'] = ['169.254.169.254']
+    const r = await call('POST', `/api/auth/agent-keys/${keyA.id}/webhook/test`)
+    expect(r.status).toBe(200)
+    expect(r.json).toMatchObject({ delivered: false, status_code: null })
+    expect(r.json.error).toMatch(/^destination refused: /)
+    expect(sent).toHaveLength(0)
+  })
 })

@@ -35,6 +35,8 @@ const LIST_COLUMNS_ARRAY = [
   'last_activity_at', 'ran_on_fallback', 'fallback_detected_at', 'ran_model',
   // obj 714090: agent-key attribution so the card chip can name the bot.
   'agent_key_id', 'agent_key_label',
+  // obj 900270: owning Grok bot (null = unowned) — the card chip shows it.
+  'owner_bot',
 ]
 
 /**

@@ -12,6 +12,7 @@ import { parsePrLinkPatch } from '../lib/pr-link-patch.js'
 import { upsertObjectivePR } from '../services/objective-prs.js'
 import {
   getInitialStatus,
+  validateOwnerBot,
   DEFAULT_EFFORT_BY_TYPE,
   type Objective,
   type ObjectiveType,
@@ -287,6 +288,14 @@ router.post('/', async (req: AuthRequest, res) => {
     return
   }
 
+  // obj 900270: owner_bot is optional and EXPLICIT — absent means unowned (NULL).
+  // It is never derived from req.agentKey: a shared key files for every bot.
+  const ownerBot = validateOwnerBot((req.body as { owner_bot?: unknown }).owner_bot)
+  if (!ownerBot.ok) {
+    res.status(400).json({ error: ownerBot.error })
+    return
+  }
+
   // Members can only create in their allowed workspaces. ?workspace= is honoured
   // when the body has none (obj 718417) — it used to be ignored, so a bot that
   // put the workspace in the query silently filed the card under example.
@@ -410,10 +419,10 @@ router.post('/', async (req: AuthRequest, res) => {
       // for it — which was itself wrong for anything below the first level.
       // obj 714090: a named agent API key (a Grok Bot) stamps origin='agent_api'
       // plus the key id + label snapshot, so the card reads "created by Grok: Example".
-      `INSERT INTO objectives (title, description, agent_context, workspace, project, project_id, category, parent_id, depth, assigned_user_id, created_by, create_pr, delegate_mode, is_strategy, completion_goal, workflow_hint, effort, model, type, status, skip_ai_review, origin, strategy_id, agent_key_id, agent_key_label)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO objectives (title, description, agent_context, workspace, project, project_id, category, parent_id, depth, assigned_user_id, created_by, create_pr, delegate_mode, is_strategy, completion_goal, workflow_hint, effort, model, type, status, skip_ai_review, origin, strategy_id, agent_key_id, agent_key_label, owner_bot)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(title.trim(), description || '', effectiveAgent, effectiveWorkspace, project || null, effectiveProjectId, category || 'general', parent_id || null, depthForParent(db, parent_id || null), effectiveAssignedUserId, user.id, create_pr ? 1 : 0, delegate_mode ? 1 : 0, isStrategy ? 1 : 0, completion_goal || null, workflow_hint || null, effectiveEffort, resolveObjectiveModel({ model, type: effectiveType, create_pr, delegate_mode }), effectiveType, initialStatus, skip_ai_review ? 1 : 0, req.agentKey ? 'agent_api' : 'manual', resolvedStrategyId, req.agentKey?.id ?? null, req.agentKey?.label ?? null)
+    .run(title.trim(), description || '', effectiveAgent, effectiveWorkspace, project || null, effectiveProjectId, category || 'general', parent_id || null, depthForParent(db, parent_id || null), effectiveAssignedUserId, user.id, create_pr ? 1 : 0, delegate_mode ? 1 : 0, isStrategy ? 1 : 0, completion_goal || null, workflow_hint || null, effectiveEffort, resolveObjectiveModel({ model, type: effectiveType, create_pr, delegate_mode }), effectiveType, initialStatus, skip_ai_review ? 1 : 0, req.agentKey ? 'agent_api' : 'manual', resolvedStrategyId, req.agentKey?.id ?? null, req.agentKey?.label ?? null, ownerBot.value ?? null)
 
   setAssignees(Number(result.lastInsertRowid), assigneeIds)
   if (forcedOverDuplicateId != null) {
@@ -460,6 +469,14 @@ router.put('/:id', (req: AuthRequest, res) => {
   // obj 712954 — pr_url / pr_number / branch_name used to be dropped silently
   // (200, nothing written). They are now an admin-only, validated override; a
   // non-admin or an invalid value rejects the WHOLE request before any write.
+  // obj 900270: validate owner_bot before any write. undefined = unchanged,
+  // null/"" = clear (unowned). Invalid → 400 for the whole request.
+  const ownerBot = validateOwnerBot((req.body as { owner_bot?: unknown }).owner_bot)
+  if (!ownerBot.ok) {
+    res.status(400).json({ error: ownerBot.error })
+    return
+  }
+
   const prLink = parsePrLinkPatch(req.body as Record<string, unknown>)
   if (prLink.touched) {
     if (req.user!.role !== 'admin') {
@@ -577,6 +594,7 @@ router.put('/:id', (req: AuthRequest, res) => {
        skip_ai_review = ?,
        test_cred_slug = ?,
        strategy_id = ?,
+       owner_bot = ?,
        updated_at = datetime('now')
      WHERE id = ?`
   ).run(
@@ -600,6 +618,7 @@ router.put('/:id', (req: AuthRequest, res) => {
     skip_ai_review !== undefined ? (skip_ai_review ? 1 : 0) : (existing.skip_ai_review ? 1 : 0),
     test_cred_slug !== undefined ? (test_cred_slug || null) : existing.test_cred_slug,
     effectiveStrategyId,
+    ownerBot.value !== undefined ? ownerBot.value : ((existing as { owner_bot?: string | null }).owner_bot ?? null),
     req.params.id
   )
 

@@ -52,4 +52,9 @@ export function initAgentKeysSchema(db: Database.Database): void {
   if (!cols.has('agent_key_label')) {
     db.exec('ALTER TABLE objectives ADD COLUMN agent_key_label TEXT')
   }
+  // obj 900270: optional owning Grok bot (name or id). Set explicitly by the
+  // filer on create/update, never inferred from the key. NULL = unowned. Additive.
+  if (!cols.has('owner_bot')) {
+    db.exec('ALTER TABLE objectives ADD COLUMN owner_bot TEXT')
+  }
 }

@@ -242,8 +242,25 @@ workspace is about 1–4 KB, against tens to hundreds of KB for `/api/briefing/b
 
 An agent key can have one outbound webhook (Settings → You → Agent webhooks): Command Center POSTs a small JSON
 event to the bot when a card that key owns changes (signed, retried, deduped by `event_id`). The `needs_agent` event
-(pilot, **General key only**) wakes the bot once when its card actually needs it (blocked, failed review,
-waiting on a Mike decision) instead of on every move. Setup, payload and rules: [bots/cos-card-wake.md](./bots/cos-card-wake.md).
+wakes the receiver once per **card need** (blocked, failed review, waiting on a Mike decision) instead of on every
+move. Any key may subscribe to it (the label pilot is gone, obj 900270): all bots share ONE connection, so ONE
+`needs_agent` webhook on that shared key covers every card the bots file, and the payload's `owner_bot` (null =
+unowned) tells the receiver which bot the card belongs to. Each card need fires once, whichever keys could see it;
+a key is never told about a card outside its workspace scope. Every delivery resolves the destination at send time,
+refuses non-public addresses (loopback, private, link-local, CGNAT, metadata, IPv4-mapped IPv6, mixed answers),
+pins the connection to the checked address and never follows redirects. Setup, payload and rules:
+[bots/cos-card-wake.md](./bots/cos-card-wake.md).
+
+### `owner_bot` — which Grok bot owns a card
+
+Optional string on every card: `POST /api/objectives {"owner_bot": "Grok: Research"}`, `PUT /api/objectives/:id
+{"owner_bot": "grok-inbox"}` (`null` or `""` clears it), returned on `GET /api/objectives/:id` and the list. Over MCP:
+`create_objective(…, owner_bot)` / `update_objective(id, owner_bot)`; `get_objective` / `list_objectives` return it.
+Rules: trimmed; at most 64 characters; letters, digits, single spaces and `_ . : @ -`, starting with a letter or
+digit. Anything else is a `400` and nothing is written. Absent means `null` (unowned). It is **never inferred from
+the calling key** — with one shared key every bot's card would otherwise look the same — so a bot filing for itself
+or another bot sets it explicitly. It rides on the `needs_agent` webhook (and every other card event) as top-level
+`owner_bot`.
 
 ### `Idempotency-Key` header — `POST /api/objectives`, `POST /api/objectives/:id/message`
 
@@ -350,13 +367,13 @@ merge, deploy, spend or delete tool.
 | List cards | `GET /api/objectives` | `list_objectives(workspace?, status?, limit?, offset?)` | board:read |
 | Search cards (incl. done/cancelled) | `GET /api/objectives/search` | `search_objectives(q, workspace?, limit?)` · alias `search_cards` | board:read |
 | Read one card (+ PR link) | `GET /api/objectives/:id` | `get_objective(id)` · alias `get_card`. Returns `pr_url` and card `url` | board:read |
-| Create in a workspace | `POST /api/objectives` (+ `Idempotency-Key`) | `create_objective(title, workspace, …, idempotency_key?)`. **`workspace` is required** and validated against `list_workspaces` | board:write |
+| Create in a workspace | `POST /api/objectives` (+ `Idempotency-Key`) | `create_objective(title, workspace, …, owner_bot?, idempotency_key?)`. **`workspace` is required** and validated against `list_workspaces` | board:write |
 | Create + start | `POST /api/objectives {"start":true}` | `create_objective(…, start: true)`. A 409 (cap) still returns the created card | board:write + board:start |
 | Start / restart | `PATCH /api/objectives/:id/status {"status":"working"}` | `start_objective(id)`. Retries **once** on a 5xx and re-reads the card first, so it never double-starts. 4xx is not retried | board:start |
 | Park / reopen | `PATCH …/status {"status":"queue"\|"planning"}` | `update_status(id, status)` | board:write |
 | Cancel a duplicate | `PATCH …/status {"status":"cancelled"}` | `update_status(id, "cancelled")` | **board:cancel** |
 | Sign off (done) | `PATCH …/status {"status":"done"}` | `update_status(id, "done")` | **board:done** (no bot key has it) |
-| Edit title / brief / goal | `PUT /api/objectives/:id` | `update_objective(id, title?, description?, completion_goal?, agent_context?, project?, model?, effort?)` | board:write |
+| Edit title / brief / goal | `PUT /api/objectives/:id` | `update_objective(id, title?, description?, completion_goal?, agent_context?, project?, model?, effort?, owner_bot?)` | board:write |
 | Follow-up message | `POST /api/objectives/:id/message` (+ `Idempotency-Key`) | `send_message(id, message, idempotency_key?)` | board:write |
 | How's it going | `GET /api/objectives/:id/progress` | `get_progress(id, limit?)` | board:read |
 | Thread / output | `GET /api/objectives/:id/output[?view=timeline]` | `get_output(id, view?, limit?)` | board:read |

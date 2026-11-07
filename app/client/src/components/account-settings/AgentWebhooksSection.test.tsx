@@ -145,6 +145,52 @@ describe('AgentWebhooksSection', () => {
     expect(container.textContent).toMatch(/Delivered — receiver answered 200/)
   })
 
+  // obj 900270: the needs_agent option is on every key (no label pilot) and saves.
+  const eventBox = (c: HTMLElement, name: string) => {
+    const label = Array.from(c.querySelectorAll('fieldset label')).find(l => l.querySelector('.font-mono')?.textContent === name)
+    if (!label) throw new Error(`no event option "${name}"`)
+    return label.querySelector('input[type=checkbox]') as HTMLInputElement
+  }
+
+  it('needs_agent is offered on a non-pilot key (the shared connection) and saves', async () => {
+    apiMock.get.mockImplementation(async (p: string) => {
+      if (p === '/auth/agent-keys') return { keys: [KEY(11, 'OpKit')] }
+      if (p === '/auth/agent-keys/11/webhook') return { webhook: null }
+      throw new Error(`unexpected GET ${p}`)
+    })
+    apiMock.put.mockResolvedValue({ webhook: { ...HOOK, key_id: 11, events: ['needs_agent'] } })
+    flushSync(() => root.render(<AgentWebhooksSection />))
+    await flush()
+    button(container, 'Add webhook').click()
+    await flush()
+    const needs = eventBox(container, 'needs_agent')
+    expect(needs.checked).toBe(false) // new webhooks still start on the default set
+    // Shared connection: needs_agent only.
+    for (const e of ['pr_opened', 'ai_review', 'entered_review', 'needs_secret', 'failed', 'stalled', 'done']) eventBox(container, e).click()
+    needs.click()
+    await flush()
+    setInput(container.querySelector('#wh-11-url') as HTMLInputElement, 'https://cos.example.com/card-wake')
+    setInput(container.querySelector('#wh-11-secret') as HTMLInputElement, 'shared-sender-key-123')
+    await flush()
+    button(container, 'Save webhook').click()
+    await flush()
+    expect(apiMock.put).toHaveBeenCalledWith('/auth/agent-keys/11/webhook', expect.objectContaining({ events: ['needs_agent'] }))
+    expect(container.textContent).toMatch(/Saved\./)
+  })
+
+  it('adding needs_agent to an existing webhook keeps its other events', async () => {
+    apiMock.put.mockResolvedValue({ webhook: { ...HOOK, events: ['pr_opened', 'entered_review', 'done', 'needs_agent'] } })
+    flushSync(() => root.render(<AgentWebhooksSection />))
+    await flush()
+    button(container, 'Edit webhook').click()
+    await flush()
+    eventBox(container, 'needs_agent').click()
+    await flush()
+    button(container, 'Save webhook').click()
+    await flush()
+    expect(apiMock.put.mock.calls[0][1].events).toEqual(['pr_opened', 'entered_review', 'done', 'needs_agent'])
+  })
+
   it('remove deletes the webhook', async () => {
     flushSync(() => root.render(<AgentWebhooksSection />))
     await flush()

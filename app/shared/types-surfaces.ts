@@ -648,6 +648,11 @@ export interface CreateObjectiveRequest {
    *  the workspace (created inside the duplicate-guard window, default 24h). Without
    *  it the server answers 409 { reason: 'duplicate_24h', existing_id }. */
   force?: boolean
+  /** obj 900270: the Grok bot that owns this card (a bot name or id), or null for
+   *  unowned. Optional; absent = null. Set EXPLICITLY by the filing bot — the
+   *  server never infers it from the calling credential. Validated by
+   *  validateOwnerBot (trimmed, max OWNER_BOT_MAX_LENGTH, safe charset) → 400. */
+  owner_bot?: string | null
 }
 
 export interface UpdateObjectiveRequest {
@@ -686,6 +691,42 @@ export interface UpdateObjectiveRequest {
   pr_url?: string | null
   pr_number?: number | null
   branch_name?: string | null
+  /** obj 900270: set or change the owning bot. null (or "") clears it (unowned);
+   *  omitted leaves it unchanged. Same validation as on create. */
+  owner_bot?: string | null
+}
+
+// ── Owner bot (obj 900270) ───────────────────────────────────────────────────
+
+/** Longest owner_bot value accepted (after trimming). */
+export const OWNER_BOT_MAX_LENGTH = 64
+/**
+ * Safe charset for owner_bot: starts with a letter or digit, then letters,
+ * digits, single spaces and `_ . : @ -`. Covers a Grok bot name ("Grok: Research")
+ * or an id ("grok-research", "bot_12"). No quotes, angle brackets, slashes,
+ * control characters, tabs or newlines.
+ */
+export const OWNER_BOT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9_.:@-]| (?! ))*$/
+
+/**
+ * Validate an owner_bot input. `undefined` = not supplied (leave unchanged / null
+ * on create). `null` or a blank string = clear (unowned). Anything else must be
+ * a string that is, after trimming, 1..OWNER_BOT_MAX_LENGTH characters of the
+ * safe charset.
+ */
+export function validateOwnerBot(raw: unknown):
+  | { ok: true; value: string | null | undefined }
+  | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, value: undefined }
+  if (raw === null) return { ok: true, value: null }
+  if (typeof raw !== 'string') return { ok: false, error: 'owner_bot must be a string or null' }
+  const v = raw.trim()
+  if (!v) return { ok: true, value: null }
+  if (v.length > OWNER_BOT_MAX_LENGTH) return { ok: false, error: `owner_bot must be at most ${OWNER_BOT_MAX_LENGTH} characters` }
+  if (!OWNER_BOT_PATTERN.test(v)) {
+    return { ok: false, error: 'owner_bot may contain only letters, digits, single spaces and _ . : @ - (and must start with a letter or digit)' }
+  }
+  return { ok: true, value: v }
 }
 
 export interface StatusChangeRequest {
@@ -746,17 +787,7 @@ export const AGENT_WEBHOOK_EVENT_DESCRIPTIONS: Record<AgentWebhookEvent, string>
   merged: 'Its PR merged',
   pr_closed: 'Its PR closed without merging',
   status_changed: 'Any other status move (queue, planning, ai_review)',
-  needs_agent: 'Pilot (General key only): the card needs this agent — blocked, failed review, waiting on a Mike decision. Once per need, not per status move',
-}
-
-/**
- * obj 900214 pilot: `needs_agent` may only be switched on for these agent keys
- * (matched on the key label). General first; other bots after the pilot.
- */
-export const NEEDS_AGENT_PILOT_KEY_LABELS: readonly string[] = ['Grok: General', 'Grok: Chief of Staff']
-
-export function isNeedsAgentPilotKey(label: string | null | undefined): boolean {
-  return !!label && NEEDS_AGENT_PILOT_KEY_LABELS.includes(label.trim())
+  needs_agent: 'The card needs its agent — blocked, failed review, waiting on a Mike decision. Once per card need, not per status move. Payload carries owner_bot',
 }
 
 /** Why a card needs its agent (most urgent first). Mirrors get_attention's kinds, minus the time-based `stuck`. */
@@ -793,6 +824,13 @@ export interface AgentWebhookPayload {
   need?: AgentNeed
   /** event `needs_agent` only: short status, e.g. "review · AI review fail". */
   status_summary?: string
+  /**
+   * obj 900270: the card's owner_bot — the Grok bot the filer named as owner — or
+   * null when the card is unowned. Present on every card event from this build on
+   * (always on `needs_agent`, so a router can tell "unowned" from "old sender").
+   * Never inferred from the agent key.
+   */
+  owner_bot?: string | null
   /** event `needs_agent` only: one line a Bot can act on without parsing ("Card #12 (example) needs General: …"). */
   summary?: string
   occurred_at: string

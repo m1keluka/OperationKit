@@ -362,6 +362,9 @@ export interface Objective {
    *  after the key is revoked. NULL for every other origin. */
   agent_key_id?: number | null
   agent_key_label?: string | null
+  /** obj 900270: the Grok bot that owns this card (name or id), set explicitly by
+   *  the filer on create/update. NULL = unowned. Never inferred from the key. */
+  owner_bot?: string | null
   /** Secrets the worker is blocked on (obj 718944). Names + reasons only —
    *  never values. Empty/absent = not waiting on a secret. */
   needs_secret?: NeedsSecretItem[]

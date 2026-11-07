@@ -343,6 +343,7 @@ export const AGENT_OPENAPI = {
           description: { type: 'string' },
           completion_goal: { type: ['string', 'null'] },
           origin: { type: 'string', enum: ['manual', 'strategy', 'routine', 'job_reply'] },
+          owner_bot: { type: ['string', 'null'], description: 'Owning Grok bot (name or id). null = unowned. Set explicitly by the filer; never inferred from the key.' },
           created_at: { type: 'string' },
           updated_at: { type: 'string' },
         },
@@ -370,6 +371,14 @@ export const AGENT_OPENAPI = {
           effort: { type: 'string', enum: ['normal', 'high', 'ultracode'] },
           model: { type: 'string' },
           skip_ai_review: { type: 'boolean', description: 'Admin only' },
+          owner_bot: {
+            type: ['string', 'null'],
+            maxLength: 64,
+            description:
+              'Optional owning Grok bot (name or id, e.g. "Grok: Research"). Omit = unowned on create / unchanged on update; ' +
+              'null or "" clears it. Trimmed; max 64 chars; letters, digits, single spaces and _ . : @ - only, starting with a letter or digit. ' +
+              'Anything else is a 400. Never inferred from the calling key — a filing bot sets it explicitly. Carried on the needs_agent webhook.',
+          },
           start: {
             type: 'boolean',
             description:
