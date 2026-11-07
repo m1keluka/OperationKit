@@ -18,7 +18,6 @@ import {
   AGENT_WEBHOOK_EVENTS,
   AGENT_WEBHOOK_EVENT_DESCRIPTIONS,
   DEFAULT_AGENT_WEBHOOK_EVENTS,
-  isNeedsAgentPilotKey,
   type AgentApiKeySummary,
   type AgentWebhookConfig,
   type AgentWebhookDelivery,
@@ -157,11 +156,10 @@ function WebhookEditor({
   const [secret, setSecret] = useState('')
   const [headerName, setHeaderName] = useState(hook?.header_name ?? 'Authorization')
   const [headerPrefix, setHeaderPrefix] = useState(hook?.header_prefix ?? 'Bearer ')
-  // obj 900214 pilot: the General key is woken only when a card needs it,
-  // so a new CoS webhook starts on needs_agent alone (no per-move POSTs).
-  const pilotKey = isNeedsAgentPilotKey(label)
-  const offeredEvents = AGENT_WEBHOOK_EVENTS.filter(e => e !== 'needs_agent' || pilotKey)
-  const [events, setEvents] = useState<AgentWebhookEvent[]>(hook?.events ?? (pilotKey ? ['needs_agent'] : [...DEFAULT_AGENT_WEBHOOK_EVENTS]))
+  // obj 900270: needs_agent is offered on every key (the label pilot is gone) — the
+  // one shared connection opts in here. A saved webhook keeps exactly its events.
+  const offeredEvents = AGENT_WEBHOOK_EVENTS
+  const [events, setEvents] = useState<AgentWebhookEvent[]>(hook?.events ?? [...DEFAULT_AGENT_WEBHOOK_EVENTS])
   const [enabled, setEnabled] = useState(hook?.enabled ?? true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)

@@ -80,4 +80,12 @@ describe('ObjectiveCard — model attribution badges (obj 701053)', () => {
     const html = render({ model: 'claude-opus-4-8', ran_model: 'claude-opus-4-8' } as Partial<Objective>)
     expect(html).not.toContain('Opus 4.8 ✓')
   })
+
+  // obj 900270: owner bot chip.
+  it('shows the owner bot chip only when owner_bot is set', () => {
+    expect(render({ owner_bot: 'Grok: Research' })).toContain('data-testid="owner-bot-chip"')
+    expect(render({ owner_bot: 'Grok: Research' })).toContain('Grok: Research')
+    expect(render({ owner_bot: null })).not.toContain('owner-bot-chip')
+    expect(render({})).not.toContain('owner-bot-chip')
+  })
 })

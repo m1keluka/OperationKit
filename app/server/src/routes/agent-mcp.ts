@@ -154,11 +154,17 @@ function receipt(confirmation: string, card: Record<string, unknown>, extra: Rec
   }, 600)
 }
 
-const CARD_ROW = ['id', 'title', 'status', 'type', 'workspace', 'project', 'agent_context', 'parent_id', 'has_blockers', 'ai_review_verdict', 'pr_url', 'updated_at'] as const
+const CARD_ROW = ['id', 'title', 'status', 'type', 'workspace', 'project', 'agent_context', 'parent_id', 'has_blockers', 'ai_review_verdict', 'pr_url', 'owner_bot', 'updated_at'] as const
 const slimCard = (r: Record<string, unknown>) => compact(pick(r, CARD_ROW), 300)
 
 const STATUSES = ['planning', 'queue', 'working', 'ai_review', 'review', 'done', 'cancelled'] as const
 const ID_SCHEMA = { type: 'integer', description: 'Objective (card) id' }
+/** obj 900270: optional owning Grok bot. Explicit only — never taken from the key. */
+const OWNER_BOT_SCHEMA = {
+  type: ['string', 'null'],
+  maxLength: 64,
+  description: 'Optional owning Grok bot (name or id, e.g. "Grok: Research" or "grok-research"). Set it explicitly when filing for a bot; omit or null = unowned. Trimmed, max 64 chars, letters/digits/single spaces and _ . : @ - only. It rides on the needs_agent webhook so the General can route the wake. Never inferred from your key.',
+}
 const WS_FILTER = { type: 'string', description: 'Workspace slug to narrow to (see list_workspaces)' }
 
 function isTextMime(mime: string | undefined): boolean {
@@ -704,6 +710,7 @@ export const MCP_TOOLS: McpTool[] = [
         effort: { type: 'string', enum: ['normal', 'high', 'ultracode'] },
         start: { type: 'boolean', description: 'Create AND start the session (queued task/bug only)' },
         idempotency_key: { type: 'string', description: 'Sent as the Idempotency-Key header: same key + same arguments within 24h returns the original card instead of a new one' },
+        owner_bot: OWNER_BOT_SCHEMA,
       },
     },
     run: async (a, rest) => {
@@ -719,7 +726,7 @@ export const MCP_TOOLS: McpTool[] = [
         throw new ToolError(400, `Unknown or inaccessible workspace '${workspace}'. Use one of: ${slugs.join(', ') || '(none)'}`)
       }
       const idem = strArg(a, 'idempotency_key')
-      const body = pick(a, ['title', 'description', 'workspace', 'project', 'type', 'agent_context', 'parent_id', 'completion_goal', 'create_pr', 'model', 'effort', 'start'])
+      const body = pick(a, ['title', 'description', 'workspace', 'project', 'type', 'agent_context', 'parent_id', 'completion_goal', 'create_pr', 'model', 'effort', 'start', 'owner_bot'])
       let row: Record<string, unknown>
       try {
         row = await rest('POST', '/api/objectives', body, idem ? { 'Idempotency-Key': idem } : undefined)
@@ -734,7 +741,7 @@ export const MCP_TOOLS: McpTool[] = [
       const start = row.start as { started?: boolean; reason?: string } | undefined
       const how = start ? (start.started ? 'and started it' : `but did not start it (${start.reason})`) : `in ${row.status}`
       return receipt(`Created #${row.id} "${row.title}" in ${row.workspace} ${how}.`, row, {
-        ...pick(row, ['type', 'project', 'agent_context', 'parent_id', 'origin', 'agent_key_label']),
+        ...pick(row, ['type', 'project', 'agent_context', 'parent_id', 'origin', 'agent_key_label', 'owner_bot']),
         ...(start ? { start } : {}),
       })
     },
@@ -743,7 +750,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'update_objective',
     access: 'write',
     scope: 'board:write',
-    description: 'Edit a card\'s fields (title, description, completion goal, agent, project, model, effort). Only the fields you pass change. Does not start, stop or move it — use update_status / start_objective for that.',
+    description: 'Edit a card\'s fields (title, description, completion goal, agent, project, model, effort, owner_bot). Only the fields you pass change; owner_bot null clears it. Does not start, stop or move it — use update_status / start_objective for that.',
     inputSchema: {
       type: 'object',
       required: ['id'],
@@ -756,14 +763,15 @@ export const MCP_TOOLS: McpTool[] = [
         project: { type: 'string' },
         model: { type: 'string' },
         effort: { type: 'string', enum: ['normal', 'high', 'ultracode'] },
+        owner_bot: OWNER_BOT_SCHEMA,
       },
     },
     run: async (a, rest) => {
       const id = idArg(a)
-      const fields = pick(a, ['title', 'description', 'completion_goal', 'agent_context', 'project', 'model', 'effort'])
+      const fields = pick(a, ['title', 'description', 'completion_goal', 'agent_context', 'project', 'model', 'effort', 'owner_bot'])
       if (Object.keys(fields).length === 0) throw new ToolError(400, 'pass at least one field to change')
       const row = await rest('PUT', `/api/objectives/${id}`, fields)
-      return receipt(`Updated #${id} (${Object.keys(fields).join(', ')}).`, row)
+      return receipt(`Updated #${id} (${Object.keys(fields).join(', ')}).`, row, 'owner_bot' in fields ? { owner_bot: row.owner_bot ?? null } : {})
     },
   },
   {

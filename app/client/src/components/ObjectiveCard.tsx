@@ -267,6 +267,16 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
                   : ORIGIN_BADGES[objective.origin].label}
               </span>
             )}
+            {/* Owner bot chip (obj 900270): the Grok bot that owns this card. */}
+            {objective.owner_bot && (
+              <span
+                className="rounded-full border border-line px-1.5 py-px text-fg-2"
+                title={`Owner bot: ${objective.owner_bot}`}
+                data-testid="owner-bot-chip"
+              >
+                {objective.owner_bot}
+              </span>
+            )}
             {/* Board Project chip (obj 710597): folder icon + project name.
                 Color dot uses project_color when set; falls back to the default
                 chip border/text when no color is assigned. */}

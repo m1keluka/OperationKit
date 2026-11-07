@@ -15,6 +15,8 @@ import type Database from 'better-sqlite3'
 
 /** Delivery rows older than this are pruned at boot. */
 export const AGENT_WEBHOOK_DELIVERY_RETENTION_DAYS = 30
+/** settings key marking the one-time per-key → per-card need-state carry-over. */
+export const CARD_NEED_MIGRATED_SETTING = 'agent_webhook_card_need_migrated'
 
 export function initAgentWebhooksSchema(db: Database.Database): void {
   db.exec(`
@@ -60,12 +62,40 @@ export function initAgentWebhooksSchema(db: Database.Database): void {
       updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (key_id, objective_id)
     );
+
+    -- obj 900270: the same state, keyed per CARD. One need = one wake no matter
+    -- which (or how many) keys could see the card. key_id records who got it.
+    -- The per-key table above is no longer read; it stays so a rollback to the
+    -- previous build finds its table.
+    CREATE TABLE IF NOT EXISTS agent_webhook_card_need_state (
+      objective_id INTEGER PRIMARY KEY,
+      kind         TEXT NOT NULL,
+      key_id       INTEGER,
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `)
+  // Carry the pilot's per-key state over ONCE (marker in settings), so a card the
+  // CoS key was already woken for is not woken a second time just because the
+  // deploy changed tables — and a stale per-key row never re-arms later.
+  try {
+    db.transaction(() => {
+      const done = db.prepare('SELECT 1 FROM settings WHERE key = ?').get(CARD_NEED_MIGRATED_SETTING)
+      if (done) return
+      db.prepare(
+        `INSERT OR IGNORE INTO agent_webhook_card_need_state (objective_id, kind, key_id, updated_at)
+         SELECT objective_id, kind, key_id, updated_at FROM agent_webhook_need_state ORDER BY updated_at DESC`,
+      ).run()
+      db.prepare("INSERT INTO settings (key, value) VALUES (?, '1') ON CONFLICT(key) DO NOTHING").run(CARD_NEED_MIGRATED_SETTING)
+    })()
+  } catch (err) {
+    console.error('[agent-webhooks] need-state carry-over failed:', (err as Error).message)
+  }
   try {
     db.prepare(`DELETE FROM agent_webhook_deliveries WHERE created_at < datetime('now', ?)`)
       .run(`-${AGENT_WEBHOOK_DELIVERY_RETENTION_DAYS} days`)
     // A hard-deleted card never produces another event to clear its need row.
     db.prepare('DELETE FROM agent_webhook_need_state WHERE objective_id NOT IN (SELECT id FROM objectives)').run()
+    db.prepare('DELETE FROM agent_webhook_card_need_state WHERE objective_id NOT IN (SELECT id FROM objectives)').run()
   } catch (err) {
     console.error('[agent-webhooks] prune failed:', (err as Error).message)
   }
