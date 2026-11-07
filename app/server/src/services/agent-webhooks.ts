@@ -48,6 +48,7 @@ import {
   type AgentNeed,
   type AgentNeedKind,
   isNeedsAgentPilotKey,
+  NEEDS_AGENT_PILOT_KEY_LABELS,
 } from '@operationkit/shared'
 
 export const CURSOR_SETTING = 'agent_webhook_cursor'
@@ -266,7 +267,7 @@ export function saveWebhookConfig(userId: number, keyId: number, input: SaveWebh
   }
 
   if (events.includes('needs_agent') && !isNeedsAgentPilotKey(key.label)) {
-    return { ok: false, status: 400, error: 'needs_agent is a pilot: only the "Grok: General" key can use it for now' }
+    return { ok: false, status: 400, error: `needs_agent is a pilot: only the ${NEEDS_AGENT_PILOT_KEY_LABELS.map(l => `"${l}"`).join(' and ')} keys can use it for now` }
   }
 
   const enabled = input.enabled === undefined ? (existing ? !!existing.enabled : true) : input.enabled

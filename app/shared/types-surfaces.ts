@@ -753,7 +753,7 @@ export const AGENT_WEBHOOK_EVENT_DESCRIPTIONS: Record<AgentWebhookEvent, string>
  * obj 900214 pilot: `needs_agent` may only be switched on for these agent keys
  * (matched on the key label). General first; other bots after the pilot.
  */
-export const NEEDS_AGENT_PILOT_KEY_LABELS: readonly string[] = ['Grok: General']
+export const NEEDS_AGENT_PILOT_KEY_LABELS: readonly string[] = ['Grok: General', 'Grok: Chief of Staff']
 
 export function isNeedsAgentPilotKey(label: string | null | undefined): boolean {
   return !!label && NEEDS_AGENT_PILOT_KEY_LABELS.includes(label.trim())
