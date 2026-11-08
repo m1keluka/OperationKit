@@ -159,11 +159,21 @@ const slimCard = (r: Record<string, unknown>) => compact(pick(r, CARD_ROW), 300)
 
 const STATUSES = ['planning', 'queue', 'working', 'ai_review', 'review', 'done', 'cancelled'] as const
 const ID_SCHEMA = { type: 'integer', description: 'Objective (card) id' }
-/** obj 900270: optional owning Grok bot. Explicit only — never taken from the key. */
+/**
+ * obj 900270: optional owning Grok bot. Explicit only — never taken from the key.
+ * obj 900293: the wording is the contract every install's bots learn from
+ * tools/list, so it says exactly what to put there and what null means.
+ */
+export const OWNER_BOT_DESCRIPTION =
+  'Optional. Set to your own exact Grok bot name (e.g. "Grok: Research") when the card is yours, or to the exact name of the bot you are filing for. ' +
+  'null (or omitted on create) = unowned: unowned needs fall back to the General. ' +
+  'All bots share one connection, so this is never inferred from your key — set it explicitly. ' +
+  'When the card needs an agent, the one shared needs_agent webhook wakes the General with this value and CoS forwards the wake to that bot. ' +
+  'On update: omit = unchanged, null or "" = clear. Trimmed, max 64 chars, letters/digits/single spaces and _ . : @ - only.'
 const OWNER_BOT_SCHEMA = {
   type: ['string', 'null'],
   maxLength: 64,
-  description: 'Optional owning Grok bot (name or id, e.g. "Grok: Research" or "grok-research"). Set it explicitly when filing for a bot; omit or null = unowned. Trimmed, max 64 chars, letters/digits/single spaces and _ . : @ - only. It rides on the needs_agent webhook so the General can route the wake. Never inferred from your key.',
+  description: OWNER_BOT_DESCRIPTION,
 }
 const WS_FILTER = { type: 'string', description: 'Workspace slug to narrow to (see list_workspaces)' }
 
@@ -692,7 +702,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'create_objective',
     access: 'write',
     scope: 'board:write',
-    description: 'Create a card in an explicit workspace. type=project lands in planning; bug/task land in queue. start=true also launches the session for a queued task/bug in the same call (needs board:start; the result says started or why not — a session_cap means the card EXISTS in queue: start it later, never re-create). ALWAYS pass idempotency_key (a fresh UUID per intended card, reused verbatim on retry) so a retry returns the original card. Read first: search_objectives so you do not duplicate work.',
+    description: 'Create a card in an explicit workspace. type=project lands in planning; bug/task land in queue. start=true also launches the session for a queued task/bug in the same call (needs board:start; the result says started or why not — a session_cap means the card EXISTS in queue: start it later, never re-create). ALWAYS pass idempotency_key (a fresh UUID per intended card, reused verbatim on retry) so a retry returns the original card. Read first: search_objectives so you do not duplicate work. owner_bot: set to your own exact Grok bot name so needs_agent wakes reach you via the General; null/omitted = unowned (CoS handles it).',
     inputSchema: {
       type: 'object',
       required: ['title', 'workspace'],
@@ -750,7 +760,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'update_objective',
     access: 'write',
     scope: 'board:write',
-    description: 'Edit a card\'s fields (title, description, completion goal, agent, project, model, effort, owner_bot). Only the fields you pass change; owner_bot null clears it. Does not start, stop or move it — use update_status / start_objective for that.',
+    description: 'Edit a card\'s fields (title, description, completion goal, agent, project, model, effort, owner_bot). Only the fields you pass change. owner_bot: set to your own exact Grok bot name to claim the card; null clears it (unowned: the General handles its needs). Does not start, stop or move it — use update_status / start_objective for that.',
     inputSchema: {
       type: 'object',
       required: ['id'],

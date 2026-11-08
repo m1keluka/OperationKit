@@ -31,7 +31,7 @@
 #      session; if none can (e.g. only an old CLI-login seat, which the sandbox
 #      refuses) it fails at once with the fix instead of waiting --card-timeout.
 # --local-only skips 4-5 (installs made with --skip-cloudflare). --skip-card
-# skips 8 (before Claude is connected). Secrets are read from files, sent in
+# skips 8 (it still asks the app for its Claude seat status, read-only, to say why). Secrets are read from files, sent in
 # header files, and never printed.
 set -euo pipefail
 # shellcheck source=install/lib.sh
@@ -249,7 +249,18 @@ fi
 
 # 8. a test card end to end
 if [ "$SKIP_CARD" -eq 1 ]; then
-  log "  SKIP  test card (Claude not connected yet — run install/claude-login.sh, then re-run verify)"
+  # --skip-card only means the caller chose not to run a card. install.sh
+  # passes it when no Claude token is in the secrets env file, but seats added
+  # in Settings → Seats are not in that file. So ask the app (read-only)
+  # instead of claiming Claude is disconnected.
+  seats_usable=$( (app_internal GET /api/internal/install/seat-status 2>/dev/null || true) | jq -r '.claude.usable // empty' 2>/dev/null || true)
+  if [ "$seats_usable" = true ]; then
+    log "  SKIP  test card (--skip-card; the app already has a usable Claude seat — re-run verify without --skip-card to test it end to end)"
+  elif [ "$seats_usable" = false ]; then
+    log "  SKIP  test card (--skip-card; no usable Claude seat yet — connect one with install/claude-login.sh or Settings → Seats, then re-run verify without --skip-card)"
+  else
+    log "  SKIP  test card (--skip-card; Claude seat status not checked — re-run verify without --skip-card once a Claude seat is connected in Settings → Seats)"
+  fi
 elif [ -z "${AUTH_HDR-}" ]; then
   fail "test card skipped: not signed in"
 elif ! seats=$(app_internal GET /api/internal/install/seat-status 2>/dev/null); then

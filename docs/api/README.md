@@ -253,14 +253,43 @@ pins the connection to the checked address and never follows redirects. Setup, p
 
 ### `owner_bot` — which Grok bot owns a card
 
-Optional string on every card: `POST /api/objectives {"owner_bot": "Grok: Research"}`, `PUT /api/objectives/:id
-{"owner_bot": "grok-inbox"}` (`null` or `""` clears it), returned on `GET /api/objectives/:id` and the list. Over MCP:
+Optional string on every card. **Set it to your own exact Grok bot name** (or the exact name of the bot you are
+filing for): `POST /api/objectives {"owner_bot": "Grok: Research"}`, `PUT /api/objectives/:id
+{"owner_bot": "grok-inbox"}` (`null` or `""` clears it), returned on `GET /api/objectives/:id`, the list, and the
+`PUT` response. **`null` means unowned, and unowned needs fall back to the General.** Over MCP:
 `create_objective(…, owner_bot)` / `update_objective(id, owner_bot)`; `get_objective` / `list_objectives` return it.
+In OpenAPI it is `CreateObjectiveRequest.owner_bot` (request body of both `POST /api/objectives` and
+`PUT /api/objectives/{id}`) and `Objective.owner_bot` (every objective response).
 Rules: trimmed; at most 64 characters; letters, digits, single spaces and `_ . : @ -`, starting with a letter or
 digit. Anything else is a `400` and nothing is written. Absent means `null` (unowned). It is **never inferred from
 the calling key** — with one shared key every bot's card would otherwise look the same — so a bot filing for itself
 or another bot sets it explicitly. It rides on the `needs_agent` webhook (and every other card event) as top-level
 `owner_bot`.
+
+### Owner routing, end to end
+
+```
+card needs an agent (blocked / failed review / needs a secret / waiting in review)
+  → ONE shared needs_agent webhook (on the one shared connection key)
+  → General wake endpoint (Grok routine "Command Center card wake")
+  → CoS forwards the wake to the bot named in owner_bot
+     owner_bot null (unowned) → CoS handles it itself
+```
+
+1. A bot files or edits a card with `owner_bot` = its own exact Grok bot name.
+2. When that card needs an agent, Command Center sends **one** `needs_agent` POST per card need, through the single
+   shared webhook, to the General routine. The body carries top-level `owner_bot` (always present; `null` =
+   unowned). Command Center itself never routes to individual bots.
+3. CoS reads `owner_bot` and forwards the wake to that bot. If it is `null` (or names a bot CoS does not know), CoS
+   handles the need itself. The routing lives in the CoS routine, not in Command Center
+   ([bots/general.md](./bots/general.md#card-wake-routine-command-center-card-wake)).
+
+Nothing about auth changes: the webhook still only fires for cards the subscribed key filed or started, inside that
+key's workspace scope; the sender key stays write-only and separate from the agent key; bots keep their own scopes.
+Payload and setup: [bots/cos-card-wake.md](./bots/cos-card-wake.md).
+
+**Not seeing `owner_bot` in your MCP tools?** Your client cached `tools/list` before the release, or it points at an
+install that has not been updated yet. See [MCP-REFRESH.md](./MCP-REFRESH.md).
 
 ### `Idempotency-Key` header — `POST /api/objectives`, `POST /api/objectives/:id/message`
 

@@ -4,6 +4,9 @@ import express from 'express'
 import agentApiRouter from './agent-api.js'
 import { AGENT_OPENAPI } from '../api/agent-openapi.js'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Loose = any
+
 let server: http.Server
 let baseUrl: string
 
@@ -82,6 +85,34 @@ describe('GET /api/openapi.json', () => {
     expect(spec.paths).not.toHaveProperty('/api/admin')
     expect(spec.paths).not.toHaveProperty('/api/internal/deploy')
     expect(spec.paths).not.toHaveProperty('/api/secrets')
+  })
+
+  // obj 900293: owner_bot must be discoverable from the served spec, not just
+  // a component nobody references — create, update AND every read response.
+  it('exposes owner_bot on objective create/update requests and read/write responses', async () => {
+    const spec = await (await fetch(`${baseUrl}/api/openapi.json`)).json() as Loose
+    const schemas = spec.components.schemas
+    const ref = (o: Loose) => String(o?.content?.['application/json']?.schema?.$ref ?? o?.content?.['application/json']?.schema?.items?.$ref ?? '')
+    const list = spec.paths['/api/objectives']
+    const one = spec.paths['/api/objectives/{id}']
+    // Requests: POST and PUT both carry owner_bot.
+    expect(ref(list.post.requestBody)).toBe('#/components/schemas/CreateObjectiveRequest')
+    expect(ref(one.put.requestBody)).toBe('#/components/schemas/CreateObjectiveRequest')
+    const req = schemas.CreateObjectiveRequest.properties.owner_bot
+    expect(req.type).toEqual(['string', 'null'])
+    expect(req.maxLength).toBe(64)
+    expect(req.description).toMatch(/set to your own exact Grok bot name/i)
+    expect(req.description).toMatch(/General/)
+    expect(schemas.CreateObjectiveRequest.required).not.toContain('owner_bot')
+    // Responses: list GET, POST 201, GET /:id and PUT 200 all resolve to Objective, which has owner_bot.
+    expect(ref(list.get.responses['200'])).toBe('#/components/schemas/Objective')
+    expect(ref(list.post.responses['201'])).toBe('#/components/schemas/Objective')
+    expect(ref(one.get.responses['200'])).toBe('#/components/schemas/Objective')
+    expect(ref(one.put.responses['200'])).toBe('#/components/schemas/Objective')
+    const res = schemas.Objective.properties.owner_bot
+    expect(res.type).toEqual(['string', 'null'])
+    expect(res.description).toMatch(/null = unowned/)
+    expect(res.description).toMatch(/General/)
   })
 
   it('matches the in-process spec object', async () => {

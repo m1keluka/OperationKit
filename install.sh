@@ -298,6 +298,10 @@ if [ "$DRY_RUN" -eq 0 ] && [ "$BACKUP_PROMPT" -eq 1 ] && [ -z "$(conf BACKUP_TAR
 fi
 
 # ── 8. Verify ─────────────────────────────────────────────────────────────────
+# claude_ready only looks for a Claude token in the secrets env file. Seats
+# added later in Settings → Seats are not in that file, so a 0 here does not
+# mean Claude is disconnected; verify.sh asks the app's seat status when it
+# skips the card and says which it is.
 claude_ready=0
 [ -n "$(env_get "$OK_SECRETS_ENV" SESSION_JAIL_CLAUDE_OAUTH_TOKEN)$(env_get "$OK_SECRETS_ENV" SESSION_JAIL_ANTHROPIC_API_KEY)" ] && claude_ready=1
 if [ "$DRY_RUN" -eq 0 ] && [ "$SKIP_VERIFY" -eq 0 ]; then

@@ -58,6 +58,10 @@ Orgs: `GET {CC_BASE_URL}/api/workspaces`
 
 If your host supports remote MCP, attach `https://cc.example.com/api/mcp` with header `Authorization: Bearer {CC_TOKEN}`. That covers the xAI API's remote-MCP tool, a grok.com custom connector that can send a header, Claude Code, and the Anthropic MCP connector. Then use its tools in preference to raw HTTP: `whoami`, `get_attention`, `get_changes(since)`, `search_objectives`, `get_objective`, `get_progress`, `create_objective(workspace, …, owner_bot, idempotency_key, start)`, `start_objective`, `send_message`, `update_status`, `get_output`, `search`, `read_file`, `write_doc`. They are the same API with the same scope and workspace checks; a refused call comes back as a tool error carrying `missing_scope`. Every write answers with a one-line confirmation plus the card `url`. Write tools need your own named agent key — on the old shared key the connector is read-only. Without MCP, use the REST calls below. The rules are the same either way.
 
+### `owner_bot` — who a card belongs to
+
+When you file or claim a card, set `owner_bot` to **your own exact Grok bot name** (or the exact name of the bot you are filing for) — REST `"owner_bot"` on `POST`/`PUT /api/objectives`, MCP `create_objective(…, owner_bot)` / `update_objective(id, owner_bot)`. It is never filled in from your key: every bot shares one connection. `null` means unowned, and **unowned needs fall back to the General**. Routing: card needs an agent → ONE shared `needs_agent` webhook → General wake routine → CoS forwards it to `owner_bot` (null → CoS handles it). If your MCP `create_objective` / `update_objective` shows no `owner_bot` field, your client has a stale tool list or points at an install without the release: reconnect it (see `docs/api/MCP-REFRESH.md`) and use REST meanwhile.
+
 ## What the board is
 
 Each **objective** is one card = one coding-agent session.
@@ -121,7 +125,7 @@ GET  /api/objectives?workspace={slug}&limit=50       # only when you need a list
 GET  /api/objectives/search?q={text}
 GET  /api/objectives/{id}                 # full card
 POST /api/objectives                      # create; Idempotency-Key header; "start": true = create+run; "owner_bot": which Grok bot owns it (optional, explicit)
-PUT  /api/objectives/{id}                 # edit fields, not status
+PUT  /api/objectives/{id}                 # edit fields, not status; "owner_bot": your exact Grok bot name, null = unowned
 PATCH /api/objectives/{id}/status         # { "status": "working"|"review"|"done"|"cancelled"|"queue" }
 POST /api/objectives/{id}/message         # { "message": "..." }; Idempotency-Key header
 GET  /api/objectives/{id}/output          # thread; ?view=timeline to collapse tools
