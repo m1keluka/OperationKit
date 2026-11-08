@@ -55,7 +55,10 @@ export type ConnectorActor =
       userId: number | null | undefined
       keyId: number
       keyLabel: string
-      /** Allow-list. `null`/`[]` = no connectors. `['*']` = legacy all (migrated keys). */
+      /**
+       * Allow-list. `null`/`[]` = no connectors. `['owner']` = inherit the owner
+       * (obj 900303). `['*']` = legacy all (migrated keys).
+       */
       connectors: string[] | null
     }
   | {
@@ -85,10 +88,38 @@ export type ConnectorDecision =
 /** The wildcard an existing key is migrated to so its behaviour is unchanged. */
 export const LEGACY_ALL_CONNECTORS = '*'
 
-/** Does an agent key's allow-list cover this connector? */
+/**
+ * Inherit mode (obj 900303): the key does not narrow its owner.
+ *
+ * Read it as the ABSENCE of the per-key narrowing, not as a grant. The three
+ * owner-level tests in canUseConnectorCredential() below — ownership, the
+ * owner's delegated-work opt-in, and the owner's own agent/workspace rules —
+ * are unchanged and still decide every use, so an inheriting key can never
+ * reach past what its owner is authorised for AT THE MOMENT OF USE. Nothing is
+ * cached: disconnect the account, revoke it upstream, or tighten the owner's
+ * rules and the next use is denied without touching the key.
+ */
+export const INHERIT_OWNER_CONNECTORS = 'owner'
+
+/** Is this list the inherit-the-owner mode rather than a list of ids? */
+export function keyInheritsOwnerConnectors(connectors: string[] | null | undefined): boolean {
+  return !!connectors && connectors.includes(INHERIT_OWNER_CONNECTORS)
+}
+
+/**
+ * Does an agent key's allow-list cover this connector?
+ *
+ * Fails closed: null, empty and unparseable all mean no. `'owner'` (inherit)
+ * and `'*'` (legacy) both mean "this key adds no narrowing of its own" — they
+ * skip THIS test only, never the owner tests that follow it.
+ */
 export function keyAllowsConnector(connectors: string[] | null | undefined, connectorId: string): boolean {
   if (!connectors || connectors.length === 0) return false
-  return connectors.includes(LEGACY_ALL_CONNECTORS) || connectors.includes(connectorId)
+  return (
+    connectors.includes(LEGACY_ALL_CONNECTORS) ||
+    connectors.includes(INHERIT_OWNER_CONNECTORS) ||
+    connectors.includes(connectorId)
+  )
 }
 
 function actingUserOf(actor: ConnectorActor): number | null {
@@ -123,8 +154,10 @@ export function canUseConnectorCredential(req: ConnectorCredentialRequest): Conn
     }
   }
 
-  // An agent key is narrower than its owner: it reaches only the connectors it
-  // was granted, even though it is unmistakably acting for the owner.
+  // An agent key is at most as wide as its owner: it reaches only the connectors
+  // it was granted, even though it is unmistakably acting for the owner. A key
+  // in inherit mode (obj 900303) declines to narrow further — it is then exactly
+  // as wide as its owner, never wider, because everything below still runs.
   const key =
     actor.kind === 'agent_key'
       ? { connectors: actor.connectors }

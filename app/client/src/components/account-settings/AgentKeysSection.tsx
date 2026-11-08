@@ -18,12 +18,13 @@ import {
   AGENT_SCOPES,
   AGENT_SCOPE_DESCRIPTIONS,
   DEFAULT_AGENT_SCOPES,
+  INHERIT_OWNER_CONNECTORS,
   LEGACY_ALL_CONNECTORS,
   type AgentApiKeyIssued,
   type AgentApiKeySummary,
   type AgentScope,
-  type ConnectorSummary,
 } from '@operationkit/shared'
+import { parseConnectorList, type ConnectorOption } from '../../lib/connectors'
 
 const HUMAN_SIGNATURE: AgentScope[] = ['board:done', 'board:delete']
 
@@ -31,6 +32,37 @@ const HUMAN_SIGNATURE: AgentScope[] = ['board:done', 'board:delete']
 function isLegacyAll(connectors: string[] | null): boolean {
   return !!connectors && connectors.includes(LEGACY_ALL_CONNECTORS)
 }
+
+/** A key that follows its owner rather than carrying its own list (obj 900303). */
+function isInherit(connectors: string[] | null): boolean {
+  return !!connectors && connectors.includes(INHERIT_OWNER_CONNECTORS)
+}
+
+/** How a key's connector reach is chosen in this UI. */
+type ConnectorMode = 'inherit' | 'none' | 'pick'
+
+function modeOf(connectors: string[] | null): ConnectorMode {
+  if (isInherit(connectors)) return 'inherit'
+  if (isLegacyAll(connectors)) return 'inherit'
+  return (connectors ?? []).length === 0 ? 'none' : 'pick'
+}
+
+/** The value PATCH/POST should carry for a chosen mode. */
+function connectorsFor(mode: ConnectorMode, picked: string[]): string[] {
+  if (mode === 'inherit') return [INHERIT_OWNER_CONNECTORS]
+  if (mode === 'none') return []
+  return picked
+}
+
+/**
+ * The catalogue load is a three-state. "Nothing connected" and "we could not
+ * read your connections" are different sentences, and only one of them is the
+ * person's fault to fix here (obj 900303).
+ */
+type CatalogueState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; options: ConnectorOption[] }
+  | { kind: 'failed'; message: string }
 
 function errorText(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return (err.body as { error?: string })?.error || err.message
@@ -49,10 +81,13 @@ export function AgentKeysSection() {
   const [revoking, setRevoking] = useState<number | null>(null)
   const [issued, setIssued] = useState<AgentApiKeyIssued | null>(null)
   const [copied, setCopied] = useState(false)
-  // Connector grants. A key starts with none; its owner adds them deliberately.
-  const [connectorOptions, setConnectorOptions] = useState<{ id: string; name: string }[]>([])
+  // Connector grants. A new key inherits the owner's authorised connections by
+  // default (obj 900303); narrowing it is a deliberate choice, same as before.
+  const [catalogue, setCatalogue] = useState<CatalogueState>({ kind: 'loading' })
+  const [connectorMode, setConnectorMode] = useState<ConnectorMode>('inherit')
   const [connectors, setConnectors] = useState<string[]>([])
   const [editing, setEditing] = useState<number | null>(null)
+  const [draftMode, setDraftMode] = useState<ConnectorMode>('none')
   const [draft, setDraft] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const { confirm, confirmDialog } = useConfirm()
@@ -71,21 +106,114 @@ export function AgentKeysSection() {
   useEffect(() => { void reload() }, [])
 
   // The connector list is just names — it never carries a credential or a
-  // connection state we need here.
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await api.get<{ connectors: ConnectorSummary[] }>('/connectors')
-        setConnectorOptions((res?.connectors ?? []).map(c => ({ id: c.id, name: c.name })))
-      } catch {
-        // Connectors are optional on an install; the picker just stays empty.
-        setConnectorOptions([])
-      }
-    })()
-  }, [])
+  // connection state we need here. It is a BARE ARRAY on the wire; reading an
+  // envelope off it is what used to blank this picker (obj 900303).
+  async function loadCatalogue() {
+    setCatalogue({ kind: 'loading' })
+    try {
+      const res = await api.get<unknown>('/connectors')
+      setCatalogue({ kind: 'ready', options: parseConnectorList(res).options })
+    } catch (err) {
+      // A failure is reported, never flattened into "you have none". The person
+      // can retry; an auth or server error says which it was.
+      setCatalogue({
+        kind: 'failed',
+        message: errorText(err, 'Could not load your connected accounts.'),
+      })
+    }
+  }
+
+  useEffect(() => { void loadCatalogue() }, [])
+
+  const connectorOptions = catalogue.kind === 'ready' ? catalogue.options : []
 
   function nameOfConnector(id: string): string {
+    if (id === INHERIT_OWNER_CONNECTORS) return 'inherits your access'
     return connectorOptions.find(c => c.id === id)?.name ?? id
+  }
+
+  /**
+   * The picker body, shared by the create form and the per-key editor so both
+   * say the same thing about the same three states.
+   */
+  function CataloguePicker({
+    selected,
+    onToggle,
+    idPrefix,
+  }: { selected: string[]; onToggle: (id: string) => void; idPrefix: string }) {
+    if (catalogue.kind === 'loading') {
+      return <span className="text-xs text-fg-2">Loading your connected accounts…</span>
+    }
+    if (catalogue.kind === 'failed') {
+      return (
+        <div role="alert" className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-signal-alarm">
+            {catalogue.message} This is not the same as having none — nothing was changed.
+          </span>
+          <Button type="button" size="sm" variant="secondary" onClick={() => void loadCatalogue()}>
+            Retry
+          </Button>
+        </div>
+      )
+    }
+    if (catalogue.options.length === 0) {
+      return (
+        <span className="text-xs text-fg-2">
+          You have not connected any accounts yet — add one in Settings → Connectors.
+        </span>
+      )
+    }
+    return (
+      <div className="flex flex-wrap gap-2">
+        {catalogue.options.map(c => {
+          const on = selected.includes(c.id)
+          return (
+            <button
+              key={`${idPrefix}-${c.id}`}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onToggle(c.id)}
+              className={cn(
+                'min-h-[44px] rounded-full border px-3 text-xs transition-colors duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]',
+                on ? 'border-accent/60 bg-accent/15 text-fg-0' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
+              )}
+            >
+              {c.name}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  /** The three reach choices, as buttons. */
+  function ModeButtons({
+    mode,
+    setMode,
+    idPrefix,
+  }: { mode: ConnectorMode; setMode: (m: ConnectorMode) => void; idPrefix: string }) {
+    const opts: { value: ConnectorMode; label: string }[] = [
+      { value: 'inherit', label: 'Whatever I can use' },
+      { value: 'pick', label: 'Pick specific accounts' },
+      { value: 'none', label: 'No connected accounts' },
+    ]
+    return (
+      <div className="mt-1 flex flex-wrap gap-2">
+        {opts.map(o => (
+          <Button
+            key={`${idPrefix}-${o.value}`}
+            type="button"
+            size="sm"
+            variant={mode === o.value ? 'primary' : 'secondary'}
+            className="min-h-[44px] sm:min-h-0"
+            aria-pressed={mode === o.value}
+            onClick={() => setMode(o.value)}
+          >
+            {o.label}
+          </Button>
+        ))}
+      </div>
+    )
   }
 
   function resetForm() {
@@ -93,6 +221,7 @@ export function AgentKeysSection() {
     setScopes([...DEFAULT_AGENT_SCOPES])
     setRestrict(false)
     setAllowed([])
+    setConnectorMode('inherit')
     setConnectors([])
   }
 
@@ -104,7 +233,7 @@ export function AgentKeysSection() {
     setSaving(true)
     setError('')
     try {
-      await api.patch(`/auth/agent-keys/${key.id}`, { connectors: draft })
+      await api.patch(`/auth/agent-keys/${key.id}`, { connectors: connectorsFor(draftMode, draft) })
       setEditing(null)
       await reload()
     } catch (err) {
@@ -134,7 +263,7 @@ export function AgentKeysSection() {
         label: label.trim(),
         scopes,
         workspaces: restrict ? allowed : null,
-        connectors,
+        connectors: connectorsFor(connectorMode, connectors),
       })
       setIssued(key)
       setFormOpen(false)
@@ -188,7 +317,9 @@ export function AgentKeysSection() {
           <h2 id="agent-keys-heading" className="text-base font-semibold text-fg-0">Agent keys</h2>
           <p className="mt-1 max-w-prose text-xs text-fg-2">
             One key per bot. Each is its own identity — cards it creates say who made them — and it can
-            only do what you tick. Done and delete stay with you unless you grant them.
+            only do what you tick. Done and delete stay with you unless you grant them. A new key can
+            use the connected accounts you are allowed to use; it never reaches anyone else&rsquo;s, never
+            exceeds your own access, and never reads Settings &rarr; Secrets.
           </p>
         </div>
         {!formOpen && (
@@ -312,29 +443,26 @@ export function AgentKeysSection() {
           <fieldset>
             <legend className="text-xs font-medium text-fg-1">Your connected accounts it may use</legend>
             <p className="mt-1 max-w-prose text-[11px] text-fg-2">
-              Only ever your own connection, and only the ones you tick. Leave them all off and the key
-              cannot touch any connected account. Tokens are never shown here or sent to the key.
+              A new key follows YOUR access: it can use the connected accounts you are allowed to use,
+              and nothing else. Never anyone else&rsquo;s account, never more than you have right now —
+              each use is re-checked against your access at that moment, so disconnecting an account or
+              narrowing it in Settings &rarr; Connectors takes effect immediately, with no key to edit.
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {connectorOptions.length === 0 && <span className="text-xs text-fg-2">No connectors available.</span>}
-              {connectorOptions.map(c => {
-                const on = connectors.includes(c.id)
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => toggleConnector(c.id)}
-                    className={cn(
-                      'min-h-[44px] rounded-full border px-3 text-xs transition-colors duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]',
-                      on ? 'border-accent/60 bg-accent/15 text-fg-0' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
-                    )}
-                  >
-                    {c.name}
-                  </button>
-                )
-              })}
-            </div>
+            <p className="mt-1 max-w-prose text-[11px] text-fg-2">
+              This is about connected accounts only. It does not change what the key can DO on the board
+              (that is the tick list above — done and delete still stay with you), and it has nothing to
+              do with Settings &rarr; Secrets, which is a separate store the key cannot read. Tokens are
+              never shown here or handed to the key.
+            </p>
+            <ModeButtons mode={connectorMode} setMode={setConnectorMode} idPrefix="new" />
+            {connectorMode === 'none' && (
+              <p className="mt-2 text-[11px] text-fg-2">This key will not be able to use any connected account.</p>
+            )}
+            {connectorMode === 'pick' && (
+              <div className="mt-2">
+                <CataloguePicker selected={connectors} onToggle={toggleConnector} idPrefix="new" />
+              </div>
+            )}
           </fieldset>
 
           <div className="flex flex-wrap gap-2 pt-1">
@@ -375,6 +503,8 @@ export function AgentKeysSection() {
                   <Badge tone="info">{k.workspaces ? k.workspaces.map(labelOf).join(', ') : 'all workspaces'}</Badge>
                   {isLegacyAll(k.connectors) ? (
                     <Badge tone="amber">all connectors (legacy)</Badge>
+                  ) : isInherit(k.connectors) ? (
+                    <Badge tone="info">connectors: follows your access</Badge>
                   ) : (k.connectors ?? []).length === 0 ? (
                     <Badge tone="neutral">no connectors</Badge>
                   ) : (
@@ -384,28 +514,26 @@ export function AgentKeysSection() {
                 {!k.revoked_at && editing === k.id && (
                   <div className="space-y-2 rounded-md border border-line bg-surface-1 p-2.5">
                     <p className="text-[11px] text-fg-2">
-                      Which of your connected accounts this key may use. Your own, never anyone else&rsquo;s.
+                      Which of your connected accounts this key may use. Your own, never anyone else&rsquo;s,
+                      and never more than you are allowed right now.
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                      {connectorOptions.length === 0 && <span className="text-xs text-fg-2">No connectors available.</span>}
-                      {connectorOptions.map(c => {
-                        const on = draft.includes(c.id)
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            aria-pressed={on}
-                            onClick={() => setDraft(prev => (prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id]))}
-                            className={cn(
-                              'min-h-[44px] rounded-full border px-3 text-xs transition-colors duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]',
-                              on ? 'border-accent/60 bg-accent/15 text-fg-0' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
-                            )}
-                          >
-                            {c.name}
-                          </button>
-                        )
-                      })}
-                    </div>
+                    {isLegacyAll(k.connectors) && draftMode === 'inherit' && (
+                      <p className="text-[11px] text-fg-2">
+                        This key predates the per-key list and currently reaches everything. Saving moves it
+                        to following your access, which is re-checked on every use.
+                      </p>
+                    )}
+                    <ModeButtons mode={draftMode} setMode={setDraftMode} idPrefix={`k${k.id}`} />
+                    {draftMode === 'none' && (
+                      <p className="text-[11px] text-fg-2">This key will not be able to use any connected account.</p>
+                    )}
+                    {draftMode === 'pick' && (
+                      <CataloguePicker
+                        selected={draft}
+                        idPrefix={`k${k.id}`}
+                        onToggle={id => setDraft(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))}
+                      />
+                    )}
                     <div className="flex flex-wrap gap-2">
                       <Button size="sm" variant="primary" loading={saving} onClick={() => void saveConnectors(k)}>Save</Button>
                       <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
@@ -423,7 +551,12 @@ export function AgentKeysSection() {
                     variant="secondary"
                     onClick={() => {
                       setEditing(editing === k.id ? null : k.id)
-                      setDraft((k.connectors ?? []).filter(c => c !== LEGACY_ALL_CONNECTORS))
+                      setDraftMode(modeOf(k.connectors))
+                      setDraft(
+                        (k.connectors ?? []).filter(
+                          c => c !== LEGACY_ALL_CONNECTORS && c !== INHERIT_OWNER_CONNECTORS,
+                        ),
+                      )
                     }}
                   >
                     Connectors

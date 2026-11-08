@@ -31,7 +31,7 @@ const github = await import('./user-github-tokens.js')
 const google = await import('./user-google-connections.js')
 const { setAccess } = await import('../connectors/access.js')
 const { buildSpawnEnv } = await import('./session-spawn-env.js')
-const { createAgentKey, updateAgentKeyConnectors, resolveAgentKey } = await import('../lib/agent-keys.js')
+const { createAgentKey, updateAgentKeyConnectors, resolveAgentKey, listAgentKeys } = await import('../lib/agent-keys.js')
 const { setSecret, resolveSecrets, resolveSecretNames, SERVICE_ONLY_BY_DEFAULT } =
   await import('./secrets-store.js')
 
@@ -241,8 +241,33 @@ describe('per-agent-key connector allow-list', () => {
     linkGithub(USER_A, A_PAT, 'user-a')
   })
 
-  it('a new key reaches no connector until its owner names one', () => {
+  // obj 900303 changed this default from deny-all to inherit-the-owner. The two
+  // tests below pin BOTH halves of that change: what silence now means, and that
+  // saying "none" out loud still means none.
+  it('a new key inherits the connectors its owner is authorised for', () => {
     const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'fresh' })
+    expect(key.ok).toBe(true)
+    if (!key.ok) return
+    expect(key.key.connectors).toEqual(['owner'])
+    const actor = { kind: 'agent_key' as const, userId: USER_A, keyId: key.key.id, keyLabel: key.key.label, connectors: key.key.connectors }
+    expect(guard.canUseConnectorCredential({ connectorId: 'github', ownerUserId: USER_A, actor }))
+      .toEqual({ allowed: true })
+    expect(github.getDecryptedForUser(USER_A, actor)).toBe(A_PAT)
+  })
+
+  it('an inheriting key still reaches only its OWN owner, never another person', () => {
+    linkGithub(USER_B, B_PAT, 'user-b')
+    const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'fresh' })
+    expect(key.ok).toBe(true)
+    if (!key.ok) return
+    const actor = { kind: 'agent_key' as const, userId: USER_A, keyId: key.key.id, keyLabel: key.key.label, connectors: key.key.connectors }
+    expect(github.getDecryptedForUser(USER_A, actor)).toBe(A_PAT)
+    expect(github.getDecryptedForUser(USER_B, actor)).toBeNull()
+    expect(denials().some(d => d.reason === 'cross_user')).toBe(true)
+  })
+
+  it('an explicit empty list is deny-all, and is NOT read as inherit', () => {
+    const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'locked down', connectors: [] })
     expect(key.ok).toBe(true)
     if (!key.ok) return
     expect(key.key.connectors).toEqual([])
@@ -250,6 +275,68 @@ describe('per-agent-key connector allow-list', () => {
     expect(guard.canUseConnectorCredential({ connectorId: 'github', ownerUserId: USER_A, actor }))
       .toEqual({ allowed: false, reason: 'key_connector', detail: expect.any(String) })
     expect(github.getDecryptedForUser(USER_A, actor)).toBeNull()
+  })
+
+  it('an explicit null is deny-all too — "none" never silently becomes "inherit"', () => {
+    const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'null list', connectors: null })
+    expect(key.ok).toBe(true)
+    if (!key.ok) return
+    expect(key.key.connectors).toEqual([])
+  })
+
+  it('a stored NULL (a key that predates obj 900303) still means deny-all', () => {
+    const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'legacy row' })
+    expect(key.ok).toBe(true)
+    if (!key.ok) return
+    // Reproduce a row written before the column had a default: connectors IS NULL.
+    getDb().prepare('UPDATE agent_api_keys SET connectors = NULL WHERE id = ?').run(key.key.id)
+    const reread = listAgentKeys(USER_A).find(k => k.id === key.key.id)
+    expect(reread?.connectors).toEqual([])
+    const actor = { kind: 'agent_key' as const, userId: USER_A, keyId: key.key.id, keyLabel: key.key.label, connectors: null }
+    expect(github.getDecryptedForUser(USER_A, actor)).toBeNull()
+  })
+
+  it('inheritance tracks the owner: removing the connection removes the key\'s reach', () => {
+    const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'follows me' })
+    expect(key.ok).toBe(true)
+    if (!key.ok) return
+    const actor = { kind: 'agent_key' as const, userId: USER_A, keyId: key.key.id, keyLabel: key.key.label, connectors: key.key.connectors }
+    expect(github.getDecryptedForUser(USER_A, actor)).toBe(A_PAT)
+    github.deleteForUser(USER_A)
+    expect(github.getDecryptedForUser(USER_A, actor)).toBeNull()
+  })
+
+  it('inheritance never exceeds the owner: their own access rule still denies the use', () => {
+    const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'follows me' })
+    expect(key.ok).toBe(true)
+    if (!key.ok) return
+    // The owner limits GitHub to one workspace. The inheriting key is measured
+    // against that rule exactly as the owner would be.
+    setAccess('github', USER_A, { agents: null, workspaces: ['other-workspace'], allow_delegated: false })
+    const actor = { kind: 'agent_key' as const, userId: USER_A, keyId: key.key.id, keyLabel: key.key.label, connectors: key.key.connectors }
+    expect(
+      guard.canUseConnectorCredential({
+        connectorId: 'github',
+        ownerUserId: USER_A,
+        actor,
+        use: { agent: 'cto', workspace: 'this-workspace' },
+      }),
+    ).toEqual({ allowed: false, reason: 'access_rule', detail: expect.any(String) })
+  })
+
+  it('inheritance is not a delegation opt-in: another person\'s card still withholds it', () => {
+    const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'follows me' })
+    expect(key.ok).toBe(true)
+    if (!key.ok) return
+    const actor = { kind: 'agent_key' as const, userId: USER_A, keyId: key.key.id, keyLabel: key.key.label, connectors: key.key.connectors }
+    expect(
+      guard.canUseConnectorCredential({
+        connectorId: 'github',
+        ownerUserId: USER_A,
+        actor,
+        delegated: true,
+      }),
+    ).toEqual({ allowed: false, reason: 'delegated_card', detail: expect.any(String) })
   })
 
   it('granting the connector gives the key its OWNER\'s copy and nobody else\'s', () => {
@@ -278,7 +365,9 @@ describe('per-agent-key connector allow-list', () => {
   })
 
   it('a card filed by a key inherits that key\'s list in its spawned session', () => {
-    const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'no connectors' })
+    // Explicitly restricted to none, so the session gets nothing until the
+    // owner grants it — the inherit default is covered separately above.
+    const key = createAgentKey({ id: USER_A, role: 'member' }, { label: 'no connectors', connectors: [] })
     expect(key.ok).toBe(true)
     if (!key.ok) return
     const env = buildSpawnEnv({

@@ -21,6 +21,35 @@ When a card is assigned to someone, it uses the assignee's connections; the crea
 
 Adding a new kind of connector (Slack, Microsoft 365, an MCP server) is one file on the server — see [Adding a connector](../connectors/README.md).
 
+## Agent keys and your connected accounts
+
+One key per bot, in **Settings → You → Agent keys**. Each key carries its own name, its own tick-list
+of what it may do on the board, and its own workspace list. Under **"Your connected accounts it may
+use"** you choose one of three things:
+
+| Choice | What the key gets |
+|---|---|
+| **Whatever I can use** (default for a new key) | The connected accounts *you* are allowed to use — re-checked on every use, never cached |
+| **Pick specific accounts** | Only the ones you tick |
+| **No connected accounts** | None at all |
+
+The default is the first one, so the usual case needs no ticking. Four things it does **not** mean:
+
+- **It is never more than you have.** A key reaches your own accounts only, never a colleague's, and
+  never past what you are allowed right now. Disconnect an account, or narrow it under *"Who can use
+  it"*, and the key loses it on its next use — there is nothing to edit on the key.
+- **It does not widen a key you already narrowed.** Keys that exist today keep exactly the reach
+  they have. Moving one to *"Whatever I can use"* is a deliberate save on that key, and it is
+  reversible.
+- **It does not borrow other people's work.** A card someone else assigned to you still runs with
+  your connections withheld unless you ticked *"let cards someone else assigned to me use this
+  connection"* for that connector.
+- **It is not Secrets, and it is not board power.** Settings → Secrets is a separate store the key
+  does not read, and signing a card done or deleting cards still stay with you unless you tick them.
+
+If the picker cannot read your connected accounts it says so and offers **Retry**. "You have not
+connected any accounts yet" means exactly that — it is never shown because a request failed.
+
 ## Personal secrets
 
 Key/value, encrypted, never shown again. These are **yours**. Organization keys live on the Secrets tab. Both inject into the session env when a card starts. Connectors inject the same way. There is no Doppler CLI in the session.

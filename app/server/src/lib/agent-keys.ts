@@ -16,6 +16,8 @@ import { getUserWorkspaces } from '../middleware/workspace.js'
 import {
   AGENT_SCOPES,
   DEFAULT_AGENT_SCOPES,
+  DEFAULT_NEW_KEY_CONNECTORS,
+  INHERIT_OWNER_CONNECTORS,
   LEGACY_ALL_CONNECTORS,
   type AgentApiKeyIssued,
   type AgentApiKeySummary,
@@ -37,8 +39,9 @@ export interface AgentKeyPrincipal {
   workspaces: string[] | null
   /**
    * Connector ids this key may use — and only its OWNER's connections, which
-   * services/connector-guard.ts enforces separately. [] = none, which is what a
-   * key created after this shipped gets unless its owner says otherwise.
+   * services/connector-guard.ts enforces separately. [] = none. ['owner'] =
+   * inherit the owner's authorised connectors, which is what a key created
+   * after obj 900303 gets unless its owner says otherwise.
    */
   connectors: string[]
 }
@@ -77,10 +80,14 @@ function parseWorkspaces(raw: string | null): string[] | null {
 }
 
 /**
- * Connector allow-list for a stored row. NULL (a key created after the
- * allow-list shipped, or one whose list was cleared) and anything unparseable
- * both mean NO connectors — this list only ever widens access, so it fails
- * closed.
+ * Connector allow-list for a stored row. NULL (a key created before obj 900303,
+ * or one whose list was cleared) and anything unparseable both mean NO
+ * connectors — this list only ever widens access, so it fails closed.
+ *
+ * obj 900303 deliberately did NOT change this reading. A stored NULL keeps
+ * meaning deny-all, so no key that exists today silently gains a connector; the
+ * new inherit default is written at CREATE time only, as an explicit
+ * `["owner"]`, and an existing key moves to it only when its owner chooses to.
  */
 export function parseConnectors(raw: string | null): string[] {
   if (raw == null) return []
@@ -94,13 +101,43 @@ export function parseConnectors(raw: string | null): string[] {
 
 const CONNECTOR_ID = /^[a-z0-9][a-z0-9-]{0,40}$/
 
-/** Validate a caller-supplied connector list. Returns a sentence on bad input. */
-export function parseConnectorsInput(value: unknown): string[] | { error: string } {
-  if (value === undefined || value === null) return []
+/**
+ * Validate a caller-supplied connector list. Returns a sentence on bad input.
+ *
+ * Three shapes, and the difference between them is the whole point (obj 900303):
+ *
+ *   undefined  the caller said nothing      → `whenOmitted` (see below)
+ *   null / []  the caller said "none"       → `[]`, an explicit deny-all
+ *   [...ids]   the caller named connectors  → exactly those, sorted
+ *   ['owner']  inherit the owner            → `['owner']`, mode, must stand alone
+ *
+ * `whenOmitted` exists so CREATE and PATCH can disagree about silence without
+ * either of them guessing: a new key omitting the field opts into inheritance,
+ * while an update omitting it changes nothing (the route rejects it earlier).
+ * It is NEVER applied to an explicit `null`/`[]` — saying "none" out loud must
+ * keep meaning none, or every restricted key would widen on its next save.
+ */
+export function parseConnectorsInput(
+  value: unknown,
+  whenOmitted: readonly string[] = [],
+): string[] | { error: string } {
+  if (value === undefined) return [...whenOmitted]
+  if (value === null) return []
   if (!Array.isArray(value)) return { error: 'connectors must be an array of connector ids, or null for none' }
   const ids = [...new Set(value.map(v => (typeof v === 'string' ? v.trim() : '')).filter(Boolean))]
+  // Inherit is a MODE, not an id: mixing it with ids would read as "these ids
+  // PLUS everything", which is a grant nobody asked for. Make it say one thing.
+  if (ids.includes(INHERIT_OWNER_CONNECTORS)) {
+    if (ids.length > 1) {
+      return {
+        error: `"${INHERIT_OWNER_CONNECTORS}" means inherit every connector you are authorised for, so it cannot be combined with specific connector ids`,
+      }
+    }
+    return [INHERIT_OWNER_CONNECTORS]
+  }
   // The legacy wildcard is written only by the migration. A caller that wants a
-  // key to reach everything names the connectors, so the grant stays readable.
+  // key to reach everything either names the connectors or asks to inherit, so
+  // the grant stays readable.
   const bad = ids.filter(id => id === LEGACY_ALL_CONNECTORS || !CONNECTOR_ID.test(id))
   if (bad.length > 0) return { error: `invalid connector id(s): ${bad.join(', ')}` }
   return ids.sort()
@@ -190,9 +227,14 @@ export function createAgentKey(
     return { ok: false, status: 400, error: 'workspaces must be an array of slugs or null' }
   }
 
-  // A new key reaches NO connector until its owner names one. The whole point of
-  // the list is that a key is not a copy of its owner.
-  const connectorsParsed = parseConnectorsInput(input.connectors)
+  // obj 900303: a new key DEFAULTS to inheriting the connected accounts its
+  // owner is authorised for, so the common case needs no per-key ticking. The
+  // key is still not a copy of its owner — it carries its own scopes and
+  // workspace list, it reaches nobody else's connections, and it is re-measured
+  // against the owner's current authorisation on every single use. A caller
+  // that wants a narrower key says so: `connectors: []` / `null` for none, or
+  // an explicit list of ids.
+  const connectorsParsed = parseConnectorsInput(input.connectors, DEFAULT_NEW_KEY_CONNECTORS)
   if (!Array.isArray(connectorsParsed)) {
     return { ok: false, status: 400, error: connectorsParsed.error }
   }
@@ -234,6 +276,11 @@ export type UpdateAgentKeyResult =
  * editing somebody else's key, which is allowed (an admin administers the
  * install's keys) — note that it still grants the admin nothing: the key keeps
  * reaching only its OWN owner's connections.
+ *
+ * This is also the opt-in migration path for an existing key (obj 900303): its
+ * owner moves it to inherit mode by saving `["owner"]` here. Nothing moves a key
+ * there on its own — omitting the field is rejected by the route, so a key's
+ * restriction can only change because somebody chose to change it.
  */
 export function updateAgentKeyConnectors(
   keyId: number,

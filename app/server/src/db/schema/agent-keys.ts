@@ -31,7 +31,13 @@ export function initAgentKeysSchema(db: Database.Database): void {
   // present when the column is added are therefore set to the legacy wildcard
   // ['*'] — their behaviour is unchanged, and Settings labels them "All
   // (legacy)" so each one can be narrowed deliberately rather than by a silent
-  // break. Keys created afterwards default to NULL, which means NO connectors.
+  // break.
+  //
+  // obj 900303 changed what a NEW key gets (["owner"] — inherit the owner's
+  // authorised connectors) and deliberately added NO migration for it. A stored
+  // NULL still reads as NO connectors in lib/agent-keys.ts, so no key that
+  // already exists widens because this shipped; an owner moves a key to inherit
+  // by saving it in Settings. The only safe backfill is the one we did not write.
   const keyCols = new Set(
     (db.prepare('PRAGMA table_info(agent_api_keys)').all() as { name: string }[]).map(c => c.name),
   )
