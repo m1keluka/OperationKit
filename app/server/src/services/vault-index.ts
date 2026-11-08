@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3'
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { inWorkspaceFolder, knowledgeBaseRoot } from '../lib/knowledge-base-root.js'
+import { knowledgeBaseRoot } from '../lib/knowledge-base-root.js'
+import { filterToWorkspaceScope } from '../lib/kb-workspace-scope.js'
 
 /**
  * Semantic vault index for spawn-context KB injection (ST6).
@@ -89,7 +90,6 @@ export interface VaultHit {
 const SNIPPET_CHARS = 400
 const MAX_DOCS = 5000
 const MAX_HITS = 5
-const WORKSPACE_BONUS = 2.0
 const EXCLUDE_DIRS = new Set(['.obsidian', '_import', '_system', 'node_modules', '.git'])
 
 function extractTerms(query: string, max = 8): string[] {
@@ -269,15 +269,15 @@ export function searchVaultIndex(query: string, workspace?: string | null): Vaul
       .all(match) as { path: string; score: number }[]
     if (rows.length === 0) return []
 
-    for (const r of rows) {
-      if (workspace && inWorkspaceFolder(r.path, workspace, root)) {
-        r.score -= WORKSPACE_BONUS
-      }
-    }
-    rows.sort((a, b) => a.score - b.score)
+    // obj 900321 (C13): a workspace argument is a WALL, not a -2.0 bm25 nudge.
+    // Out-of-scope docs are removed BEFORE ranking, so no score, stem or synonym
+    // expansion can promote another workspace's note into the result set.
+    const ranked = workspace ? filterToWorkspaceScope(rows, workspace, root) : rows
+    if (ranked.length === 0) return []
+    ranked.sort((a, b) => a.score - b.score)
 
     const hits: VaultHit[] = []
-    for (const r of rows.slice(0, MAX_HITS)) {
+    for (const r of ranked.slice(0, MAX_HITS)) {
       try {
         hits.push({ path: r.path, snippet: makeSnippet(r.path, expanded) })
       } catch {

@@ -22,6 +22,8 @@ import {
 } from '../services/session-manager.js'
 import { releaseBranchLeasesForObjective } from '../services/branch-lease.js'
 import { releaseSessionLeasesForObjective } from '../services/session-lease.js'
+import { teardownObjectiveJob } from '../services/job-teardown.js'
+import { killTmuxByName } from '../services/session-control.js'
 import { recordReopenFalsePass } from '../services/false-pass.js'
 import { logObjectiveAudit } from '../services/objective-audit.js'
 import {
@@ -375,6 +377,34 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
       // scheduled after the audit row below so it fires for done AND cancelled.
       // It replaces an unconditional `rm -rf /tmp/cc-worktree-<id>` with gated
       // `git worktree remove` (keeps dirty/unpushed/in-use worktrees).
+    } else if (status === 'cancelled') {
+      // ── Cancel actually cancels (obj 900322, C4) ──────────────────────────
+      // This used to fall into the bare `else` below: status was written and
+      // NOTHING else happened — no stopSession, no session_id clear, no lease
+      // release — so the worker kept running (and kept billing) until the 8h
+      // watchdog, and the card's `obj:<id>` lease stayed held so a Reopen
+      // inside the TTL reattached to a corpse.
+      //
+      // Teardown is OWNED and restart-safe: `teardownObjectiveJob` resolves the
+      // card's tmux names from durable state (its own session_id + its own
+      // un-released lease rows), kills those by exact name, and touches nothing
+      // else — so a cancel cannot stop an unrelated session, and it works the
+      // same whether or not this process is the one that spawned the worker.
+      // It is idempotent through a UNIQUE ledger row, so a double-cancel (or a
+      // retry after a crash mid-teardown) releases exactly once.
+      const teardown = teardownObjectiveJob(db, Number(req.params.id), 'status:cancelled', {
+        killTmux: killTmuxByName,
+        stopSession: (sid: string) => { void stopSession(sid) },
+        releaseBranchLeases: releaseBranchLeasesForObjective,
+        releaseSessionLeases: releaseSessionLeasesForObjective,
+      })
+      db.prepare(
+        "UPDATE objectives SET status = ?, session_id = NULL, updated_at = datetime('now') WHERE id = ?"
+      ).run(status, req.params.id)
+      console.log(
+        `[objectives-status] obj ${req.params.id} cancelled — teardown ${teardown.performed ? 'performed' : 'already done'}` +
+          ` (killed ${teardown.killedTmux.length} owned tmux, leases ${teardown.leasesReleased ? 'released' : 'untouched'})`,
+      )
     } else {
       db.prepare(
         "UPDATE objectives SET status = ?, updated_at = datetime('now') WHERE id = ?"

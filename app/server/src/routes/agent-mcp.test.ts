@@ -589,3 +589,80 @@ describe('tool table', () => {
     for (const t of MCP_TOOLS.filter(x => x.aliasOf)) expect(MCP_TOOLS.some(x => x.name === t.aliasOf), t.name).toBe(true)
   })
 })
+
+/**
+ * obj 900309 — the owner must survive a round trip through the REAL exposed tools.
+ *
+ * tools/list already proved the ARGUMENT exists (obj 900293). What it could not
+ * prove is that a bot can SEE what the server stored: compact() dropped null and
+ * empty values, so "I set owner_bot and the server accepted it" and "this build has
+ * no owner_bot at all" produced byte-identical results, and an unowned card looked
+ * exactly like an old server. The owner is a routing decision — it is echoed on
+ * every create, update and read, with an explicit null meaning unowned.
+ */
+describe('owner_bot round trip through the exposed MCP tools (obj 900309)', () => {
+  const bot = () => mint('grok-owner-roundtrip', ['board:read', 'board:write'])
+
+  it('create_objective stores and ECHOES the exact owner it was given', async () => {
+    const token = bot().token
+    const { data } = await callTool(
+      'create_objective',
+      { title: 'owned on create', workspace: WS, type: 'task', owner_bot: 'Operation Kit' },
+      token,
+    )
+    expect(data.owner_bot).toBe('Operation Kit')
+    const row = getDb().prepare('SELECT owner_bot FROM objectives WHERE id = ?').get(data.id) as { owner_bot: string }
+    expect(row.owner_bot).toBe('Operation Kit')
+
+    const read = await callTool('get_objective', { id: data.id }, token)
+    expect(read.data.owner_bot).toBe('Operation Kit')
+  })
+
+  it('an unowned card answers with an explicit null, not a missing field', async () => {
+    const token = bot().token
+    const { data } = await callTool('create_objective', { title: 'unowned on create', workspace: WS, type: 'task' }, token)
+    expect(data).toHaveProperty('owner_bot')
+    expect(data.owner_bot).toBeNull()
+
+    const read = await callTool('get_objective', { id: data.id }, token)
+    expect(read.data).toHaveProperty('owner_bot')
+    expect(read.data.owner_bot).toBeNull()
+  })
+
+  it('update_objective claims a card, and echoes the owner on every later edit', async () => {
+    const token = bot().token
+    const created = await callTool('create_objective', { title: 'claim me', workspace: WS, type: 'task' }, token)
+
+    const claimed = await callTool('update_objective', { id: created.data.id, owner_bot: 'Operation Kit' }, token)
+    expect(claimed.data.owner_bot).toBe('Operation Kit')
+
+    // An edit that does not mention the owner still reports who owns it now.
+    const edited = await callTool('update_objective', { id: created.data.id, title: 'claim me (edited)' }, token)
+    expect(edited.data.owner_bot).toBe('Operation Kit')
+
+    const cleared = await callTool('update_objective', { id: created.data.id, owner_bot: null }, token)
+    expect(cleared.data).toHaveProperty('owner_bot')
+    expect(cleared.data.owner_bot).toBeNull()
+  })
+
+  it('rejects an owner the schema does not allow, and stores nothing', async () => {
+    const token = bot().token
+    const before = (getDb().prepare('SELECT COUNT(*) AS n FROM objectives').get() as { n: number }).n
+    const { result } = await callTool(
+      'create_objective',
+      { title: 'bad owner', workspace: WS, type: 'task', owner_bot: '<script>alert(1)</script>' },
+      token,
+    )
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toMatch(/owner_bot/)
+    expect((getDb().prepare('SELECT COUNT(*) AS n FROM objectives').get() as { n: number }).n).toBe(before)
+  })
+
+  it('the owner is never taken from the calling key — two bots on one connection', async () => {
+    const a = mint('grok-bot-a', ['board:read', 'board:write']).token
+    const created = await callTool('create_objective', { title: 'filed by A for B', workspace: WS, type: 'task', owner_bot: 'Operation Kit' }, a)
+    expect(created.data.owner_bot).toBe('Operation Kit')
+    const unowned = await callTool('create_objective', { title: 'filed by A for nobody', workspace: WS, type: 'task' }, a)
+    expect(unowned.data.owner_bot).toBeNull()
+  })
+})

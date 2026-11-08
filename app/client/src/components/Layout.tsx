@@ -23,7 +23,7 @@ interface LayoutProps {
    ONE source of truth: NAV_GROUPS. Sections are grouped by *kind* so the
    structure stays coherent as sections are added:
 
-     • primary — Chat (when the agent chat page is in the build), Board,
+     • primary — Bots (when the bot chat page is in the build), Board,
                  Knowledge base, Jobs
      • more    — Archive, Agents, Dashboard. Settings lives in the user menu.
        Unfinished surfaces (Contacts, Strategies, Development, Notes, Status,
@@ -33,7 +33,7 @@ interface LayoutProps {
    nav) and a `mobile` placement. Both viewports render from this same model:
 
      • Mobile bottom bar — at most 5 hits: the four `mobile:'tab'` items
-       (Chat, Board, Knowledge base, Jobs) + a grouped "More" overflow holding
+       (Bots, Board, Knowledge base, Jobs) + a grouped "More" overflow holding
        every `mobile:'more'` item. ≤5 tabs is a hard constraint (390px).
      • Desktop top bar — has more room, so the Work / Automation / Directory
        groups render inline (hairline-separated) and the System group collapses
@@ -66,11 +66,12 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'primary',
     label: 'Work',
     items: [
-      // Chat is how most people use the product, so it leads. Gated on the page being in the build.
-      { href: '/chat',      label: 'Chat',           icon: 'chat',  aliases: [],        gate: 'chat',  mobile: 'tab' },
+      // Talking to a bot is how most people use the product, so it leads. Gated on the page being in
+      // the build. The href stays /chat (obj 900327): the label was renamed, the URL is a bookmark.
+      { href: '/chat',      label: 'Bots',           icon: 'chat',  aliases: [],        gate: 'chat',  mobile: 'tab' },
       { href: '/',          label: 'Board',          icon: 'board', aliases: [],                       mobile: 'tab' },
       { href: '/knowledge', label: 'Knowledge base', shortLabel: 'Knowledge', icon: 'docs', aliases: ['/docs'], mobile: 'tab' },
-      // Worst case (admin) is Chat, Board, Knowledge base, Jobs + More = 5 — fits the ≤5 cap.
+      // Worst case (admin) is Bots, Board, Knowledge base, Jobs + More = 5 — fits the ≤5 cap.
       { href: '/jobs',      label: 'Jobs',           icon: 'jobs',  aliases: [],        gate: 'admin', mobile: 'tab' },
     ],
   },

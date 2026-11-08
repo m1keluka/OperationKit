@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { isInWorkspaceScope } from './kb-workspace-scope.js'
 
 /** Fallback KB home on installs with no vault: /app/data is persisted on every install. */
 export const DATA_KB_DIR = '/app/data/knowledge-base'
@@ -37,8 +38,16 @@ export function defaultWorkspaceKbDir(workspace: string, env: NodeJS.ProcessEnv 
   return isVaultLayout(env, vaultOnHost) ? path.join(root, 'workspaces', workspace) : path.join(root, workspace)
 }
 
-/** Is `file` inside `workspace`'s folder of the knowledge base (either layout)? */
+/**
+ * Is `file` inside `workspace`'s folder of the knowledge base (either layout)?
+ *
+ * obj 900321 (C13): this used to be a bare substring test
+ * (`file.includes('/workspaces/<ws>/')`) plus a lexical `startsWith`. Both were
+ * bypassable — a nested `…/workspaces/example/x/workspaces/operationkit/n.md` read
+ * as `operationkit`, and a symlink out of the folder was never resolved. The
+ * authoritative, realpath-based, segment-boundary check now lives in
+ * `lib/kb-workspace-scope.ts`; this stays as the historical name and delegates.
+ */
 export function inWorkspaceFolder(file: string, workspace: string, root: string = knowledgeBaseRoot()): boolean {
-  if (file.includes(`/workspaces/${workspace}/`)) return true
-  return file.startsWith(path.join(root, workspace) + path.sep)
+  return isInWorkspaceScope(file, workspace, root)
 }

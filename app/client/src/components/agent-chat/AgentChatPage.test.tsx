@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
-/* Built-in agent chat page (obj 719987). createRoot idiom (no
-   @testing-library in this client), fetch stubbed per URL. */
+/* Built-in bot chat page (obj 719987; user-facing wording renamed to "bot"
+   in obj 900327). createRoot idiom (no @testing-library in this client),
+   fetch stubbed per URL. */
 
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user: { id: 2, username: 'jordan', role: 'member' }, loading: false }),
@@ -73,7 +74,7 @@ afterEach(() => {
 })
 
 describe('AgentChatPage', () => {
-  it('lists agents and shows which AI answered each reply', async () => {
+  it('lists bots and shows which AI answered each reply', async () => {
     await mount('/chat/demo-assistant')
     await settle()
     expect(host.textContent).toContain('Personal assistant (demo)')
@@ -95,7 +96,7 @@ describe('AgentChatPage', () => {
     expect(host.querySelector('section[aria-label="Email draft"]')!.textContent).toContain('Sent by you')
   })
 
-  it('shows the board card the agent created, with its live status and a link', async () => {
+  it('shows the board card the bot created, with its live status and a link', async () => {
     await mount('/chat/demo-assistant')
     await settle()
     const link = host.querySelector('a[href="/o/41"]')!
@@ -103,10 +104,10 @@ describe('AgentChatPage', () => {
     expect(link.textContent).toContain('In progress')
   })
 
-  it('on the agent list alone (mobile entry) the conversation pane waits for a pick', async () => {
+  it('on the bot list alone (mobile entry) the conversation pane waits for a pick', async () => {
     await mount('/chat')
     await settle()
-    expect(host.textContent).toContain('Pick an agent')
-    expect(host.querySelector('nav[aria-label="Agents"] button')?.textContent).toContain('Personal assistant (demo)')
+    expect(host.textContent).toContain('Pick a bot')
+    expect(host.querySelector('nav[aria-label="Bots"] button')?.textContent).toContain('Personal assistant (demo)')
   })
 })

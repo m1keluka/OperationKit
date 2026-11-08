@@ -41,6 +41,7 @@ import {
 import { heartbeatBranchLease, releaseBranchLease } from './branch-lease.js'
 import { heartbeatSessionLeasesForObjective, releaseSessionLeasesForObjective } from './session-lease.js'
 import { runFanoutTick } from './fanout-runtime.js'
+import { runBotThreadDeliveryTick } from './bots/bot-thread-delivery.js'
 import { logObjectiveAudit, isClearDeadSessionEnabled } from './objective-audit.js'
 import { deriveBranchName } from './branch-scope.js'
 import {
@@ -115,6 +116,18 @@ import {
   promoteArenaCohortIfReady,
 } from './poller-worker.js'
 import { noteStartReason } from './session-start-reasons.js'
+import { classifyTerminalOutcome, applyTruthfulOutcome, detectRefusal } from './session-outcome.js'
+import {
+  bumpAttempt,
+  getAttempts,
+  resetAttempts,
+  observeSessionElapsed,
+  evaluateCeiling,
+  markCeilingHit,
+  describeCeilingSupport,
+} from './job-accounting.js'
+import { teardownObjectiveJob } from './job-teardown.js'
+import { releaseBranchLeasesForObjective } from './branch-lease.js'
 
 const MAX_AI_REVIEW_ITERATIONS = 5
 // No-op-spawn guard (objective 840). A worker `claude` process can exit near-
@@ -235,6 +248,17 @@ export async function pollActiveSessions(): Promise<void> {
   // earlier siblings finish. Fire-and-forget: starts go through the HTTP status
   // route, and the tick is non-reentrant.
   void runFanoutTick().catch(err => console.error('[state-poller] runFanoutTick failed:', err))
+
+  // obj 900323 — a chat-filed bot job answers in the conversation that asked.
+  // Disjoint from the agent-webhook outbox by construction: that one joins
+  // objectives.agent_key_id (always NULL for a chat-created card), this one
+  // joins bot_job_origins. Deduped on a deterministic delivery_id, so a replayed
+  // event or an overlapping tick cannot post the same message twice.
+  try {
+    runBotThreadDeliveryTick(getDb())
+  } catch (err) {
+    console.error('[state-poller] runBotThreadDeliveryTick failed:', err)
+  }
 
   // Safety net: revive dormant delegators with workers awaiting processing.
   try {
@@ -460,6 +484,18 @@ export async function pollActiveSessions(): Promise<void> {
       } catch {}
     }
 
+    // ── Configured job ceiling on the LIVE session (obj 900322, C9) ─────────
+    // Ahead of the watchdog on purpose. The watchdog is a fixed per-spawn
+    // backstop read from the process env (WATCHDOG_WALLCLOCK_MS, 8h) and it
+    // force-routes to review as "stuck". The job ceiling is a per-card,
+    // CUMULATIVE budget somebody deliberately configured, and a card that
+    // spends it is blocked with the measured numbers rather than described as
+    // stuck. A card with no configured ceiling falls straight through to the
+    // watchdog, unchanged.
+    if (detectedState === 'working' && objective.session_id) {
+      if (await enforceRunningCeiling(objective)) continue
+    }
+
     // ── Watchdog force-route (ST3) ──────────────────────────────────────────
     // Runs independently of the soft `stuckAlerted` gate above (which fires at
     // 30 min and then suppresses itself) so a session that already alerted is
@@ -538,6 +574,18 @@ export async function pollActiveSessions(): Promise<void> {
       // continue budget is exhausted/disabled it returns false and we fall
       // through to review, so a genuine runaway is still stopped. (obj 1487)
       if (death.turnsExhausted && handleTurnsDeath(objective)) continue
+
+      // ── Truthful no-output on the DEAD path (obj 900322, C3 / G11) ───────
+      // Everything below this point used to route a dead session to `review`
+      // with no verdict, no reason and no activity row. The classifier that
+      // knows better (`classifyNoOpSpawn` / `readStartupFailure`) is wired ONLY
+      // under the `working → review` TRANSITION branch further down, and a
+      // transcript with no `type:"result"` never reaches it: `jsonlHasResult`
+      // does not match the wrapper's `type:"error"` startup event, so
+      // `getSessionState` resolves to 'dead' and lands here instead. That is
+      // exactly the case the obj-900038 startup-failure work was built for, and
+      // it has been unreachable from its own call site ever since.
+      if (await handleDeadSessionOutcome(objective)) continue
 
       // Session died unexpectedly -- mark as review so user can investigate.
       // Release the branch lease (obj 994) so a re-open does a fresh acquire+spawn
@@ -723,6 +771,10 @@ export async function pollActiveSessions(): Promise<void> {
       // "deliverable" is orchestration and they have a separate parked lifecycle
       // (parkDelegatorIfWaiting / wakeDelegator).
       let skipAiReviewForShortSession = false
+      // obj 900322 — set when THIS session delivered nothing (silence or a bare
+      // refusal with zero tools and zero file changes). Read by
+      // resolveWorkerEndStatus below to keep a routine card off `done`.
+      let decisionProducedNothing = false
       if (
         newStatus === 'review' &&
         objective.status === 'working' &&
@@ -749,9 +801,21 @@ export async function pollActiveSessions(): Promise<void> {
                 ? readStartupFailure(objective.session_id!)
                 : null,
             },
-            noopRespawnCounts.get(objective.id) || 0
+            // obj 900322 (C4) — the budget is the MAX of the in-memory map and the
+            // durable counter. The map alone was reset by every deploy (and
+            // self-deploy is an in-session action), silently re-arming the
+            // respawn budget of a card that had already burned it.
+            Math.max(noopRespawnCounts.get(objective.id) || 0, getAttempts(db, objective.id, 'noop_respawn'))
           )
           authFailureText = intel.errors.find(e => isAuthFailureMessage(e)) ?? null
+          decisionProducedNothing = classifyTerminalOutcome({
+            hasResult: true,
+            toolCalls: intel.toolCalls,
+            filesCreated: intel.filesCreated.length,
+            filesModified: intel.filesModified.length,
+            completedWithAnswer: intel.completedWithAnswer,
+            refusalText: detectRefusal(intel.finalResultText ?? ''),
+          }).kind === 'refused'
         } catch (err) {
           // Can't parse the transcript → don't risk a false positive; fall
           // through to normal routing (the genuine-empty-deliverable path).
@@ -793,6 +857,7 @@ export async function pollActiveSessions(): Promise<void> {
           // with the exit code and the stderr tail on the card, and do not
           // consume any of the no-op respawn budget.
           noopRespawnCounts.delete(objective.id)
+          resetAttempts(db, objective.id, 'noop_respawn')
           const reason = describeStartupFailure(decision.startupFailure!)
           console.error(
             `[state-poller] Objective ${objective.id} (${objective.session_id}): ${reason.split('\n')[0]} — blocking, no respawn.`,
@@ -823,6 +888,7 @@ export async function pollActiveSessions(): Promise<void> {
         } else if (decision.action === 'respawn') {
           // No-op spawn re-queued — NOT a deliverable, do NOT spawn a reviewer.
           noopRespawnCounts.set(objective.id, decision.attempt!)
+          bumpAttempt(db, objective.id, 'noop_respawn') // durable twin of the line above (obj 900322)
           console.warn(
             `[state-poller] No-op spawn detected for objective ${objective.id} (0 tool calls / 0 file changes, attempt ${decision.attempt}/${MAX_NOOP_RESPAWNS}) — re-spawning worker, no reviewer.`
           )
@@ -868,6 +934,7 @@ export async function pollActiveSessions(): Promise<void> {
           // Bounded re-spawns exhausted → block (never a false-FAIL review,
           // never silently done). Mirrors the reviewer-no-verdict blocked path.
           noopRespawnCounts.delete(objective.id)
+          resetAttempts(db, objective.id, 'noop_respawn')
           const reason = `Worker spawn produced 0 tool calls / 0 file changes across ${MAX_NOOP_RESPAWNS} re-spawn attempts — the claude process exited before executing any work (no-op spawn). Not a deliverable; never reviewed. Needs manual investigation (process-level startup/auth/rate-limit exit).`
           console.warn(
             `[state-poller] No-op spawn for objective ${objective.id} exhausted ${MAX_NOOP_RESPAWNS} re-spawns — marking blocked.`
@@ -897,6 +964,7 @@ export async function pollActiveSessions(): Promise<void> {
         } else if (decision.action === 'skip-reviewer') {
           skipAiReviewForShortSession = true
           noopRespawnCounts.delete(objective.id)
+          resetAttempts(db, objective.id, 'noop_respawn')
           console.warn(
             `[state-poller] Short empty-tree session for objective ${objective.id} — skipping AI reviewer (human review only).`,
           )
@@ -904,6 +972,7 @@ export async function pollActiveSessions(): Promise<void> {
           // Genuine non-empty session (or unparseable) — reset the re-spawn
           // budget so a future unrelated run starts fresh, then route normally.
           noopRespawnCounts.delete(objective.id)
+          resetAttempts(db, objective.id, 'noop_respawn')
         }
       }
 
@@ -941,6 +1010,10 @@ export async function pollActiveSessions(): Promise<void> {
           hasDelegatorParent: delegatorParentOf(objective) != null,
           isRoutine: objective.routine_id != null,
           lane: mergeLane,
+          // obj 900322 — a routine card whose session refused (or produced
+          // nothing) must not auto-complete to `done`. `decision` is the
+          // no-op classifier already computed above for this same session.
+          producedNothing: decisionProducedNothing,
         })
         if (mergeLane === 'green') {
           console.log(`[state-poller] Green lane obj ${objective.id} (${objective.type}) — skip LLM reviewer → ${resolvedStatus}`)
@@ -1409,5 +1482,239 @@ export async function pollActiveSessions(): Promise<void> {
       // parent wake per finishing child. See continueDelegationOnCommit.
       continueDelegationOnCommit(objective, updated, resolvedStatus)
     }
+  }
+}
+
+
+/**
+ * Teardown dependencies for the poller's own recovery paths.
+ *
+ * Imported lazily (inside the call) rather than at module scope because
+ * `session-control` / `session-manager` pull in node-pty and the whole spawn
+ * stack; a top-level import here would make every poller test load the native
+ * runner. The teardown itself resolves ownership from DURABLE state only, so a
+ * missing dep degrades to "released the leases, killed nothing" rather than to
+ * "killed something else".
+ */
+async function pollerTeardownDeps() {
+  // Each dep is resolved independently and degrades to a no-op rather than
+  // throwing. A teardown that cannot reach the tmux killer must still release
+  // the card's leases — the alternative (an exception) strands them, which is
+  // the failure this whole module exists to remove. And a no-op killTmux can
+  // only under-kill; it can never kill a neighbour.
+  let killTmux: (name: string) => boolean = () => false
+  let stopSession: (sid: string) => void = () => {}
+  try {
+    const m = await import('./session-control.js')
+    killTmux = m.killTmuxByName
+  } catch (err) {
+    console.warn('[state-poller] teardown: tmux killer unavailable —', (err as Error).message)
+  }
+  try {
+    const m = await import('./session-manager.js')
+    stopSession = (sid: string) => { void m.stopSession(sid) }
+  } catch { /* in-process bookkeeping only; teardown proceeds without it */ }
+  return {
+    killTmux,
+    stopSession,
+    releaseBranchLeases: releaseBranchLeasesForObjective,
+    releaseSessionLeases: releaseSessionLeasesForObjective,
+  }
+}
+
+/**
+ * Observe this spawn's wall-clock and stop the job if the card's CONFIGURED
+ * cumulative ceiling is spent (obj 900322 corrections round, C9 / G12).
+ *
+ * This is the piece the first round did not have. `evaluateCeiling` existed and
+ * `objective_job_accounting.elapsed_ms` existed, but nothing in the runner ever
+ * fed either one, so "a running job is stopped at its time ceiling" was a claim
+ * about a helper rather than about the runner. This function runs on the live
+ * `working` branch of the poll loop, on every tick:
+ *
+ *  1. it measures the CURRENT spawn from the restart-durable spawn clock
+ *     (`getSessionStartedAt`, which rehydrates from `session_spawns`), falling
+ *     back to the transcript's birthtime only for a session this process never
+ *     spawned;
+ *  2. it writes that reading into the per-session ledger, which is idempotent on
+ *     (objective, session) — so ticking 1,200 times does not add 1,200×, and a
+ *     restart mid-run re-observes the same session instead of starting a second
+ *     tally;
+ *  3. cumulative elapsed is then the SUM over every session the card has had, so
+ *     a resume, a respawn or a post-restart continuation ADDS to the same total.
+ *     A retry cannot reset the budget, because the retried session is a new row
+ *     beside the old ones rather than a replacement for them.
+ *
+ * On breach it blocks the card truthfully (`ceiling-stopped`, with the measured
+ * numbers in the reason) and tears down ONLY what the card owns. Human review
+ * semantics are preserved: the card lands in `review` with a blocked verdict for
+ * a person, exactly like every other blocked outcome — it is not auto-done and
+ * not auto-cancelled.
+ *
+ * Cards with NO configured ceiling are untouched: `absent` is not `exceeded`,
+ * and this function invents no number.
+ *
+ * Returns true when it stopped the job (caller must `continue`).
+ */
+export async function enforceRunningCeiling(objective: Objective, nowMs = Date.now()): Promise<boolean> {
+  if (!objective.session_id || objective.status !== 'working') return false
+  const db = getDb()
+  try {
+    // Measure this spawn.
+    let startMs = getSessionStartedAt(objective.session_id) ?? null
+    if (startMs == null) {
+      try {
+        const st = fs.statSync(workerTranscriptPath(objective.session_id))
+        startMs = st.birthtimeMs || st.ctimeMs
+      } catch { startMs = null }
+    }
+    if (startMs != null && startMs > 0) {
+      observeSessionElapsed(db, objective.id, objective.session_id, Math.max(0, nowMs - startMs))
+    }
+
+    const verdict = evaluateCeiling(db, objective.id, objective.workspace)
+    if (verdict.state !== 'exceeded') return false
+
+    const reason =
+      `${verdict.reason} ` +
+      `Measured cumulatively across every session this card has had (${Math.round(verdict.elapsedMs / 1000)}s total), ` +
+      'so a resume, a respawn or a server restart does not reset it. ' +
+      `${describeCeilingSupport(verdict.ceiling)} ` +
+      'The job was stopped and the card is blocked for a human — it is not marked done.'
+
+    markCeilingHit(db, objective.id, reason)
+    const wrote = applyTruthfulOutcome(db, objective, {
+      kind: 'ceiling-stopped',
+      blocked: true,
+      code: 'job_ceiling_stopped',
+      reason,
+    })
+
+    // Teardown AFTER the outcome write: teardown nulls session_id, and the
+    // outcome row is keyed on it.
+    try {
+      const sid = objective.session_id
+      teardownObjectiveJob(db, objective.id, `ceiling:${sid}`, await pollerTeardownDeps())
+    } catch (err) {
+      console.error(`[state-poller] ceiling teardown failed for obj ${objective.id}:`, err)
+    }
+
+    console.warn(`[state-poller] obj ${objective.id} STOPPED at its configured job ceiling — ${verdict.reason}`)
+    if (wrote) {
+      const row = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+      if (row) broadcast({ type: 'objective_updated', payload: row })
+    }
+    return true
+  } catch (err) {
+    // A ceiling check must never wedge the tick, and must never invent a stop.
+    console.error(`[state-poller] running-ceiling check failed for obj ${objective.id}:`, err)
+    return false
+  }
+}
+
+/**
+ * Truthful terminal outcome for a worker whose session is DEAD (obj 900322, C3).
+ *
+ * Exported and called from the poller's `dead` branch — this IS the runner's
+ * code path, not a helper beside it, so a test that drives this drives the
+ * wiring.
+ *
+ * Returns true when it blocked the card (the caller must `continue`), false
+ * when the session produced real work and the pre-existing routing should run.
+ *
+ * Fail-safe by construction: an unreadable transcript yields `intel = null`,
+ * and without a conclusive startup-failure event we refuse to call that
+ * "produced nothing" — a read error must never manufacture a block.
+ */
+export async function handleDeadSessionOutcome(objective: Objective): Promise<boolean> {
+  if (objective.delegate_mode || !objective.session_id || objective.status !== 'working') return false
+  const db = getDb()
+  try {
+    // Final wall-clock reading for the session that just died, BEFORE any
+    // routing decision. Without this the time a failed attempt spent would
+    // vanish when the card retried under a new session id, and the cumulative
+    // budget would quietly refill one death at a time. Idempotent per session.
+    try {
+      const startedAt = getSessionStartedAt(objective.session_id)
+      if (startedAt) observeSessionElapsed(db, objective.id, objective.session_id, Date.now() - startedAt)
+    } catch { /* an unreadable clock must not block the outcome */ }
+    const startupFailure = readStartupFailure(objective.session_id)
+    let intel: { toolCalls: number; filesCreated: string[]; filesModified: string[]; completedWithAnswer?: boolean } | null = null
+    try {
+      intel = await extractDeterministic(workerTranscriptPath(objective.session_id))
+    } catch {
+      intel = null
+    }
+    const outcome = classifyTerminalOutcome({
+      hasResult: false, // the dead branch, by construction
+      toolCalls: intel?.toolCalls ?? 0,
+      filesCreated: intel?.filesCreated.length ?? 0,
+      filesModified: intel?.filesModified.length ?? 0,
+      completedWithAnswer: intel?.completedWithAnswer,
+      startupFailure,
+    })
+
+    if (!outcome.blocked) {
+      // Real work landed → the card is progressing, so the durable no-output
+      // budget starts fresh (the in-memory map's semantics, minus the
+      // accidental reset-on-deploy).
+      if (intel) resetAttempts(db, objective.id, 'noop_respawn')
+      return false
+    }
+    if (!startupFailure && !intel) return false // read error, not evidence of silence
+
+    // A startup failure is an ENVIRONMENT fault — re-spawning reproduces it byte
+    // for byte — so it never consumes the respawn budget and blocks immediately.
+    // A genuine no-output death does consume it, and that budget is now DURABLE
+    // (`objective_job_attempts`), so a server restart no longer hands a looping
+    // card a fresh one. Below the bound we leave the existing respawn machinery
+    // on the transition path to run; at or above it we block truthfully here.
+    const attempts = startupFailure
+      ? MAX_NOOP_RESPAWNS
+      : bumpAttempt(db, objective.id, 'noop_respawn')
+    if (!startupFailure && attempts < MAX_NOOP_RESPAWNS) return false
+
+    const reason = startupFailure
+      ? outcome.reason!
+      : `${outcome.reason} Durable attempt budget exhausted: ${attempts}/${MAX_NOOP_RESPAWNS} no-output deaths recorded for this card (the counter lives in SQLite, so a restart does not reset it).`
+    const wrote = applyTruthfulOutcome(db, objective, { ...outcome, reason })
+
+    // ── Owned, ledgered recovery teardown (obj 900322 corrections round) ──
+    // This path used to hand-roll two lease releases. It now goes through the
+    // SAME `teardownObjectiveJob` the cancel path uses, so "released exactly
+    // once" is one implementation with one ledger rather than two code paths
+    // that happen to agree today. The reason embeds the session id, so each
+    // death gets its own ledger row (the UNIQUE key is (objective, reason))
+    // while a re-tick of the same death is a no-op — the poller re-selects a
+    // card every 3s and must not re-release.
+    //
+    // Scope is unchanged and card-owned: teardown resolves tmux names from this
+    // card's own session_id and its own un-released lease rows, never a prefix
+    // scan, so a neighbouring session cannot be caught by it. Human review
+    // semantics are preserved — the card has already been written to `review`
+    // with a blocked verdict above; teardown releases resources, it does not
+    // route.
+    try {
+      teardownObjectiveJob(db, objective.id, `dead-no-output:${objective.session_id}`, await pollerTeardownDeps())
+    } catch (err) {
+      console.warn(`[state-poller] recovery teardown failed for obj ${objective.id}:`, (err as Error).message)
+      // Fall back to the direct releases so a teardown failure cannot strand leases.
+      try { releaseSessionLeasesForObjective(db, objective.id) } catch { /* non-fatal */ }
+      const deadB = deriveBranchName(objective)
+      if (deadB) { try { releaseBranchLease(db, deadB) } catch { /* non-fatal */ } }
+    }
+
+    console.warn(
+      `[state-poller] obj ${objective.id} (${objective.session_id}) died with no output — blocked with reason [${outcome.code}] instead of a silent review.`,
+    )
+    if (wrote) {
+      const blockedRow = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+      if (blockedRow) broadcast({ type: 'objective_updated', payload: blockedRow })
+    }
+    return true
+  } catch (err) {
+    // A classification error must never wedge the tick or invent a block.
+    console.error(`[state-poller] truthful-outcome check failed for obj ${objective.id}:`, err)
+    return false
   }
 }

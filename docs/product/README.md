@@ -1,6 +1,6 @@
 # OperationKit
 
-**In a sentence:** OperationKit is the infrastructure layer an AI implementation consultant installs for each client, on the client's own server: a knowledge base, AI workers that run jobs as cards, optional agent chat, and an MCP connection for the AI apps people already use.
+**In a sentence:** OperationKit is the infrastructure layer an AI implementation consultant installs for each client, on the client's own server: a knowledge base, AI workers that run jobs as cards, optional bots to talk to, and an MCP connection for the AI apps people already use.
 
 **In a paragraph:** You open a card, pick an agent, and a sandboxed worker session starts on the server. The card is the source of truth: queue → working → review → done. The **Knowledge base** holds the client's files and notes; **Chat** is one ongoing conversation per agent; **Agents → Templates** adds ready-made agents from one-file templates; **Settings → Connectors** links GitHub and Google Workspace. Claude, ChatGPT and Grok reach the same notes, agents and board through one MCP address. Each client's AI work runs on that client's own AI account.
 
@@ -18,8 +18,8 @@ Read [what it is](./01-what-it-is.md) (one page), then the rest as needed.
 | [Operating](./06-operating.md) | Running a client install (update, back up, reset), and deploying this repo |
 | [Data](./07-data.md) | Tables, SQLite, files — **ER chart + inventory** |
 | [Model portability](./08-model-portability.md) | Configuring engines and LiteLLM model groups: Claude, Codex, Grok, Gemini, local models |
-| [Agent chat](./09-agent-chat.md) | Talking to an agent in one ongoing chat; drafts-only email/calendar; the demo assistant |
-| [Agents from Claude, ChatGPT or Grok](./10-agents-from-other-ai.md) | Reaching the same agents and knowledge through the MCP connection |
+| [Bots](./09-agent-chat.md) | Talking to a bot in one ongoing conversation; bot vs conversation; drafts-only email/calendar; the demo bot |
+| [Agents from Claude, ChatGPT or Grok](./10-agents-from-other-ai.md) | Reaching the same bots and knowledge through the MCP connection |
 | [Living docs](./LIVING.md) | How these files stay true, and how every linked repo does the same |
 | [Agent API](../api/README.md) | HTTP for people and third-party agents · [portable prompt](../api/AGENT-PROMPT.md) |
 

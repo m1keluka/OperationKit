@@ -823,13 +823,32 @@ export const AGENT_WEBHOOK_EVENT_DESCRIPTIONS: Record<AgentWebhookEvent, string>
   merged: 'Its PR merged',
   pr_closed: 'Its PR closed without merging',
   status_changed: 'Any other status move (queue, planning, ai_review)',
-  needs_agent: 'The card needs its agent — blocked, failed review, waiting on a Mike decision. Once per card need, not per status move. Payload carries owner_bot',
+  needs_agent: 'The card needs its agent — blocked, failed review, waiting on a Mike decision, or (obj 900309) it COMPLETED: a card that went straight to done without passing through review, or its PR merged. Once per card need and at most once per completion, never per status move. Payload carries owner_bot',
 }
 
 /** Why a card needs its agent (most urgent first). Mirrors get_attention's kinds, minus the time-based `stuck`. */
-export type AgentNeedKind = 'needs_secret' | 'failed_review' | 'blocked' | 'review'
+/**
+ * Why a card needs its agent.
+ *
+ * The first four are OPEN-card needs (most urgent first), mirroring get_attention's
+ * kinds minus the time-based `stuck`. They drive the escalation ladder recorded in
+ * agent_webhook_card_need_state.
+ *
+ * obj 900309 adds two TERMINAL, actionable completion kinds. They are deliberately NOT
+ * part of that ladder — a finished card has no more-urgent successor, and classifyNeed()
+ * returns null for a terminal card, which CLEARS the ladder. They are deduped instead by
+ * a stable per-card event_id, so a card wakes its owner at most once per completion for
+ * the card's whole life:
+ *   - `completed`  — the card reached `done` WITHOUT passing through `review`. That is the
+ *     reviewer-PASS auto-route a child card takes (mustRouteToHumanReview() is false when
+ *     parent_id is set), which is exactly the path that used to finish silently. A
+ *     top-level card Mike signs off in `review` already woke its owner with the `review`
+ *     need, so it never gets a second wake — Mike's human-done semantics are unchanged.
+ *   - `pr_merged`  — the card's PR merged, i.e. the deliverable actually shipped.
+ */
+export type AgentNeedKind = 'needs_secret' | 'failed_review' | 'blocked' | 'review' | 'completed' | 'pr_merged'
 /** The pilot's three buckets: blocked · waiting on the agent · a Grok-only action (a Mike decision). */
-export type AgentNeedCategory = 'blocked' | 'waiting_on_agent' | 'mike_decision'
+export type AgentNeedCategory = 'blocked' | 'waiting_on_agent' | 'mike_decision' | 'completed'
 
 export interface AgentNeed {
   kind: AgentNeedKind

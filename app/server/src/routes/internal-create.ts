@@ -28,6 +28,8 @@ import { startSession } from '../services/session-manager.js'
 import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
 import { childCapPerParent } from '../lib/hygiene-config.js'
 import { noteStartReason } from '../services/session-start-reasons.js'
+import { guardAutoStartCeiling } from '../services/job-accounting.js'
+import { applyTruthfulOutcome } from '../services/session-outcome.js'
 import { livingDocsName, findOpenLivingDocsCard, noteStillPending } from '../lib/living-docs-dedupe.js'
 import { findOpenDuplicate, recordDedupe, isDuplicateGuardEnabled, duplicateGuardWindowHours } from '../lib/objective-dedupe.js'
 
@@ -597,6 +599,61 @@ router.post('/objectives', async (req, res) => {
       db.prepare("SELECT COUNT(*) as n FROM objectives WHERE parent_id = ? AND status IN ('working', 'ai_review')").get(parent.id) as { n: number }
     ).n
     if (inFlight >= cap) continue
+    // ── Finite-ceiling policy on the EXISTING delegate-child auto-start ───
+    // This loop is pre-existing automation: a live delegate_mode parent posts
+    // children and they start here, with no human present. It is NOT the "new
+    // bounded chat MVP" the first version of this guard was written for, and
+    // that mismatch mattered — the guard defaults ON and nothing seeds a ceiling
+    // anywhere, so enforcing here would have turned every delegator's children
+    // into blocked cards the moment it deployed.
+    //
+    // So the path declares itself, and the policy for 'delegate_child' defaults
+    // to OBSERVE: the child starts, and the missing budget is recorded where an
+    // operator can count it (console + an activity_log diagnostic row). An
+    // operator opts into refusal with
+    // `settings.job_ceiling_policy:delegate_child[:<workspace>] = 'enforce'`
+    // once they have chosen numbers. A ceiling somebody DID set is still
+    // enforced on this path — observe covers "no budget yet", not "ignore the
+    // budget". New bounded entry points pass path:'bounded' and are refused
+    // outright, which is the behaviour the objective asked for.
+    const ceilingGuard = guardAutoStartCeiling(db, obj, { path: 'delegate_child' })
+    if (ceilingGuard.wouldRefuse || ceilingGuard.diagnostic) {
+      // Visible either way — "observe" must never mean "silent".
+      try {
+        db.prepare(
+          `INSERT INTO activity_log (project, workspace, objective_id, event_type, title, detail, metadata)
+           VALUES (?, ?, ?, 'progress', ?, ?, ?)`,
+        ).run(
+          obj.project || 'unknown',
+          obj.workspace,
+          obj.id,
+          ceilingGuard.allowed ? 'job_ceiling_unbudgeted_start' : 'job_ceiling_auto_start_refused',
+          ceilingGuard.diagnostic,
+          JSON.stringify({
+            kind: ceilingGuard.allowed ? 'job_ceiling_unbudgeted_start' : 'job_ceiling_auto_start_refused',
+            path: 'delegate_child',
+            policy: ceilingGuard.policy,
+            policy_source: ceilingGuard.policySource,
+            ceiling_source: ceilingGuard.ceiling.source,
+            code: ceilingGuard.code,
+          }),
+        )
+      } catch { /* diagnostics must never block a start */ }
+      console.warn(
+        `[internal] auto-start child ${obj.id}: ${ceilingGuard.allowed ? 'UNBUDGETED (observe)' : 'REFUSED'} — ${ceilingGuard.diagnostic}`,
+      )
+    }
+    if (!ceilingGuard.allowed) {
+      applyTruthfulOutcome(db, obj, {
+        kind: 'ceiling-stopped',
+        blocked: true,
+        code: ceilingGuard.code || 'auto_start_no_ceiling',
+        reason: ceilingGuard.reason!,
+      })
+      const refused = db.prepare('SELECT * FROM objectives WHERE id = ?').get(obj.id) as Objective
+      if (refused) broadcast({ type: 'objective_updated', payload: refused })
+      continue
+    }
     try {
       noteStartReason(obj.id, 'agent', 'internal-create')
       const sessionId = await startSession(obj)

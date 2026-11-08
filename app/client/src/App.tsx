@@ -212,7 +212,9 @@ function AppContent() {
           <Route path="/preview/*" element={<Navigate to="/" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/config" element={<Navigate to="/settings/org" replace />} />
-          {/* The built-in assistant was removed (obj 720115); its old URLs land on agent chat when present. */}
+          {/* The built-in assistant was removed (obj 720115); its old URLs land on the bots page when present.
+              /chat and /chat/:slug are deliberately UNCHANGED by the obj-900327 rename so existing
+              bookmarks and in-product deeplinks keep resolving. */}
           <Route path="/assistant" element={<Navigate to={HAS_CHAT_PAGE ? '/chat' : '/'} replace />} />
           <Route path="/mentor" element={<Navigate to={HAS_CHAT_PAGE ? '/chat' : '/'} replace />} />
           <Route path="/assistant" element={<Navigate to={HAS_CHAT_PAGE ? '/chat' : '/'} replace />} />

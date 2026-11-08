@@ -26,7 +26,18 @@ A later “PE diligence” pass is: dedicated tenant, MFA/SSO, socket-less membe
 - Login throttle: 10 failures / 15 min per IP+username, 30 / 15 min per IP
 - GitHub webhook HMAC (`GITHUB_WEBHOOK_SECRET`)
 - Optional UptimeRobot webhook token (`UPTIMEROBOT_WEBHOOK_TOKEN` as `?token=` on the webhook URL)
-- Localhost-only internal APIs also require `INTERNAL_API_SECRET`
+- Internal APIs (`/api/internal/*`): a request must be credentialled (`X-Internal-Secret` =
+  `INTERNAL_API_SECRET`, or the scoped `OBJECTIVES_API_TOKEN`) **or** a genuine on-box caller
+  (socket-based origin check; forwarding headers can only make a request less trusted). Set
+  `INTERNAL_API_REQUIRE_SECRET=1` to drop the on-box allowance everywhere.
+- Internal **board reads** (`GET /api/internal/objectives*`, `/strategies*`) additionally resolve an
+  authenticated PRINCIPAL and authorize the rows (obj 900321): a card session presents the
+  objective-scoped `X-CC-Session-Token` it is spawned with and is confined to its card's workspace,
+  re-checking workspace AND user membership on every request; a sandboxed session peer with no token
+  is refused even though it is network-local. `CC_INTERNAL_BOARD_REQUIRE_PRINCIPAL=1` (or settings
+  `internal_board_require_principal`) additionally withdraws the bare on-box allowance for those reads.
+- Automatic knowledge-base retrieval (the spawn-prompt path) is **filtered** to the card's workspace,
+  not merely boosted toward it, and the retrieved text is injected inside an untrusted-content frame.
 - SSH for session git: `StrictHostKeyChecking=accept-new` and `IdentitiesOnly=yes`
 - Workspace-scoped board APIs; WebSocket auth via the same cookie
 
@@ -37,7 +48,7 @@ Set these before exposing the app. Compose maps `CC_JWT_SECRET` → `JWT_SECRET`
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `CC_JWT_SECRET` / `JWT_SECRET` | yes | `openssl rand -base64 48` |
-| `INTERNAL_API_SECRET` | yes in production | Gates `/api/internal/*` even from localhost |
+| `INTERNAL_API_SECRET` | yes in production | Credential for `/api/internal/*`. On its own it does NOT displace the on-box allowance — set `INTERNAL_API_REQUIRE_SECRET=1` for that |
 | `GITHUB_WEBHOOK_SECRET` | if you use the GitHub webhook | HMAC-SHA256 |
 | `UPTIMEROBOT_WEBHOOK_TOKEN` | recommended | Put `?token=…` on the UptimeRobot webhook URL. Unset = route stays open and the server logs a warning |
 | `CORS_ORIGINS` | if your public origin is not the default | Comma-separated |

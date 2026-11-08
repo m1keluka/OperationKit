@@ -98,11 +98,27 @@ function pick<T extends Record<string, unknown>>(row: T, keys: readonly string[]
   return out
 }
 
-/** Drop null/empty fields and clip long prose — full card at a token budget. */
+/**
+ * Fields that survive `compact()` even when null (obj 900309).
+ *
+ * `compact` drops null/empty values to keep a tool result small, which is right for
+ * optional prose but WRONG for a field a bot must verify it set. With owner_bot
+ * dropped on null, "I set the owner and the server accepted it" and "this build has
+ * no owner_bot at all" produced byte-identical results — so a bot could neither
+ * confirm a successful claim nor detect an unowned card, and the only way to tell
+ * was to ask a human to read the board. The owner is a routing decision; it is
+ * echoed explicitly, always, including as an explicit `null` meaning "unowned".
+ */
+const ALWAYS_ECHO = new Set(['owner_bot'])
+
 function compact(row: Record<string, unknown>, max = 4000): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(row)) {
-    if (v === null || v === undefined || v === '') continue
+    if ((v === null || v === undefined || v === '') && !ALWAYS_ECHO.has(k)) continue
+    if (ALWAYS_ECHO.has(k) && (v === null || v === undefined || v === '')) {
+      out[k] = null
+      continue
+    }
     out[k] = typeof v === 'string' ? clip(v, max) : v
   }
   return out
@@ -781,7 +797,11 @@ export const MCP_TOOLS: McpTool[] = [
       const fields = pick(a, ['title', 'description', 'completion_goal', 'agent_context', 'project', 'model', 'effort', 'owner_bot'])
       if (Object.keys(fields).length === 0) throw new ToolError(400, 'pass at least one field to change')
       const row = await rest('PUT', `/api/objectives/${id}`, fields)
-      return receipt(`Updated #${id} (${Object.keys(fields).join(', ')}).`, row, 'owner_bot' in fields ? { owner_bot: row.owner_bot ?? null } : {})
+      // obj 900309: owner_bot is echoed on EVERY update, not only when it was the
+      // field being changed. A bot that just edited a card gets the authoritative
+      // current owner back in the same round trip — explicit null means unowned —
+      // so it never has to infer ownership from its own key or from card prose.
+      return receipt(`Updated #${id} (${Object.keys(fields).join(', ')}).`, row, { owner_bot: row.owner_bot ?? null })
     },
   },
   {

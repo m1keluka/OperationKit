@@ -31,7 +31,9 @@ const github = await import('./user-github-tokens.js')
 const google = await import('./user-google-connections.js')
 const { setAccess } = await import('../connectors/access.js')
 const { buildSpawnEnv } = await import('./session-spawn-env.js')
-const { createAgentKey, updateAgentKeyConnectors, resolveAgentKey, listAgentKeys } = await import('../lib/agent-keys.js')
+const { createAgentKey, updateAgentKeyConnectors, resolveAgentKey, listAgentKeys, revokeAgentKey } =
+  await import('../lib/agent-keys.js')
+const { initAgentKeysSchema } = await import('../db/schema/agent-keys.js')
 const { setSecret, resolveSecrets, resolveSecretNames, SERVICE_ONLY_BY_DEFAULT } =
   await import('./secrets-store.js')
 
@@ -503,5 +505,246 @@ describe('denial audit', () => {
     }
     // Not even a fragment long enough to be useful.
     expect(dump).not.toContain(B_PAT.slice(0, 16))
+  })
+})
+
+// ── 6. obj 900331: end-to-end verification of the obj 900303 inherit default ─
+//
+// Every "use" below goes through resolveAgentKey(token) — the same read the
+// request guard does — or through buildSpawnEnv, which re-reads the key row.
+// Nothing is built from the value createAgentKey returned, so a grant that
+// was cached anywhere between the write and the use would show up here.
+
+describe('obj 900331: inherit-owner keys, verified end to end', () => {
+  const A_REFRESH = '1//0gUSER_A_refresh_900331'
+  const ADMIN_PAT = 'github_pat_11ADMN_admin_token_value_0003'
+
+  beforeEach(() => {
+    linkGithub(USER_A, A_PAT, 'user-a')
+    linkGithub(USER_B, B_PAT, 'user-b')
+    linkGithub(ADMIN, ADMIN_PAT, 'admin-user')
+    linkGoogle(USER_A, 'user-a@example.test', A_REFRESH)
+    linkGoogle(USER_B, 'user-b@example.test', B_REFRESH)
+  })
+
+  /** Resolve the token NOW, exactly as a request would, and act as that key. */
+  function useKey(token: string) {
+    const r = resolveAgentKey(token)
+    if (r.status !== 'ok') return null
+    return { kind: 'agent_key' as const, userId: r.user.id, keyId: r.key.id, keyLabel: r.key.label, connectors: r.key.connectors }
+  }
+
+  function mint(userId: number, role: 'admin' | 'member', input: Record<string, unknown> = {}) {
+    const k = createAgentKey({ id: userId, role }, { label: `k-${userId}`, ...input })
+    if (!k.ok) throw new Error(k.error)
+    return k.key
+  }
+
+  /** A card filed by an agent key and owned by that key's owner. */
+  function cardFiledBy(key: { id: number; label: string }, ownerId: number, extra: Record<string, unknown> = {}) {
+    return cardFor(ownerId, { agent_key_id: key.id, agent_key_label: key.label, ...extra })
+  }
+
+  // Property 1 ───────────────────────────────────────────────────────────────
+
+  it('P1: a key created with no connectors resolves to ["owner"] and reaches only its owner, on every connector', () => {
+    const key = mint(USER_A, 'member')
+    const asKey = useKey(key.token)!
+    expect(asKey.connectors).toEqual(['owner'])
+    expect(github.getDecryptedForUser(USER_A, asKey)).toBe(A_PAT)
+    expect(google.getDecryptedRefreshToken(USER_A, asKey)).toBe(A_REFRESH)
+    for (const other of [USER_B, ADMIN]) {
+      expect(github.getDecryptedForUser(other, asKey)).toBeNull()
+      expect(google.getDecryptedRefreshToken(other, asKey)).toBeNull()
+    }
+  })
+
+  it("P1: an ADMIN's own inheriting key reaches the admin's accounts and nobody else's", () => {
+    const key = mint(ADMIN, 'admin')
+    const asKey = useKey(key.token)!
+    expect(asKey.connectors).toEqual(['owner'])
+    expect(github.getDecryptedForUser(ADMIN, asKey)).toBe(ADMIN_PAT)
+    expect(github.getDecryptedForUser(USER_A, asKey)).toBeNull()
+    expect(google.getDecryptedRefreshToken(USER_B, asKey)).toBeNull()
+  })
+
+  it("P1: an admin editing A's key to inherit binds it to A, never to the admin or to B", () => {
+    const key = mint(USER_A, 'member', { connectors: [] })
+    // ownerId null = the admin path of PATCH /api/auth/agent-keys/:id.
+    const edited = updateAgentKeyConnectors(key.id, ['owner'], null)
+    expect(edited).toMatchObject({ ok: true, key: { connectors: ['owner'] } })
+    const asKey = useKey(key.token)!
+    expect(asKey.userId).toBe(USER_A)
+    expect(github.getDecryptedForUser(USER_A, asKey)).toBe(A_PAT)
+    expect(github.getDecryptedForUser(ADMIN, asKey)).toBeNull()
+    expect(github.getDecryptedForUser(USER_B, asKey)).toBeNull()
+  })
+
+  it("P1: a session for a card filed by A's inheriting key carries A's credentials only", () => {
+    const key = mint(USER_A, 'member')
+    const env = buildSpawnEnv({ objective: cardFiledBy(key, USER_A), homeDir: '/home/session', sessionKind: 'worker' })
+    expect(env.GH_TOKEN).toBe(A_PAT)
+    for (const v of [B_PAT, B_REFRESH, ADMIN_PAT]) expect(Object.values(env)).not.toContain(v)
+  })
+
+  // Property 2 ───────────────────────────────────────────────────────────────
+
+  it('P2: [] stays deny-all through create, list, resolve and an unrelated re-save', () => {
+    const key = mint(USER_A, 'member', { connectors: [] })
+    expect(listAgentKeys(USER_A).find(k => k.id === key.id)?.connectors).toEqual([])
+    expect(useKey(key.token)!.connectors).toEqual([])
+    expect(github.getDecryptedForUser(USER_A, useKey(key.token)!)).toBeNull()
+    expect(google.getDecryptedRefreshToken(USER_A, useKey(key.token)!)).toBeNull()
+    // Re-saving "none" (null or []) must not drift to inherit.
+    for (const none of [null, []]) {
+      expect(updateAgentKeyConnectors(key.id, none, USER_A)).toMatchObject({ ok: true, key: { connectors: [] } })
+      expect(useKey(key.token)!.connectors).toEqual([])
+    }
+    const env = buildSpawnEnv({ objective: cardFiledBy(key, USER_A), homeDir: '/home/session', sessionKind: 'worker' })
+    expect(env.GH_TOKEN).toBeUndefined()
+    expect(Object.values(env)).not.toContain(A_REFRESH)
+  })
+
+  it('P2: an explicit list narrows, survives reads and updates, and is distinct from inherit', () => {
+    const key = mint(USER_A, 'member', { connectors: ['github'] })
+    expect(useKey(key.token)!.connectors).toEqual(['github'])
+    expect(github.getDecryptedForUser(USER_A, useKey(key.token)!)).toBe(A_PAT)
+    expect(google.getDecryptedRefreshToken(USER_A, useKey(key.token)!)).toBeNull()
+
+    // inherit → list → inherit round-trips exactly, with the reach following.
+    updateAgentKeyConnectors(key.id, ['owner'], USER_A)
+    expect(google.getDecryptedRefreshToken(USER_A, useKey(key.token)!)).toBe(A_REFRESH)
+    updateAgentKeyConnectors(key.id, ['google-workspace'], USER_A)
+    expect(useKey(key.token)!.connectors).toEqual(['google-workspace'])
+    expect(github.getDecryptedForUser(USER_A, useKey(key.token)!)).toBeNull()
+    expect(listAgentKeys(USER_A).find(k => k.id === key.id)?.connectors).toEqual(['google-workspace'])
+  })
+
+  // Property 3 ───────────────────────────────────────────────────────────────
+
+  it('P3: re-running the schema migration and minting new keys backfills nothing', () => {
+    const legacyNull = mint(USER_A, 'member')
+    const legacyStar = mint(USER_A, 'member')
+    const explicit = mint(USER_A, 'member', { connectors: ['github'] })
+    const none = mint(USER_A, 'member', { connectors: [] })
+    getDb().prepare('UPDATE agent_api_keys SET connectors = NULL WHERE id = ?').run(legacyNull.id)
+    getDb().prepare(`UPDATE agent_api_keys SET connectors = '["*"]' WHERE id = ?`).run(legacyStar.id)
+    const snapshot = () =>
+      Object.fromEntries(
+        (getDb().prepare('SELECT id, connectors FROM agent_api_keys ORDER BY id').all() as { id: number; connectors: string | null }[])
+          .map(r => [r.id, r.connectors]),
+      )
+    const before = snapshot()
+
+    initAgentKeysSchema(getDb()) // what every boot runs
+    mint(USER_A, 'member') // a new inheriting key next to them
+    const after = snapshot()
+    for (const id of [legacyNull.id, legacyStar.id, explicit.id, none.id]) expect(after[id]).toBe(before[id])
+    expect(after[legacyNull.id]).toBeNull()
+    expect(after[legacyStar.id]).toBe('["*"]')
+  })
+
+  it('P3: a NULL row is still deny-all and a legacy ["*"] row still reaches its own owner only', () => {
+    const nullKey = mint(USER_A, 'member')
+    const starKey = mint(USER_A, 'member')
+    getDb().prepare('UPDATE agent_api_keys SET connectors = NULL WHERE id = ?').run(nullKey.id)
+    getDb().prepare(`UPDATE agent_api_keys SET connectors = '["*"]' WHERE id = ?`).run(starKey.id)
+
+    const asNull = useKey(nullKey.token)!
+    expect(asNull.connectors).toEqual([])
+    expect(github.getDecryptedForUser(USER_A, asNull)).toBeNull()
+    expect(google.getDecryptedRefreshToken(USER_A, asNull)).toBeNull()
+
+    const asStar = useKey(starKey.token)!
+    expect(asStar.connectors).toEqual(['*'])
+    expect(github.getDecryptedForUser(USER_A, asStar)).toBe(A_PAT)
+    expect(google.getDecryptedRefreshToken(USER_A, asStar)).toBe(A_REFRESH)
+    expect(github.getDecryptedForUser(USER_B, asStar)).toBeNull()
+    expect(google.getDecryptedRefreshToken(USER_B, asStar)).toBeNull()
+  })
+
+  // Property 4 ───────────────────────────────────────────────────────────────
+
+  it('P4: revoking an inheriting key cuts it off on the very next resolve', () => {
+    const key = mint(USER_A, 'member')
+    expect(github.getDecryptedForUser(USER_A, useKey(key.token)!)).toBe(A_PAT)
+    expect(revokeAgentKey(USER_A, key.id)).toBe(true)
+    expect(resolveAgentKey(key.token)).toEqual({ status: 'revoked' })
+  })
+
+  it('P4: a card filed by a key that was later REVOKED gets no connector at its next spawn', () => {
+    const key = mint(USER_A, 'member')
+    const card = cardFiledBy(key, USER_A)
+    expect(buildSpawnEnv({ objective: card, homeDir: '/home/session', sessionKind: 'worker' }).GH_TOKEN).toBe(A_PAT)
+
+    revokeAgentKey(USER_A, key.id)
+    const after = buildSpawnEnv({ objective: card, homeDir: '/home/session', sessionKind: 'worker' })
+    // Same reading as a deleted key: the grant is gone.
+    expect(after.GH_TOKEN).toBeUndefined()
+    expect(Object.values(after)).not.toContain(A_PAT)
+    expect(Object.values(after)).not.toContain(A_REFRESH)
+    expect(after.GOOGLE_WORKSPACE_CONNECTION).toBe('absent')
+  })
+
+  it('P4: disconnecting Google or removing GitHub cuts an inheriting key on the next use, no key edit', () => {
+    const key = mint(USER_A, 'member')
+    expect(google.getDecryptedRefreshToken(USER_A, useKey(key.token)!)).toBe(A_REFRESH)
+    google.deleteForUser(USER_A)
+    expect(google.getDecryptedRefreshToken(USER_A, useKey(key.token)!)).toBeNull()
+    expect(github.getDecryptedForUser(USER_A, useKey(key.token)!)).toBe(A_PAT)
+
+    const card = cardFiledBy(key, USER_A)
+    github.deleteForUser(USER_A)
+    expect(github.getDecryptedForUser(USER_A, useKey(key.token)!)).toBeNull()
+    const env = buildSpawnEnv({ objective: card, homeDir: '/home/session', sessionKind: 'worker' })
+    expect(env.GH_TOKEN).toBeUndefined()
+    expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('absent')
+  })
+
+  it('P4: narrowing an inheriting key applies to the next spawn of a card it already filed', () => {
+    const key = mint(USER_A, 'member')
+    const card = cardFiledBy(key, USER_A)
+    expect(buildSpawnEnv({ objective: card, homeDir: '/home/session', sessionKind: 'worker' }).GH_TOKEN).toBe(A_PAT)
+    updateAgentKeyConnectors(key.id, [], USER_A)
+    expect(buildSpawnEnv({ objective: card, homeDir: '/home/session', sessionKind: 'worker' }).GH_TOKEN).toBeUndefined()
+  })
+
+  it("P4: the owner's per-connector rule still applies to an inheriting key's card session", () => {
+    const key = mint(USER_A, 'member')
+    setAccess('github', USER_A, { agents: ['some-other-agent'], workspaces: null, allow_delegated: false })
+    const env = buildSpawnEnv({ objective: cardFiledBy(key, USER_A), homeDir: '/home/session', sessionKind: 'worker' })
+    expect(env.GH_TOKEN).toBeUndefined()
+    expect(denials().some(d => d.reason === 'access_rule')).toBe(true)
+  })
+
+  it("P4: a delegated or other-owner card filed by an inheriting key gets nothing of anyone's", () => {
+    const key = mint(USER_A, 'member')
+    // Filed by A's key, assigned to B: runs as B, B never opted in.
+    const env = buildSpawnEnv({
+      objective: cardFiledBy(key, USER_B, { created_by: USER_A }),
+      homeDir: '/home/session',
+      sessionKind: 'worker',
+    })
+    expect(env.CC_ACTING_USER_ID).toBe(String(USER_B))
+    for (const v of [A_PAT, A_REFRESH, B_PAT, B_REFRESH, ADMIN_PAT]) expect(Object.values(env)).not.toContain(v)
+    expect(denials().some(d => d.reason === 'delegated_card')).toBe(true)
+  })
+
+  // Property 5 ───────────────────────────────────────────────────────────────
+
+  it('P5: inherit grants no board scope beyond the defaults and no service-only secret', () => {
+    const key = mint(USER_A, 'member')
+    const r = resolveAgentKey(key.token)
+    expect(r.status).toBe('ok')
+    if (r.status !== 'ok') return
+    expect(r.key.scopes).not.toContain('board:done')
+    expect(r.key.scopes).not.toContain('board:delete')
+    expect(r.key.workspaces).toBeNull()
+
+    for (const name of SERVICE_ONLY_BY_DEFAULT) {
+      setSecret({ scope: { scopeType: 'global' }, key: name, value: `value-of-${name}` })
+    }
+    const env = buildSpawnEnv({ objective: cardFiledBy(key, USER_A), homeDir: '/home/session', sessionKind: 'worker' })
+    for (const name of SERVICE_ONLY_BY_DEFAULT) expect(env[name]).not.toBe(`value-of-${name}`)
   })
 })
