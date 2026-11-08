@@ -559,6 +559,36 @@ export const AGENT_SCOPE_DESCRIPTIONS: Record<AgentScope, string> = {
  */
 export const LEGACY_ALL_CONNECTORS = '*'
 
+/**
+ * Marker in a key's `connectors` list meaning "inherit whatever connected
+ * accounts my owner is authorised to use" (obj 900303).
+ *
+ * It is a MODE, not a connector id: it may only appear on its own, and the
+ * server rejects a list that mixes it with ids.
+ *
+ * It is NOT a widening of the owner. A key in inherit mode simply stops
+ * narrowing its owner; every owner-level test still runs on each use — the
+ * connection must belong to the key's owner, the owner's per-connector
+ * agent/workspace rules still apply, and work delegated by somebody else still
+ * needs the owner's opt-in. Disconnect or revoke the connection and an
+ * inheriting key loses it on the next use, with no key edit.
+ *
+ * Deliberately distinct from `LEGACY_ALL_CONNECTORS`: `'*'` is a frozen snapshot
+ * written once by a migration so pre-allow-list keys kept working, and Settings
+ * nags you to narrow it. `'owner'` is a live, chosen mode.
+ *
+ * It says nothing about agent scopes: an inheriting key still only does what its
+ * scopes allow, and still never gets board:done / board:delete by default.
+ * It says nothing about Secrets either — those are a separate store.
+ */
+export const INHERIT_OWNER_CONNECTORS = 'owner'
+
+/**
+ * What a brand-new key gets when the caller says nothing about connectors.
+ * Existing keys are NEVER rewritten to this — see db/schema/agent-keys.ts.
+ */
+export const DEFAULT_NEW_KEY_CONNECTORS: readonly string[] = [INHERIT_OWNER_CONNECTORS]
+
 export interface AgentApiKeySummary {
   id: number
   label: string
@@ -568,7 +598,9 @@ export interface AgentApiKeySummary {
   workspaces: string[] | null
   /**
    * Connector ids this key may use, and only ever its OWNER's copy of them.
-   * null or empty = none, which is the default for a newly created key.
+   * null or empty = explicitly none (deny-all).
+   * `['owner']` = inherit the owner's authorised connectors — the default for a
+   * key created after obj 900303 (see INHERIT_OWNER_CONNECTORS).
    * `['*']` = the migrated legacy keys (see LEGACY_ALL_CONNECTORS).
    */
   connectors: string[] | null
@@ -586,7 +618,11 @@ export interface CreateAgentApiKeyRequest {
   label: string
   scopes?: AgentScope[]
   workspaces?: string[] | null
-  /** Connector ids the key may use. Omitted = none. */
+  /**
+   * Connector ids the key may use.
+   * OMITTED = `['owner']`: inherit the owner's authorised connectors (obj 900303).
+   * `null` or `[]` = explicitly none. An explicit list = exactly those ids.
+   */
   connectors?: string[] | null
 }
 

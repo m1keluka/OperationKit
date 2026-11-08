@@ -28,9 +28,17 @@ jobs can work in it. That connection is theirs alone:
 - **Another person cannot use or read it** — not through their own API key, not through a card,
   not by being an administrator. An administrator runs the install; that is a different thing from
   being everybody who uses it.
-- **Each API key is granted connectors one at a time.** A key reaches a connected account only if
-  its owner ticked that connector for that key, and only ever the owner's own copy. A key created
-  with nothing ticked can touch no connected account at all.
+- **A key follows its owner, and can never outrun them.** A new API key starts able to use the
+  connected accounts its owner is allowed to use — nothing to tick, which is the common case. It is
+  not a copy of its owner: it still reaches only the owner's own accounts, and every single use is
+  re-checked against what the owner is allowed AT THAT MOMENT. Disconnect the account, or narrow it
+  in Settings → Connectors, and the key loses it immediately, with no key to edit.
+- **You can narrow a key instead.** When you create one you may pick specific connected accounts, or
+  none at all. A key already narrowed stays narrowed: nothing widens an existing key on its own, and
+  moving one to "follows my access" is a deliberate save in Settings → You.
+- **Connected accounts are not Secrets.** Following your access covers connected accounts only. It
+  is not a grant of Settings → Secrets, and it does not change what a key can DO on the board —
+  signing a card done and deleting cards still stay with you unless you grant them.
 - **Routing work to someone does not borrow their accounts.** An administrator can assign a card to
   a colleague — that is ordinary work routing — but the job then runs with that colleague's
   connections marked absent, unless the colleague has ticked *"let cards someone else assigned to

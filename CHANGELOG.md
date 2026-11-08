@@ -8,6 +8,51 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### The agent-key connector picker was always empty — and new keys now follow their owner (obj 900303)
+
+**The bug.** Settings → You → Agent keys → **Connectors** showed "No connectors
+available." on every install, including installs with GitHub and Google Workspace
+connected. `GET /api/connectors` answers with a **bare array**; the picker read
+`res.connectors` off that array, got `undefined`, and fell back to an empty list.
+Its unit test mocked the same envelope the server has never sent, so the suite
+agreed with the bug. The catalogue read now lives in one place
+(`client/src/lib/connectors.ts`), `routes/connectors.test.ts` pins the array shape
+server-side, and the component test mocks what the server really sends.
+
+**Nothing failed loudly, either.** A 401, a 500 or a dropped connection was
+swallowed and rendered as the same confident "No connectors available." The picker
+is now a three-state: *Loading…*, the real catalogue (or "You have not connected
+any accounts yet"), or an error with the server's own sentence and a **Retry**
+button. "You have none" is never shown because a request failed.
+
+**New keys follow their owner.** A key created without saying anything about
+connectors now gets `["owner"]` — it can use the connected accounts its owner is
+authorised for, with nothing to tick. This is the **absence of a per-key
+narrowing**, not a grant: the key still reaches only its own owner's accounts, the
+owner's per-connector agent/workspace rules still apply, work someone else
+delegated still needs the owner's opt-in, and each use is re-measured at the
+moment of use — disconnect or revoke the account and the key loses it with no key
+edit. It grants nothing on the board (done and delete still stay human by default)
+and nothing in Settings → **Secrets**, which is a separate store.
+
+**Nothing you already have changes.** This is a CREATE-time default only:
+
+| A key whose stored list is | Before | After |
+|---|---|---|
+| `NULL` (predates obj 900303) | no connectors | **no connectors** |
+| `[]` or an explicit `null` | no connectors | **no connectors** |
+| `["github"]` etc. | exactly those | **exactly those** |
+| `["*"]` (migrated legacy key) | all the owner has | **all the owner has** |
+
+There is **no bulk migration** and no backfill. An existing key moves to the new
+mode only when its owner picks **"Whatever I can use"** on that key and saves
+(`PATCH /api/auth/agent-keys/:id {"connectors":["owner"]}`), and that is
+reversible. `"owner"` is a mode, not a connector id: mixing it with ids is a 400.
+
+**Operator action: none.** Read the new table in `docs/product/04-you.md` if you
+want to narrow the keys you create from here on.
+
+
 ### Bots stop getting Cloudflare error 1010: a narrow browser-integrity exception, in the installer (obj 900259)
 
 **The bug.** Letting Cloudflare *Access* step aside on the bot-facing API routes

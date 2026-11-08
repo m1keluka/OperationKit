@@ -230,10 +230,12 @@ describe('reading a connection through the API', () => {
 // ── Managing a key's connector list ─────────────────────────────────────────
 
 describe('agent-key connector allow-list over HTTP', () => {
-  it('creates with none, is narrowed by its owner, and never echoes a token', async () => {
+  it('creates inheriting the owner, is narrowed by its owner, and never echoes a token', async () => {
     const created = await call('POST', '/api/auth/agent-keys', { as: AS_A, body: { label: 'reporting bot' } })
     expect(created.status).toBe(201)
-    expect(created.json.connectors).toEqual([])
+    // obj 900303: saying nothing about connectors means "the same accounts I am
+    // allowed to use", not "none". Narrowing it afterwards still works.
+    expect(created.json.connectors).toEqual(['owner'])
 
     const patched = await call('PATCH', `/api/auth/agent-keys/${created.json.id}`, {
       as: AS_A, body: { connectors: ['github'] },
@@ -266,12 +268,82 @@ describe('agent-key connector allow-list over HTTP', () => {
   })
 
   it('cannot be used by an agent key to widen itself', async () => {
-    const created = await call('POST', '/api/auth/agent-keys', { as: AS_A, body: { label: 'bootstrap' } })
+    const created = await call('POST', '/api/auth/agent-keys', {
+      as: AS_A, body: { label: 'bootstrap', connectors: [] },
+    })
     const r = await call('PATCH', `/api/auth/agent-keys/${created.json.id}`, {
       bearer: created.json.token, body: { connectors: ['github', 'google-workspace'] },
     })
     expect(r.status).toBe(403)
     const after = await call('GET', '/api/auth/agent-keys', { as: AS_A })
     expect(after.json.keys[0].connectors).toEqual([])
+  })
+
+  // ── obj 900303: the new default, and what it must never do ────────────────
+
+  it('honours an explicit "none" at creation rather than the inherit default', async () => {
+    const none = await call('POST', '/api/auth/agent-keys', {
+      as: AS_A, body: { label: 'locked', connectors: [] },
+    })
+    expect(none.status).toBe(201)
+    expect(none.json.connectors).toEqual([])
+
+    const nulled = await call('POST', '/api/auth/agent-keys', {
+      as: AS_A, body: { label: 'nulled', connectors: null },
+    })
+    expect(nulled.status).toBe(201)
+    expect(nulled.json.connectors).toEqual([])
+  })
+
+  it('does NOT silently widen a key that was already explicitly restricted', async () => {
+    const restricted = await call('POST', '/api/auth/agent-keys', {
+      as: AS_A, body: { label: 'github only', connectors: ['github'] },
+    })
+    expect(restricted.json.connectors).toEqual(['github'])
+
+    // Every later read of the key reports the SAME restriction. Nothing in the
+    // new default reaches back and rewrites an existing grant.
+    const listed = await call('GET', '/api/auth/agent-keys', { as: AS_A })
+    const row = listed.json.keys.find((k: { id: number }) => k.id === restricted.json.id)
+    expect(row.connectors).toEqual(['github'])
+  })
+
+  it('moves an existing key to inherit only when its owner opts in', async () => {
+    const created = await call('POST', '/api/auth/agent-keys', {
+      as: AS_A, body: { label: 'migrate me', connectors: [] },
+    })
+    expect(created.json.connectors).toEqual([])
+
+    const migrated = await call('PATCH', `/api/auth/agent-keys/${created.json.id}`, {
+      as: AS_A, body: { connectors: ['owner'] },
+    })
+    expect(migrated.status).toBe(200)
+    expect(migrated.json.connectors).toEqual(['owner'])
+
+    // …and back again, so the opt-in is reversible.
+    const reverted = await call('PATCH', `/api/auth/agent-keys/${created.json.id}`, {
+      as: AS_A, body: { connectors: [] },
+    })
+    expect(reverted.json.connectors).toEqual([])
+  })
+
+  it('rejects inherit mixed with specific connector ids', async () => {
+    const r = await call('POST', '/api/auth/agent-keys', {
+      as: AS_A, body: { label: 'confused', connectors: ['owner', 'github'] },
+    })
+    expect(r.status).toBe(400)
+    expect(String(r.json.error)).toMatch(/cannot be combined/i)
+  })
+
+  it('an inherit-mode key is still bound to its own owner over HTTP', async () => {
+    const created = await call('POST', '/api/auth/agent-keys', { as: AS_A, body: { label: 'follows a' } })
+    expect(created.json.connectors).toEqual(['owner'])
+    // It is user A's key; it must not become a way to read user B's board or
+    // credentials. The /me identity it reports is A's, with A's key.
+    const me = await call('GET', '/api/auth/me', { bearer: created.json.token })
+    expect(me.status).toBe(200)
+    expect(me.json.id).toBe(USER_A)
+    expect(me.json.api_key.connectors).toEqual(['owner'])
+    expect(me.text).not.toContain(B_PAT)
   })
 })

@@ -356,9 +356,11 @@ describe('[attribution] agent-key calls are attributed to the key label', () => 
       label: 'Grok: Example Project',
       scopes: ['board:read', 'vault:read'],
       workspaces: ['example-project'],
-      // A key created after the allow-list shipped reaches no connector until
-      // its owner names one.
-      connectors: [],
+      // obj 900303: a key created without saying anything about connectors
+      // inherits the connected accounts its owner is authorised for. It is a
+      // mode, not a list of ids, and every use is still measured against the
+      // owner at that moment.
+      connectors: ['owner'],
     })
     // A browser session gets no api_key block (UI payload unchanged).
     const browser = await call('GET', '/api/auth/me')

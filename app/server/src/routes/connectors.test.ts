@@ -87,6 +87,27 @@ beforeEach(() => {
 })
 
 describe('connectors routes', () => {
+  // obj 900303 — the shape itself is a contract, and it had a silent consumer.
+  // The agent-key picker in Settings read `res.connectors` off this response,
+  // got undefined because the response IS the array, and told everyone "No
+  // connectors available" on an install that had connectors. Pin the shape here
+  // so the server cannot drift into the envelope the picker once imagined.
+  it('answers with a BARE ARRAY, not a { connectors: [...] } envelope', async () => {
+    const { status, json, text } = await call('GET', '/')
+    expect(status).toBe(200)
+    expect(Array.isArray(json)).toBe(true)
+    expect(text.trimStart().startsWith('[')).toBe(true)
+    // There is no envelope key to read, by construction.
+    expect((json as unknown as { connectors?: unknown }).connectors).toBeUndefined()
+    // Every entry carries the id + name a picker needs.
+    for (const c of json as ConnectorSummary[]) {
+      expect(typeof c.id).toBe('string')
+      expect(c.id.length).toBeGreaterThan(0)
+      expect(typeof c.name).toBe('string')
+      expect(c.name.length).toBeGreaterThan(0)
+    }
+  })
+
   it('needs a signed-in person', async () => {
     expect((await call('GET', '/', undefined, null)).status).toBe(401)
     expect((await call('POST', '/github/connect', { fields: { token: RAW_PAT } }, null)).status).toBe(401)
