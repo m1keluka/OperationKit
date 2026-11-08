@@ -11,6 +11,7 @@
 //      the cards THIS chat filed. The card then runs like any other card —
 //      sandboxed (SESSION_ISOLATION=docker) on a client install.
 // An agent only gets the tools its file lists under `tools:`.
+import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { getDb } from '../../db/index.js'
@@ -23,6 +24,8 @@ import { createDraft, type Connectors, type EmailDraft, type EventDraft } from '
 import { workspaceKbRoot } from '../doc-ingest/kb-paths.js'
 import { ingestEnabled } from '../doc-ingest/service.js'
 import { fileAnswer } from '../kb-wiki/answers.js'
+import { botForAgentSlug } from '../bots/bot-registry.js'
+import { createBotJob } from '../bots/bot-jobs.js'
 
 export interface ToolSpec {
   type: 'function'
@@ -199,8 +202,65 @@ function cardUrl(id: number): string {
   return `/o/${id}`
 }
 
-function createCard(ctx: ToolContext, title: string, description: string): { id: number; status: string } {
+/**
+ * File a card from a chat turn.
+ *
+ * Two paths, and which one runs is decided by the REGISTRY, not by a flag:
+ *
+ *  - The agent is a REGISTERED BOT (obj 900323) → the guarded bot-job path.
+ *    Owner validated, idempotency enforced, duplicate guard applied, job mode
+ *    pinned to read-only, start decided against an explicit finite ceiling, and
+ *    the origin recorded so the result can come back to THIS conversation.
+ *  - The agent is not in the registry → the original path, unchanged. Legacy
+ *    automation compatibility is deliberate: an install whose agents predate the
+ *    registry keeps filing cards exactly as before rather than breaking on a
+ *    feature it never opted into.
+ *
+ * The idempotency key is derived, not supplied, because the model cannot be
+ * trusted to invent a stable one: it is a hash over (thread, title, body), so a
+ * retried identical tool call collapses onto the same card while a genuinely
+ * different ask does not.
+ */
+function botJobIdempotencyKey(ctx: ToolContext, title: string, description: string): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${ctx.userId}\u0000${ctx.agent.slug}\u0000${title.trim()}\u0000${description.trim()}`)
+    .digest('hex')
+    .slice(0, 40)
+}
+
+function createCard(ctx: ToolContext, title: string, description: string): { id: number; status: string; note?: string } {
   const db = getDb()
+  const bot = botForAgentSlug(ctx.agent.slug, db)
+  if (bot) {
+    const r = createBotJob(db, {
+      userId: ctx.userId,
+      agentSlug: ctx.agent.slug,
+      ownerBot: bot.id,
+      workspace: ctx.workspace,
+      title,
+      description,
+      idempotencyKey: botJobIdempotencyKey(ctx, title, description),
+      agentContext: defaultAgentForWorkspace(ctx.workspace),
+    })
+    if (!r.ok) throw new ToolUseError(r.error)
+    const row = db.prepare('SELECT * FROM objectives WHERE id = ?').get(r.objectiveId) as Objective
+    try {
+      broadcast({ type: 'objective_updated', payload: row })
+    } catch {
+      /* no WS server in tests */
+    }
+    return {
+      id: r.objectiveId,
+      status: r.status,
+      note: r.reused
+        ? 'This is the card you already filed for that request — not a new one.'
+        : r.start.allowed
+          ? 'Filed and cleared to start.'
+          : `Filed. It will NOT start by itself: ${r.start.reason}`,
+    }
+  }
+
   const agentCtx = defaultAgentForWorkspace(ctx.workspace)
   const body = [
     description.trim(),
@@ -308,7 +368,7 @@ export function runTool(ctx: ToolContext, fnName: string, args: Record<string, u
     case 'create_objective': {
       const title = s(args, 'title', true)
       const card = createCard(ctx, title, s(args, 'description'))
-      return { result: { id: card.id, status: card.status, note: 'Card is on the board. Tell the person its number.' }, summary: `Created card #${card.id}: ${title}`, objective_id: card.id }
+      return { result: { id: card.id, status: card.status, note: card.note ?? 'Card is on the board. Tell the person its number.' }, summary: `Created card #${card.id}: ${title}`, objective_id: card.id }
     }
     case 'get_objective': {
       const id = Number(args.id)

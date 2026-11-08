@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { searchVaultIndex } from './vault-index.js'
-import { inWorkspaceFolder, knowledgeBaseRoot } from '../lib/knowledge-base-root.js'
+import { knowledgeBaseRoot } from '../lib/knowledge-base-root.js'
+import { filterToWorkspaceScope, isValidWorkspaceSlug } from '../lib/kb-workspace-scope.js'
 
 /**
  * Knowledge-base search for spawn-context injection.
@@ -119,6 +120,29 @@ export function searchKnowledge(query: string, workspace?: string | null): Knowl
 }
 
 /**
+ * The AUTOMATIC retrieval entry point (obj 900321, C13).
+ *
+ * `searchKnowledge()` above is the general helper: callers that pass no
+ * workspace deliberately search the whole knowledge base, and the HTTP routes
+ * re-check every hit against the caller's authorised roots (`resolveUnder` in
+ * routes/docs.ts) before returning it.
+ *
+ * The PROMPT path has no such second check — whatever it returns is injected
+ * into a worker's context — so it needs a wall of its own, and it must FAIL
+ * CLOSED rather than fall back to a knowledge-base-wide search:
+ *
+ *   - no workspace, or a malformed slug       → [] (never "search everything")
+ *   - a hit outside the workspace's KB scope  → dropped, at ANY relevance score
+ *
+ * This is the function `services/context-builder.ts` calls.
+ */
+export function searchKnowledgeForWorkspace(query: string, workspace: string | null | undefined): KnowledgeHit[] {
+  if (!isValidWorkspaceSlug(workspace)) return []
+  const root = knowledgeBaseRoot()
+  return filterToWorkspaceScope(searchKnowledge(query, workspace), workspace, root)
+}
+
+/**
  * Original grep-based retrieval. Retained as the fail-safe fallback for
  * searchKnowledge() and used directly by tests. Never throws; returns [] on any
  * failure or when nothing relevant is found.
@@ -176,12 +200,21 @@ export function searchKnowledgeGrep(query: string, workspace?: string | null): K
     }
     if (scores.size === 0) return []
 
+    // obj 900321 (C13): the workspace is a FILTER, not a ranking bonus. It used
+    // to add +6 to in-workspace files, so a sufficiently well-matching note from
+    // ANOTHER workspace still won and was handed back. Drop them outright.
     if (workspace) {
-      for (const file of scores.keys()) {
-        if (inWorkspaceFolder(file, workspace, VAULT_ROOT)) {
-          scores.set(file, (scores.get(file) || 0) + 6)
+      if (!isValidWorkspaceSlug(workspace)) return []
+      const scoped = new Set(
+        filterToWorkspaceScope([...scores.keys()].map((p) => ({ path: p })), workspace, VAULT_ROOT).map((h) => h.path),
+      )
+      for (const file of [...scores.keys()]) {
+        if (!scoped.has(file)) {
+          scores.delete(file)
+          distinct.delete(file)
         }
       }
+      if (scores.size === 0) return []
     }
 
     const minDistinct = terms.length >= 3 ? 2 : 1

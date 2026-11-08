@@ -30,7 +30,7 @@ there and spends their time on the client's actual workflows.
 |---|---|
 | **Knowledge base** | Drop in Excel, CSV, PDF and Word files; they become organized, linked notes you can ask questions of, with every answer citing its source. It works like a living wiki: originals are kept untouched, a page per person, organization and topic is compiled from them, good answers can be saved back as new pages, and a nightly cleanup flags contradictions and stale facts. Claude and ChatGPT chat exports and call transcripts (.txt, .docx, .vtt, .srt) can be imported too. Plain markdown, so it opens in Obsidian or any editor. |
 | **AI workers on a board** | Anything that takes more than a few minutes becomes a card: *queue → working → review → done*. Each card runs a coding agent (Claude Code by default; Codex and Grok supported) in its own sandbox, and an independent AI reviewer checks the result before a person signs it off. |
-| **Agent chat (optional)** | One ongoing chat per agent, like a personal assistant. Agents read and update their own notes, draft emails and calendar invites for a person to send (never on their own), and hand bigger jobs to the board. |
+| **Bots (optional)** | One ongoing conversation per bot, like a personal assistant. A bot is a durable identity defined by one agent file; the conversation is the history with it, and clearing a conversation never deletes the bot. Bots read and update their own notes, draft emails and calendar invites for a person to send (never on their own), and hand bigger jobs to the board. |
 | **Connect any AI app (MCP)** | Claude, ChatGPT, Grok, Codex, Cursor and other MCP apps connect with a named, limited key and can use the same knowledge base, agents and board. [Connect your AI](./docs/CONNECT-YOUR-AGENT.md). |
 | **Agent templates** | Each agent is one file (instructions, knowledge folders, tools, schedules). Starter templates ship in the box (Personal assistant, Knowledge librarian, Operator); consultants can write their own and drop them into a client's install. A shared marketplace for publishing agents is planned, and the install side is already built for it ([how it would plug in](./docs/agents/marketplace.md)). |
 | **Connectors** | Link GitHub and Google Workspace once in Settings and choose which agents may use each. Credentials are stored encrypted and never shown to agents. |
@@ -87,7 +87,7 @@ list and keep both locks:
 | "Where does our data go?" (plain-language, one page) | [docs/SECURITY-OVERVIEW.md](./docs/SECURITY-OVERVIEW.md) |
 | Running a live demo | [docs/DEMO-RUNBOOK.md](./docs/DEMO-RUNBOOK.md) |
 | Using it day to day | [docs/product/README.md](./docs/product/README.md) |
-| Agent chat | [docs/product/09-agent-chat.md](./docs/product/09-agent-chat.md) |
+| Bots | [docs/product/09-agent-chat.md](./docs/product/09-agent-chat.md) |
 | Writing agent files | [docs/agents/agent-file-format.md](./docs/agents/agent-file-format.md) |
 | Agent / HTTP / MCP API reference | [docs/api/README.md](./docs/api/README.md) |
 | Model choice and portability | [docs/product/08-model-portability.md](./docs/product/08-model-portability.md) |

@@ -16,11 +16,23 @@ import {
   type ThreadResponse,
 } from './types'
 
-/* Built-in agent chat (obj 719987).
-   Pick an agent on the left (a list on its own screen on mobile), then talk
-   to it in ONE ongoing chat. Every reply says which AI answered. Email and
+/* Built-in bot chat (obj 719987; user-facing terminology renamed to "bot" in
+   obj 900327).
+   Pick a bot on the left (a list on its own screen on mobile), then talk to it
+   in ONE ongoing conversation. Every reply says which AI answered. Email and
    calendar actions arrive as drafts with your own Send button; bigger jobs
-   arrive as board-card chips that update while the card runs. */
+   arrive as board-card chips that update while the card runs.
+
+   TERMINOLOGY (obj 900327) — the two nouns are NOT interchangeable:
+     - a BOT is the durable identity defined by one agent file. It is created by
+       adding that file on the server, never from this page.
+     - a CONVERSATION is the message history between you and one bot. There is
+       exactly ONE per bot here, it starts implicitly with your first message,
+       and "Clear conversation" empties it WITHOUT deleting the bot.
+   So this page has no "New bot" and no "New conversation" control, because it
+   creates neither. The identifiers below (agent*, ChatAgentInfo, /agent-chat,
+   the agent_chat_* tables, the agents/ folder) are the UNCHANGED technical
+   names - only what a person reads was renamed. */
 
 const OPEN_CARD = new Set(['planning', 'queue', 'working', 'ai_review'])
 
@@ -42,7 +54,7 @@ function suggestionsFor(a: ChatAgentInfo): string[] {
   ].slice(0, 3)
 }
 
-// ── agent list ──
+// ── bot list ──
 
 function AgentList({
   data,
@@ -60,10 +72,10 @@ function AgentList({
   demoBusy: boolean
 }) {
   return (
-    <nav aria-label="Agents" className="flex h-full flex-col">
+    <nav aria-label="Bots" className="flex h-full flex-col">
       <div className="px-4 pb-2 pt-4">
-        <h1 className="font-display text-[18px] font-semibold tracking-[-0.02em] text-fg-0">Chat</h1>
-        <p className="mt-0.5 text-[12.5px] text-fg-2">One ongoing chat with each agent.</p>
+        <h1 className="font-display text-[18px] font-semibold tracking-[-0.02em] text-fg-0">Bots</h1>
+        <p className="mt-0.5 text-[12.5px] text-fg-2">One ongoing conversation with each bot.</p>
       </div>
       <ul className="flex-1 space-y-1 overflow-y-auto px-2 pb-3">
         {data.agents.map(a => {
@@ -96,7 +108,7 @@ function AgentList({
             disabled={demoBusy}
             className="min-h-[44px] w-full rounded-md px-2 text-left text-[12.5px] text-fg-2 transition-colors duration-fast hover:bg-surface-2 hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-45"
           >
-            {data.demo ? 'Demo agent is on — turn it off' : 'Turn on the demo agent (sample inbox + calendar)'}
+            {data.demo ? 'Demo bot is on — turn it off' : 'Turn on the demo bot (sample inbox + calendar)'}
           </button>
         </div>
       )}
@@ -104,7 +116,7 @@ function AgentList({
   )
 }
 
-// ── one conversation ──
+// ── one conversation (exactly one per bot) ──
 
 function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => void }) {
   const [thread, setThread] = useState<ThreadResponse | null>(null)
@@ -122,7 +134,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
       setThread(await api.get<ThreadResponse>(`${base}/messages`))
       setLoadError(null)
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : 'Could not load this chat')
+      setLoadError(e instanceof Error ? e.message : 'Could not load this conversation')
     }
   }, [base])
 
@@ -133,7 +145,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
     void load()
   }, [load])
 
-  // Board cards keep moving after the chat ends: refresh while any is still open.
+  // Board cards keep moving after the conversation ends: refresh while any is still open.
   const openCards = thread?.cards.some(c => OPEN_CARD.has(c.status)) ?? false
   useEffect(() => {
     if (!openCards) return
@@ -182,7 +194,17 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
   }
 
   const clear = async () => {
-    if (!(await confirm({ title: `Clear your chat with ${agent.name}?`, message: 'The messages are deleted from this server. Board cards and saved notes stay.', confirmLabel: 'Clear chat', danger: true }))) return
+    if (
+      !(await confirm({
+        title: `Clear your conversation with ${agent.name}?`,
+        // Clearing empties the conversation. It does NOT delete the bot - the bot
+        // is its agent file on the server and stays exactly as it is.
+        message: `The messages are deleted from this server. ${agent.name} itself is not deleted — only this conversation is emptied. Board cards and saved notes stay.`,
+        confirmLabel: 'Clear conversation',
+        danger: true,
+      }))
+    )
+      return
     await api.del(`${base}/messages`)
     await load()
   }
@@ -192,9 +214,9 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
   const answeredBy = `${PROVIDER_LABELS[agent.answered_by.id]}${agent.answered_by.model ? ` · ${agent.answered_by.model}` : ''}`
 
   return (
-    <section aria-label={`Chat with ${agent.name}`} className="flex h-full min-w-0 flex-col">
+    <section aria-label={`Conversation with ${agent.name}`} className="flex h-full min-w-0 flex-col">
       <header className="flex items-center gap-2 border-b border-line bg-surface-1 px-2 py-2 sm:px-4">
-        <IconButton label="All agents" onClick={onBack} className="md:hidden">
+        <IconButton label="All bots" onClick={onBack} className="md:hidden">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
           </svg>
@@ -207,8 +229,15 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
             {agent.version && <span> · v{agent.version}</span>}
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => void clear()} disabled={!thread?.messages.length || !!pending} className="min-h-[44px] sm:min-h-0">
-          Clear
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Clear this conversation with ${agent.name} (the bot is kept)`}
+          onClick={() => void clear()}
+          disabled={!thread?.messages.length || !!pending}
+          className="min-h-[44px] sm:min-h-0"
+        >
+          Clear conversation
         </Button>
       </header>
 
@@ -216,7 +245,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
         <div className="mx-auto flex max-w-[760px] flex-col gap-3">
           {loadError && <Alert tone="alarm">{loadError}</Alert>}
           {!thread && !loadError && (
-            <div className="space-y-4" aria-label="Loading chat">
+            <div className="space-y-4" aria-label="Loading conversation">
               <div className="flex items-start gap-2.5"><Skeleton className="h-7 w-7 rounded-lg" /><SkeletonText lines={2} className="flex-1" /></div>
               <div className="flex justify-end"><Skeleton className="h-10 w-1/2 rounded-lg" /></div>
               <div className="flex items-start gap-2.5"><Skeleton className="h-7 w-7 rounded-lg" /><SkeletonText lines={3} className="flex-1" /></div>
@@ -226,7 +255,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
             <div className="flex flex-col items-center gap-4 py-10 text-center">
               <AgentAvatar agent={agent} size="lg" />
               <div className="space-y-1">
-                <p className="font-display text-[16px] font-semibold text-fg-0">Start a chat with {agent.name}</p>
+                <p className="font-display text-[16px] font-semibold text-fg-0">Start a conversation with {agent.name}</p>
                 <p className="mx-auto max-w-[46ch] text-[13px] leading-relaxed text-fg-2">{agent.description}</p>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
@@ -240,7 +269,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
                   </button>
                 ))}
               </div>
-              {agent.source === 'demo' && <p className="text-[12px] text-fg-2">Demo agent: the inbox, calendar and notes are made-up sample data.</p>}
+              {agent.source === 'demo' && <p className="text-[12px] text-fg-2">Demo bot: the inbox, calendar and notes are made-up sample data.</p>}
             </div>
           )}
           {thread?.messages.map(m => (
@@ -353,7 +382,7 @@ export function AgentChatPage() {
       setData(await api.get<AgentsResponse>('/agent-chat/agents'))
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load agents')
+      setError(e instanceof Error ? e.message : 'Could not load bots')
     }
   }, [])
   useEffect(() => { void load() }, [load])
@@ -379,7 +408,7 @@ export function AgentChatPage() {
   }
   if (!data) {
     return (
-      <div className="flex h-full" aria-label="Loading agents">
+      <div className="flex h-full" aria-label="Loading bots">
         <div className="w-full space-y-2 p-4 md:w-[300px] md:border-r md:border-line">
           {[0, 1, 2].map(i => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
         </div>
@@ -392,13 +421,13 @@ export function AgentChatPage() {
       <div className="flex h-full items-center justify-center px-4">
         <EmptyState
           icon={<span className={cn('grid h-full w-full place-items-center rounded-lg border font-display text-[13px] font-semibold', COLOUR_CLASSES.green.tile)}>AI</span>}
-          title="No chat agents yet"
+          title="No bots yet"
           description={
             isAdmin
-              ? 'Agents are one file each in the agents folder (see the Agent chat guide). Or try the demo: a personal assistant with a made-up inbox and calendar.'
-              : 'Your administrator has not added any chat agents yet.'
+              ? 'A bot is one file in the agents folder on the server — this page does not create one (see the Bots guide). Or try the demo: a personal assistant bot with a made-up inbox and calendar.'
+              : 'Your administrator has not added any bots yet.'
           }
-          action={isAdmin ? <Button variant="primary" loading={demoBusy} onClick={() => void setDemo(true)}>Turn on the demo agent</Button> : undefined}
+          action={isAdmin ? <Button variant="primary" loading={demoBusy} onClick={() => void setDemo(true)}>Turn on the demo bot</Button> : undefined}
         />
       </div>
     )
@@ -415,8 +444,8 @@ export function AgentChatPage() {
         ) : (
           <div className="flex h-full items-center justify-center px-6">
             <EmptyState
-              title={slug ? `No agent called "${slug}"` : 'Pick an agent'}
-              description="Each agent keeps one ongoing chat with you. History is stored on this server only."
+              title={slug ? `No bot called "${slug}"` : 'Pick a bot'}
+              description="Each bot keeps one ongoing conversation with you — opening a bot reopens that conversation, it does not create a new bot. History is stored on this server only."
               compact
             />
           </div>

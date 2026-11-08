@@ -60,6 +60,11 @@ import {
   getPendingDecision,
 } from '../services/strategy-governance.js'
 import { isLocalhost } from '../lib/is-localhost.js'
+import {
+  applyPrincipalWorkspaceFilter,
+  principalMaySeeWorkspace,
+  requireBoardPrincipal,
+} from '../middleware/internal-board-auth.js'
 import { isLockedStatus, runMachineStatusUpdate } from '../lib/status-lock.js'
 import { diskAction, diskBlockReason, readHostDisk } from '../lib/host-disk.js'
 import { resolveFollowUpSessionId } from '../services/objective-sessions.js'
@@ -97,10 +102,11 @@ export function registerInternalHermesRoutes(router: Router): void {
 // (a bare array — every existing caller depends on that):
 //   X-Total-Count / X-Returned-Count / X-Fields-Mode / X-Truncated
 router.get('/objectives', (req, res) => {
-  if (!isLocalhost(req)) {
-    res.status(403).json({ error: 'Internal API: localhost only' })
-    return
-  }
+  // obj 900321 (C6): an authenticated principal, not an origin, decides what
+  // this read may see. A sandboxed session must present its CC_SESSION_TOKEN and
+  // is then confined to its own card's workspace.
+  const principal = requireBoardPrincipal(req, res)
+  if (!principal) return
   // STRICT param contract (obj 707003). An unrecognized param used to be
   // silently dropped, so `?parent_id=706936` answered with all 8,362 rows and
   // HTTP 200 — a full-board false positive indistinguishable from a real answer.
@@ -117,6 +123,14 @@ router.get('/objectives', (req, res) => {
   const db = getDb()
   const mode = parseFieldsMode(req.query.fields)
   const filters = parseListFilters(req.query as Record<string, unknown>)
+  // Hard workspace scope. A session principal cannot widen it, and asking for a
+  // different workspace is a loud 403 rather than a silent rewrite.
+  const scoped = applyPrincipalWorkspaceFilter(principal, req.query.workspace)
+  if (scoped && 'denied' in scoped) {
+    res.status(scoped.denied.status).json({ error: scoped.denied.error, code: scoped.denied.code })
+    return
+  }
+  if (scoped) filters.workspace = scoped.workspace
   const { where, params } = buildWhere(filters)
   const { limit, offset } = resolvePageBounds(req.query.limit, req.query.offset, mode)
 
@@ -139,12 +153,16 @@ router.get('/objectives', (req, res) => {
 // Proves the stored marker (obj 2383): one column predicate, no depth/delegate_mode
 // derivation. Optional ?workspace= filter. See docs/terminology-glossary.md.
 router.get('/strategies', (req, res) => {
-  if (!isLocalhost(req)) {
-    res.status(403).json({ error: 'Internal API: localhost only' })
+  const principal = requireBoardPrincipal(req, res)
+  if (!principal) return
+  const db = getDb()
+  const asked = req.query.workspace as string | undefined
+  const scoped = applyPrincipalWorkspaceFilter(principal, asked)
+  if (scoped && 'denied' in scoped) {
+    res.status(scoped.denied.status).json({ error: scoped.denied.error, code: scoped.denied.code })
     return
   }
-  const db = getDb()
-  const workspace = req.query.workspace as string | undefined
+  const workspace = scoped ? scoped.workspace : asked
   const rows = workspace
     ? db.prepare('SELECT * FROM objectives WHERE is_strategy = 1 AND workspace = ? ORDER BY updated_at DESC').all(workspace)
     : db.prepare('SELECT * FROM objectives WHERE is_strategy = 1 ORDER BY updated_at DESC').all()
@@ -157,28 +175,33 @@ router.get('/strategies', (req, res) => {
 // of how deep in the tree each objective sits or whether it was manually linked
 // (parent_id IS NULL). Optional ?origin= filter narrows to one provenance kind.
 router.get('/strategies/:id/objectives', (req, res) => {
-  if (!isLocalhost(req)) {
-    res.status(403).json({ error: 'Internal API: localhost only' })
-    return
-  }
+  const principal = requireBoardPrincipal(req, res)
+  if (!principal) return
   const db = getDb()
   const origin = req.query.origin as string | undefined
   const rows = origin
     ? db.prepare('SELECT * FROM objectives WHERE strategy_id = ? AND origin = ? ORDER BY created_at DESC').all(req.params.id, origin)
     : db.prepare('SELECT * FROM objectives WHERE strategy_id = ? ORDER BY created_at DESC').all(req.params.id)
-  res.json(rows)
+  // obj 900321: a Strategy's subtree can span workspaces; a scoped principal
+  // sees only its own rows, never a cross-workspace roll-up.
+  res.json((rows as Array<{ workspace?: string | null }>).filter((r) => principalMaySeeWorkspace(principal, r.workspace)))
 })
 
 // GET /api/internal/objectives/:id — single objective detail
 router.get('/objectives/:id', (req, res) => {
-  if (!isLocalhost(req)) {
-    res.status(403).json({ error: 'Internal API: localhost only' })
-    return
-  }
+  const principal = requireBoardPrincipal(req, res)
+  if (!principal) return
   const db = getDb()
   const objective = db.prepare('SELECT * FROM objectives WHERE id = ?').get(req.params.id) as Objective | undefined
   if (!objective) {
     res.status(404).json({ error: 'Objective not found' })
+    return
+  }
+  // obj 900321 (C6): the full row — description, acceptance_criteria,
+  // last_session_summary, ai_review_findings — is exactly what leaked across
+  // workspaces. 403, deliberately, before anything is read out of the row.
+  if (!principalMaySeeWorkspace(principal, objective.workspace)) {
+    res.status(403).json({ error: 'Not authorized for this objective\'s workspace', code: 'workspace_forbidden' })
     return
   }
   // Embed the associated Strategy (obj 2386) so the objective detail can SHOW
@@ -200,10 +223,8 @@ router.get('/objectives/:id', (req, res) => {
 // before: `GET /objectives/<sib>/output` (the raw session log) or `?fields=full`
 // over the board, both of which hand back mid-flight scratch.
 router.get('/objectives/:id/siblings', (req, res) => {
-  if (!isLocalhost(req)) {
-    res.status(403).json({ error: 'Internal API: localhost only' })
-    return
-  }
+  const principal = requireBoardPrincipal(req, res)
+  if (!principal) return
   // Same strict-param contract as the list endpoint (obj 707003): an unsupported
   // param is a 400, never a silently-unfiltered 200.
   const unknown = unknownSiblingParams(req.query as Record<string, unknown>)
@@ -221,23 +242,32 @@ router.get('/objectives/:id/siblings', (req, res) => {
     res.status(404).json({ error: 'Objective not found' })
     return
   }
+  const self = db.prepare('SELECT workspace FROM objectives WHERE id = ?').get(id) as { workspace: string | null } | undefined
+  if (!principalMaySeeWorkspace(principal, self?.workspace)) {
+    res.status(403).json({ error: 'Not authorized for this objective\'s workspace', code: 'workspace_forbidden' })
+    return
+  }
   const raw = String(req.query.include_terminal ?? '').toLowerCase()
   const includeTerminal = !(raw === '0' || raw === 'false' || raw === 'no')
-  const siblings = listSiblings(db, id, includeTerminal)
+  const siblings = listSiblings(db, id, includeTerminal, principal.workspace)
   res.set({ 'X-Returned-Count': String(siblings.length), 'X-Fields-Mode': 'final' })
   res.json({ objective_id: id, fields: [...SIBLING_FIELDS], siblings })
 })
 
 // GET /api/internal/objectives/:id/output — session conversation history (no JWT)
 router.get('/objectives/:id/output', (req, res) => {
-  if (!isLocalhost(req)) {
-    res.status(403).json({ error: 'Internal API: localhost only' })
-    return
-  }
+  const principal = requireBoardPrincipal(req, res)
+  if (!principal) return
   const db = getDb()
   const objective = db.prepare('SELECT * FROM objectives WHERE id = ?').get(req.params.id) as Objective | undefined
   if (!objective) {
     res.status(404).json({ error: 'Objective not found' })
+    return
+  }
+  // The raw session transcript of another workspace's card is the single most
+  // sensitive board read there is (obj 900321, C6).
+  if (!principalMaySeeWorkspace(principal, objective.workspace)) {
+    res.status(403).json({ error: 'Not authorized for this objective\'s workspace', code: 'workspace_forbidden' })
     return
   }
 

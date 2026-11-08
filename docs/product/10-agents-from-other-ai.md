@@ -1,6 +1,8 @@
 # Use your agents from Claude, ChatGPT or Grok
 
-**In a sentence:** The built-in [Agent chat](./09-agent-chat.md) is optional — the same agents, the same knowledge base and the same board are reachable from the AI app you already use, through one **MCP connection**.
+**In a sentence:** The built-in [Bots](./09-agent-chat.md) page is optional — the same bots, the same knowledge base and the same board are reachable from the AI app you already use, through one **MCP connection**.
+
+(The MCP tool names are unchanged by the obj-900327 rename: `list_chat_agents` and `get_chat_agent` still address what the Bots page now calls a bot.)
 
 MCP is the standard way AI apps plug into other tools. Operation Kit runs one MCP server at:
 
@@ -56,13 +58,13 @@ From there the AI works with the same pieces the built-in chat uses:
 | Hand a bigger job to the board | `create_objective` (needs **board:write**) |
 | Check on a job | `get_objective`, `get_progress` |
 
-So a question asked in Claude, a request typed into Grok and a message in the built-in chat all end up in the same notes and the same board.
+So a question asked in Claude, a request typed into Grok and a message to a built-in bot all end up in the same notes and the same board.
 
-## What is different from the built-in chat
+## What is different from the built-in Bots page
 
-- **Your chat history stays in the AI app you used**, not on your Operation Kit server. Only the built-in chat stores conversations on your own server.
-- **Email and calendar drafts** (with the Send button) exist only in the built-in chat. An outside AI app uses its own email/calendar connectors, under its own rules.
-- **Knowledge folders are followed, not forced.** In the built-in chat the server blocks any note outside the agent's folders. An outside AI reads the agent's folders from `get_chat_agent` and is told to stay inside them, but the hard limit is the key: give each AI app a key limited to the workspace it needs.
+- **Your chat history stays in the AI app you used**, not on your Operation Kit server. Only the built-in Bots page stores conversations on your own server.
+- **Email and calendar drafts** (with the Send button) exist only in the built-in Bots page. An outside AI app uses its own email/calendar connectors, under its own rules.
+- **Knowledge folders are followed, not forced.** In the built-in Bots page the server blocks any note outside the bot's folders. An outside AI reads the bot's folders from `get_chat_agent` and is told to stay inside them, but the hard limit is the key: give each AI app a key limited to the workspace it needs.
 - **Which AI answers** is whatever app you are using.
 
 ## Good practice

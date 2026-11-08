@@ -144,8 +144,24 @@ export function resolveWorkerEndStatus(input: {
   isRoutine?: boolean
   /** Risk lane. `green` skips the tmux reviewer (CI is the gate). */
   lane?: MergeLane
+  /**
+   * obj 900322 (C3) — the session delivered nothing: zero tool calls, zero file
+   * changes, and either silence or a refusal. The routine carve-outs below exist
+   * so a recurring job does not strand in `review` and fill its
+   * `max_queue_depth`; they were never meant to auto-complete a job that did not
+   * run. Without this flag an answer-only refusal on a routine card reaches
+   * `done` — `completedWithAnswer` exempts it from the no-op check, `isRoutine →
+   * 'done'` fires here, and `mustRouteToHumanReview` exempts routine cards too,
+   * so nothing in the chain ever disagrees with "finished".
+   */
+  producedNothing?: boolean
 }): ObjectiveStatus {
-  const { type, delegateMode, createPr, skipAi, hasDelegatorParent, isRoutine, lane } = input
+  const { type, delegateMode, createPr, skipAi, hasDelegatorParent, isRoutine, lane, producedNothing } = input
+  if (producedNothing) {
+    // Never `done`. A job that produced nothing is visible to a human, with the
+    // reason written onto the card by applyTruthfulOutcome.
+    return 'review'
+  }
   if (delegateMode) {
     // A delegator that reaches here has all workers done. Its deliverable is the
     // orchestration + synthesis, which goes straight to the human gate —

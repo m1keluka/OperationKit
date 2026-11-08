@@ -8,6 +8,19 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### A revoked agent key no longer lends connectors to the cards it filed (obj 900331)
+
+A card filed by an agent key spawns its sessions with that key's connector
+allow-list. A key that had been **deleted** already left such a card with no
+connector at all, but a **revoked** key — and revoke is the only removal the API
+offers — kept its list. With the obj 900303 default (`["owner"]`) that meant a card
+queued by a revoked key still received every connected account its owner had
+(`GH_TOKEN`, Google) at its next spawn. Revoked now reads the same as deleted: the
+card's next session gets no connector. Nothing else changes — the key itself was
+already 401 on its next request, no row is migrated, and no live key is touched.
+`connector-isolation.test.ts` gains a 16-test end-to-end block (`obj 900331: …`)
+covering the five inheritance properties.
+
 ### The agent-key connector picker was always empty — and new keys now follow their owner (obj 900303)
 
 **The bug.** Settings → You → Agent keys → **Connectors** showed "No connectors

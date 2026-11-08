@@ -232,6 +232,27 @@ describe('[scope-enforcement] server-side scope guardrails', () => {
     expect((await call('GET', '/shell')).status).toBe(200)
   })
 
+  // obj 900331: connector inheritance (["owner"], the obj 900303 default) is a
+  // connector-only mode. It must not move the board or Secrets boundary at all.
+  it('an inheriting key (["owner"]) is exactly as narrow on the board and Secrets as before', async () => {
+    const key = await mintAgentKey({ label: 'Grok: Inherits' })
+    expect(key.connectors).toEqual(['owner'])
+    expect(key.scopes).not.toContain('board:done')
+    expect(key.scopes).not.toContain('board:delete')
+    const id = seed('example')
+    const done = await call('PATCH', `/api/objectives/${id}/status`, { bearer: key.token, body: { status: 'done' } })
+    expect(done.status).toBe(403)
+    expect(done.json.missing_scope).toBe('board:done')
+    const del = await call('DELETE', `/api/objectives/${id}`, { bearer: key.token })
+    expect(del.status).toBe(403)
+    expect(del.json.missing_scope).toBe('board:delete')
+    // Secrets and admin routes stay off the agent surface for it.
+    expect(requiredScope('GET', '/api/secrets', undefined)).toEqual({ kind: 'off_surface' })
+    expect((await call('GET', '/api/admin/ping', { bearer: key.token })).status).toBe(403)
+    expect((await call('GET', '/api/sneaky-admin', { bearer: key.token })).status).toBe(403)
+    expect((getDb().prepare('SELECT status FROM objectives WHERE id = ?').get(id) as { status: string }).status).toBe('review')
+  })
+
   it('maps the documented surface to scopes', () => {
     expect(requiredScope('GET', '/api/objectives/12/output', undefined)).toEqual({ kind: 'scope', scope: 'board:read' })
     expect(requiredScope('POST', '/api/objectives/12/message', {})).toEqual({ kind: 'scope', scope: 'board:write' })
@@ -396,6 +417,16 @@ describe('key lifecycle', () => {
     const listed = await call('GET', '/api/auth/agent-keys')
     expect((listed.json.keys as Json[]).find(k => k.id === doomed.id)?.revoked_at).toBeTruthy()
     expect((await call('DELETE', '/api/auth/agent-keys/99999')).status).toBe(404)
+  })
+
+  it('revoking an inheriting key is 401 on its very next request, with no grace', async () => {
+    const key = await mintAgentKey({ label: 'Grok: Inherit then revoke' })
+    expect(key.connectors).toEqual(['owner'])
+    const me = await call('GET', '/api/auth/me', { bearer: key.token })
+    expect(me.status).toBe(200)
+    expect(me.json.api_key.connectors).toEqual(['owner'])
+    expect((await call('DELETE', `/api/auth/agent-keys/${key.id}`)).status).toBe(200)
+    expect((await call('GET', '/api/auth/me', { bearer: key.token })).status).toBe(401)
   })
 
   it('an unknown cc_live_ key is 401', async () => {

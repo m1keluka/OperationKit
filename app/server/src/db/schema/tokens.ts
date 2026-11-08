@@ -176,6 +176,44 @@ export function initTokensSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_objective_prs_repo_pr ON objective_prs(repo, pr_number);
   `)
 
+  // pr_terminal_states — the DURABLE record of what GitHub told us about a PR
+  // (obj 900309). objective_prs.state used to be the ONLY place a merge was
+  // written, which made the recording path fragile in two separate ways:
+  //
+  //   1. ORDER. The pull_request closed+merged delivery can arrive BEFORE the row
+  //      exists (a worker that opens the PR with plain `gh pr create` and reports it
+  //      to /api/internal/pr-created afterwards, a backfill, a re-linked card). The
+  //      UPDATE then matched zero rows and the merge was lost forever — the webhook
+  //      is never redelivered.
+  //   2. OBSERVABILITY. The UPDATE sat in a best-effort try/catch whose only output
+  //      was a console.warn, and nobody inspected `changes`. A delivery could be
+  //      accepted (HTTP 200) with the state never moving and NOTHING recorded that
+  //      said so — which is precisely the state the live board was found in on
+  //      2026-11-08 (#651, #649, #643 all still open after a merged delivery
+  //      returned 200; last successful flip was PR #593 on 2026-10-30).
+  //
+  // This table is keyed by (repo, pr_number) — the same pair the webhook carries and
+  // the same pair external-remediation matches on — so it is writable with NO
+  // objective row in hand. Every later objective_prs insert/upsert consults it, so a
+  // row created after the merge is born merged instead of stale open.
+  //
+  // Replay/out-of-order safety is a property of the table, not of the caller:
+  // `merged` is terminal and is NEVER overwritten by a later `closed` (GitHub sends
+  // closed+merged=true as a single action=closed event, and a redelivery of an
+  // older closed-unmerged event must not undo a merge). `delivery_id` records which
+  // GitHub delivery first told us, so a replay is identifiable rather than guessed at.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pr_terminal_states (
+      repo TEXT NOT NULL,
+      pr_number INTEGER NOT NULL,
+      state TEXT NOT NULL CHECK(state IN ('merged','closed')),
+      merged_at TEXT,
+      delivery_id TEXT,
+      observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (repo, pr_number)
+    );
+  `)
+
   // Backfill: seed objective_prs from existing objectives that already carry a
   // linked PR (pr_number present) so past objectives' history isn't empty. Idempotent
   // via INSERT OR IGNORE against the UNIQUE(objective_id, pr_number) constraint — a

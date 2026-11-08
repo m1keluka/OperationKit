@@ -18,6 +18,7 @@ import { initReviewsSchema } from './schema/reviews.js'
 import { initGatesSchema } from './schema/gates.js'
 import { initRuntimeSchema } from './schema/runtime.js'
 import { initLeasesSchema } from './schema/leases.js'
+import { initJobAccountingSchema } from './schema/job-accounting.js'
 import { initLiveProgressSchema } from './schema/live-progress.js'
 import { initModelsSchema } from './schema/models.js'
 import { initTokensSchema } from './schema/tokens.js'
@@ -27,6 +28,7 @@ import { initAgentKeysSchema } from './schema/agent-keys.js'
 import { initNeedsSecretSchema, initSecretRotationFlagsSchema, initSecretUploadTokensSchema } from './schema/needs-secret.js'
 import { initAgentControlSchema } from './schema/agent-control.js'
 import { initAgentChatSchema } from './schema/agent-chat.js'
+import { initBotJobsSchema } from './schema/bot-jobs.js'
 import { initAgentWebhooksSchema } from './schema/agent-webhooks.js'
 import { installWriteScrubber } from './write-scrubber.js'
 import { redactForStorage } from '../services/secret-redaction.js'
@@ -848,6 +850,8 @@ export function initDb(): Database.Database {
   `)
 
   initLeasesSchema(db)
+  // obj 900322 — durable retry/attempt budgets, finite job ceilings, teardown ledger.
+  initJobAccountingSchema(db)
   initLiveProgressSchema(db)
 
   // Seed routines — both DISABLED (enabled=0); Mike flips them on after review.
@@ -1046,6 +1050,12 @@ export function initDb(): Database.Database {
   // triggers attach to the final objectives / objective_prs shape.
   initAgentControlSchema(db)
   initAgentChatSchema(db)
+
+  // Bot jobs (obj 900323): durable state for the bounded chat -> board -> thread
+  // MVP — job origin + thread continuation, the thread-delivery outbox, the
+  // approval/block ledger and the credential-revocation ledger. Additive
+  // CREATE TABLEs only; nothing here alters an existing table.
+  initBotJobsSchema(db)
   // Agent-key webhooks outbox (obj 719278) — reads objective_events, so after it.
   initAgentWebhooksSchema(db)
   // ── Secret scrubbing on persistence (obj 715532) ──────────────────────────

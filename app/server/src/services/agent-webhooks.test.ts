@@ -578,7 +578,12 @@ describe('needs_agent on the General key', () => {
       agent_key: { id: cos.id, label: 'Grok: General' },
     })
     expect(b.need.why).toMatch(/needs Mike's accept/)
-    expect(b.summary).toBe(`Card #${id} (operationkit) needs General: ${b.need.why}. Status: review · AI review pass.`)
+    // obj 900309: the card is UNOWNED (owner_bot null), so the summary must say so
+    // rather than naming the agent key. The key is a shared connection — its label is
+    // who SENT the card, not who owns it, and spelling it as the owner made a filed-by-X
+    // card indistinguishable from an owned-by-X card to a routing bot. owner_bot (null
+    // here) stays the machine-readable truth; the prose now agrees with it.
+    expect(b.summary).toBe(`Card #${id} (operationkit) needs an agent (unowned — routed to the General): ${b.need.why}. Status: review · AI review pass.`)
     for (const leak of [COS_SECRET, DESC_MARKER, SUMMARY_MARKER, FINDINGS_MARKER, cos.token]) expect(list[0].body).not.toContain(leak)
 
     // Still needing the same thing: more changes on the card never re-wake.
@@ -739,7 +744,13 @@ describe('shared needs_agent webhook (obj 900270)', () => {
     await tick()
     const [b] = bodies(sentTo(SHARED_HOST))
     expect(b).toHaveProperty('owner_bot', null)
-    expect(b.summary).toMatch(new RegExp(`^Card #${id} \\(operationkit\\) needs OpKit: `))
+    // obj 900309: the card is UNOWNED (owner_bot null), so the summary must say so
+    // rather than naming the agent key. The key is a shared connection — its label is
+    // who SENT the card, not who owns it, and spelling it as the owner made a filed-by-X
+    // card indistinguishable from an owned-by-X card to a routing bot. owner_bot (null
+    // here) stays the machine-readable truth; the prose now agrees with it.
+    expect(b.summary).toMatch(new RegExp(`^Card #${id} \\(operationkit\\) needs an agent \\(unowned`))
+    expect(b.summary).not.toContain('OpKit')
   })
 
   it('exactly one delivery per need — bursts, re-scans and other subscribed keys never add a second', async () => {
@@ -889,7 +900,12 @@ describe('key 4 compatibility: the live CoS needs_agent webhook keeps working (o
     const b = JSON.parse(list[0].body)
     expect(b.event_id).toMatch(new RegExp(`^cc_need_\\d+_k${k4.id}$`))
     expect(list[0].headers['X-CC-Event-Id']).toBe(b.event_id)
-    expect(b.summary).toBe(`Card #${id} (operationkit) needs General: ${b.need.why}. Status: review · AI review pass.`)
+    // obj 900309: the card is UNOWNED (owner_bot null), so the summary must say so
+    // rather than naming the agent key. The key is a shared connection — its label is
+    // who SENT the card, not who owns it, and spelling it as the owner made a filed-by-X
+    // card indistinguishable from an owned-by-X card to a routing bot. owner_bot (null
+    // here) stays the machine-readable truth; the prose now agrees with it.
+    expect(b.summary).toBe(`Card #${id} (operationkit) needs an agent (unowned — routed to the General): ${b.need.why}. Status: review · AI review pass.`)
     expect(b.owner_bot).toBeNull()
     expect(Object.keys(b).sort()).toEqual(
       ['agent_key', 'event', 'event_id', 'need', 'objective', 'occurred_at', 'owner_bot', 'sent_at', 'status_summary', 'summary'],

@@ -77,13 +77,43 @@ export function interruptSession(sessionId: string): boolean {
   }
 }
 
+/**
+ * Kill ONE tmux session by its exact name. Returns true when a session existed
+ * and was killed, false when there was nothing to kill.
+ *
+ * obj 900322 — exported so teardown can stop a card's job WITHOUT the in-memory
+ * `activeSessions` entry, which a server restart wipes while tmux keeps running.
+ * By exact name only: there is no prefix glob here, so a cancellation can never
+ * reach a neighbouring card's session.
+ */
+export function killTmuxByName(tmuxName: string): boolean {
+  if (!tmuxName) return false
+  if (!tmuxSessionAlive(tmuxName)) return false
+  try {
+    execSync(`tmux kill-session -t ${JSON.stringify(tmuxName)} 2>/dev/null`, { timeout: 5000 })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function stopSession(sessionId: string): Promise<void> {
   const session = activeSessions.get(sessionId)
+
+  // obj 900322 (C4) — the tmux kill used to live INSIDE `if (session)`. After a
+  // server restart `activeSessions` is empty while the tmux session is still
+  // running and still billing, so Stop and Cancel were silent no-ops on exactly
+  // the sessions that most needed stopping. The kill is now unconditional and
+  // keyed on the durable name (the session id IS the default tmux name), so a
+  // stop behaves identically before and after a restart. Killing a session that
+  // is already gone is a no-op, so this is safe to re-run.
+  const tmuxName = session?.tmuxName || sessionId
+  const killedAfterRestart = killTmuxByName(tmuxName)
+  if (!session && killedAfterRestart) {
+    console.log(`[session-manager] stopSession: killed orphaned tmux ${tmuxName} (not in activeSessions — post-restart stop)`)
+  }
+
   if (session) {
-    // Kill tmux session if it exists
-    if (session.tmuxName) {
-      try { execSync(`tmux kill-session -t ${JSON.stringify(session.tmuxName)} 2>/dev/null`, { timeout: 5000 }) } catch {}
-    }
     // Reap the sibling-container jail (PRD §6.5). NO-OP unless
     // SESSION_ISOLATION=docker — on the live droplet no jail was ever created,
     // so destroyJailSync returns false without shelling out to docker at all.

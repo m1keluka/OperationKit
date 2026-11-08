@@ -77,7 +77,7 @@ export interface SiblingRow {
  * "no parent" is not a relationship; treating it as one would make every
  * unparented card a sibling of every other and hand back most of the board.
  */
-export function listSiblings(db: DbLike, id: number, includeTerminal = true): SiblingRow[] {
+export function listSiblings(db: DbLike, id: number, includeTerminal = true, workspaceScope?: string | null): SiblingRow[] {
   const self = db.prepare('SELECT parent_id FROM objectives WHERE id = ?').get(id) as
     | { parent_id: number | null }
     | undefined
@@ -86,11 +86,17 @@ export function listSiblings(db: DbLike, id: number, includeTerminal = true): Si
 
   const cols = SIBLING_FIELDS.join(', ')
   const terminalClause = includeTerminal ? '' : " AND status NOT IN ('done', 'cancelled')"
+  // obj 900321: a workspace-scoped principal sees only siblings in ITS workspace.
+  // Siblings share a parent, not necessarily a workspace, so the scope is applied
+  // to the sibling rows themselves rather than inferred from the parent.
+  const scopeClause = workspaceScope ? ' AND workspace = ?' : ''
+  const params: unknown[] = [self.parent_id, id]
+  if (workspaceScope) params.push(workspaceScope)
   return db
     .prepare(
-      `SELECT ${cols} FROM objectives WHERE parent_id = ? AND id != ?${terminalClause} ORDER BY id ASC`,
+      `SELECT ${cols} FROM objectives WHERE parent_id = ? AND id != ?${terminalClause}${scopeClause} ORDER BY id ASC`,
     )
-    .all(self.parent_id, id) as SiblingRow[]
+    .all(...params) as SiblingRow[]
 }
 
 /** True when the row exists. Distinguishes 404 from "orphan, no siblings". */

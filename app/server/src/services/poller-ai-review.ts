@@ -791,13 +791,36 @@ export async function pollAIReviewSessions(): Promise<void> {
       // Delegator workers escalate to their delegator (`review`), never silent done.
       console.warn(`[state-poller] Reviewer ${obj.ai_review_session_id} ended without a <verdict> block — escalating to review`)
       let nextStatus: ObjectiveStatus = (obj.type === 'task' && delegatorParent == null) ? 'done' : 'review'
+
+      // ── The reviewer no-output gap (obj 900322 corrections round, C3/G11) ──
+      // A standalone task whose REVIEWER produced nothing at all — the reviewer
+      // wrapper died before its agent ran, or the session exited with an empty
+      // transcript — took the `done` arm above. Nothing verified the work and
+      // nothing said so: an infrastructure failure on the review side silently
+      // COMPLETED the objective. That is the same lie this objective fixes on
+      // the worker side, on the one lifecycle the worker-side fix cannot reach
+      // (`handleDeadSessionOutcome` is scoped to status='working').
+      //
+      // The fix is deliberately narrow: it changes only the terminal STATUS for
+      // the silent-reviewer case, from `done` to `review`, and names the cause.
+      // It does not re-route a reviewer that produced prose but no parseable
+      // verdict — that one did run, and its existing handling is unchanged.
+      const reviewerProducedNothing = !transcript || transcript.trim().length === 0
+      if (reviewerProducedNothing && nextStatus === 'done') nextStatus = 'review'
+
       if (mustRouteToHumanReview(obj) && nextStatus === 'done') nextStatus = 'review'
       if (await ciGateBlocks(nextStatus)) continue
       runMachineStatusUpdate(
         db,
         "UPDATE objectives SET status = ?, ai_review_verdict = 'blocked', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
         nextStatus,
-        findings || 'Reviewer ended without emitting a verdict block.',
+        reviewerProducedNothing
+          ? 'The REVIEWER session produced no output at all (empty transcript — the reviewer ' +
+            'process died before emitting anything, or never started). Nothing was verified, so ' +
+            'this card is NOT done: it is blocked for a human. This is a review-side ' +
+            'infrastructure failure, not a judgement about the work.' +
+            (findings ? `\n--- reviewer findings (partial) ---\n${findings}` : '')
+          : findings || 'Reviewer ended without emitting a verdict block.',
         obj.id,
       )
       postHarnessStatus(obj, 'failure', 'Test-agent ended without a verdict (blocked).')

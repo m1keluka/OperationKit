@@ -479,6 +479,27 @@ function agentName(label: string): string {
   return label.replace(/^grok:\s*/i, '').trim() || label
 }
 
+/**
+ * How the one-line `summary` names who the card is waiting on (obj 900309).
+ *
+ * The agent KEY is a shared connection — every bot files through it — so the key's
+ * label says who sent the request, never who owns the card. Naming it as the owner
+ * on an unowned card manufactured ownership metadata out of an authentication
+ * artefact: a reader (or a routing bot) could not tell "owned by X" from "filed
+ * through X's key and owned by nobody", and the two demand opposite handling.
+ *
+ * Owned   → name the owner bot.
+ * Unowned → say so, explicitly, and name the fallback route (the General),
+ *           so the receiving router has the same information the server has.
+ *
+ * owner_bot is also carried RAW on the payload (null when unowned), so a router
+ * never has to parse this sentence — it is for humans and for logs.
+ */
+export function needRecipientLabel(ownerBot: string | null | undefined): string {
+  const owner = (ownerBot ?? '').trim()
+  return owner ? agentName(owner) : 'an agent (unowned — routed to the General)'
+}
+
 export function buildNeedPayload(row: EventJoinRow, need: AgentNeed): Omit<AgentWebhookPayload, 'sent_at'> {
   const base = buildPayload(row, { event: 'needs_agent' })
   const status = statusSummary(row)
@@ -487,8 +508,99 @@ export function buildNeedPayload(row: EventJoinRow, need: AgentNeed): Omit<Agent
     event_id: `cc_need_${row.id}_k${row.key_id}`,
     need,
     status_summary: status,
-    // Owned card → name the owner bot; unowned → the key's agent, exactly as before.
-    summary: `Card #${row.objective_id}${row.workspace ? ` (${row.workspace})` : ''} needs ${agentName(row.owner_bot || row.key_label)}: ${need.why}. Status: ${status}.`,
+    // Owned card → name the owner bot; unowned → say unowned. NEVER the key label.
+    summary: `Card #${row.objective_id}${row.workspace ? ` (${row.workspace})` : ''} needs ${needRecipientLabel(row.owner_bot)}: ${need.why}. Status: ${status}.`,
+  }
+}
+
+// ── Actionable completion (obj 900309) ───────────────────────────────────────
+
+/**
+ * The completion needs are TERMINAL, so they are deduped by a stable per-card
+ * event_id rather than by the escalation ladder in agent_webhook_card_need_state.
+ *
+ * Why not the ladder: classifyNeed() returns null for a card that is `done`, and a
+ * null need CLEARS the ladder row. Pushing a terminal kind through it would mean a
+ * card that is reopened and finishes again re-wakes, and a late event on the same
+ * card could re-insert the same need. A deterministic event_id, de-duplicated by the
+ * existing UNIQUE index on agent_webhook_deliveries(event_id), makes the wake
+ * at-most-once for the card's whole life, per key, for free and across restarts.
+ */
+export function completionEventId(kind: 'completed' | 'pr_merged', objectiveId: number, keyId: number): string {
+  return `cc_${kind}_${objectiveId}_k${keyId}`
+}
+
+export interface CompletionSource {
+  kind: string
+  from_value: string | null
+  to_value: string | null
+  deleted_at?: string | null
+}
+
+/**
+ * Did this event complete the card in a way its owning agent must act on?
+ *
+ * Two cases, and the exclusions matter as much as the inclusions:
+ *
+ *  - **`completed`** — a move to `done` whose PREVIOUS status was not `review`.
+ *    A child card's reviewer PASS writes `done` directly (mustRouteToHumanReview()
+ *    is false whenever parent_id is set), so the card never enters `review` and
+ *    never produces a `review` need: it finished, correctly, and silently. That is
+ *    the exact path card #900303 took on 2026-11-08 — it went `done` at 09:45 ET
+ *    with its owner never told.
+ *    A card that WAS in `review` is excluded by design: `review` already woke the
+ *    owner (need kind `review`), and the move out of it is Mike signing off. Mike's
+ *    human-done semantics are untouched, and no card is routed through a fake
+ *    `review` just to manufacture a notification.
+ *
+ *  - **`pr_merged`** — the card's PR reached `merged`. The deliverable shipped,
+ *    which is the other thing an owning agent is waiting to hear. This rides on the
+ *    objective_prs state transition, so it is only as reliable as the merge
+ *    recording — which is precisely why obj 900309 fixes that first.
+ *
+ * Everything else returns null. In particular `cancelled` is NOT a completion (it is
+ * already its own subscribable event), and a `pr` event moving to `closed` is not
+ * either — nothing shipped.
+ */
+export function classifyCompletion(ev: CompletionSource): AgentNeed | null {
+  if (ev.deleted_at) return null
+  if (ev.kind === 'status' && ev.to_value === 'done' && ev.from_value !== 'review') {
+    return {
+      kind: 'completed',
+      category: 'completed',
+      why: 'Finished and signed off without passing through Needs You — read the result and close out your side',
+    }
+  }
+  if (ev.kind === 'pr' && ev.to_value === 'merged') {
+    return {
+      kind: 'pr_merged',
+      category: 'completed',
+      why: 'Its pull request merged — the change has shipped',
+    }
+  }
+  return null
+}
+
+/**
+ * A completion wake, shaped EXACTLY like a `needs_agent` delivery.
+ *
+ * This is deliberate and is the whole reason the event name is not new: the Chief of
+ * Staff routine only understands `needs_agent`-shaped bodies, so a new top-level
+ * event name would have been delivered and then dropped on the floor. A receiver that
+ * ignores `need.kind` sees a well-formed needs_agent it can route on `owner_bot`
+ * alone; a receiver that reads `need.kind` gets the finer signal. Opt-in is preserved
+ * — only a webhook subscribed to `needs_agent` is ever sent one.
+ */
+export function buildCompletionPayload(row: EventJoinRow, need: AgentNeed): Omit<AgentWebhookPayload, 'sent_at'> {
+  const base = buildPayload(row, { event: 'needs_agent' })
+  const status = statusSummary(row)
+  const what = need.kind === 'pr_merged' ? 'merged' : 'completed'
+  return {
+    ...base,
+    event_id: completionEventId(need.kind as 'completed' | 'pr_merged', row.objective_id, row.key_id),
+    need,
+    status_summary: status,
+    summary: `Card #${row.objective_id}${row.workspace ? ` (${row.workspace})` : ''} ${what} — ${needRecipientLabel(row.owner_bot)}: ${need.why}. Status: ${status}.`,
   }
 }
 
@@ -569,6 +681,26 @@ export function enqueueAgentWebhookEvents(db: Database.Database = getDb(), now =
       const payload = buildNeedPayload(row, need)
       return insert.run(payload.event_id, row.key_id, row.objective_id, row.id, 'needs_agent', JSON.stringify(payload), sqliteNow(now)).changes
     }
+    /**
+     * A completion wake (obj 900309). Separate from enqueueNeed on purpose: the
+     * need ladder is for OPEN cards and is cleared by a terminal status, so a
+     * completion cannot ride it. Dedupe is the deterministic event_id against the
+     * UNIQUE index on agent_webhook_deliveries(event_id) — INSERT OR IGNORE makes a
+     * second done/merge event for the same card a silent no-op, so a reopen→done
+     * cycle, a replayed PR state transition, or two keys racing the same tick
+     * cannot produce a duplicate. Returns rows queued (0 or 1).
+     */
+    const enqueueCompletion = (row: EventJoinRow): number => {
+      const need = classifyCompletion({
+        kind: row.kind,
+        from_value: row.from_value,
+        to_value: row.to_value,
+        deleted_at: row.deleted_at,
+      })
+      if (!need) return 0
+      const payload = buildCompletionPayload(row, need)
+      return insert.run(payload.event_id, row.key_id, row.objective_id, row.id, 'needs_agent', JSON.stringify(payload), sqliteNow(now)).changes
+    }
     let queued = 0
     for (const row of page) {
       // A key is never told about a card outside its scope (e.g. the card was moved
@@ -583,6 +715,7 @@ export function enqueueAgentWebhookEvents(db: Database.Database = getDb(), now =
       }
       if (subscribed.includes('needs_agent')) {
         queued += enqueueNeed(row)
+        queued += enqueueCompletion(row)
       }
     }
     writeCursor(db, hasMore ? page[page.length - 1].id : head)

@@ -18,6 +18,21 @@
 #   Any finding present in (2) but missing in (3) means the allowlist hides a real
 #   secret, and this exits 1.
 #
+# Why step 2 retries (obj 900306):
+#   gitleaks' `generic-api-key` rule drops any match containing one of its default
+#   STOPWORDS (`gulp`, `auto`, `good`, `smtp`, ...). The 40-char random value in the
+#   `client_secret` plant contains such a substring by chance about 1.4% of the time
+#   (measured: 7 vacuous in 500 runs), and this script runs TWICE per PR - once as the
+#   `gitleaks-config` job and once inside `oss-public-tree` - so roughly one PR in 35
+#   went red on "control is vacuous: defaults did not fire ['generic-api-key']" with
+#   nothing actually wrong. Observed on run 42515864712, where the two invocations of
+#   THIS script on the SAME commit disagreed.
+#
+#   So a VACUOUS control (step 2 incomplete) is retried with a fresh random draw, up
+#   to MAX_ATTEMPTS. A HIDDEN secret (step 3 - the finding this script exists for) is
+#   NEVER retried and fails immediately, and exhausting every attempt still fails.
+#   This makes the control reliable without making it weaker.
+#
 # Usage: scripts/oss-gitleaks-config-check.sh [config.toml]
 #   default config: scripts/oss-gitleaks.toml   GITLEAKS_BIN defaults to `gitleaks`.
 set -euo pipefail
@@ -27,9 +42,13 @@ GITLEAKS_BIN="${GITLEAKS_BIN:-gitleaks}"
 [ -f "$CONFIG" ] || { echo "config not found: $CONFIG" >&2; exit 2; }
 CONFIG="$(cd "$(dirname "$CONFIG")" && pwd)/$(basename "$CONFIG")"
 
-WORK="$(mktemp -d -t oss-gl-check-XXXXXX)"
-trap 'rm -rf "$WORK"' EXIT
-mkdir -p "$WORK/default" "$WORK/config"
+# One full draw: generate fresh plants, scan both ways, compare.
+# Exit 0 = pass, 3 = vacuous control (retryable), 1 = config hides a real secret (fatal).
+MAX_ATTEMPTS="${MAX_ATTEMPTS:-8}"
+
+attempt_once() {
+  WORK="$(mktemp -d -t oss-gl-check-XXXXXX)"
+  mkdir -p "$WORK/default" "$WORK/config"
 
 python3 - "$WORK/default" <<'PY'
 import base64, json, secrets, string, sys
@@ -72,6 +91,9 @@ scan() {
 scan default
 scan config
 
+  # Only the comparison is allowed to exit non-zero; everything above it must still
+  # abort loudly under errexit.
+  set +e
 python3 - "$WORK/default.json" "$WORK/config.json" <<'PY'
 import json, sys
 EXPECTED = {'github-pat', 'github-oauth', 'github-app-token', 'stripe-access-token',
@@ -84,15 +106,35 @@ default, config = load(sys.argv[1]), load(sys.argv[2])
 fail = 0
 missing_rules = EXPECTED - {rule for _, _, rule in default}
 if missing_rules:
-    print(f"  ✗ control is vacuous: defaults did not fire {sorted(missing_rules)}")
-    fail = 1
+    print(f"  ~ control is vacuous: defaults did not fire {sorted(missing_rules)}")
+    fail = 3   # retryable: the control was never established, so nothing is known yet
 hidden = sorted(default - config)
 for f, line, rule in hidden:
     print(f"  ✗ config hides a real-shaped secret: {rule} ({f}:{line})")
 if hidden:
-    fail = 1
+    fail = 1   # NOT retryable: this is the real finding
 if not fail:
     print(f"  ✓ gitleaks config hides none of {len(default)} real-shaped secrets "
           f"({len(EXPECTED)} rule families)")
 sys.exit(fail)
 PY
+  rc=$?
+  set -e
+  rm -rf "$WORK"
+  return "$rc"
+}
+
+for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+  rc=0
+  attempt_once || rc=$?
+  case "$rc" in
+    0) exit 0 ;;
+    3) echo "    (attempt $attempt/$MAX_ATTEMPTS produced a vacuous control - redrawing)" ;;
+    *) exit "$rc" ;;
+  esac
+done
+
+echo "  ✗ control is STILL vacuous after $MAX_ATTEMPTS independent draws." >&2
+echo "    That is far past chance - treat it as a real regression in the default" >&2
+echo "    ruleset or the plant generator, not as the known stopword flake." >&2
+exit 1

@@ -150,12 +150,15 @@ export function spawnActor(objective: Objective, actingUserId: number | null): C
   if (typeof keyId === 'number' && keyId > 0) {
     try {
       const row = getDb()
-        .prepare('SELECT id, label, connectors FROM agent_api_keys WHERE id = ?')
-        .get(keyId) as { id: number; label: string; connectors: string | null } | undefined
-      // A key that has since been deleted leaves the card with no connector
-      // grant at all, which is the safe reading of "the grant is gone".
+        .prepare('SELECT id, label, connectors, revoked_at FROM agent_api_keys WHERE id = ?')
+        .get(keyId) as { id: number; label: string; connectors: string | null; revoked_at: string | null } | undefined
+      // A key that has since been deleted OR revoked leaves the card with no
+      // connector grant at all, which is the safe reading of "the grant is
+      // gone". Revoke is the only removal the API offers, so it must read the
+      // same as a delete — otherwise a card queued by a revoked inherit-mode
+      // key ("owner") keeps every connector its owner has (obj 900331).
       agentKey = row
-        ? { keyId: row.id, keyLabel: row.label, connectors: parseKeyConnectors(row.connectors) }
+        ? { keyId: row.id, keyLabel: row.label, connectors: row.revoked_at ? [] : parseKeyConnectors(row.connectors) }
         : { keyId, keyLabel: (objective as { agent_key_label?: string | null }).agent_key_label ?? '', connectors: [] }
     } catch {
       agentKey = { keyId, keyLabel: '', connectors: [] }

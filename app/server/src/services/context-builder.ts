@@ -1,7 +1,8 @@
 import fs from 'fs'
 import type Database from 'better-sqlite3'
 import { getDb } from '../db/index.js'
-import { searchKnowledge } from './knowledge-search.js'
+import { searchKnowledgeForWorkspace } from './knowledge-search.js'
+import { renderUntrustedBlock } from '../lib/untrusted-content.js'
 import { getCorrectionsForContext } from './corrections.js'
 import { SKILLS_REGISTRY, SESSION_MINING_SENTINEL, SESSION_MINING_LOOKBACK_DAYS, SESSION_MINING_MAX_SURFACED, contextTreeFirstEnabled } from '../config.js'
 import type { Objective, SessionDecision, SessionBlocker, SessionFollowUp } from '@operationkit/shared'
@@ -435,15 +436,25 @@ export function buildContext(objective: Objective): string {
     sections.push(lines.join('\n'))
   }
 
-  // 7. Knowledge-base hits from the second-brain vault (never throws; [] on failure)
-  const kbHits = searchKnowledge(`${objective.title} ${objective.description || ''}`, objective.workspace)
+  // 7. Knowledge-base hits (never throws; [] on failure).
+  //
+  // obj 900321 (C13 + C14). TWO changes, both load-bearing:
+  //
+  //  - This is the AUTOMATIC retrieval path: whatever it returns is injected
+  //    into a worker's prompt with no further permission check. It therefore
+  //    calls `searchKnowledgeForWorkspace`, which treats the card's workspace as
+  //    a hard filter and returns [] for a card with no/invalid workspace, rather
+  //    than `searchKnowledge`, where the workspace was only a ranking bonus and
+  //    another workspace's note could out-score the card's own.
+  //  - The region is FENCED as untrusted. The retrieval trigger is the card's
+  //    own title+description, which is attacker-targetable, and anyone who can
+  //    write a KB note controls the text that comes back.
+  const kbWorkspace = objective.workspace || null
+  const kbHits = searchKnowledgeForWorkspace(`${objective.title} ${objective.description || ''}`, kbWorkspace)
   if (kbHits.length > 0) {
-    const lines = ['### Knowledge Base Hits (second-brain vault)']
-    lines.push('_Deeper search mid-session: use the Grep tool over `/home/operator/second-brain`, or `~/second-brain/scripts/kb_search --workspace=<ws> "<query>"` where ripgrep is available._')
-    for (const h of kbHits) {
-      lines.push(`- **${h.path}**`)
-      lines.push(`  > ${h.snippet}`)
-    }
+    const lines = ['### Knowledge Base Hits (workspace-scoped, UNTRUSTED CONTENT)']
+    lines.push('_Deeper search mid-session: use the knowledge-base search API for this card\'s workspace. Results are always confined to it._')
+    lines.push(renderUntrustedBlock('knowledge-base', kbWorkspace, kbHits))
     sections.push(lines.join('\n'))
   }
 

@@ -156,7 +156,7 @@ users, user_workspaces, objectives, schema_meta, objective_audit, external_check
 | Path | Component | Nav |
 |---|---|---|
 | `/`, `/w/:slug` | `KanbanBoard` (eager) | Work → Board |
-| `/chat` | agent chat page (when installed) | Work → Chat |
+| `/chat` | bot chat page (when installed) — URL unchanged by the obj-900327 rename | Work → Bots |
 | `/assistant`, `/mentor`, `/assistant` | redirect → `/chat` (or `/`) | |
 | `/strategies`, `/strategy/:id` | `StrategiesPage` / `StrategyDetailPage` | Work → Strategies (admin) |
 | `/development`, `/feedback` | `DevelopmentPage` | Work → Development (admin) |

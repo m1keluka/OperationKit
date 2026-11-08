@@ -346,4 +346,40 @@ describe('agent-key connector allow-list over HTTP', () => {
     expect(me.json.api_key.connectors).toEqual(['owner'])
     expect(me.text).not.toContain(B_PAT)
   })
+
+  // ── obj 900331: admin paths and update semantics over HTTP ────────────────
+
+  it("an admin creating a key with no connectors gets ['owner'] bound to the ADMIN, not anyone else", async () => {
+    const created = await call('POST', '/api/auth/agent-keys', { as: AS_ADMIN, body: { label: 'admin bot' } })
+    expect(created.status).toBe(201)
+    expect(created.json.connectors).toEqual(['owner'])
+    const me = await call('GET', '/api/auth/me', { bearer: created.json.token })
+    expect(me.json.id).toBe(ADMIN)
+    // Its own owner has no GitHub connected; B does. It must see nothing.
+    const gh = await call('GET', '/api/user/github-token', { bearer: created.json.token })
+    expect(gh.text).not.toContain(B_PAT)
+  })
+
+  it("an admin moving A's key to inherit leaves it A's key", async () => {
+    const created = await call('POST', '/api/auth/agent-keys', { as: AS_A, body: { label: 'a key', connectors: [] } })
+    const edited = await call('PATCH', `/api/auth/agent-keys/${created.json.id}`, { as: AS_ADMIN, body: { connectors: ['owner'] } })
+    expect(edited.status).toBe(200)
+    expect(edited.json.connectors).toEqual(['owner'])
+    const me = await call('GET', '/api/auth/me', { bearer: created.json.token })
+    expect(me.json.id).toBe(USER_A)
+    expect(me.json.api_key.connectors).toEqual(['owner'])
+    // The admin's own key list does not gain it.
+    const adminList = await call('GET', '/api/auth/agent-keys', { as: AS_ADMIN })
+    expect(adminList.json.keys.some((k: { id: number }) => k.id === created.json.id)).toBe(false)
+  })
+
+  it('a PATCH that omits connectors is a 400 and changes nothing — silence never means inherit on update', async () => {
+    for (const start of [[], ['github']]) {
+      const created = await call('POST', '/api/auth/agent-keys', { as: AS_A, body: { label: `k${start.length}`, connectors: start } })
+      const r = await call('PATCH', `/api/auth/agent-keys/${created.json.id}`, { as: AS_A, body: {} })
+      expect(r.status).toBe(400)
+      const listed = await call('GET', '/api/auth/agent-keys', { as: AS_A })
+      expect(listed.json.keys.find((k: { id: number }) => k.id === created.json.id).connectors).toEqual(start)
+    }
+  })
 })

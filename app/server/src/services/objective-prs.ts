@@ -173,9 +173,33 @@ export function upsertObjectivePR(input: {
     branch_name: input.branch_name || null,
     title: input.title || null,
   })
+  // obj 900309 — out-of-order safety. GitHub delivers pull_request closed+merged
+  // exactly once and never redelivers it, so a merge observed BEFORE this row existed
+  // used to be lost permanently (the UPDATE matched nothing and the row was then born
+  // "open" forever). The durable pr_terminal_states record is replayed onto the row the
+  // moment it appears, which makes "row first, then merge" and "merge first, then row"
+  // converge on the same final state.
+  if (repo) applyTerminalStateToRow(db, repo, prNumber)
   return db
     .prepare('SELECT * FROM objective_prs WHERE objective_id = ? AND pr_number = ?')
     .get(input.objective_id, prNumber) as ObjectivePR
+}
+
+/** Replay the recorded terminal state (if any) onto this repo+number"s log rows.
+ *  No-op when nothing was recorded or the row is already in that state. */
+function applyTerminalStateToRow(db: Database, repo: string, prNumber: number): void {
+  try {
+    const known = db
+      .prepare('SELECT state FROM pr_terminal_states WHERE repo = ? AND pr_number = ?')
+      .get(repo, prNumber) as { state?: ObjectivePRState } | undefined
+    if (!known?.state) return
+    db.prepare(
+      `UPDATE objective_prs SET state = ?, updated_at = datetime('now')
+        WHERE repo = ? AND pr_number = ? AND state != ? AND state != 'merged'`,
+    ).run(known.state, repo, prNumber, known.state)
+  } catch {
+    /* the table may not exist in a partial env — never fail a PR link over it */
+  }
 }
 
 /** Full PR log for an objective, newest-first. */
@@ -185,21 +209,128 @@ export function listObjectivePRs(objectiveId: number): ObjectivePR[] {
     .all(objectiveId) as ObjectivePR[]
 }
 
-/** Freshen PR state when GitHub reports a merge/close. Matches by (repo, pr_number)
- *  — the same pair used by external-remediation — and updates every matching row
- *  (the same PR could, in theory, be linked from more than one objective). Returns
- *  the number of rows touched. */
+/**
+ * The outcome of recording a PR's terminal state (obj 900309). Returned — and
+ * logged — so "the webhook was accepted" and "the merge was recorded" stop being
+ * the same claim. The previous code returned a bare row count that every caller
+ * discarded, which is why a run of PRs (#643, #649, #651 …) could sit at `open`
+ * for days after a 200-OK merged delivery with nothing anywhere saying so.
+ */
+export interface PRStateRecord {
+  /** The state now in force for this PR (may be the pre-existing one on a replay). */
+  state: ObjectivePRState
+  /** objective_prs rows actually moved by this call. 0 is NORMAL when the PR has no
+   *  card yet (recorded for replay) or when the state was already applied. */
+  rowsUpdated: number
+  /** objective_prs rows that exist for this (repo, pr_number) at all. */
+  rowsMatched: number
+  /** True when this call changed nothing because the PR was already in a terminal
+   *  state — a redelivered or out-of-order webhook. */
+  replay: boolean
+  /** True when a `closed` was refused because the PR is already `merged`. */
+  downgradeRefused: boolean
+}
+
+/**
+ * Record what GitHub said about a PR, durably and idempotently (obj 900309).
+ *
+ * Three invariants, each one of which the old `UPDATE objective_prs` did not hold:
+ *
+ *  1. **Durable.** The verdict is written to `pr_terminal_states` keyed by
+ *     (repo, pr_number) BEFORE any card row is touched, so it survives the PR
+ *     having no `objective_prs` row yet. `upsertObjectivePR` replays it when the row
+ *     is finally created. GitHub does not redeliver a `closed` event on its own, so a
+ *     verdict that is only applied to rows-that-exist-right-now is a verdict lost.
+ *  2. **Idempotent.** Re-running with the same input is a no-op that reports
+ *     `replay: true`. Deliveries genuinely do repeat (GitHub's manual redelivery, the
+ *     retry-storm guard's cache expiring, an operator replaying a backlog).
+ *  3. **Monotonic.** `merged` is terminal. A later `closed` NEVER overwrites it —
+ *     neither in the durable record nor on the rows. A merged PR that is later
+ *     reported closed is a replay of an older event, not new information.
+ *
+ * Matching is widened to repair rows the old code could not see: a log row whose
+ * `repo` is NULL (written before repo tagging, or from a PR report with no URL) but
+ * whose `pr_url` names this repo is matched AND backfilled, so it participates in
+ * every future (repo, pr_number) query instead of staying invisible.
+ *
+ * Never throws: a recording failure must not fail the webhook. It is logged at
+ * `console.error` — a swallowed, unlogged failure is what made the live defect
+ * undiagnosable.
+ */
+export function recordPRTerminalState(input: {
+  repo: string
+  prNumber: number
+  state: ObjectivePRState
+  mergedAt?: string | null
+  deliveryId?: string | null
+}): PRStateRecord | null {
+  const { repo, prNumber, state } = input
+  if (!repo || !prNumber || (state !== 'merged' && state !== 'closed')) return null
+  const db = getDb()
+  try {
+    return db.transaction((): PRStateRecord => {
+      const prior = db
+        .prepare('SELECT state FROM pr_terminal_states WHERE repo = ? AND pr_number = ?')
+        .get(repo, prNumber) as { state?: ObjectivePRState } | undefined
+
+      const downgradeRefused = prior?.state === 'merged' && state === 'closed'
+      const effective: ObjectivePRState = downgradeRefused ? 'merged' : state
+      const replay = prior?.state === effective
+
+      if (!replay) {
+        db.prepare(
+          `INSERT INTO pr_terminal_states (repo, pr_number, state, merged_at, delivery_id)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(repo, pr_number) DO UPDATE SET
+             state       = excluded.state,
+             merged_at   = COALESCE(excluded.merged_at, pr_terminal_states.merged_at),
+             delivery_id = COALESCE(excluded.delivery_id, pr_terminal_states.delivery_id),
+             observed_at = datetime('now')`,
+        ).run(repo, prNumber, effective, input.mergedAt ?? null, input.deliveryId ?? null)
+      }
+
+      // Backfill a NULL repo on rows this PR's URL identifies, so they stop being
+      // invisible to every repo-scoped query (including this one, next time).
+      db.prepare(
+        `UPDATE objective_prs SET repo = ?, updated_at = datetime('now')
+          WHERE repo IS NULL AND pr_number = ? AND pr_url LIKE ?`,
+      ).run(repo, prNumber, `%github.com/${repo}/pull/%`)
+
+      const rowsMatched = (
+        db
+          .prepare('SELECT COUNT(*) AS n FROM objective_prs WHERE repo = ? AND pr_number = ?')
+          .get(repo, prNumber) as { n: number }
+      ).n
+
+      // `state != 'merged'` is the monotonic guard at the row level too: a row already
+      // merged is never moved back to closed by a replayed close.
+      const rowsUpdated = db
+        .prepare(
+          `UPDATE objective_prs SET state = ?, updated_at = datetime('now')
+            WHERE repo = ? AND pr_number = ? AND state != ? AND state != 'merged'`,
+        )
+        .run(effective, repo, prNumber, effective).changes
+
+      return { state: effective, rowsUpdated, rowsMatched, replay, downgradeRefused }
+    })()
+  } catch (e) {
+    console.error(
+      `[objective-prs] FAILED to record ${state} for ${repo}#${prNumber}:`,
+      (e as Error).message,
+    )
+    return null
+  }
+}
+
+/**
+ * Back-compat shim for callers that only want the row count. Prefer
+ * {@link recordPRTerminalState}, which is durable, idempotent and reports WHY a
+ * count was zero.
+ */
 export function markPRStateByRepoAndNumber(
   repo: string,
   prNumber: number,
   state: ObjectivePRState,
 ): number {
-  if (!repo || !prNumber) return 0
-  const res = getDb()
-    .prepare(
-      `UPDATE objective_prs SET state = ?, updated_at = datetime('now')
-       WHERE repo = ? AND pr_number = ?`
-    )
-    .run(state, repo, prNumber)
-  return res.changes
+  return recordPRTerminalState({ repo, prNumber, state })?.rowsUpdated ?? 0
 }

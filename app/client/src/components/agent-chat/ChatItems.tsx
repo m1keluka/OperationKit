@@ -12,9 +12,13 @@ import {
   type EventDraftPayload,
 } from './types'
 
-/* Pieces of one agent conversation (obj 719987): avatar, bubbles, the inline
+/* Pieces of ONE bot conversation (obj 719987): avatar, bubbles, the inline
    activity line for each tool call, draft cards with the person's Send button,
-   and the live status chip for a board card the agent filed. */
+   and the live status chip for a board card the bot filed.
+
+   These render persisted history as-is. The obj-900327 rename changed page
+   chrome only — nothing here reinterprets or rewrites a stored message, so a
+   conversation written before the rename renders identically after it. */
 
 export function AgentAvatar({ agent, size = 'md' }: { agent: Pick<ChatAgentInfo, 'avatar' | 'colour' | 'name'>; size?: 'sm' | 'md' | 'lg' }) {
   const dim = size === 'lg' ? 'h-12 w-12 text-[17px]' : size === 'sm' ? 'h-7 w-7 text-[11px]' : 'h-9 w-9 text-[13px]'

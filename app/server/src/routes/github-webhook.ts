@@ -11,7 +11,7 @@ import { collectFromMergedPR, type MergedPRPayload } from '../services/changelog
 import { enqueuePreviewDeploy, enqueuePreviewTeardown, kickHostDrain } from '../services/preview-spool.js'
 import { handleExternalCheckEvent } from '../services/external-remediation-act.js'
 import { autoLinkPullRequest } from '../services/external-remediation-resolve.js'
-import { markPRStateByRepoAndNumber } from '../services/objective-prs.js'
+import { recordPRTerminalState } from '../services/objective-prs.js'
 import {
   parseDevRefs,
   resolveDevItemsFromBranch,
@@ -299,19 +299,49 @@ router.post('/', (req: Request, res: Response) => {
       const prNumber = Number(payload.number || 0)
       if (prNumber > 0 && enqueuePreviewTeardown(prNumber)) kickHostDrain()
 
-      // Freshen the per-objective PR log (obj 2300): merged=true → 'merged',
-      // otherwise closed-unmerged → 'closed'. Matched by (repo, pr_number).
-      // Best-effort — never let a log update fail the webhook.
+      // Record the PR's terminal state for the per-objective PR log (obj 2300),
+      // durably and idempotently (obj 900309): merged=true → 'merged', otherwise
+      // closed-unmerged → 'closed'. Matched by (repo, pr_number).
+      //
+      // The outcome is LOGGED, always. On 2026-11-08 a merged delivery for #651
+      // returned HTTP 200 while objective_prs.state stayed 'open', and the only
+      // instrumentation on this path was a console.warn that fires on a throw —
+      // so "accepted" and "recorded" were indistinguishable after the fact. They
+      // are now two separate, separately-visible facts.
       try {
         const repo = payload.repository?.full_name || ''
         if (repo && prNumber > 0) {
-          markPRStateByRepoAndNumber(repo, prNumber, pr.merged === true ? 'merged' : 'closed')
+          const rec = recordPRTerminalState({
+            repo,
+            prNumber,
+            state: pr.merged === true ? 'merged' : 'closed',
+            mergedAt: pr.merged_at ?? null,
+            deliveryId,
+          })
+          if (!rec) {
+            console.error(`[github-webhook] objective_prs: NO RECORD written for ${repo}#${prNumber}`)
+          } else {
+            console.log(
+              `[github-webhook] objective_prs ${repo}#${prNumber} → ${rec.state}` +
+                ` (rows ${rec.rowsUpdated}/${rec.rowsMatched}` +
+                `${rec.replay ? ', replay' : ''}${rec.downgradeRefused ? ', downgrade refused' : ''})`,
+            )
+            // 0 matched rows is not an error — the card may link its PR later, and
+            // the durable record is replayed onto the row when it appears — but it
+            // IS worth seeing, because a persistent run of these means PR reporting
+            // is broken upstream.
+            if (rec.rowsMatched === 0) {
+              console.warn(
+                `[github-webhook] ${repo}#${prNumber} ${rec.state} with no objective_prs row yet — recorded for replay`,
+              )
+            }
+          }
         }
       } catch (e) {
-        console.warn('[github-webhook] objective_prs state update failed:', (e as Error).message)
+        console.error('[github-webhook] objective_prs state update failed:', (e as Error).message)
       }
 
-      // The dev_item_prs analogue of markPRStateByRepoAndNumber above
+      // The dev_item_prs analogue of recordPRTerminalState above
       // (api.md §6.3.1). A closed-but-NOT-merged PR sets 'closed' and ships
       // NOTHING — the shipping decision lives in the merged block below.
       try {
