@@ -30,8 +30,8 @@ access.
 | `get_seat_pool` | Which subscription seats can take work now and when the next one resets (no secrets) — see [Accounts, Subscriptions & Seats](./Accounts-Subscriptions-and-Seats) | board:read |
 | `list_objectives` · `get_progress` · `get_output` · `get_artifacts` | List cards · how a running card is going · its thread · its deliverables | board:read |
 | `list_workspaces` · `list_agents` | Valid workspace slugs and agent slugs | board:read |
-| `create_objective` | Create a card in an explicit workspace (optionally start it) | board:write (+ board:start) |
-| `update_objective` | Edit a card's title / brief / goal | board:write |
+| `create_objective` | Create a card in an explicit workspace (optionally start it). `owner_bot` = your own exact Grok bot name; null = unowned (General handles it) | board:write (+ board:start) |
+| `update_objective` | Edit a card's title / brief / goal / `owner_bot` (null clears it) | board:write |
 | `start_objective` | Start or restart a card's session | board:start |
 | `update_status` | Park, cancel (board:cancel) or sign off (board:done) a card | per status |
 | `send_message` · `stop_objective` | Follow up in a card's thread · stop a stuck worker | board:write |

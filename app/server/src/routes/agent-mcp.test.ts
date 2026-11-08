@@ -228,6 +228,32 @@ describe('MCP handshake', () => {
     expect(tools.find(t => t.name === 'update_status')!.description).toMatch(/HUMAN SIGNATURE/)
   })
 
+  // obj 900293: a connector that cached tools/list before #649 could not see
+  // owner_bot. This is the server-side truth a refreshed client must match.
+  it('tools/list: create_objective AND update_objective expose optional owner_bot with the owner-routing description', async () => {
+    const full = mint('grok-owner-introspect', ['board:read', 'board:write'])
+    const r = await rpc('tools/list', {}, full.token)
+    expect(r.status).toBe(200)
+    const tools = r.json.result.tools as { name: string; description: string; inputSchema: { required?: string[]; properties: Record<string, Loose> } }[]
+    for (const name of ['create_objective', 'update_objective']) {
+      const t = tools.find(x => x.name === name)
+      expect(t, name).toBeDefined()
+      const ob = t!.inputSchema.properties.owner_bot
+      expect(ob, `${name}.owner_bot`).toBeDefined()
+      expect(ob.type).toEqual(['string', 'null'])
+      expect(ob.maxLength).toBe(64)
+      expect(ob.description).toMatch(/Set to your own exact Grok bot name/)
+      expect(ob.description).toMatch(/unowned needs fall back to the General/)
+      expect(ob.description).toMatch(/never inferred from your key/)
+      expect(t!.inputSchema.required ?? [], name).not.toContain('owner_bot')
+      // The tool description itself names the field, so a bot reading only descriptions learns it.
+      expect(t!.description, name).toMatch(/owner_bot/)
+      expect(t!.description, name).toMatch(/own exact Grok bot name/)
+    }
+    // get/list return it: owner_bot is part of the slim card row the list tools return.
+    expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['get_objective', 'list_objectives']))
+  })
+
   it('tools/list hides tools a named key has no scope for (the guard stays the authority)', async () => {
     const reader = mint('grok-reader', ['board:read'])
     const names = await listToolNames(reader.token)

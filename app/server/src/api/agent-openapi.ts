@@ -343,7 +343,12 @@ export const AGENT_OPENAPI = {
           description: { type: 'string' },
           completion_goal: { type: ['string', 'null'] },
           origin: { type: 'string', enum: ['manual', 'strategy', 'routine', 'job_reply'] },
-          owner_bot: { type: ['string', 'null'], description: 'Owning Grok bot (name or id). null = unowned. Set explicitly by the filer; never inferred from the key.' },
+          owner_bot: {
+            type: ['string', 'null'],
+            description:
+              'Owning Grok bot, exactly as the filer set it (their own exact Grok bot name). null = unowned: its needs fall back to the General. ' +
+              'Never inferred from the key. Also the top-level owner_bot on the needs_agent webhook.',
+          },
           created_at: { type: 'string' },
           updated_at: { type: 'string' },
         },
@@ -375,9 +380,11 @@ export const AGENT_OPENAPI = {
             type: ['string', 'null'],
             maxLength: 64,
             description:
-              'Optional owning Grok bot (name or id, e.g. "Grok: Research"). Omit = unowned on create / unchanged on update; ' +
-              'null or "" clears it. Trimmed; max 64 chars; letters, digits, single spaces and _ . : @ - only, starting with a letter or digit. ' +
-              'Anything else is a 400. Never inferred from the calling key — a filing bot sets it explicitly. Carried on the needs_agent webhook.',
+              'Optional. Set to your own exact Grok bot name (e.g. "Grok: Research"), or the exact name of the bot you file for. ' +
+              'Omit = unowned on create / unchanged on update; null or "" clears it. Unowned (null) needs fall back to the General. ' +
+              'Trimmed; max 64 chars; letters, digits, single spaces and _ . : @ - only, starting with a letter or digit. ' +
+              'Anything else is a 400. Never inferred from the calling key (all bots share one connection), so a filing bot sets it explicitly. ' +
+              'Flow: card needs an agent → the ONE shared needs_agent webhook → General wake routine → CoS forwards to owner_bot (null → CoS handles it).',
           },
           start: {
             type: 'boolean',
@@ -691,8 +698,14 @@ export const AGENT_OPENAPI = {
         tags: ['board'],
         summary: 'Update fields (not status — use PATCH /status)',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        description:
+          'Only the fields you send change (same field rules as create). owner_bot: set to your own exact Grok bot name to claim the card; ' +
+          'null or "" clears it (unowned → the General handles its needs).',
         requestBody: { content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateObjectiveRequest' } } } },
-        responses: { '200': { description: 'Updated card' } },
+        responses: {
+          '200': { description: 'Updated card', content: { 'application/json': { schema: { $ref: '#/components/schemas/Objective' } } } },
+          '400': { description: 'Validation (e.g. an invalid owner_bot) — nothing is written' },
+        },
       },
       delete: {
         tags: ['board'],
