@@ -64,13 +64,33 @@ export const BUILT_IN_BOTS: BotDefinition[] = [
     id: 'Grok: General',
     name: 'General',
     aliases: ['General', 'general', 'cos'],
-    agent_slugs: ['general'],
+    // 'your-org-general' is the trial chat bot's slug (obj 900371) —
+    // same identity, a second chat surface, scoped to the your-org workspace.
+    agent_slugs: ['general', 'your-org-general'],
   },
   {
     id: 'Grok: General',
     name: 'General',
     aliases: ['General', 'grok-general'],
     agent_slugs: ['general'],
+  },
+  {
+    // New bots (obj 900371, Mike-approved trial). Namespaced agent_slugs
+    // deliberately avoid the bare 'cfo'/'cto' slugs: those already belong to
+    // the session-worker executive roster in the `agents` registry table
+    // (DEFAULT_AGENT_SEED / an operator's seed.agents.json) and reusing them
+    // for a chat-bot agent file would either 409 on install or, with
+    // overwrite:true, silently clobber the production card-routing roster.
+    id: 'Grok: CFO',
+    name: 'CFO',
+    aliases: ['CFO', 'Example CFO', 'grok-cfo'],
+    agent_slugs: ['your-org-cfo'],
+  },
+  {
+    id: 'Grok: CTO',
+    name: 'CTO',
+    aliases: ['CTO', 'Example CTO', 'grok-cto'],
+    agent_slugs: ['your-org-cto'],
   },
 ]
 
