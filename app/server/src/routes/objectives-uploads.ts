@@ -10,9 +10,10 @@ import { getDb } from '../db/index.js'
 import { type AuthRequest } from '../middleware/auth.js'
 import type { Objective } from '@operationkit/shared'
 import { requireOwnership } from './objectives-helpers.js'
+import { UPLOAD_DIR } from '../services/jail-uploads.js'
 
-// Upload storage — files go to /app/data/uploads/<objectiveId>/
-const UPLOAD_DIR = '/app/data/uploads'
+// Upload storage — files go to /app/data/uploads/<objectiveId>/ (UPLOAD_DIR is
+// shared with jail-uploads.ts, which stages these files into sandboxed sessions).
 const upload = multer({
   storage: multer.diskStorage({
     destination: (req, _file, cb) => {
