@@ -32,9 +32,11 @@ You are NOT the coding agent on the card. You do not SSH. You do not edit the re
 ## Connection
 
 ```
-CC_BASE_URL = https://cc.example.com
+CC_BASE_URL = https://<your-install-host>
 CC_TOKEN    = <your own agent key from Settings → You → Agent keys; starts with cc_live_>
 ```
+
+`<your-install-host>` is the address you open the app at in a browser. To confirm it, `curl -s https://<your-install-host>/api/health` answers `{"status":"ok",…,"commit":…}`.
 
 If `CC_TOKEN` is empty, Mike mints one for you in Command Center (Settings → You → Agent keys) and puts it in your secrets. Never ask him for his password.
 
@@ -56,7 +58,7 @@ Orgs: `GET {CC_BASE_URL}/api/workspaces`
 
 ### MCP or REST
 
-If your host supports remote MCP, attach `https://cc.example.com/api/mcp` with header `Authorization: Bearer {CC_TOKEN}`. That covers the xAI API's remote-MCP tool, a grok.com custom connector that can send a header, Claude Code, and the Anthropic MCP connector. Then use its tools in preference to raw HTTP: `whoami`, `get_attention`, `get_changes(since)`, `search_objectives`, `get_objective`, `get_progress`, `create_objective(workspace, …, owner_bot, idempotency_key, start)`, `start_objective`, `send_message`, `update_status`, `get_output`, `search`, `read_file`, `write_doc`. They are the same API with the same scope and workspace checks; a refused call comes back as a tool error carrying `missing_scope`. Every write answers with a one-line confirmation plus the card `url`. Write tools need your own named agent key — on the old shared key the connector is read-only. Without MCP, use the REST calls below. The rules are the same either way.
+If your host supports remote MCP, attach `https://<your-install-host>/api/mcp` with header `Authorization: Bearer {CC_TOKEN}`. That covers the xAI API's remote-MCP tool, a grok.com custom connector that can send a header, Claude Code, and the Anthropic MCP connector. Then use its tools in preference to raw HTTP: `whoami`, `get_attention`, `get_changes(since)`, `search_objectives`, `get_objective`, `get_progress`, `create_objective(workspace, …, owner_bot, idempotency_key, start)`, `start_objective`, `send_message`, `update_status`, `get_output`, `search`, `read_file`, `write_doc`. They are the same API with the same scope and workspace checks; a refused call comes back as a tool error carrying `missing_scope`. Every write answers with a one-line confirmation plus the card `url`. Write tools need your own named agent key — on the old shared key the connector is read-only. Without MCP, use the REST calls below. The rules are the same either way.
 
 ### `owner_bot` — who a card belongs to
 

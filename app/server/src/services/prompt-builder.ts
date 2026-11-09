@@ -16,6 +16,7 @@ import { isStrategyNode } from './delegation.js'
 import { resolveAgentPromptFile } from './agent-registry.js'
 import { isStrategyTierEnabled } from './strategy-governance.js'
 import { HUMAN_VOICE } from '../lib/human-voice.js'
+import { SOURCING_AUTHORITY, needsSourcingAuthority } from '../lib/sourcing-authority.js'
 import { buildKbAccessBlock, buildVaultCaptureBlock } from './kb-access-prompt.js'
 import {
   readAgentInstructions,
@@ -165,6 +166,12 @@ export function buildPrompt(objective: Objective): string {
   parts.push(
     '',
     HUMAN_VOICE,
+    // obj 900192 — standing authorization for public-web sourcing, injected only
+    // on cards that actually do sourcing / scraping / research / enrichment work,
+    // or that have already hit a site obstacle the owner wants pushed past
+    // (needsSourcingAuthority). A card about a Dockerfile has no use for a
+    // scraping posture. See lib/sourcing-authority.ts for the incident and scope.
+    ...(needsSourcingAuthority(objective) ? ['', SOURCING_AUTHORITY] : []),
     '',
     '## Operating Principles',
     '',

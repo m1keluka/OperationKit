@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
+import { useFileDrop, filesFromClipboard } from '../../hooks/useFileDrop'
 import { Alert, Button, EmptyState, IconButton, Skeleton, SkeletonText, cn, useConfirm } from '../ui'
 import { ThinkingIndicator } from '../design/primitives'
 import { AgentAvatar, AssistantBubble, CardChip, DraftCard, ErrorLine, ToolLine, UserBubble } from './ChatItems'
+import { collectImages, humanSize, toWireImages, type PendingImage } from './attachments'
 import {
+  ACCEPTED_IMAGE_TYPES,
   COLOUR_CLASSES,
   PROVIDER_LABELS,
   type AgentsResponse,
@@ -122,10 +125,12 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
   const [thread, setThread] = useState<ThreadResponse | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [text, setText] = useState('')
-  const [pending, setPending] = useState<string | null>(null)
+  const [images, setImages] = useState<PendingImage[]>([])
+  const [pending, setPending] = useState<{ text: string; images: PendingImage[] } | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
+  const filePicker = useRef<HTMLInputElement>(null)
   const { confirm, confirmDialog } = useConfirm()
   const base = `/agent-chat/agents/${encodeURIComponent(agent.slug)}`
 
@@ -141,10 +146,31 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
   useEffect(() => {
     setThread(null)
     setText('')
+    setImages([])
     setSendError(null)
     void load()
   }, [load])
 
+  // Paste / drop / attach all end up here (obj 900157).
+  const addFiles = useCallback(async (files: ArrayLike<File>) => {
+    const r = await collectImages(files, images.length)
+    if (r.images.length) setImages(cur => [...cur, ...r.images].slice(0, 4))
+    setSendError(r.error)
+  }, [images.length])
+
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = filesFromClipboard(e)
+    if (!files) return
+    // Only swallow the paste when it really is an image, so pasting text (which
+    // can also carry a file on some platforms) still types into the box.
+    if (!Array.from(files).some(f => (f.type || '').startsWith('image/'))) return
+    e.preventDefault()
+    void addFiles(files)
+  }
+
+  const { isDragging, dropProps } = useFileDrop(f => void addFiles(f), !pending)
+
+  // Board cards keep moving after the chat ends: refresh while any is still open.
   // Board cards keep moving after the conversation ends: refresh while any is still open.
   const openCards = thread?.cards.some(c => OPEN_CARD.has(c.status)) ?? false
   useEffect(() => {
@@ -157,17 +183,24 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' })
   }, [thread?.messages.length, pending])
 
-  const send = async (raw: string) => {
+  const send = async (raw: string, attached: PendingImage[] = images) => {
     const msg = raw.trim()
-    if (!msg || pending) return
-    setPending(msg)
+    // A screenshot on its own is a message: send when there is text OR an image.
+    if ((!msg && attached.length === 0) || pending) return
+    setPending({ text: msg, images: attached })
     setText('')
+    setImages([])
     setSendError(null)
     try {
-      const r = await api.post<ThreadResponse>(`${base}/messages`, { text: msg }, { timeoutMs: 240_000 })
+      const r = await api.post<ThreadResponse>(
+        `${base}/messages`,
+        { text: msg, ...(attached.length ? { images: toWireImages(attached) } : {}) },
+        { timeoutMs: 240_000 },
+      )
       setThread(t => mergeThread(t, r))
     } catch (e) {
       setText(msg)
+      setImages(attached)
       setSendError(e instanceof Error ? e.message : 'Message not sent')
     } finally {
       setPending(null)
@@ -288,7 +321,14 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
             <>
               <div className="flex justify-end">
                 <div className="max-w-[85%] rounded-lg rounded-br-sm border border-line bg-surface-3 px-3.5 py-2.5 text-[14px] text-fg-0 sm:max-w-[70%]">
-                  <p className="whitespace-pre-wrap break-words">{pending}</p>
+                  {pending.images.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      {pending.images.map(i => (
+                        <img key={i.key} src={i.dataUrl} alt={i.name} className="max-h-40 rounded-md border border-line-soft" />
+                      ))}
+                    </div>
+                  )}
+                  {pending.text && <p className="whitespace-pre-wrap break-words">{pending.text}</p>}
                 </div>
               </div>
               <div className="flex items-center gap-2.5">
@@ -301,12 +341,52 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
       </div>
 
       <form
-        className="border-t border-line bg-surface-1 px-3 pb-[max(env(safe-area-inset-bottom),12px)] pt-3 sm:px-6"
+        className={cn(
+          'border-t border-line bg-surface-1 px-3 pb-[max(env(safe-area-inset-bottom),12px)] pt-3 transition-colors duration-fast sm:px-6',
+          isDragging && 'bg-accent/5 ring-1 ring-inset ring-accent/40',
+        )}
         onSubmit={e => { e.preventDefault(); void send(text) }}
+        {...dropProps}
       >
         <div className="mx-auto max-w-[760px]">
           {sendError && <p role="alert" className="mb-2 text-[12.5px] text-signal-alarm">{sendError}</p>}
+          {isDragging && <p className="mb-2 text-[12.5px] text-accent">Drop the image to attach it</p>}
+          {images.length > 0 && (
+            <ul aria-label="Attached images" className="mb-2 flex flex-wrap gap-2">
+              {images.map(i => (
+                <li key={i.key} className="relative">
+                  <img src={i.dataUrl} alt={i.name} title={`${i.name} · ${humanSize(i.size)}`} className="h-16 w-16 rounded-md border border-line object-cover" />
+                  <button
+                    type="button"
+                    aria-label={`Remove ${i.name}`}
+                    onClick={() => setImages(cur => cur.filter(x => x.key !== i.key))}
+                    className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-line bg-surface-0 text-[11px] leading-none text-fg-1 transition-colors duration-fast hover:border-line-strong hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="flex items-end gap-2">
+            <input
+              ref={filePicker}
+              type="file"
+              accept={ACCEPTED_IMAGE_TYPES.join(',')}
+              multiple
+              className="hidden"
+              data-testid="agent-chat-file-input"
+              onChange={e => {
+                const files = e.target.files
+                if (files && files.length) void addFiles(files)
+                e.target.value = ''
+              }}
+            />
+            <IconButton type="button" label="Attach an image" onClick={() => filePicker.current?.click()} disabled={!!pending}>
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
+              </svg>
+            </IconButton>
             <label htmlFor="agent-chat-input" className="sr-only">Message {agent.name}</label>
             <textarea
               id="agent-chat-input"
@@ -315,15 +395,16 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
               value={text}
               onChange={e => setText(e.target.value)}
               onKeyDown={onKey}
-              placeholder="Write a message"
+              onPaste={onPaste}
+              placeholder="Write a message, or paste a screenshot"
               disabled={!!pending}
               className="max-h-40 min-h-[44px] flex-1 resize-none rounded-lg border border-line bg-surface-0 px-3.5 py-2.5 text-[16px] text-fg-0 placeholder:text-fg-3 transition-colors duration-fast hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60 sm:text-[14px]"
             />
-            <Button type="submit" variant="primary" loading={!!pending} disabled={!text.trim()} className="min-h-[44px] sm:min-h-[44px]">
+            <Button type="submit" variant="primary" loading={!!pending} disabled={!text.trim() && images.length === 0} className="min-h-[44px] sm:min-h-[44px]">
               Send
             </Button>
           </div>
-          <p className="mt-1.5 hidden text-[11px] text-fg-2 sm:block">Enter to send · Shift+Enter for a new line · Email and calendar are always drafts until you press Send.</p>
+          <p className="mt-1.5 hidden text-[11px] text-fg-2 sm:block">Enter to send · Shift+Enter for a new line · paste, drop or attach a screenshot · Email and calendar are always drafts until you press Send.</p>
         </div>
       </form>
       {confirmDialog}

@@ -12,7 +12,15 @@ import { SECOND_BRAIN_DIR } from '../../config.js'
 import { getUserWorkspaces } from '../../middleware/workspace.js'
 import { DEMO_AGENT_SLUG, DEMO_DIR, demoEnabled, loadChatAgents, type ChatAgent, type ChatProviderId } from './agent-defs.js'
 import { resolveConnectors } from './connectors.js'
-import { chooseProviderId, createProvider, ProviderError, type ChatMessage, type ChatProvider, type ProviderDeps } from './providers.js'
+import { chooseProviderId, createProvider, imageDataUrl, ProviderError, type ChatMessage, type ChatProvider, type ProviderDeps } from './providers.js'
+import {
+  deleteAttachmentsForChat,
+  imageDataForMessage,
+  imagesForMessages,
+  saveImages,
+  type IncomingImage,
+  type StoredImage,
+} from './attachments.js'
 import { runTool, toolSpecsFor, ToolUseError, type ToolContext } from './tools.js'
 
 export const MAX_STEPS = 8
@@ -27,6 +35,8 @@ export interface ChatMessageRow {
   model: string | null
   tool_name: string | null
   meta: { draft_id?: number; objective_id?: number; provider_label?: string; ok?: boolean } | null
+  /** Images attached to this message (obj 900157). Metadata only — never bytes. */
+  images: StoredImage[]
   created_at: string
 }
 
@@ -94,8 +104,18 @@ function mapRow(r: Record<string, unknown>): ChatMessageRow {
     model: (r.model as string) ?? null,
     tool_name: (r.tool_name as string) ?? null,
     meta,
+    images: [],
     created_at: String(r.created_at),
   }
+}
+
+/** Hang each message's attachment metadata off its row, in one extra query. */
+function withImages(rows: ChatMessageRow[]): ChatMessageRow[] {
+  if (rows.length === 0) return rows
+  const byMessage = imagesForMessages(rows.map(r => r.id))
+  if (byMessage.size === 0) return rows
+  for (const r of rows) r.images = byMessage.get(r.id) ?? []
+  return rows
 }
 
 export function listMessages(userId: number, slug: string, opts: { afterId?: number; limit?: number } = {}): ChatMessageRow[] {
@@ -107,26 +127,52 @@ export function listMessages(userId: number, slug: string, opts: { afterId?: num
        ) ORDER BY id`,
     )
     .all(userId, slug, opts.afterId ?? 0, limit) as Record<string, unknown>[]
-  return rows.map(mapRow)
+  return withImages(rows.map(mapRow))
 }
 
-function addMessage(userId: number, slug: string, m: Omit<ChatMessageRow, 'id' | 'created_at'>): ChatMessageRow {
+function addMessage(
+  userId: number,
+  slug: string,
+  m: Omit<ChatMessageRow, 'id' | 'created_at' | 'images'>,
+  images: IncomingImage[] = [],
+): ChatMessageRow {
   const db = getDb()
   const info = db
     .prepare('INSERT INTO agent_chat_messages (user_id, agent_slug, role, content, provider, model, tool_name, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(userId, slug, m.role, m.content, m.provider, m.model, m.tool_name, m.meta ? JSON.stringify(m.meta) : null)
-  return mapRow(db.prepare('SELECT * FROM agent_chat_messages WHERE id = ?').get(info.lastInsertRowid) as Record<string, unknown>)
+  const id = Number(info.lastInsertRowid)
+  const row = mapRow(db.prepare('SELECT * FROM agent_chat_messages WHERE id = ?').get(id) as Record<string, unknown>)
+  row.images = saveImages(id, userId, slug, images)
+  return row
 }
 
 export function clearChat(userId: number, slug: string): number {
+  // The images belong to the messages: "Clear chat" must take them too, or the
+  // bytes outlive the conversation the person just deleted.
+  deleteAttachmentsForChat(userId, slug)
   return getDb().prepare('DELETE FROM agent_chat_messages WHERE user_id = ? AND agent_slug = ?').run(userId, slug).changes
 }
 
-/** Earlier turns, as plain text (tool rows become short notes to the model). */
-function historyForModel(rows: ChatMessageRow[]): ChatMessage[] {
+/**
+ * One stored message → what the model sees. A message with attachments becomes
+ * an OpenAI-shape content ARRAY (text + image_url data: URLs) instead of a bare
+ * string, which is what actually carries the screenshot to the model.
+ */
+function userContentForModel(row: Pick<ChatMessageRow, 'id' | 'content' | 'images'>, withImages: boolean): ChatMessage['content'] {
+  if (!withImages || row.images.length === 0) return row.content
+  const imgs = imageDataForMessage(row.id)
+  if (imgs.length === 0) return row.content
+  return [
+    ...imgs.map(i => ({ type: 'image_url' as const, image_url: { url: imageDataUrl(i) } })),
+    { type: 'text' as const, text: row.content || `(${imgs.length === 1 ? 'a screenshot' : `${imgs.length} screenshots`}, no message)` },
+  ]
+}
+
+/** Earlier turns (tool rows become short notes to the model). */
+function historyForModel(rows: ChatMessageRow[], withImages: boolean): ChatMessage[] {
   const out: ChatMessage[] = []
   for (const r of rows.slice(-HISTORY_LIMIT)) {
-    if (r.role === 'user') out.push({ role: 'user', content: r.content })
+    if (r.role === 'user') out.push({ role: 'user', content: userContentForModel(r, withImages) })
     else if (r.role === 'assistant') out.push({ role: 'assistant', content: r.content })
     else if (r.role === 'tool') out.push({ role: 'assistant', content: `[earlier action] ${r.content}` })
   }
@@ -163,6 +209,8 @@ export interface TurnInput {
   username: string
   agent: ChatAgent
   text: string
+  /** Validated images attached to this message (obj 900157). */
+  images?: IncomingImage[]
   env?: NodeJS.ProcessEnv
   deps?: ProviderDeps
   now?: () => Date
@@ -178,8 +226,15 @@ export async function runTurn(input: TurnInput): Promise<{ messages: ChatMessage
   inFlight.add(key)
   const created: ChatMessageRow[] = []
   try {
+    const images = input.images ?? []
     const prior = listMessages(userId, agent.slug, { limit: HISTORY_LIMIT })
-    created.push(addMessage(userId, agent.slug, { role: 'user', content: input.text, provider: null, model: null, tool_name: null, meta: null }))
+    const userRow = addMessage(
+      userId,
+      agent.slug,
+      { role: 'user', content: input.text, provider: null, model: null, tool_name: null, meta: null },
+      images,
+    )
+    created.push(userRow)
 
     const demo = isDemoOn(env) || agent.slug === DEMO_AGENT_SLUG
     // Demo switched on by env (AGENT_CHAT_DEMO=1) never went through the settings
@@ -206,7 +261,24 @@ export async function runTurn(input: TurnInput): Promise<{ messages: ChatMessage
       connectors: [connectors.mail?.label, connectors.calendar?.label].filter((x): x is string => !!x),
     })
     const tools = toolSpecsFor(agent)
-    const convo: ChatMessage[] = [...historyForModel(prior), { role: 'user', content: input.text }]
+    // An agent answered by a provider that cannot look at an image must SAY so.
+    // Silently dropping the screenshot is the bug this objective exists for: the
+    // model then answers "I can't open screenshots" and nobody knows why.
+    if (images.length > 0 && !provider.supportsImages) {
+      created.push(addMessage(userId, agent.slug, {
+        role: 'error',
+        content: `${agent.name} is answered by ${provider.label}, which cannot look at images on this install. Your ${images.length === 1 ? 'image is' : 'images are'} saved in this chat — give the agent an AI provider that reads images (Anthropic API, OpenAI or Grok) and ask again.`,
+        provider: provider.id,
+        model: provider.model,
+        tool_name: null,
+        meta: { provider_label: provider.label },
+      }))
+      return { messages: created }
+    }
+    const convo: ChatMessage[] = [
+      ...historyForModel(prior, provider.supportsImages),
+      { role: 'user', content: userContentForModel(userRow, provider.supportsImages) },
+    ]
 
     for (let step = 0; step < MAX_STEPS; step++) {
       let out

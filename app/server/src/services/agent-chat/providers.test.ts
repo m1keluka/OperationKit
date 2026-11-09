@@ -120,3 +120,58 @@ describe('Claude subscription provider', () => {
     expect(prompts[0].systemPrompt).toContain('search')
   })
 })
+
+// ── images (obj 900157) ──
+
+const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+const imagePart = { type: 'image_url', image_url: { url: `data:image/png;base64,${PNG_B64}` } }
+
+describe('images in the conversation', () => {
+  it('toAnthropicMessages turns an image part into a real image block, image first', () => {
+    const out = toAnthropicMessages([{ role: 'user', content: [imagePart, { type: 'text', text: 'what is this?' }] }])
+    expect(out).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG_B64 } },
+          { type: 'text', text: 'what is this?' },
+        ],
+      },
+    ])
+  })
+
+  it('a content ARRAY is never stringified into the prompt (the obj 900157 bug)', () => {
+    const out = toAnthropicMessages([{ role: 'user', content: [imagePart, { type: 'text', text: 'hi' }] }])
+    const text = out.flatMap(m => m.content).filter(b => b.type === 'text').map(b => (b as { text: string }).text).join()
+    expect(text).toBe('hi')
+    expect(text).not.toContain('image_url')
+    expect(text).not.toContain('data:image')
+  })
+
+  it('a text-only conversation is unchanged', () => {
+    expect(toAnthropicMessages([{ role: 'user', content: 'plain' }])).toEqual([{ role: 'user', content: [{ type: 'text', text: 'plain' }] }])
+  })
+
+  it('only providers that can actually look at an image say they can', () => {
+    expect(createProvider('anthropic', agent, { env: { ANTHROPIC_API_KEY: 'k' } }).supportsImages).toBe(true)
+    expect(createProvider('openai', agent, { env: { OPENAI_API_KEY: 'k' } }).supportsImages).toBe(true)
+    expect(createProvider('demo', agent, { env: {} }).supportsImages).toBe(false)
+    expect(createProvider('claude', agent, { env: {} }).supportsImages).toBe(true)
+    expect(createProvider('claude', agent, { env: { AGENT_CHAT_CLAUDE_IMAGES: '0' } }).supportsImages).toBe(false)
+  })
+
+  it('the Claude CLI backend gets the images out of band, with markers left in the transcript', async () => {
+    const seen: { prompt: string; images?: { media_type: string; data: string }[] }[] = []
+    const backend = async (r: { prompt: string; images?: { media_type: string; data: string }[] }) => {
+      seen.push({ prompt: r.prompt, images: r.images })
+      return { text: 'ok', usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }, stopReason: null, slot: 's', costUsd: 0, ttftMs: null, attempts: 1 }
+    }
+    const p = createProvider('claude', agent, { env: {}, claudeBackend: backend as never })
+    await p.complete({ system: 'SYS', messages: [{ role: 'user', content: [imagePart, { type: 'text', text: 'look' }] }], tools: [], agent })
+    expect(seen[0].images).toEqual([{ media_type: 'image/png', data: PNG_B64 }])
+    expect(seen[0].prompt).toContain('[attached image 1]')
+    expect(seen[0].prompt).toContain('look')
+    // The base64 never gets pasted into the text prompt.
+    expect(seen[0].prompt).not.toContain(PNG_B64)
+  })
+})

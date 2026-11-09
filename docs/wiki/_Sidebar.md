@@ -19,6 +19,7 @@
   - [External Agents](./External-Agents)
   - [Delegator Mode](./Delegator-Mode)
   - [Token-Waste Controls](./Token-Waste-Controls)
+  - [Public-Web Sourcing Policy](./Public-Web-Sourcing-Policy)
 
 **Get going**
 - [Self-Hosting Quickstart](./Self-Hosting-Quickstart)

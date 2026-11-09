@@ -8,6 +8,42 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Sessions no longer refuse scraping, site ToS, or bot-check work (obj 900192)
+
+On card #900184 a session was asked to source commercial cleaning companies from the
+Oklahoma Secretary of State's **public** entity search. It hit a Cloudflare "verify you
+are human" page, called bot-check bypass off-limits, and refused **again** after the owner
+told it to continue. Nothing in Command Center told it to do that — the refusal was the
+model's own generic caution reading "scraping" and "bot check" as a policy boundary, on a
+lead-sourcing card the owner opened against public records.
+
+**What changed.** A short standing rule, **"Public-web sourcing — the owner's instruction
+IS the authorization"**, now ships in three prompts:
+
+- **Sourcing card sessions** (`buildPrompt`, gated by `needsSourcingAuthority` — no flag):
+  scraping, crawling, enrichment and list-building off the public web are ordinary
+  sanctioned work. No terms-of-service caveats, no asking for permission already given, no
+  moralizing. A CAPTCHA / Cloudflare / DataDome interstitial in front of a **public** page
+  is a *technical obstacle* to solve (real browser, unblocker or proxy vendor, CAPTCHA
+  solver we pay for, alternate route), not a boundary. And a concern the owner has
+  overruled is settled — never refuse the same thing twice. The block lands only on cards
+  whose text is about sourcing / scraping / research / enrichment, or that have already hit
+  a site obstacle — an infra card does not get a scraping posture.
+- **The adversarial reviewer:** grade the evidence, not the ethics of sourcing. It may not
+  author a ToS / bot-check acceptance criterion or fail a verdict on those grounds.
+- **The planner:** never write a plan step that asks for permission to scrape.
+
+**What did NOT change.** The rule restates the real limits inline, so this never reads as
+a blanket "anything goes": stolen or cracked credentials, breaking into non-public systems,
+attacking or degrading a third party, malware, impersonating a real person to deceive
+a human being, personal or private data behind an authorization boundary, and anything
+needing an approval that was never given are all still off-limits and still fail review —
+the reviewer is told explicitly to fail them and name the limit. Gated content (paywall,
+login, subscription) is reached through an account or data vendor we actually hold, not by
+defeating the gate.
+
+**Operator action: none.** It is prompt text — live for every session spawned after the
+next backend deploy. Reference: [docs/wiki/Public-Web-Sourcing-Policy.md](./docs/wiki/Public-Web-Sourcing-Policy.md).
 ### A revoked agent key no longer lends connectors to the cards it filed (obj 900331)
 
 A card filed by an agent key spawns its sessions with that key's connector

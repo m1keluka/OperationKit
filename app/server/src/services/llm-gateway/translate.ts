@@ -20,6 +20,8 @@ export type OAIRole = 'system' | 'developer' | 'user' | 'assistant' | 'tool'
 export interface OAIContentPart {
   type: string
   text?: string
+  /** OpenAI-shape image part. The url is a data: URL for an attached image. */
+  image_url?: { url: string; detail?: string }
 }
 
 export interface OAIToolCall {

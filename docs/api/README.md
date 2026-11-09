@@ -2,10 +2,12 @@
 
 Remote HTTP API so a person — or a **third-party agent** (Claude, Grok, ChatGPT, a cron, a bot) — can project-manage the board without sitting in the UI.
 
-Live machine spec: `GET https://cc.example.com/api/openapi.json`  
-Discovery: `GET https://cc.example.com/api/agent`  
+Live machine spec: `GET https://<your-install-host>/api/openapi.json`  
+Discovery: `GET https://<your-install-host>/api/agent`  
 Portable agent prompt: [AGENT-PROMPT.md](./AGENT-PROMPT.md)  
-MCP server: `POST https://cc.example.com/api/mcp` ([below](#mcp-server))
+MCP server: `POST https://<your-install-host>/api/mcp` ([below](#mcp-server))  
+Host: `<your-install-host>` is the address you open the app at in a browser. To confirm it, `curl -s https://<your-install-host>/api/health` answers `{"status":"ok",…,"commit":…}`.
+
 Standing Grok Bots (names must match exactly). Each has **its own agent key**; setup steps are in [bots/SETUP.md](./bots/SETUP.md):
 
 | Bot | Prompt | Key label | Scopes | Workspaces |
@@ -331,7 +333,7 @@ On 409 the card **exists** — do not create it again. Retry with `PATCH /api/ob
 ## Quick curl
 
 ```bash
-BASE=https://cc.example.com
+BASE=https://<your-install-host>
 KEY=cc_live_…   # an agent key from Settings → You → Agent keys
 
 curl -s $BASE/api/auth/me -H "Authorization: Bearer $KEY" | jq .api_key
@@ -370,7 +372,7 @@ Bot gets the new tools at its next chat. Nothing about the URL changes.
 
 | | |
 | --- | --- |
-| URL | `https://cc.example.com/api/mcp` |
+| URL | `https://<your-install-host>/api/mcp` |
 | Transport | Streamable HTTP, **stateless**: `POST` only, JSON responses. `GET` is 405 (there is no SSE stream). |
 | Auth | `Authorization: Bearer cc_live_…`: the bot's own agent key (a JWT also works). No header → `401` + `WWW-Authenticate: Bearer`. Cookies are ignored. |
 | Writes | **Need a named agent key.** On the legacy full-access key the connector is read-only: write tools return a tool error that tells the bot to ask for a named key. That key can also set `done`, so it must not reach every bot that shares a connector. |
@@ -434,7 +436,7 @@ automatically. They cannot use `system` / `root` / `content`, so the redacted sy
 crontabs) stay a human surface.
 
 Every **write** answers with a short receipt: `{ confirmation: "Created #1234 \"…\" in example and started it.", id,
-url: "https://cc.example.com/o/1234", title, status, workspace }`. The base URL follows `APP_BASE_URL` if the app
+url: "https://<your-install-host>/o/1234", title, status, workspace }`. The base URL follows `APP_BASE_URL` if the app
 moves hosts.
 
 Outputs are trimmed to save tokens: slim rows, long prose clipped, and tool payloads stripped from thread output. A REST error comes back as a tool result with `isError: true` and text `Error <status>: <message>`, so the model can see a `409` and react to it. A scope refusal adds ` (missing_scope: board:done)` to that text and `structuredContent: { error, status, missing_scope }`. The server `instructions` and tool descriptions carry the bot rules: **attention → changes, not the board**, **always an idempotency_key on create**, **read before you write**, and **`done` is a human signature (Mike's)**.
@@ -447,21 +449,21 @@ Outputs are trimmed to save tokens: slim rows, long prose clipped, and tool payl
   "input": "What needs me on the example board?",
   "tools": [{
     "type": "mcp",
-    "server_url": "https://cc.example.com/api/mcp",
+    "server_url": "https://<your-install-host>/api/mcp",
     "server_label": "command_center",
     "authorization": "Bearer cc_live_…"
   }]
 }
 ```
 
-Python SDK: `mcp(server_url="https://cc.example.com/api/mcp", server_label="command_center", authorization="Bearer cc_live_…")`. A bare token (without `Bearer `) is accepted too. The scoped key is the real limit (a key without `board:write` cannot write, whatever tools are listed). Add `allowed_tools` (REST) / `allowed_tool_names` (SDK) to also hide tools from the model, e.g. read-only access without `create_objective`, `update_status`, `send_message` or `stop_objective`.
+Python SDK: `mcp(server_url="https://<your-install-host>/api/mcp", server_label="command_center", authorization="Bearer cc_live_…")`. A bare token (without `Bearer `) is accepted too. The scoped key is the real limit (a key without `board:write` cannot write, whatever tools are listed). Add `allowed_tools` (REST) / `allowed_tool_names` (SDK) to also hide tools from the model, e.g. read-only access without `create_objective`, `update_status`, `send_message` or `stop_objective`.
 
 ### Claude
 
 Claude Code:
 
 ```bash
-claude mcp add --transport http command-center https://cc.example.com/api/mcp \
+claude mcp add --transport http command-center https://<your-install-host>/api/mcp \
   --header "Authorization: Bearer cc_live_…"
 ```
 
@@ -473,7 +475,7 @@ Messages API MCP connector (beta `mcp-client-2025-11-20`). This needs both halve
   "max_tokens": 16000,
   "mcp_servers": [{
     "type": "url",
-    "url": "https://cc.example.com/api/mcp",
+    "url": "https://<your-install-host>/api/mcp",
     "name": "command-center",
     "authorization_token": "cc_live_…"
   }],
@@ -482,12 +484,12 @@ Messages API MCP connector (beta `mcp-client-2025-11-20`). This needs both halve
 }
 ```
 
-**Claude.ai custom connector** (Settings → Connectors → Add custom connector): set the URL to `https://cc.example.com/api/mcp`. Claude.ai connectors authenticate with OAuth or not at all. They cannot send a static `Authorization` header, so a Claude.ai connector gets `401` until the OAuth resource-server follow-up ships. Until then, use the Messages API or Claude Code snippets above.
+**Claude.ai custom connector** (Settings → Connectors → Add custom connector): set the URL to `https://<your-install-host>/api/mcp`. Claude.ai connectors authenticate with OAuth or not at all. They cannot send a static `Authorization` header, so a Claude.ai connector gets `401` until the OAuth resource-server follow-up ships. Until then, use the Messages API or Claude Code snippets above.
 
 ### Raw JSON-RPC (debugging)
 
 ```bash
-curl -s https://cc.example.com/api/mcp \
+curl -s https://<your-install-host>/api/mcp \
   -H "Authorization: Bearer $CC_KEY" -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'

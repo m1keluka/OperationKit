@@ -11,7 +11,7 @@ before that changes nothing, and restarting a shared connector mid-release inter
 A client can only show what the server it talks to serves. Check that server first (no key needed):
 
 ```bash
-BASE=https://<your install>            # the host your MCP connector points at
+BASE=https://<your-install-host>      # the host your MCP connector points at
 curl -s "$BASE/api/health"             # newer builds include "commit"; compare with the release
 curl -s "$BASE/api/openapi.json" | grep -o owner_bot | wc -l   # 0 = this install predates #649
 ```
@@ -55,22 +55,47 @@ schema) and compare it with the server's answer.
 
 A **stdio** connector (a local process the client launches, such as `mcp-remote` or a wrapper
 script) is **not part of this repo**. This repo only controls the server side: `POST /api/mcp`
-in `app/server/src/routes/agent-mcp.ts`. The stdio side lives in the client host's MCP config.
-If a stdio connector still shows the old schema after a full restart, it is either:
+in `app/server/src/routes/agent-mcp.ts`. No tracked repo ships a stdio adapter, proxy package or
+static tool manifest for it. The stdio side is whatever package the client host's MCP config
+launches.
 
-1. **Pointing at an install that is not on the release.** Find the URL in the connector's
-   config and run step 1 against that host. For example, on 2026-11-07, `https://cc.example.com`
-   served an OpenAPI with no `owner_bot`, `needs_agent` or `duplicate_24h`, and `/api/health` had no
-   `commit` field. That means it was on a build from before 2026-11-01, even though another install
-   was already on #649. Fixing this means an **approved** update of that install, or an approved
-   change to the URL the connector points at.
-2. **A wrapper with its own copy of the tool list.** Some wrappers ship their own copy of the tool
-   list instead of proxying `tools/list`. That copy has to be updated where it is installed.
-   Count the tools to tell the two apart: the server lists 34 tools for a full-scope key. A
-   wrapper with its own list drifts from the server whenever a release changes a schema.
+### 4a. Descriptors stale, but data calls return the new field: the wrapper serves static descriptors
 
-Changing a shared connector's config, URL or key is an install change. It needs the owner's
-approval, the same as a deploy. A worker card documents it and stops there.
+The signature is: after a **full** client restart, the client's `create_objective` /
+`update_objective` descriptors still have no `owner_bot` (and the `update_objective` description
+still lists only title, description, completion goal, agent, project, model and effort), **but**
+data calls through the same connector already return the new field. For example,
+`get_objective` comes back with `"owner_bot": null` and today's cards. The data comes from the
+current server, so the server is fine. The descriptors do not come from that server's
+`tools/list`. The wrapper (or adapter) ships or caches its own copy of the tool list instead of
+passing `tools/list` through.
+
+Check it like this:
+
+1. Run the server's `tools/list` yourself with **your own** agent key (step 2 above), and save
+   the `create_objective` and `update_objective` entries.
+2. Ask the client to show its `create_objective` and `update_objective` descriptors (or read them
+   from its tool-list UI), and compare.
+   - The server has `owner_bot` and the client doesn't: the wrapper is serving static
+     descriptors. Restarting will never fix it.
+   - Both lack it: the server you queried predates the release. Go back to step 1.
+3. Fix it through the wrapper's **supported** path: upgrade or reinstall the wrapper package to a
+   version that passes `tools/list` through (or that has the current descriptors), then do a full
+   client restart and repeat step 2. If the wrapper can't pass `tools/list` through, swap it for a
+   pass-through bridge such as `mcp-remote` pointed at `https://<your-install-host>/api/mcp`.
+
+To decide which of these applies to a specific connector, you need its **non-secret** metadata:
+the wrapper's package name and version, and its launch command with the key redacted. Only the
+connector's owner can supply that. Don't go looking for it by reading other processes'
+environments or the connector's secret config.
+
+### 4b. Both server and client lack the field
+
+The install the connector talks to is not on the release. Fixing that means an **approved** update
+of that install, or an approved change to the URL the connector points at.
+
+Changing a shared connector's config, URL, key or wrapper package is an install change. It needs
+the owner's approval, the same as a deploy. A worker card documents it and stops there.
 
 ## Until the client is refreshed
 
