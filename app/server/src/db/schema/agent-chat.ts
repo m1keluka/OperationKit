@@ -20,6 +20,19 @@ export function initAgentChatSchema(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_chat_messages_thread ON agent_chat_messages(user_id, agent_slug, id);
 
+    CREATE TABLE IF NOT EXISTS agent_chat_attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      agent_slug TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'image',
+      media_type TEXT NOT NULL,
+      size INTEGER NOT NULL DEFAULT 0,
+      bytes BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_chat_attachments_msg ON agent_chat_attachments(message_id);
+
     CREATE TABLE IF NOT EXISTS agent_chat_drafts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,

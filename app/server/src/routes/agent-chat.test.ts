@@ -225,3 +225,70 @@ describe('agent chat', () => {
     expect((await call('PUT', '/settings', { as: ADMIN, role: 'admin', body: { default_provider: 'bogus' } })).status).toBe(400)
   })
 })
+
+// ── attached screenshots (obj 900157) ──
+
+const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+const shot = (over: Record<string, unknown> = {}) => ({ name: 'bug.png', media_type: 'image/png', data: PNG_B64, ...over })
+
+const sendWithImages = (as: number, text: string, images: unknown[], slug = 'demo-assistant') =>
+  call('POST', `/agents/${slug}/messages`, { as, body: { text, images } })
+
+describe('images in chat', () => {
+  it('a pasted screenshot is stored against the message and comes back as metadata', async () => {
+    const r = await sendWithImages(OWNER, 'what is wrong here?', [shot()])
+    expect(r.status).toBe(200)
+    const userMsg = r.json.messages.find((m: Loose) => m.role === 'user')
+    expect(userMsg.images).toHaveLength(1)
+    expect(userMsg.images[0]).toMatchObject({ name: 'bug.png', media_type: 'image/png' })
+    expect(userMsg.images[0].url).toMatch(/^\/api\/agent-chat\/attachments\/\d+$/)
+    // Bytes never ride along in the thread JSON.
+    expect(JSON.stringify(r.json)).not.toContain(PNG_B64)
+
+    // …and they are still there when the thread is re-read.
+    const again = await call('GET', '/agents/demo-assistant/messages', { as: OWNER })
+    expect(again.json.messages.find((m: Loose) => m.id === userMsg.id).images).toHaveLength(1)
+  })
+
+  it('a screenshot with no words is a valid message (the paste-and-send case)', async () => {
+    const r = await sendWithImages(OWNER, '', [shot({ name: 'solo.png' })])
+    expect(r.status).toBe(200)
+    expect(r.json.messages.find((m: Loose) => m.role === 'user').images).toHaveLength(1)
+  })
+
+  it('serves the image to the person who attached it, and to nobody else', async () => {
+    const posted = await sendWithImages(OWNER, 'see this', [shot()])
+    const url = posted.json.messages.find((m: Loose) => m.role === 'user').images[0].url
+
+    const mine = await fetch(`${baseUrl}${url}`, { headers: { Cookie: `token=${tokenFor(OWNER)}` } })
+    expect(mine.status).toBe(200)
+    expect(mine.headers.get('content-type')).toBe('image/png')
+    expect(mine.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(Buffer.from(await mine.arrayBuffer()).toString('base64')).toBe(PNG_B64)
+
+    const theirs = await fetch(`${baseUrl}${url}`, { headers: { Cookie: `token=${tokenFor(OTHER)}` } })
+    expect(theirs.status).toBe(404)
+    expect((await fetch(`${baseUrl}${url}`)).status).toBe(401)
+  })
+
+  it('refuses anything that is not really one of the four image types', async () => {
+    const notAnImage = Buffer.from('<svg onload=alert(1)/>').toString('base64')
+    const bad = await sendWithImages(OWNER, 'hi', [shot({ name: 'evil.svg', media_type: 'image/svg+xml', data: notAnImage })])
+    expect(bad.status).toBe(400)
+    expect(bad.json.error).toMatch(/PNG, JPEG, GIF or WebP/)
+
+    const lying = await sendWithImages(OWNER, 'hi', [shot({ data: notAnImage })])
+    expect(lying.status).toBe(400)
+
+    expect((await sendWithImages(OWNER, 'hi', Array.from({ length: 5 }, () => shot()))).status).toBe(400)
+    expect((await sendWithImages(OWNER, 'hi', 'not-a-list' as unknown as unknown[])).status).toBe(400)
+  })
+
+  it('clearing the chat takes the images with it', async () => {
+    const posted = await sendWithImages(OTHER, 'keep this', [shot()])
+    const url = posted.json.messages.find((m: Loose) => m.role === 'user').images[0].url
+    expect((await fetch(`${baseUrl}${url}`, { headers: { Cookie: `token=${tokenFor(OTHER)}` } })).status).toBe(200)
+    expect((await call('DELETE', '/agents/demo-assistant/messages', { as: OTHER })).status).toBe(200)
+    expect((await fetch(`${baseUrl}${url}`, { headers: { Cookie: `token=${tokenFor(OTHER)}` } })).status).toBe(404)
+  })
+})

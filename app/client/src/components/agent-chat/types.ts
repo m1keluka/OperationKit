@@ -28,6 +28,16 @@ export interface AgentsResponse {
   problems?: { slug: string; file: string; errors: string[] }[]
 }
 
+/** An image attached to a chat message (obj 900157). */
+export interface ChatImage {
+  id: number
+  name: string
+  media_type: string
+  size: number
+  /** Owner-only server route that serves the bytes. */
+  url: string
+}
+
 export interface ChatMessage {
   id: number
   role: 'user' | 'assistant' | 'tool' | 'error'
@@ -36,8 +46,14 @@ export interface ChatMessage {
   model: string | null
   tool_name: string | null
   meta: { draft_id?: number; objective_id?: number; provider_label?: string; ok?: boolean } | null
+  images?: ChatImage[]
   created_at: string
 }
+
+/** Image types the server accepts — kept in step with services/agent-chat/attachments.ts. */
+export const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+export const MAX_IMAGES_PER_MESSAGE = 4
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 export interface EmailDraftPayload { to: string; subject: string; body: string; in_reply_to?: string | null }
 export interface EventDraftPayload { title: string; start: string; end: string; with: string[]; note?: string | null }

@@ -12,6 +12,7 @@ vi.mock('../account-router.js', () => ({
 
 import {
   buildClaudeArgs,
+  buildClaudeStdin,
   buildClaudeEnv,
   buildSpawnCommand,
   applyStreamLine,
@@ -167,5 +168,34 @@ describe('account rotation', () => {
     const pick = vi.fn((f: (a: AccountSlot) => boolean) => [slot('a')].find(f) ?? null)
     const backend = createClaudeCliBackend({ env: {}, pick, run: vi.fn() as any })
     await expect(backend({ model: 'claude-sonnet-5', systemPrompt: '', prompt: 'x' })).rejects.toMatchObject({ kind: 'no_account' })
+  })
+})
+
+// ── images (obj 900157) ──
+
+describe('image turns', () => {
+  const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+  it('a text turn is byte-identical to before: no --input-format, bare prompt on stdin', () => {
+    expect(buildClaudeArgs('claude-sonnet-5', 'SYS')).not.toContain('--input-format')
+    expect(buildClaudeArgs('claude-sonnet-5', 'SYS', false)).not.toContain('--input-format')
+    expect(buildClaudeStdin('hello', [])).toBe('hello')
+  })
+
+  it('an image turn switches stdin to stream-json and sends image blocks before the prompt', () => {
+    const args = buildClaudeArgs('claude-sonnet-5', 'SYS', true)
+    expect(args.slice(0, 3)).toEqual(['-p', '--input-format', 'stream-json'])
+    const line = buildClaudeStdin('what is wrong?', [{ media_type: 'image/png', data: PNG_B64 }])
+    expect(line.endsWith('\n')).toBe(true)
+    expect(JSON.parse(line)).toEqual({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG_B64 } },
+          { type: 'text', text: 'what is wrong?' },
+        ],
+      },
+    })
   })
 })

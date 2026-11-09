@@ -197,6 +197,12 @@ app.use(cors({
 // the HMAC-SHA256 signature, so it is mounted with express.raw BEFORE the global
 // JSON parser. express.json then no-ops for this path (req._body already set).
 app.use('/api/webhooks/github', express.raw({ type: '*/*', limit: '5mb' }), githubWebhookRouter)
+// Agent-chat messages carry pasted screenshots as base64 (obj 900157), which a
+// 2mb body cap rejects before the route ever sees it. Mounted BEFORE the global
+// parser; express.json then no-ops for this path (req._body already set). The
+// per-image and per-message caps that actually matter live in
+// services/agent-chat/attachments.ts.
+app.use('/api/agent-chat/agents', express.json({ limit: '30mb' }))
 app.use(express.json({ limit: '2mb' }))
 app.use(cookieParser())
 // Named/scoped agent API keys (obj 714090): scope + workspace guardrails and

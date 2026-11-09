@@ -24,7 +24,7 @@ interface LayoutProps {
    structure stays coherent as sections are added:
 
      • primary — Bots (when the bot chat page is in the build), Board,
-                 Knowledge base, Jobs
+                 Knowledge base, Content (content owners only), Jobs
      • more    — Archive, Agents, Dashboard. Settings lives in the user menu.
        Unfinished surfaces (Contacts, Strategies, Development, Notes, Status,
        Feed) stay routed + ⌘K-able but are not in the chrome.
@@ -32,9 +32,10 @@ interface LayoutProps {
    Each item declares its permission `gate` (preserved exactly from the prior
    nav) and a `mobile` placement. Both viewports render from this same model:
 
-     • Mobile bottom bar — at most 5 hits: the four `mobile:'tab'` items
-       (Bots, Board, Knowledge base, Jobs) + a grouped "More" overflow holding
-       every `mobile:'more'` item. ≤5 tabs is a hard constraint (390px).
+     • Mobile bottom bar — at most 5 hits: the first four visible
+       `mobile:'tab'` items (Bots, Board, Knowledge base, then Content or Jobs)
+       + a grouped "More" overflow holding every `mobile:'more'` item and any
+       tab past the fourth. ≤5 tabs is a hard constraint (390px).
      • Desktop top bar — has more room, so the Work / Automation / Directory
        groups render inline (hairline-separated) and the System group collapses
        into a single "System ▾" overflow — the desktop counterpart of "More".
@@ -42,7 +43,7 @@ interface LayoutProps {
    Same grouping, different overflow threshold per viewport = responsive IA.
    ───────────────────────────────────────────────────────────────────────── */
 
-type NavGate = 'admin' | 'chat'
+type NavGate = 'admin' | 'chat' | 'content'
 
 interface NavItem {
   href: string
@@ -71,7 +72,11 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/chat',      label: 'Bots',           icon: 'chat',  aliases: [],        gate: 'chat',  mobile: 'tab' },
       { href: '/',          label: 'Board',          icon: 'board', aliases: [],                       mobile: 'tab' },
       { href: '/knowledge', label: 'Knowledge base', shortLabel: 'Knowledge', icon: 'docs', aliases: ['/docs'], mobile: 'tab' },
-      // Worst case (admin) is Bots, Board, Knowledge base, Jobs + More = 5 — fits the ≤5 cap.
+      // Content is per-person provisioning (a `content_owners` row), not a role: Ava is a
+      // member and still gets it; nobody without a row ever sees it. It sits before Jobs so
+      // owners keep it as a bottom-bar tab. Worst case (admin + content owner) is Bots, Board,
+      // Knowledge base, Content + More = 5: Jobs spills into More (MOBILE_TAB_CAP below).
+      { href: '/granola',   label: 'Content',        icon: 'content', aliases: [],      gate: 'content', mobile: 'tab' },
       { href: '/jobs',      label: 'Jobs',           icon: 'jobs',  aliases: [],        gate: 'admin', mobile: 'tab' },
     ],
   },
@@ -86,6 +91,9 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
 ]
+
+// Mobile bottom bar: this many tabs + "More" = the 5-hit cap at 390px.
+const MOBILE_TAB_CAP = 4
 
 // Desktop overflow (the counterpart of mobile "More").
 const DESKTOP_MENU_GROUP = 'more'
@@ -125,6 +133,8 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     setUserMenuOpen(false)
   }
   const isAdmin = user?.role === 'admin'
+  // Content surface access — set by GET /api/auth/me from the `content_owners` table.
+  const hasContent = user?.has_content === true
   const { theme, toggleTheme } = useBoardTheme()
   const showWorkspace =
     currentPath === '/' || currentPath === '/feed' || currentPath === '/archive'
@@ -148,6 +158,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   const gatePass = (item: NavItem) => {
     if (item.gate === 'admin') return isAdmin
     if (item.gate === 'chat') return HAS_CHAT_PAGE
+    if (item.gate === 'content') return hasContent
     return true
   }
 
@@ -157,7 +168,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       NAV_GROUPS
         .map(g => ({ ...g, items: g.items.filter(gatePass) }))
         .filter(g => g.items.length > 0),
-    [isAdmin]
+    [isAdmin, hasContent]
   )
 
   const allItems = useMemo(() => groups.flatMap(g => g.items), [groups])
@@ -166,14 +177,18 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   const inlineGroups = useMemo(() => groups.filter(g => g.id !== DESKTOP_MENU_GROUP), [groups])
   const systemGroup = useMemo(() => groups.find(g => g.id === DESKTOP_MENU_GROUP) ?? null, [groups])
 
-  // Mobile: ≤4 fixed tabs + a grouped "More" overflow with the rest.
-  const mobileTabs = useMemo(() => allItems.filter(i => i.mobile === 'tab'), [allItems])
+  // Mobile: ≤4 fixed tabs + a grouped "More" overflow with the rest (incl. any
+  // `mobile:'tab'` item past the fourth, so the bar never exceeds 5 hits).
+  const mobileTabs = useMemo(
+    () => allItems.filter(i => i.mobile === 'tab').slice(0, MOBILE_TAB_CAP),
+    [allItems]
+  )
   const mobileMoreGroups = useMemo(
     () =>
       groups
-        .map(g => ({ ...g, items: g.items.filter(i => i.mobile === 'more') }))
+        .map(g => ({ ...g, items: g.items.filter(i => !mobileTabs.includes(i)) }))
         .filter(g => g.items.length > 0),
-    [groups]
+    [groups, mobileTabs]
   )
 
   const isActive = (item: NavItem) => {

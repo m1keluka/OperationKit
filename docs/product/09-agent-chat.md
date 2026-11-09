@@ -31,6 +31,7 @@ Bots are optional. The same bots and notes can also be reached from Claude, Chat
 1. Open **Bots** (top bar on a computer, bottom bar on a phone). The address is still `/chat`, so old bookmarks still land here.
 2. Pick a bot from the list. Each bot keeps **one ongoing conversation with you** — come back tomorrow and it is still there. Opening a bot reopens that conversation; it does not start a second one, and it does not create a bot.
 3. Type what you need. Press **Enter** to send (**Shift + Enter** for a new line).
+4. To show the agent something, **paste a screenshot straight into the box** (Ctrl/Cmd + V), drag an image onto the composer, or use the **paperclip**. Up to 4 images per message, 5 MB each, PNG / JPEG / GIF / WebP. An image on its own is a perfectly good message.
 
 Under every reply you will see **"Answered by …"** — the AI service and model that wrote it (for example *Claude · claude-sonnet-5*, or *Demo (no AI account)*). The top of the conversation shows which one that bot uses.
 
@@ -46,6 +47,9 @@ What each bot may do is written in its agent file (below). The server enforces i
 |---|---|
 | **Read and update notes** | Only inside the knowledge-base folders its file lists. It cannot see anything else on the server. |
 | **Read email and your calendar** | Through a connected account (or the demo's sample data). |
+| **Prepare email replies and meeting invites** | As **drafts only**. A draft appears in the chat with **Send** / **Add to calendar**, **Edit** and **Discard** buttons. Nothing is sent until *you* press Send. A bot or API key can never press it for you. |
+| **Look at a screenshot you paste in** | The image is stored in this install's own database next to your message, and handed to the AI as a real image. Only you can open it. If the agent's AI service cannot read images, the chat says so plainly rather than quietly ignoring the picture. |
+| **Hand bigger jobs to the board** | Anything that takes more than a few minutes (building a page, a report, research) becomes a board card. The card shows up in the chat with its status — *Waiting to start → In progress → Ready for your review → Done* — and keeps updating while you watch. Tap it to open the card. |
 | **Prepare email replies and meeting invites** | As **drafts only**. A draft appears in the conversation with **Send** / **Add to calendar**, **Edit** and **Discard** buttons. Nothing is sent until *you* press Send. A bot or API key can never press it for you. |
 | **Hand bigger jobs to the board** | Anything that takes more than a few minutes (building a page, a report, research) becomes a board card. The card shows up in the conversation with its status — *Waiting to start → In progress → Ready for your review → Done* — and keeps updating while you watch. Tap it to open the card. |
 
@@ -54,6 +58,8 @@ What each bot may do is written in its agent file (below). The server enforces i
 On **this server only** — the same database as the board. Nothing is copied to another service. The AI service that answers sees the messages of that conversation while it writes a reply, the same as any AI chat.
 
 If someone pastes a password or key into a conversation by mistake, the server blanks out known secret values before saving.
+
+Images you attach are stored the same way — as bytes in this install's database, next to the message. They are served back only to the person who attached them, and **Clear** deletes them with the conversation.
 
 ## The demo (no real accounts needed)
 

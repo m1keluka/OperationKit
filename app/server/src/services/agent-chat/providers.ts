@@ -25,6 +25,7 @@ import fs from 'fs'
 import {
   translateRequest,
   parseAssistantOutput,
+  type OAIContentPart,
   type OAIMessage,
   type OAIToolCall,
   type OAITool,
@@ -55,7 +56,60 @@ export interface ChatProvider {
   /** Shown to the person under each reply, e.g. "Claude · claude-sonnet-5". */
   label: string
   model: string
+  /** Can this provider actually look at an attached image? (obj 900157) */
+  supportsImages: boolean
   complete(req: CompletionRequest): Promise<CompletionResult>
+}
+
+// ── images (obj 900157) ──
+//
+// The conversation is kept in the OpenAI chat shape, so an attached image is an
+// `image_url` content part carrying a data: URL. Each provider converts it at
+// its own edge; nothing stringifies a content array into the prompt any more.
+
+export interface ChatImage {
+  media_type: string
+  /** Bare base64. */
+  data: string
+  name?: string
+}
+
+const DATA_URL_RE = /^data:([a-zA-Z0-9.+/-]+);base64,(.*)$/s
+
+export function imageDataUrl(img: ChatImage): string {
+  return `data:${img.media_type};base64,${img.data}`
+}
+
+/** An `image_url` part → {media_type, data}, or null when it is not a data: URL. */
+export function parseImagePart(part: OAIContentPart): ChatImage | null {
+  if (part?.type !== 'image_url') return null
+  const m = DATA_URL_RE.exec(part.image_url?.url ?? '')
+  return m ? { media_type: m[1].toLowerCase(), data: m[2] } : null
+}
+
+/** Does this conversation carry any attached image? */
+export function hasImages(messages: ChatMessage[]): boolean {
+  return messages.some(m => Array.isArray(m.content) && m.content.some(p => parseImagePart(p) !== null))
+}
+
+/**
+ * Pull every attached image out of a conversation and replace each image part
+ * with a short text marker. Used by backends that cannot take an image inline
+ * in the transcript (the Claude CLI), which get the images out of band.
+ */
+export function extractImages(messages: ChatMessage[]): { messages: ChatMessage[]; images: ChatImage[] } {
+  const images: ChatImage[] = []
+  const out = messages.map(m => {
+    if (!Array.isArray(m.content)) return m
+    const parts = m.content.map(p => {
+      const img = parseImagePart(p)
+      if (!img) return p
+      images.push(img)
+      return { type: 'text', text: `[attached image ${images.length}]` } as OAIContentPart
+    })
+    return { ...m, content: parts }
+  })
+  return { messages: out, images }
 }
 
 export class ProviderError extends Error {}
@@ -154,11 +208,11 @@ export function createProvider(id: ChatProviderId, agent: ChatAgent, deps: Provi
   const label = LABELS[id]
   switch (id) {
     case 'demo':
-      return { id, label, model, complete: async req => demoReply(req) }
+      return { id, label, model, supportsImages: false, complete: async req => demoReply(req) }
     case 'anthropic': {
       const key = anthropicKey(env)
       if (!key) throw new ProviderError('The Anthropic API key (ANTHROPIC_API_KEY) is not set on this install.')
-      return { id, label, model, complete: req => anthropicComplete(f, key, model, req) }
+      return { id, label, model, supportsImages: true, complete: req => anthropicComplete(f, key, model, req) }
     }
     case 'openai':
     case 'xai':
@@ -174,11 +228,11 @@ export function createProvider(id: ChatProviderId, agent: ChatAgent, deps: Provi
       if (!base) throw new ProviderError('AGENT_CHAT_OPENAI_COMPAT_BASE_URL is not set on this install.')
       if (!key && id !== 'openai-compatible') throw new ProviderError(`${id === 'xai' ? 'XAI_API_KEY' : 'OPENAI_API_KEY'} is not set on this install.`)
       if (!model) throw new ProviderError('Set a model for the custom endpoint (agent file `model:` or AGENT_CHAT_OPENAI_COMPATIBLE_MODEL).')
-      return { id, label, model, complete: req => openAiComplete(f, base, key, model, req) }
+      return { id, label, model, supportsImages: true, complete: req => openAiComplete(f, base, key, model, req) }
     }
     case 'claude': {
       const backend = deps.claudeBackend ?? claudeBackendFor(env)
-      return { id, label, model, complete: req => claudeComplete(backend, model, req) }
+      return { id, label, model, supportsImages: claudeImagesEnabled(env), complete: req => claudeComplete(backend, model, req) }
     }
   }
 }
@@ -197,13 +251,38 @@ function claudeBackendFor(env: NodeJS.ProcessEnv): LlmBackend {
   return async req => ({ ...(await runClaudeTurn(slot, req, timeout, { CLAUDE_CODE_OAUTH_TOKEN: token })), attempts: 1 })
 }
 
+/**
+ * Images over the Claude CLI backend (obj 900157). The CLI takes image content
+ * blocks only through `--input-format stream-json`, which this backend uses
+ * ONLY for a turn that actually carries an image — a text turn is byte-identical
+ * to before. `AGENT_CHAT_CLAUDE_IMAGES=0` turns the path off, and the provider
+ * then reports supportsImages=false so the person is told plainly instead of
+ * having the screenshot silently dropped.
+ */
+export function claudeImagesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.AGENT_CHAT_CLAUDE_IMAGES ?? '').trim() !== '0'
+}
+
+/** Keep the prompt bounded: the most recent images are the ones being asked about. */
+export const CLAUDE_MAX_IMAGES = 4
+
 async function claudeComplete(backend: LlmBackend, model: string, req: CompletionRequest): Promise<CompletionResult> {
+  // The CLI transcript is plain text, so image parts come out of the messages
+  // (as "[attached image N]" markers) and ride along out of band instead of
+  // being stringified into the prompt.
+  const { messages, images } = extractImages(req.messages)
   const t = translateRequest({
     model,
-    messages: [{ role: 'system', content: req.system }, ...req.messages],
+    messages: [{ role: 'system', content: req.system }, ...messages],
     tools: req.tools as OAITool[],
   })
-  const r = await backend({ model, systemPrompt: t.systemPrompt, prompt: t.prompt, signal: req.signal })
+  const r = await backend({
+    model,
+    systemPrompt: t.systemPrompt,
+    prompt: t.prompt,
+    ...(images.length ? { images: images.slice(-CLAUDE_MAX_IMAGES) } : {}),
+    signal: req.signal,
+  })
   const parsed = parseAssistantOutput(r.text, t.toolNames)
   return { content: parsed.content, toolCalls: parsed.toolCalls }
 }
@@ -241,8 +320,29 @@ async function openAiComplete(f: FetchFn, base: string, key: string, model: stri
 
 type AnthBlock =
   | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; tool_use_id: string; content: string }
+
+/**
+ * Flatten an OpenAI-shape content field to text.
+ *
+ * This used to be `JSON.stringify(m.content)` for anything that was not a
+ * string, which meant a content ARRAY (the shape an attached image arrives in)
+ * was pasted into the prompt as raw JSON — the model never saw an image, it saw
+ * a wall of base64. Image parts are handled separately by the caller now, and
+ * anything else that is not text is dropped rather than stringified.
+ */
+function contentText(content: ChatMessage['content']): string {
+  if (content == null) return ''
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter(p => p?.type !== 'image_url' && typeof p?.text === 'string')
+    .map(p => p.text as string)
+    .join('\n')
+    .trim()
+}
 
 /** OpenAI-shape history → Anthropic messages (tool results become user turns). */
 export function toAnthropicMessages(messages: ChatMessage[]): { role: 'user' | 'assistant'; content: AnthBlock[] }[] {
@@ -253,8 +353,15 @@ export function toAnthropicMessages(messages: ChatMessage[]): { role: 'user' | '
     else out.push({ role, content: [block] })
   }
   for (const m of messages) {
-    const text = typeof m.content === 'string' ? m.content : m.content == null ? '' : JSON.stringify(m.content)
+    const text = contentText(m.content)
     if (m.role === 'user') {
+      // Images first: Claude reads an image better when the question follows it.
+      if (Array.isArray(m.content)) {
+        for (const part of m.content) {
+          const img = parseImagePart(part)
+          if (img) push('user', { type: 'image', source: { type: 'base64', media_type: img.media_type, data: img.data } })
+        }
+      }
       if (text) push('user', { type: 'text', text })
     } else if (m.role === 'assistant') {
       if (text) push('assistant', { type: 'text', text })

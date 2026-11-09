@@ -26,6 +26,7 @@ import {
   type EventDraft,
 } from '../services/agent-chat/connectors.js'
 import { getDb } from '../db/index.js'
+import { getAttachment, ImageRejected, parseIncomingImages, type IncomingImage } from '../services/agent-chat/attachments.js'
 
 /**
  * Built-in agent chat (obj 719987) — /api/agent-chat
@@ -35,6 +36,7 @@ import { getDb } from '../db/index.js'
  *   GET    /agents/:slug/messages      the caller's ongoing chat with that agent
  *   POST   /agents/:slug/messages      send a message, run the turn, return the new rows
  *   DELETE /agents/:slug/messages      clear the caller's chat with that agent
+ *   GET    /attachments/:id            one image the caller attached (owner only)
  *   PUT    /drafts/:id                 edit a draft before sending
  *   POST   /drafts/:id/send            the person's Send / Add to calendar click
  *   POST   /drafts/:id/discard
@@ -122,7 +124,16 @@ router.post('/agents/:slug/messages', async (req: AuthRequest, res) => {
   const a = agentOr404(req, res)
   if (!a) return
   const text = typeof req.body?.text === 'string' ? req.body.text.trim() : ''
-  if (!text) {
+  let images: IncomingImage[]
+  try {
+    images = parseIncomingImages(req.body?.images)
+  } catch (err) {
+    res.status(400).json({ error: err instanceof ImageRejected ? err.message : 'That attachment could not be read.' })
+    return
+  }
+  // A pasted screenshot on its own is a perfectly good message, so text is only
+  // required when nothing is attached.
+  if (!text && images.length === 0) {
     res.status(400).json({ error: 'text is required' })
     return
   }
@@ -133,7 +144,7 @@ router.post('/agents/:slug/messages', async (req: AuthRequest, res) => {
   const ac = new AbortController()
   res.on('close', () => { if (!res.writableEnded) ac.abort() })
   try {
-    const { messages } = await runTurn({ userId: req.user!.id, username: req.user!.username, agent: a, text, signal: ac.signal })
+    const { messages } = await runTurn({ userId: req.user!.id, username: req.user!.username, agent: a, text, images, signal: ac.signal })
     res.json({ messages, ...attachments(req.user!.id, a.slug, messages) })
   } catch (err) {
     if (err instanceof ChatBusyError) {
@@ -152,6 +163,30 @@ router.delete('/agents/:slug/messages', (req: AuthRequest, res) => {
   }
   const removed = clearChat(req.user!.id, String(req.params.slug))
   res.json({ ok: true, removed })
+})
+
+/**
+ * One attached image (obj 900157). Strictly the person who attached it: the
+ * same per-person rule the messages follow. Served with nosniff + a locked-down
+ * CSP and never as an attachment download, so a stored byte string can't be
+ * talked into executing in the app's origin.
+ */
+router.get('/attachments/:id', (req: AuthRequest, res) => {
+  const id = Number(req.params.id)
+  const a = Number.isInteger(id) ? getAttachment(id) : null
+  if (!a || a.user_id !== req.user!.id) {
+    res.status(404).json({ error: 'Attachment not found' })
+    return
+  }
+  res.set({
+    'Content-Type': a.media_type,
+    'Content-Length': String(a.bytes.length),
+    'Content-Disposition': `inline; filename="${a.name.replace(/"/g, '')}"`,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+    'Cache-Control': 'private, max-age=3600',
+  })
+  res.end(a.bytes)
 })
 
 // ── drafts: only the owning person, only from a signed-in browser ──

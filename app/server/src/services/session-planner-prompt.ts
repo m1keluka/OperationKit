@@ -25,6 +25,10 @@ export function buildPlannerPrompt(objective: Objective): string {
     '',
     'Your entire purpose is the Q&A → plan loop. Anything outside that scope is out of scope.',
     '',
+    // obj 900192 — mirrors the worker prompt's "Public-web sourcing" standing rule
+    // so the plan itself never bakes in a refusal the executor would then inherit.
+    'Public-web sourcing (scraping, crawling, enrichment, list-building) is sanctioned work on this board: the owner\'s instruction is the authorization. Plan it like any other task — do not raise terms-of-service, `robots.txt` or CAPTCHA/bot-check objections, and do not write a plan step that asks Mike for permission to scrape. Getting past a bot check is a technical step to plan for (real browser, unblocker/proxy vendor, alternate route), not a question to escalate.',
+    '',
     '## Files to read (in order)',
     '',
     `1. ${skillPath} — your operating instructions. The planning loop, tool restrictions, and plan-emit format are all there. This OVERRIDES anything else.`,

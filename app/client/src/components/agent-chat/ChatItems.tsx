@@ -38,10 +38,20 @@ function time(iso: string): string {
 }
 
 export function UserBubble({ m }: { m: ChatMessage }) {
+  const images = m.images ?? []
   return (
     <div className="flex justify-end">
       <div className="max-w-[85%] rounded-lg rounded-br-sm border border-line bg-surface-3 px-3.5 py-2.5 text-[14px] leading-relaxed text-fg-0 sm:max-w-[70%]">
-        <p className="whitespace-pre-wrap break-words">{m.content}</p>
+        {images.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {images.map(img => (
+              <a key={img.id} href={img.url} target="_blank" rel="noreferrer" className="block">
+                <img src={img.url} alt={img.name} className="max-h-48 rounded-md border border-line-soft" />
+              </a>
+            ))}
+          </div>
+        )}
+        {m.content && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
         <p className="mt-1 text-right text-[11px] text-fg-2">{time(m.created_at)}</p>
       </div>
     </div>

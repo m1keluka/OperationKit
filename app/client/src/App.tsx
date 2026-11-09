@@ -34,6 +34,7 @@ const SettingsOrg = lazy(() => import('./components/settings/SettingsOrg').then(
 const SettingsAgents = lazy(() => import('./components/settings/SettingsAgents').then(m => ({ default: m.SettingsAgents })))
 const SettingsPlatform = lazy(() => import('./components/settings/SettingsPlatform').then(m => ({ default: m.SettingsPlatform })))
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })))
+const GranolaPage = lazy(() => import('./components/GranolaPage').then(m => ({ default: m.GranolaPage })))
 const LoopsPage = lazy(() => import('./components/LoopsPage').then(m => ({ default: m.LoopsPage })))
 const JobsBoard = lazy(() => import('./components/JobsBoard').then(m => ({ default: m.JobsBoard })))
 const StrategiesPage = lazy(() => import('./components/StrategiesPage').then(m => ({ default: m.StrategiesPage })))
@@ -229,7 +230,7 @@ function AppContent() {
           <Route path="/status" element={<StatusPage />} />
           <Route path="/costs" element={<Navigate to="/dashboard" replace />} />
           <Route path="/loops" element={<LoopsPage />} />
-          <Route path="/granola" element={<Navigate to="/" replace />} />
+          <Route path="/granola" element={<GranolaPage />} />
           <Route path="/jobs" element={<JobsBoard workspace={workspace} />} />
           <Route path="/agents" element={<AgentsPage workspace={workspace} />} />
           <Route path="/agent-templates" element={<AgentTemplatesPage />} />

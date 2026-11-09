@@ -29,10 +29,21 @@ export interface BackendUsage {
   total_tokens: number
 }
 
+/** An image attached to the turn (obj 900157). `data` is bare base64. */
+export interface BackendImage {
+  media_type: string
+  data: string
+}
+
 export interface BackendRequest {
   model: string
   systemPrompt: string
   prompt: string
+  /**
+   * Images to put in front of the prompt. Present only for the built-in agent
+   * chat; the OpenAI-compatible gateway has no image path and never sets it.
+   */
+  images?: BackendImage[]
   signal?: AbortSignal
   /** Called for each streamed text delta, in order. */
   onText?: (delta: string) => void
@@ -91,10 +102,18 @@ function ensureEmptyCwd(): string {
   return EMPTY_CWD
 }
 
-/** Exported for tests: the exact CLI argv for a gateway turn. */
-export function buildClaudeArgs(model: string, systemPrompt: string): string[] {
+/**
+ * Exported for tests: the exact CLI argv for a gateway turn.
+ *
+ * `withImages` adds `--input-format stream-json`, the only way to hand the CLI
+ * an image content block (obj 900157). A text-only turn passes false and the
+ * argv is unchanged from before images existed, so the gateway's hot path keeps
+ * its exact behaviour.
+ */
+export function buildClaudeArgs(model: string, systemPrompt: string, withImages = false): string[] {
   return [
     '-p',
+    ...(withImages ? ['--input-format', 'stream-json'] : []),
     '--model', model,
     '--tools', '',
     '--strict-mcp-config',
@@ -220,6 +239,22 @@ function newState(): StreamState {
   return { text: '', sawDelta: false, fallbackText: '', usage: null, stopReason: null, costUsd: 0, resultError: null, rateLimited: null, authFailed: null, ttftMs: null }
 }
 
+/**
+ * Exported for tests: what goes down the CLI's stdin.
+ *
+ * No images → the bare prompt, exactly as before. With images → one
+ * stream-json user message whose content is the image blocks followed by the
+ * prompt, which is what `--input-format stream-json` expects.
+ */
+export function buildClaudeStdin(prompt: string, images: BackendImage[]): string {
+  if (images.length === 0) return prompt
+  const content = [
+    ...images.map(i => ({ type: 'image', source: { type: 'base64', media_type: i.media_type, data: i.data } })),
+    { type: 'text', text: prompt },
+  ]
+  return `${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`
+}
+
 /** Run one turn on a specific account. */
 // extraEnv: a credential passed as env instead of a slot's credential file —
 // e.g. CLAUDE_CODE_OAUTH_TOKEN on a client install (obj 719987, agent chat).
@@ -230,7 +265,8 @@ export function runClaudeTurn(
   extraEnv: Record<string, string> = {},
 ): Promise<Omit<BackendResult, 'attempts'>> {
   const startedAt = Date.now()
-  const args = buildClaudeArgs(req.model, req.systemPrompt)
+  const images = req.images ?? []
+  const args = buildClaudeArgs(req.model, req.systemPrompt, images.length > 0)
   const env = { ...buildClaudeEnv(account.homeDir), ...extraEnv }
   const asRoot = typeof process.getuid === 'function' && process.getuid() === 0
   const [cmd, argv] = buildSpawnCommand(env, args, asRoot)
@@ -295,7 +331,7 @@ export function runClaudeTurn(
       resolve({ text: st.text, usage: st.usage, stopReason: st.stopReason, slot: account.id, costUsd: st.costUsd, ttftMs: st.ttftMs })
     })
 
-    proc.stdin.end(req.prompt)
+    proc.stdin.end(buildClaudeStdin(req.prompt, images))
   })
 }
 
