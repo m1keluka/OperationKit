@@ -4,6 +4,7 @@
  * prompt-builder-blocks.ts. This file is buildPrompt + re-exports.
  */
 import { buildSessionTrustBlock } from './session-trust-prompt.js'
+import { buildAttachedFilesBlock } from './jail-uploads.js'
 import fs from 'fs'
 import type { Objective, AcceptanceCriterion } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
@@ -285,6 +286,9 @@ export function buildPrompt(objective: Objective): string {
     '',
     `Context: ${objective.description}`,
   )
+  // obj 900408: files attached in the New Card modal were uploaded but never
+  // mentioned to the session. Empty (prompt unchanged) when there are none.
+  parts.push(...buildAttachedFilesBlock(objective.id))
   // obj 718944 — server-stamped sender rule + secret names (flag-gated; empty
   // when off). Deliberately AFTER the card description: an agent-written card
   // rule must not override verified-owner approval.

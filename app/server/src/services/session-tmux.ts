@@ -28,6 +28,7 @@ import { sandboxClaudeAuthEnv } from './sandbox-claude-auth.js'
 import { JAIL_HOME_ROOT as JAIL_HOME_ROOT_CANONICAL, createJailHome, dropEnvFile } from './jail-home.js'
 import { resolveJailWorkspace, ensureJailScratchDir, applyJailOwnership } from './jail-workspace.js'
 import { buildWorkdirGuard } from './session-startup-failure.js'
+import { stageUploadsIntoJail, rewriteUploadPaths } from './jail-uploads.js'
 import type { SeatMount } from './seat-credentials.js'
 
 // ── `~`-home false-negative fix (obj 532 / 553) ──
@@ -374,9 +375,17 @@ export function spawnInTmux(opts: {
   // Write prompt as plain text file — piped to claude via stdin (no stream-json input needed)
   const promptFile = path.join(scriptDirHost, `${sessionId}.prompt.txt`)
   const promptFileGuest = useJail ? `${scriptDirGuest}/${sessionId}.prompt.txt` : promptFile
+  // obj 900408: card attachments live at /app/data/uploads/<id>/ on the control
+  // plane, which the jail cannot see. Copy them into the HOME bind and point
+  // the prompt's paths at the copies, or "look at my screenshot" fails.
+  let promptForSession = prompt
+  if (useJail) {
+    stageUploadsIntoJail(objectiveId!, jailHomeHost)
+    promptForSession = rewriteUploadPaths(prompt, objectiveId!)
+  }
   // obj 715532: never hand a worker a credential in its prompt. Known values
   // become [REDACTED:<NAME>] — the worker already has <NAME> in its env.
-  fs.writeFileSync(promptFile, redactPromptForWorker(prompt))
+  fs.writeFileSync(promptFile, redactPromptForWorker(promptForSession))
   // obj 900038: in jail mode the prompt lives in the per-session HOME, so it is
   // handed to the jail uid at 0600. In tmux mode ccuser reads it out of the
   // shared /tmp/cc-scripts, so the historical 0666 is preserved there.
