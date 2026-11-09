@@ -536,6 +536,9 @@ export interface SessionMessage {
   /** Who sent a `followup` — stamped server-side from the request's auth,
    *  never from the message text (obj 718944). Absent on legacy events. */
   sender?: MessageSender
+  /** obj 900412: a `followup` sent while the worker was mid-turn. It waits for
+   *  that turn to finish instead of restarting it. */
+  queued?: boolean
 }
 
 /** Server-derived chat-message provenance (obj 718944). */

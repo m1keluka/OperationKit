@@ -57,7 +57,7 @@ export {
   isGitRepo,
   WORKTREE_GUARD_SCRIPT,
 } from './session-worktree.js'
-export { sendFollowUp, reopenObjective, recordFollowUpInJsonl } from './session-followup.js'
+export { sendFollowUp, reopenObjective, recordFollowUpInJsonl, followUpSessionText } from './session-followup.js'
 export { spawnPlannerSession, stopPlannerSession, spawnReviewerSession } from './session-subsessions.js'
 export {
   startSession,
@@ -84,6 +84,7 @@ export {
   listSessions,
   isSessionActive,
   transcriptHasPendingWork,
+  transcriptPathFor,
 } from './session-control.js'
 export { getAccountRouterStatus, setQueueDrainCallback } from './session-account-status.js'
 

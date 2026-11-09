@@ -111,6 +111,7 @@ import {
   handleAuthDeath,
   handleOverloadDeath,
   handleTurnsDeath,
+  handleQueuedFollowUps,
   recordFloorRun,
   logFloorMilestone,
   promoteArenaCohortIfReady,
@@ -575,6 +576,10 @@ export async function pollActiveSessions(): Promise<void> {
       // through to review, so a genuine runaway is still stopped. (obj 1487)
       if (death.turnsExhausted && handleTurnsDeath(objective)) continue
 
+      // obj 900412 — messages queued while this worker was mid-turn: resume the
+      // same session with them instead of parking the card.
+      if (handleQueuedFollowUps(objective)) continue
+
       // ── Truthful no-output on the DEAD path (obj 900322, C3 / G11) ───────
       // Everything below this point used to route a dead session to `review`
       // with no verdict, no reason and no activity row. The classifier that
@@ -711,6 +716,9 @@ export async function pollActiveSessions(): Promise<void> {
         // Per-spawn turn cap (--max-turns) on a productive session → auto-continue
         // the SAME session (bounded), before the route-to-review fallthrough. (obj 1487)
         if (death.turnsExhausted && handleTurnsDeath(objective)) continue
+        // obj 900412 — the turn ended with owner messages queued behind it:
+        // hand them to the same session now rather than routing to review.
+        if (handleQueuedFollowUps(objective)) continue
       }
 
       // ── PR auto-linkage at session-end (obj 2352) ─────────────────────────

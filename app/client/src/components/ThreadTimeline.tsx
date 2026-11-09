@@ -119,6 +119,13 @@ function Divider({ seg }: { seg: Extract<ThreadSegment, { type: 'divider' }> }) 
       >
         {seg.text}
       </div>
+      {seg.queued && (
+        // obj 900412: sent while the agent was mid-task. It was NOT restarted;
+        // it reads this as soon as the current step finishes.
+        <span className="font-mono text-[10.5px] text-fg-3">
+          Agent is mid-task. It will read this when the current step finishes.
+        </span>
+      )}
     </div>
   )
 }

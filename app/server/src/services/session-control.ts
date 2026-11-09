@@ -225,7 +225,7 @@ export function transcriptHasPendingWork(
  * expression. Jail mode: falls back to the jail-home bind
  * (`<JAIL_HOME_ROOT>/<sid>/.cc/<sid>.jsonl`) when the canonical symlink is missing.
  */
-function transcriptPathFor(sessionId: string, known?: string): string {
+export function transcriptPathFor(sessionId: string, known?: string): string {
   const canonical = known || path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
   return jailEnabled() ? resolveSessionTranscript(canonical, sessionId) : canonical
 }

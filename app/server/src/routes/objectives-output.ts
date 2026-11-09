@@ -11,7 +11,7 @@ import { buildThreadTimelineCached } from '../services/thread-timeline.js'
 import { isVerifiedOwner, senderFromRequest } from '../lib/message-provenance.js'
 import { SESSION_SECRET_ACCESS_FLAG, readSettingFlag } from '../lib/session-trust.js'
 import { captureOwnerPastedSecrets } from '../services/chat-secret-capture.js'
-import { getSessionOutput, getSessionJsonlPath, sendFollowUp, recordFollowUpInJsonl } from '../services/session-manager.js'
+import { getSessionOutput, getSessionJsonlPath, sendFollowUp, recordFollowUpInJsonl, followUpSessionText, getSessionState, transcriptPathFor } from '../services/session-manager.js'
 import { checkHumanTerminalReactivation } from '../services/objective-audit.js'
 import { broadcast } from '../ws/index.js'
 import { mapObjective, requireOwnership } from './objectives-helpers.js'
@@ -20,6 +20,16 @@ import { isLockedStatus, runMachineStatusUpdate } from '../lib/status-lock.js'
 import { diskAction, diskBlockReason, readHostDisk } from '../lib/host-disk.js'
 import { noteStartReason } from '../services/session-start-reasons.js'
 import { beginIdempotent } from '../lib/idempotency.js'
+import {
+  combineQueuedFollowUps,
+  decideFollowUpQueue,
+  enqueueFollowUp,
+  releaseFollowUps,
+  resolveFollowUpQueueConfig,
+  takePendingFollowUps,
+  transcriptMtimeMs,
+  type QueuedFollowUp,
+} from '../services/followup-queue.js'
 
 // Default cap on the non-incremental first-open payload: the most recent N
 // messages. Older history loads on demand via ?from&to; the live tail via
@@ -407,6 +417,50 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
   if (isVerifiedOwner(sender) && readSettingFlag(SESSION_SECRET_ACCESS_FLAG)) {
     fullMessage = captureOwnerPastedSecrets(objective, fullMessage, { id: req.user!.id, username: req.user!.username }).text
   }
+
+  // obj 900412 — the worker is alive and mid-turn: do NOT restart it. Every
+  // respawn kills the live run, and the collapsed thread makes a busy worker look
+  // idle, so "???" follow-ups used to restart the work over and over and the
+  // first question never got answered. Record the bubble now, park the text, and
+  // let the poller hand it to the same session the moment this turn ends
+  // (services/followup-queue.ts). A worker silent past the stale window is
+  // treated as hung and restarted the old way below.
+  const queueConfig = resolveFollowUpQueueConfig(db)
+  if (queueConfig.enabled && objective.status === 'working' && objective.session_id === existingSessionId) {
+    let decision: ReturnType<typeof decideFollowUpQueue> = { queue: false, reason: 'not_mid_turn' }
+    try {
+      decision = decideFollowUpQueue({
+        config: queueConfig,
+        status: objective.status,
+        sessionId: existingSessionId,
+        currentSessionId: objective.session_id,
+        sessionState: getSessionState(existingSessionId),
+        transcriptMtimeMs: transcriptMtimeMs(transcriptPathFor(existingSessionId, getSessionJsonlPath(existingSessionId) || undefined)),
+        nowMs: Date.now(),
+      })
+    } catch (err) {
+      console.warn(`[followup-queue] decision failed for ${req.params.id}; restarting as before:`, (err as Error).message)
+    }
+    if (decision.queue) {
+      try {
+        recordFollowUpInJsonl(existingSessionId, fullMessage, undefined, sender, { queued: true })
+        enqueueFollowUp(db, objective.id, existingSessionId, fullMessage, sender)
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code
+        console.error(`[objectives] message → queue write failed for ${req.params.id}:`, err)
+        res.status(code === 'ENOSPC' ? 507 : 500).json({ error: code === 'ENOSPC' ? 'Disk is full — message not sent. Cleanup is running; retry in a minute.' : 'Failed to record message' })
+        return
+      }
+      console.log(`[followup-queue] objective ${objective.id}: worker ${existingSessionId} is mid-turn — message queued, run left alone`)
+      const current = mapObjective(db.prepare('SELECT * FROM objectives WHERE id = ?').get(req.params.id) as Objective)
+      res.json({ ...current, followup_queued: true })
+      return
+    }
+  }
+  // Anything still queued (a delivery that failed, or a worker that went stale
+  // after messages were parked) rides along with this restart, oldest first.
+  let carried: QueuedFollowUp[] = []
+  try { carried = takePendingFollowUps(db, objective.id) } catch { carried = [] }
   runMachineStatusUpdate(
     db,
     "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -439,9 +493,19 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
   setImmediate(() => {
     try {
       noteStartReason(objective.id, 'follow_up', req.user?.username ?? null, (req.headers.authorization || '').startsWith('Bearer cc_live_') ? 'agent' : 'board')
-      sendFollowUp(existingSessionId, fullMessage, objective, { skipJsonl: true, sender })
+      if (carried.length > 0) {
+        const batch = [...carried, { message: fullMessage, sender: sender ?? null }]
+        sendFollowUp(existingSessionId, batch.map(b => b.message).join('\n\n'), objective, {
+          skipJsonl: true,
+          sender,
+          sessionTextOverride: combineQueuedFollowUps(batch, (m, snd) => followUpSessionText(m, snd)),
+        })
+      } else {
+        sendFollowUp(existingSessionId, fullMessage, objective, { skipJsonl: true, sender })
+      }
     } catch (err) {
       console.error(`[objectives] message → deferred sendFollowUp failed for ${req.params.id}:`, err)
+      if (carried.length > 0) { try { releaseFollowUps(db, carried.map(c => c.id)) } catch { /* ignore */ } }
       try {
         db.prepare("UPDATE objectives SET status = ?, updated_at = datetime('now') WHERE id = ?").run(priorStatus, req.params.id)
         const reverted = mapObjective(
