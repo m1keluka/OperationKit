@@ -20,6 +20,7 @@ import { initRuntimeSchema } from './schema/runtime.js'
 import { initLeasesSchema } from './schema/leases.js'
 import { initJobAccountingSchema } from './schema/job-accounting.js'
 import { initLiveProgressSchema } from './schema/live-progress.js'
+import { initFollowUpQueueSchema } from './schema/followup-queue.js'
 import { initModelsSchema } from './schema/models.js'
 import { initTokensSchema } from './schema/tokens.js'
 import { initContentSchema } from './schema/content.js'
@@ -853,6 +854,8 @@ export function initDb(): Database.Database {
   // obj 900322 — durable retry/attempt budgets, finite job ceilings, teardown ledger.
   initJobAccountingSchema(db)
   initLiveProgressSchema(db)
+  // obj 900412 — follow-ups sent mid-turn wait for the turn instead of killing it.
+  initFollowUpQueueSchema(db)
 
   // Seed routines — both DISABLED (enabled=0); Mike flips them on after review.
   const seedRoutines: Array<{ name: string; cron_expr: string; template: Record<string, unknown>; enabled?: number }> = [

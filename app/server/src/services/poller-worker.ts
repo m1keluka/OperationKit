@@ -14,6 +14,9 @@ import {
   autoResumeOnTurns,
   getSessionOutput,
   resolveWorkdir,
+  sendFollowUp,
+  followUpSessionText,
+  transcriptPathFor,
 } from './session-manager.js'
 import {
   recordFloorRunRow,
@@ -29,6 +32,8 @@ import { hasArenaCohort, getArenaCohort, evaluateAndPromoteArena } from './arena
 import { broadcast } from '../ws/index.js'
 import { runMachineStatusUpdate } from '../lib/status-lock.js'
 import { TRANSCRIPT_DIR, PROJECTS_DIR } from '../config.js'
+import { deliverQueuedFollowUps, listPendingFollowUps } from './followup-queue.js'
+import { noteStartReason } from './session-start-reasons.js'
 
 // Track JSONL byte offsets for incremental knowledge capture scanning
 export const knowledgeScanOffsets = new Map<string, number>()
@@ -437,6 +442,44 @@ export function handleTurnsDeath(objective: Objective): boolean {
     console.error(`[state-poller] handleTurnsDeath failed for obj ${objective.id} (falling back to review routing):`, err)
     return false
   }
+}
+
+/**
+ * obj 900412 — messages the owner sent while this worker was mid-turn were
+ * parked instead of restarting it. The turn just ended (or the process died):
+ * resume the SAME session with all of them, keep the card `working`, and skip
+ * review routing. Returns false when nothing was queued, so the caller parks
+ * the card as before. Wired after the limit / overload / turns handlers, which
+ * resume the session themselves (the queue then waits for that turn).
+ */
+export function handleQueuedFollowUps(objective: Objective): boolean {
+  const db = getDb()
+  // Cheap check first: nearly every turn ends with nothing queued.
+  if (listPendingFollowUps(db, objective.id).length === 0) return false
+  let delivered = false
+  try {
+    delivered = deliverQueuedFollowUps(objective, {
+      db,
+      deliver: (sid, msg, obj, opts) => sendFollowUp(sid, msg, obj, opts),
+      stamp: (m, sender) => followUpSessionText(m, sender),
+      jsonlPathFor: sid => transcriptPathFor(sid),
+      noteStart: (id, actor) => noteStartReason(id, 'follow_up', actor, 'queued'),
+    })
+  } catch (err) {
+    console.error(`[followup-queue] handleQueuedFollowUps failed for obj ${objective.id} (falling back to review routing):`, err)
+    return false
+  }
+  if (!delivered) return false
+  runMachineStatusUpdate(
+    db,
+    "UPDATE objectives SET status = 'working', updated_at = datetime('now') WHERE id = ?",
+    objective.id,
+  )
+  try {
+    const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+    broadcast({ type: 'objective_updated', payload: updated })
+  } catch {}
+  return true
 }
 
 // ── Deterministic floor (ST1 / P1+P2) helpers ──────────────────────────────

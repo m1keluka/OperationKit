@@ -298,7 +298,7 @@ function parseNewLines(lines: string[], messages: SessionMessage[], startToolIdx
         continue
       }
       if (parsed.type === 'followup') {
-        messages.push({ type: 'followup', text: parsed.text, timestamp: parsed.timestamp, ...(parsed.sender ? { sender: parsed.sender } : {}) })
+        messages.push({ type: 'followup', text: parsed.text, timestamp: parsed.timestamp, ...(parsed.sender ? { sender: parsed.sender } : {}), ...(parsed.queued ? { queued: true } : {}) })
         continue
       }
       // Warning events (worktree violations, telemetry) — render via the error

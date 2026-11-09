@@ -30,6 +30,7 @@ import {
   requireOwnership,
 } from './objectives-helpers.js'
 import { resolveFollowUpSessionId } from '../services/objective-sessions.js'
+import { dropPendingFollowUps } from '../services/followup-queue.js'
 import { noteStartReason } from '../services/session-start-reasons.js'
 
 export function registerObjectiveGoalDraftRoutes(router: Router): void {
@@ -307,6 +308,11 @@ router.post('/:id/stop', async (req: AuthRequest, res) => {
     res.status(400).json({ error: 'Objective is already done' })
     return
   }
+
+  // obj 900412 — Stop means stop: drop messages queued behind the running turn
+  // BEFORE killing it, or the poller would see the death and resume the session
+  // with them.
+  dropPendingFollowUps(db, objective.id, 'stopped')
 
   // Kill the live session(s). Best-effort — a dead/limit-hit session has no tmux,
   // and that's fine: the point is to guarantee nothing is left running.

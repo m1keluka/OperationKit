@@ -124,7 +124,7 @@ function claudeConversationExists(homeDir: string, claudeSessionId: string, work
 }
 
 /** Persist a follow-up into the session jsonl so the thread can show it immediately. */
-export function recordFollowUpInJsonl(sessionId: string, message: string, jsonlPath?: string, sender?: MessageSender): void {
+export function recordFollowUpInJsonl(sessionId: string, message: string, jsonlPath?: string, sender?: MessageSender, extra?: { queued?: boolean }): void {
   const file = jsonlPath || path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
   // obj 715532: a credential pasted into the chat is stored as [REDACTED:<NAME>].
   // obj 718944: `sender` is the server-derived provenance, never parsed from text.
@@ -133,6 +133,8 @@ export function recordFollowUpInJsonl(sessionId: string, message: string, jsonlP
     text: redactForStorage(message).text,
     timestamp: new Date().toISOString(),
     ...(sender ? { sender } : {}),
+    // obj 900412: the worker was mid-turn, so this message waits for that turn.
+    ...(extra?.queued ? { queued: true } : {}),
   })
   fs.appendFileSync(file, followupEvent + '\n')
   try { fs.chmodSync(file, 0o666) } catch {}
@@ -156,13 +158,14 @@ export function sendFollowUp(
   sessionId: string,
   message: string,
   objective: Objective,
-  opts?: { skipJsonl?: boolean; sender?: MessageSender },
+  opts?: { skipJsonl?: boolean; sender?: MessageSender; sessionTextOverride?: string },
 ): string {
   const session = activeSessions.get(sessionId)
   // obj 718944: what the SESSION reads. With verified_sender_stamps on, every
   // follow-up carries the server stamp on line 1 (unattributed callers read as
   // SYSTEM, never as the owner); the jsonl keeps the raw body + `sender`.
-  const sessionText = followUpSessionText(message, opts?.sender)
+  // obj 900412: a batch of queued messages arrives already stamped per message.
+  const sessionText = opts?.sessionTextOverride ?? followUpSessionText(message, opts?.sender)
 
   // If the process is still alive and has stdin, send via bidirectional stream-json
   if (session?.stdin && session.process && !session.process.killed) {
