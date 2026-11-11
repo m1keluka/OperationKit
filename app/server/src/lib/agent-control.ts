@@ -98,6 +98,8 @@ export type ChangeType =
   | 'needs_secret'
   /** obj 719278: a blocker was raised on the card. */
   | 'blocked'
+  /** obj 900372: the stall watchdog flagged a working card (session gone or silent; auto-restart spent). */
+  | 'stalled'
 
 export interface ChangeEvent {
   cursor: string
@@ -290,6 +292,9 @@ interface AttentionRow {
   last_note: string | null
   idle_min: number
   needs_secret: string | null
+  /** obj 900372 */
+  stalled_at?: string | null
+  stall_reason?: string | null
 }
 
 // Most urgent first: a failed review is a human decision blocking a branch; a
@@ -317,6 +322,10 @@ function classify(row: AttentionRow, staleMin: number): { kind: AttentionKind; w
     return { kind: 'review', why: summary ? `${lead}: ${summary}` : lead }
   }
   if (row.status === 'working') {
+    // obj 900372: the watchdog's verdict beats the idle-minute heuristic below.
+    if (row.stalled_at) {
+      return { kind: 'stuck', why: `Stalled: ${oneLine(row.stall_reason, WHY_MAX) ?? 'no live session or no activity'}` }
+    }
     if (row.has_blockers) {
       return { kind: 'blocked', why: `Blocker raised: ${oneLine(row.last_note, WHY_MAX) ?? 'see /timeline'}` }
     }
@@ -381,6 +390,7 @@ export function buildAttention(
       `SELECT o.id, o.title, o.status, o.workspace, o.has_blockers, o.ai_review_verdict, o.needs_secret,
               substr(o.ai_review_findings, 1, 600) AS ai_review_findings,
               substr(o.last_session_summary, 1, 600) AS last_session_summary,
+              o.stalled_at, o.stall_reason,
               (SELECT substr(a.title || COALESCE(': ' || a.detail, ''), 1, 300)
                  FROM activity_log a
                 WHERE a.objective_id = o.id AND a.event_type IN ('milestone', 'blocker')

@@ -10,6 +10,7 @@ import { Router } from 'express'
 import { requireAuth, requireAdmin } from '../middleware/auth.js'
 import accountsRouter from './admin-accounts.js'
 import seatsRouter from './admin-seats.js'
+import emailRouter from './admin-email.js'
 import opsRouter from './admin-ops.js'
 import jobsRouter from './admin-jobs.js'
 
@@ -19,6 +20,7 @@ const router = Router()
 router.use(requireAuth, requireAdmin)
 router.use(accountsRouter)
 router.use(seatsRouter)
+router.use(emailRouter)  // /api/admin/email, /setup-status (obj 900497)
 router.use(opsRouter)
 router.use(jobsRouter)
 

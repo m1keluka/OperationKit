@@ -18,6 +18,7 @@ import type { Database } from 'better-sqlite3'
 import { getDb } from '../db/index.js'
 import type { ObjectivePR, ObjectivePRState } from '@operationkit/shared'
 import { parsePrNumberFromUrl } from './pr-url.js'
+import { onPRMerged } from './review-items-bridge.js'
 
 /** Parse `owner/name` out of a canonical GitHub PR URL, else null. Mirrors the
  *  SQL backfill so a runtime-inserted row and a backfilled row agree. */
@@ -310,6 +311,19 @@ export function recordPRTerminalState(input: {
             WHERE repo = ? AND pr_number = ? AND state != ? AND state != 'merged'`,
         )
         .run(effective, repo, prNumber, effective).changes
+
+      // obj 900367 §4.1 — a human's merge IS the sign-off for a PR-carrying
+      // card, so the queue item asking for that sign-off withdraws itself
+      // instead of waiting to be noticed. Runs only on a real (non-replayed)
+      // transition to merged, inside this transaction, over exactly the cards
+      // this PR is linked to. The bridge never throws; it is bookkeeping about
+      // the merge and must not be able to fail the merge recording.
+      if (effective === 'merged' && !replay) {
+        const linked = db
+          .prepare('SELECT DISTINCT objective_id FROM objective_prs WHERE repo = ? AND pr_number = ?')
+          .all(repo, prNumber) as { objective_id: number }[]
+        onPRMerged(db, linked.map((r) => r.objective_id))
+      }
 
       return { state: effective, rowsUpdated, rowsMatched, replay, downgradeRefused }
     })()

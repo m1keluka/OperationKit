@@ -22,7 +22,7 @@ delete process.env.CC_RESUME_CAP_ROUNDS
 delete process.env.CC_RESUME_CAP_ENABLED
 
 const spawnInTmux = vi.fn((_opts: Record<string, unknown>) => 'tmux-test')
-vi.mock('./session-tmux.js', () => ({ spawnInTmux: (o: Record<string, unknown>) => spawnInTmux(o) }))
+vi.mock('./session-tmux.js', () => ({ spawnInTmux: (o: Record<string, unknown>) => spawnInTmux(o), invalidateSessionLivenessCache: () => {} }))
 
 const SEAT = { id: 'seat-1', label: 'Seat 1', homeDir: SEAT_HOME, activeSessions: [] as string[] }
 vi.mock('./account-router.js', async (orig) => ({

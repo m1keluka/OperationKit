@@ -169,10 +169,19 @@ function snapshotTmuxSessions(): { ok: boolean; names: Set<string> } {
   }
 }
 
-/** Test-only: drop the snapshot so the next call shells out again. */
-export function resetTmuxListCache(): void {
+/**
+ * Drop both liveness snapshots so the next check shells out again. Called right
+ * after a spawn (obj 900547): a snapshot taken before it does not list the new
+ * process, and a state check that trusted it would read the session as ended.
+ */
+export function invalidateSessionLivenessCache(): void {
   tmuxListCache = null
   jailListCache = null
+}
+
+/** Test-only alias kept for existing callers. */
+export function resetTmuxListCache(): void {
+  invalidateSessionLivenessCache()
 }
 
 // ── Jail-aware liveness (SESSION_ISOLATION=docker) ──
@@ -500,6 +509,10 @@ export function spawnInTmux(opts: {
   const unsetSigning = env.CC_STRIP_SIGNING_SECRETS === '1' ? '\nunset JWT_SECRET CC_JWT_SECRET' : ''
   fs.writeFileSync(scriptFile, `#!/bin/bash
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY XAI_API_KEY GROK_CODE_XAI_API_KEY${unsetSigning}
+# D2 (obj 900540): the secrets-store KEK is the server's alone. A tmux server
+# started from a container env that still carries the legacy SECRETS_MASTER_KEY
+# must not hand it to a session.
+unset SECRETS_MASTER_KEY SECRETS_KEK_FILE SECRETS_KEK_PROVIDER
 # Run session work at lower CPU priority so heavy concurrent sessions don't
 # starve the control plane — the Node web server + state-poller stay at nice 0
 # and the UI keeps responding. Self-renice (raising OWN niceness) needs no

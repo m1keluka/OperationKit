@@ -12,6 +12,7 @@ import { isVerifiedOwner, senderFromRequest } from '../lib/message-provenance.js
 import { SESSION_SECRET_ACCESS_FLAG, readSettingFlag } from '../lib/session-trust.js'
 import { captureOwnerPastedSecrets } from '../services/chat-secret-capture.js'
 import { getSessionOutput, getSessionJsonlPath, sendFollowUp, recordFollowUpInJsonl, followUpSessionText, getSessionState, transcriptPathFor } from '../services/session-manager.js'
+import { holdPollerForRespawn, respawnHoldGraceMs } from '../services/session-followup.js'
 import { checkHumanTerminalReactivation } from '../services/objective-audit.js'
 import { broadcast } from '../ws/index.js'
 import { mapObjective, requireOwnership } from './objectives-helpers.js'
@@ -461,6 +462,13 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
   // after messages were parked) rides along with this restart, oldest first.
   let carried: QueuedFollowUp[] = []
   try { carried = takePendingFollowUps(db, objective.id) } catch { carried = [] }
+  // obj 900547 — from the status flip below until the deferred spawn returns, the
+  // card is `working` with no live process and a transcript ending in the last
+  // turn's `result`. Without this hold the poller reads that as "session just
+  // finished", routes the card straight back to review and runs the death
+  // cleanup on the session we are about to respawn — the one message is in the
+  // thread but the card never visibly starts.
+  const releaseRespawnHold = holdPollerForRespawn(existingSessionId)
   runMachineStatusUpdate(
     db,
     "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -478,6 +486,7 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code
     console.error(`[objectives] message → jsonl write failed for ${req.params.id}:`, err)
+    releaseRespawnHold()
     if (code === 'ENOSPC') {
       res.status(507).json({ error: 'Disk is full — message not sent. Cleanup is running; retry in a minute.' })
       return
@@ -503,7 +512,9 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
       } else {
         sendFollowUp(existingSessionId, fullMessage, objective, { skipJsonl: true, sender })
       }
+      releaseRespawnHold(respawnHoldGraceMs())
     } catch (err) {
+      releaseRespawnHold()
       console.error(`[objectives] message → deferred sendFollowUp failed for ${req.params.id}:`, err)
       if (carried.length > 0) { try { releaseFollowUps(db, carried.map(c => c.id)) } catch { /* ignore */ } }
       try {

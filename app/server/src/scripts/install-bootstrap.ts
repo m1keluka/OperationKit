@@ -39,6 +39,7 @@ import bcrypt from 'bcrypt'
 import { getDb, initDb } from '../db/index.js'
 import { createWorkspace, getWorkspace, updateWorkspace } from '../services/workspaces.js'
 import { archiveSampleWorkspaces } from '../services/install-sample-workspaces.js'
+import { initSessionEnvModeForFreshInstall } from '../services/secret-env-policy.js'
 
 export interface BootstrapInput {
   client_slug: string
@@ -94,6 +95,10 @@ export async function runBootstrap(input: BootstrapInput, log: (s: string) => vo
       default_agent_pool: input.agents ?? [],
     })
     log(`workspace ${input.client_slug}: created`)
+    // D4 (obj 900540): a brand-new install starts with session env ENFORCED
+    // (allowlist only). Only when no mode row exists and the store is empty, so
+    // an existing install re-running the installer keeps migration mode.
+    log(`session secrets: ${initSessionEnvModeForFreshInstall(db)} mode (allowlist; docs/security.md)`)
   } else {
     if (input.agents) updateWorkspace(input.client_slug, { default_agent_pool: input.agents })
     log(`workspace ${input.client_slug}: exists`)

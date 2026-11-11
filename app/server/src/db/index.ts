@@ -32,6 +32,9 @@ import { initAgentControlSchema } from './schema/agent-control.js'
 import { initAgentChatSchema } from './schema/agent-chat.js'
 import { initBotJobsSchema } from './schema/bot-jobs.js'
 import { initAgentWebhooksSchema } from './schema/agent-webhooks.js'
+import { initEmailSchema } from './schema/email.js'
+import { initAccountabilitySchema } from './schema/accountability.js'
+import { initStallWatchdogSchema } from './schema/stall-watchdog.js'
 import { installWriteScrubber } from './write-scrubber.js'
 import { redactForStorage } from '../services/secret-redaction.js'
 
@@ -1056,6 +1059,9 @@ export function initDb(): Database.Database {
   // triggers attach to the final objectives / objective_prs shape.
   initAgentControlSchema(db)
   initAgentChatSchema(db)
+  // Stall watchdog columns + the objective_events 'stalled' trigger (obj 900372).
+  // After initAgentControlSchema: the trigger inserts into objective_events.
+  initStallWatchdogSchema(db)
 
   // Bot jobs (obj 900323): durable state for the bounded chat -> board -> thread
   // MVP — job origin + thread continuation, the thread-delivery outbox, the
@@ -1064,6 +1070,16 @@ export function initDb(): Database.Database {
   initBotJobsSchema(db)
   // Agent-key webhooks outbox (obj 719278) — reads objective_events, so after it.
   initAgentWebhooksSchema(db)
+  // One-time email sign-in links (obj 900497). Additive CREATE TABLE only.
+  initEmailSchema(db)
+  // Accountability record + the one decision queue (obj 900367, Stage 1).
+  // Adds four declared columns to objectives plus review_items / its audit /
+  // its evidence binding. Runs AFTER the objectives rebuild and after the
+  // agent-control triggers, for the same reason every other objectives-column
+  // migration does: the ALTERs must land on the final table shape. Purely
+  // additive — no existing table is altered in place and no behaviour changes
+  // until a caller writes one of the new columns.
+  initAccountabilitySchema(db)
   // ── Secret scrubbing on persistence (obj 715532) ──────────────────────────
   // Installed LAST so migrations above run unwrapped. From here on, writes to
   // activity_log / objectives / session_events / … have known secret values and

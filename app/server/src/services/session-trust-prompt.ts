@@ -28,6 +28,7 @@ import { SENDER_MARKER } from '../lib/message-provenance.js'
 import { SESSION_SECRET_ACCESS_FLAG, readSettingFlag, verifiedSenderStampsEnabled } from '../lib/session-trust.js'
 import { listForCaller } from './secrets-broker.js'
 import { resolveSecretNames } from './secrets-store.js'
+import { allowlistedKeys, getSessionEnvMode, sessionSubjects } from './secret-env-policy.js'
 import { githubSessionAccess, resolveActingUserId } from './session-spawn-env.js'
 
 const MAX_LISTED = 150
@@ -96,9 +97,17 @@ export function buildSecretsInventoryBlock(objective: Objective): string[] {
   const userId = resolveActingUserId(objective)
   const brokerEnabled = readSettingFlag(SESSION_SECRET_ACCESS_FLAG)
   let names: string[] = []
+  let withheld = 0
   const hosts = new Map<string, string[]>()
   try {
     names = resolveSecretNames({ workspace, userId })
+    // D4 (obj 900540): in enforce mode the env holds only allowlisted names, so
+    // only those are listed as "already exported". The rest go via the broker.
+    if (getSessionEnvMode() === 'enforce') {
+      const allowed = allowlistedKeys(sessionSubjects(objective, userId))
+      withheld = names.filter(n => !allowed.has(n)).length
+      names = names.filter(n => allowed.has(n))
+    }
     if (brokerEnabled) {
       for (const item of listForCaller({ userId: userId ?? 0, isAdmin: false, workspaces: [workspace] }, { workspace })) {
         if (item.usable) hosts.set(item.name, item.allowed_hosts)
@@ -136,6 +145,15 @@ export function buildSecretsInventoryBlock(objective: Objective): string[] {
           : `…and ${names.length - shown.length} more.`,
       )
     }
+  }
+  if (withheld > 0) {
+    lines.push(
+      '',
+      `${withheld} more workspace secret${withheld === 1 ? ' is' : 's are'} NOT in your environment: this install only exports names allowlisted for your agent profile or skills. ` +
+        (brokerEnabled
+          ? 'Use them through the secrets broker below (`{{secret:NAME}}`); `GET /api/secrets-broker/list` shows the names.'
+          : 'Ask an admin to allowlist the exact name (Settings → Secrets, or `secrets-env-allowlist.ts allow`), and say so in your summary.'),
+    )
   }
   lines.push('', ...buildGithubAccessLines(objective, available))
   lines.push(

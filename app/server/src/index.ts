@@ -39,7 +39,7 @@ import internalRoutinesRouter from './routes/internal-routines.js'
 import internalPostHogHotOwnerRouter from './routes/internal-posthog-hot-owner.js'
 import starterPacksRouter, { internalStarterPacksRouter } from './routes/starter-packs.js'
 import internalInstallRouter from './routes/internal-install.js'
-import { buildCommit } from './lib/build-info.js'
+import { buildCommit, initBuildInfo } from './lib/build-info.js'
 import kbIngestRouter, { internalKbIngestRouter } from './routes/kb-ingest.js'
 import { resumeAfterRestart as resumeDocIngest } from './services/doc-ingest/service.js'
 import kbWikiRouter, { internalKbWikiRouter, resumeKbWiki } from './routes/kb-wiki.js'
@@ -85,6 +85,7 @@ import { securityHeaders } from './middleware/security-headers.js'
 import { getUserWorkspaces } from './middleware/workspace.js'
 import { WORKSPACES_JSON } from './config.js'
 import { hydrateProcessEnvFromSecretsStore } from './services/secrets-store.js'
+import { kekStatus } from './services/secrets-kek.js'
 import {
   getIntelForObjective,
   requeueParsedSessions,
@@ -117,6 +118,11 @@ import agentControlRouter from './routes/agent-control.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = parseInt(process.env.PORT || '3002', 10)
 
+// obj 900368: pin the running commit BEFORE anything can serve, so /api/health
+// reports the code this process actually loaded rather than whatever the
+// checkout happens to hold by the time the first request lands.
+console.log(`[startup] Running commit: ${initBuildInfo() ?? 'unknown'}`)
+
 // Initialize database. A failed initDb() means the server CANNOT serve — do NOT
 // let the global uncaughtException keep-alive (below) mask it as "alive but not
 // listening". That masking turned the 2026-06-28 gate_false_pass migration bug
@@ -135,6 +141,13 @@ try {
 // Replaces the old `doppler secrets get` boot fetch. Must run after initDb.
 const hydrated = hydrateProcessEnvFromSecretsStore()
 if (hydrated > 0) console.log(`[startup] Loaded ${hydrated} secret(s) from the native store`)
+// D2 (obj 900540): say where the secrets KEK came from, and shout if that place is
+// legacy or session-visible. Location only — never key material.
+{
+  const kek = kekStatus()
+  if (kek.ok) console.log(`[startup] secrets KEK provider=${kek.provider} location=${kek.location}`)
+  for (const w of kek.warnings) console.warn(`[startup] [secrets-kek] WARNING: ${w}`)
+}
 
 // Fail boot if the internal-route shared secret is missing in production —
 // internal localhost routes are unauthenticated without it (audit B5 / T6).
@@ -151,6 +164,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.UPTIMEROBOT_WEBHOOK_TO
 // historical tokens/cost the previous (broken) extractFinalUsage failed to record.
 import { reconcileFromHistory, enqueueSession } from './services/account-router.js'
 import { shouldRefusePrimaryBind } from './services/primary-server-guard.js'
+import { detectScratchInstance } from './services/scratch-instance.js'
 import { extractUsageForSessionId, setQueueDrainCallback } from './services/session-manager.js'
 try {
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
@@ -417,128 +431,142 @@ app.get('*', (_req, res) => {
 initWebSocket(server)
 console.log('WebSocket server initialized')
 
-// Start state poller
-startPoller()
+// Host daemons run ONLY on the real host instance (obj 900547). A scratch / dev
+// copy of this server booted inside a session jail (e.g. for screenshots) used to
+// run all of them — and the state poller's orphan-tmux sweep killed the worker's
+// OWN tmux session within one 3s tick (#900543, twice). A scratch server still
+// serves HTTP + WebSocket; it just starts no poller, reaper, scheduler, watchdog,
+// bridge or queue drain. Override: CC_HOST_INSTANCE=1. See services/scratch-instance.ts.
+const scratchVerdict = detectScratchInstance(import.meta.url)
+if (scratchVerdict.scratch) {
+  console.warn(
+    `[startup] SCRATCH instance (${scratchVerdict.reason}) — host daemons NOT started ` +
+      '(poller, tmux/worktree reapers, schedulers, watchdogs, queue drain). Set CC_HOST_INSTANCE=1 to override.',
+  )
+} else {
+  // Start state poller
+  startPoller()
 
-// Start dream cycle scheduler (daily full + hourly light)
-startDreamCycleScheduler()
+  // Start dream cycle scheduler (daily full + hourly light)
+  startDreamCycleScheduler()
 
-// Start routines scheduler (cron-scheduled recurring objectives, 60s tick)
-startRoutineScheduler()
-try { resumeDocIngest(getWorkspaceSlugs()) } catch (err) { console.warn('[doc-ingest] resume failed:', (err as Error).message) }
-try { resumeKbWiki(getWorkspaceSlugs()) } catch (err) { console.warn('[kb-wiki] resume failed:', (err as Error).message) }
+  // Start routines scheduler (cron-scheduled recurring objectives, 60s tick)
+  startRoutineScheduler()
+  try { resumeDocIngest(getWorkspaceSlugs()) } catch (err) { console.warn('[doc-ingest] resume failed:', (err as Error).message) }
+  try { resumeKbWiki(getWorkspaceSlugs()) } catch (err) { console.warn('[kb-wiki] resume failed:', (err as Error).message) }
 
-// Start the anti-signal canary harness scheduler (obj-2376). Ticks are a NO-OP
-// until Operator opts in via `canary_harness_enabled=1` — nothing auto-fires on deploy.
-startCanaryHarnessScheduler()
+  // Start the anti-signal canary harness scheduler (obj-2376). Ticks are a NO-OP
+  // until Operator opts in via `canary_harness_enabled=1` — nothing auto-fires on deploy.
+  startCanaryHarnessScheduler()
 
-// Start the Kitchen Loop driver (obj 700099) — Phase-0 SHADOW. A COMPLETE no-op
-// until Operator opts in via `kitchen_loop_enabled=1`; with the flag OFF it returns
-// before arming any timer (boot is byte-for-byte unchanged). When ON it ticks the
-// six-phase machine in SHADOW only — dry-run ideate, read-only oracle, drift
-// snapshots, logged-only pause gates. Nothing emits to the board.
-startKitchenLoop()
+  // Start the Kitchen Loop driver (obj 700099) — Phase-0 SHADOW. A COMPLETE no-op
+  // until Operator opts in via `kitchen_loop_enabled=1`; with the flag OFF it returns
+  // before arming any timer (boot is byte-for-byte unchanged). When ON it ticks the
+  // six-phase machine in SHADOW only — dry-run ideate, read-only oracle, drift
+  // snapshots, logged-only pause gates. Nothing emits to the board.
+  startKitchenLoop()
 
-// Start Assistant morning-nudge scheduler (daily 07:00 America/New_York Telegram digest)
-startBriefingNudgeScheduler()
+  // Start Assistant morning-nudge scheduler (daily 07:00 America/New_York Telegram digest)
+  startBriefingNudgeScheduler()
 
-// Start the PostHog hot_owner sync schedule (obj 900091) — weekdays 08:00-19:30
-// America/New_York, every 30 min. Deterministic, no LLM spawn. Gated independently
-// by settings.posthog_hot_owner_sync_enabled (default on); off entirely if
-// POSTHOG_PERSONAL_API_KEY is not configured (each tick then records a failed run
-// and alerts Operator after 3 in a row, same as any other sync failure).
-startPostHogHotOwnerScheduler()
+  // Start the PostHog hot_owner sync schedule (obj 900091) — weekdays 08:00-19:30
+  // America/New_York, every 30 min. Deterministic, no LLM spawn. Gated independently
+  // by settings.posthog_hot_owner_sync_enabled (default on); off entirely if
+  // POSTHOG_PERSONAL_API_KEY is not configured (each tick then records a failed run
+  // and alerts Operator after 3 in a row, same as any other sync failure).
+  startPostHogHotOwnerScheduler()
 
-// Start the CI → objective feedback bridge poller (obj 701617, 5-min tick). Reads open
-// example-platform PRs' vitest check and, on FAILURE, posts the failing-test summary back
-// into the originating objective so the worker re-opens and iterates until green. The
-// timer arms but is INERT until Operator sets settings.ci_feedback_bridge_enabled=1 — while
-// off it only logs "WOULD nudge" and posts nothing (no live worker is disturbed).
-startCiFeedbackBridge()
+  // Start the CI → objective feedback bridge poller (obj 701617, 5-min tick). Reads open
+  // example-platform PRs' vitest check and, on FAILURE, posts the failing-test summary back
+  // into the originating objective so the worker re-opens and iterates until green. The
+  // timer arms but is INERT until Operator sets settings.ci_feedback_bridge_enabled=1 — while
+  // off it only logs "WOULD nudge" and posts nothing (no live worker is disturbed).
+  startCiFeedbackBridge()
 
-// Start the dev_feedback ↔ CC-objective bridge (obj 711117 W4 / 712905, 2-min tick).
-// Per workspace instance (example2, example-project): reads pending dev_feedback items
-// and creates CC board objectives; also pushes CC objective status changes back to
-// the platform kanban. An instance with missing env (example2: EXAMPLE2_PLATFORM_BASE_URL +
-// EXAMPLE2_INTERNAL_API_SECRET; example-project: WS_DEV_FEEDBACK_INTERNAL_SECRET) is
-// skipped with a log line. Disable with DEV_FEEDBACK_BRIDGE_ENABLED=false.
-startDevFeedbackBridge()
+  // Start the dev_feedback ↔ CC-objective bridge (obj 711117 W4 / 712905, 2-min tick).
+  // Per workspace instance (example2, example-project): reads pending dev_feedback items
+  // and creates CC board objectives; also pushes CC objective status changes back to
+  // the platform kanban. An instance with missing env (example2: EXAMPLE2_PLATFORM_BASE_URL +
+  // EXAMPLE2_INTERNAL_API_SECRET; example-project: WS_DEV_FEEDBACK_INTERNAL_SECRET) is
+  // skipped with a log line. Disable with DEV_FEEDBACK_BRIDGE_ENABLED=false.
+  startDevFeedbackBridge()
 
-// Start live-checkout drift guard (60s tick) — surfaces "unbacked production"
-// (uncommitted served-path edits, or HEAD != origin/main) loudly in logs + the
-// AlertBell UI so the obj-1124 silent-deletion class of failure can't recur.
-startDriftGuard()
-// Objectives blast-radius safety net (15-min snapshots + 60s drop-guard). See objectives-safety.ts.
-startObjectivesSafety()
-// Agent-key webhooks (obj 719278, 5s tick): objective_events → signed POST to the
-// managing bot's URL, with retries. Off the card write path — never blocks a move.
-startAgentWebhooks()
+  // Start live-checkout drift guard (60s tick) — surfaces "unbacked production"
+  // (uncommitted served-path edits, or HEAD != origin/main) loudly in logs + the
+  // AlertBell UI so the obj-1124 silent-deletion class of failure can't recur.
+  startDriftGuard()
+  // Objectives blast-radius safety net (15-min snapshots + 60s drop-guard). See objectives-safety.ts.
+  startObjectivesSafety()
+  // Agent-key webhooks (obj 719278, 5s tick): objective_events → signed POST to the
+  // managing bot's URL, with retries. Off the card write path — never blocks a move.
+  startAgentWebhooks()
 
-// PR-health watchdog (obj 704700, 10-min sweep). The RECONCILER under the event-driven
-// remediation loop: enumerates every open PR across the tracked repos and guarantees a
-// red PR is either being remediated or explicitly escalated, so a missed webhook or an
-// ownerless PR can no longer sit red forever. The timer arms but is INERT until Operator
-// sets settings.pr_health_watchdog_enabled=1 — while off, ticks return before shelling
-// out to gh and every decided action only logs "WOULD act". The read-only surface at
-// GET /api/internal/pr-health[/digest] works either way.
-startPrHealthWatchdog()
+  // PR-health watchdog (obj 704700, 10-min sweep). The RECONCILER under the event-driven
+  // remediation loop: enumerates every open PR across the tracked repos and guarantees a
+  // red PR is either being remediated or explicitly escalated, so a missed webhook or an
+  // ownerless PR can no longer sit red forever. The timer arms but is INERT until Operator
+  // sets settings.pr_health_watchdog_enabled=1 — while off, ticks return before shelling
+  // out to gh and every decided action only logs "WOULD act". The read-only surface at
+  // GET /api/internal/pr-health[/digest] works either way.
+  startPrHealthWatchdog()
 
-// Host daemon supervision (obj 704925). THIS SERVER'S BOOT PATH IS THE ONLY
-// ccuser-controllable code that runs after a container restart -- there is no cron,
-// systemd or supervisord on this host, and /app/entrypoint.sh is not writable by ccuser.
-// Runs (and periodically re-runs) /home/operator/ai-workspace/host-boot.d/run-all.sh, which
-// flock-idempotently ensures each registered host daemon is up. Deliberately thin: all
-// daemon logic lives outside this repo so adding one needs no CC deploy.
-startHostBootDaemons()
+  // Host daemon supervision (obj 704925). THIS SERVER'S BOOT PATH IS THE ONLY
+  // ccuser-controllable code that runs after a container restart -- there is no cron,
+  // systemd or supervisord on this host, and /app/entrypoint.sh is not writable by ccuser.
+  // Runs (and periodically re-runs) /home/operator/ai-workspace/host-boot.d/run-all.sh, which
+  // flock-idempotently ensures each registered host daemon is up. Deliberately thin: all
+  // daemon logic lives outside this repo so adding one needs no CC deploy.
+  startHostBootDaemons()
 
-// n8n sibling watchdog (30s): inspect n8n + n8n-db, auto-start if they died,
-// AlertBell-only page on down/recovery. Docker socket is mounted.
-startN8nWatchdog()
-// Probe every Claude subscription slot on a timer so a disabled org / dead OAuth
-// is parked before cards run on it (obj 717767). Subscription login only.
-startSlotHealthCheck()
-// Host disk watermarks (5 min): AlertBell at 85%, cleanup at 90%, POST /message
-// returns 507 under 2 GiB free so a full disk cannot hang the composer.
-startDiskWatchdog()
-// PR preview tier health (10 min, obj 719327): probes the most recently
-// updated open PR's pr-N.cc.example.com host and pages AlertBell on a TLS/
-// reachability outage instead of letting a reviewer silently burn probes into
-// a BLOCKED verdict. Monitoring only — see preview-health-watchdog.ts for why
-// it does not attempt remediation. CC_PREVIEW_HEALTH_WATCHDOG=false disables.
-startPreviewHealthWatchdog()
-// Finished-card worktree sweep (30 min, obj 718070): git worktree remove for
-// done/cancelled cards' clean+pushed worktrees across every repo in PROJECTS_DIR.
-// CC_WORKTREE_REAPER=false disables; CC_WORKTREE_REAPER_DRY_RUN=true logs only.
-startWorktreeReaper()
-// Queue drain: when a rate-limited account recovers (or a new slot is added),
-// auto-start objectives that were queued because all accounts were exhausted.
-// Reuses the internal status endpoint so the full transition logic
-// (session spawn, intel bookkeeping, concurrency cap) applies. This was the
-// missing wiring — setQueueDrainCallback was defined but never invoked, so
-// queued objectives sat forever after limits reset (found 2026-06-12).
-setQueueDrainCallback((objectiveId) => {
-  fetch(`http://localhost:${PORT}/api/internal/objectives/${objectiveId}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'working', reason: 'queue_drain', actor: 'account-queue' }),
-  })
-    .then(async (r) => {
-      if (!r.ok) {
-        const body = await r.text().catch(() => '')
-        console.error(`[queue-drain] Failed to start objective ${objectiveId}: ${r.status} ${body.slice(0, 200)}`)
-        // Don't silently drop: the objective was already dequeued, so a transient
-        // failure (5xx, or a 409 concurrency-cap) would lose it forever. Re-queue
-        // it for the next drain tick. A 400 (invalid transition — typically the
-        // objective is already 'working') is NOT retried, since re-queuing would
-        // just loop; the state-poller's orphan sweep moves such a stuck objective
-        // to 'review' so a later drain PATCH (review→working) succeeds instead.
-        if (r.status !== 400) enqueueSession(objectiveId)
-      } else {
-        console.log(`[queue-drain] Auto-started queued objective ${objectiveId}`)
-      }
+  // n8n sibling watchdog (30s): inspect n8n + n8n-db, auto-start if they died,
+  // AlertBell-only page on down/recovery. Docker socket is mounted.
+  startN8nWatchdog()
+  // Probe every Claude subscription slot on a timer so a disabled org / dead OAuth
+  // is parked before cards run on it (obj 717767). Subscription login only.
+  startSlotHealthCheck()
+  // Host disk watermarks (5 min): AlertBell at 85%, cleanup at 90%, POST /message
+  // returns 507 under 2 GiB free so a full disk cannot hang the composer.
+  startDiskWatchdog()
+  // PR preview tier health (10 min, obj 719327): probes the most recently
+  // updated open PR's pr-N.cc.example.com host and pages AlertBell on a TLS/
+  // reachability outage instead of letting a reviewer silently burn probes into
+  // a BLOCKED verdict. Monitoring only — see preview-health-watchdog.ts for why
+  // it does not attempt remediation. CC_PREVIEW_HEALTH_WATCHDOG=false disables.
+  startPreviewHealthWatchdog()
+  // Finished-card worktree sweep (30 min, obj 718070): git worktree remove for
+  // done/cancelled cards' clean+pushed worktrees across every repo in PROJECTS_DIR.
+  // CC_WORKTREE_REAPER=false disables; CC_WORKTREE_REAPER_DRY_RUN=true logs only.
+  startWorktreeReaper()
+  // Queue drain: when a rate-limited account recovers (or a new slot is added),
+  // auto-start objectives that were queued because all accounts were exhausted.
+  // Reuses the internal status endpoint so the full transition logic
+  // (session spawn, intel bookkeeping, concurrency cap) applies. This was the
+  // missing wiring — setQueueDrainCallback was defined but never invoked, so
+  // queued objectives sat forever after limits reset (found 2026-06-12).
+  setQueueDrainCallback((objectiveId) => {
+    fetch(`http://localhost:${PORT}/api/internal/objectives/${objectiveId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'working', reason: 'queue_drain', actor: 'account-queue' }),
     })
-    .catch((err) => console.error(`[queue-drain] Request error for objective ${objectiveId}:`, err))
-})
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.text().catch(() => '')
+          console.error(`[queue-drain] Failed to start objective ${objectiveId}: ${r.status} ${body.slice(0, 200)}`)
+          // Don't silently drop: the objective was already dequeued, so a transient
+          // failure (5xx, or a 409 concurrency-cap) would lose it forever. Re-queue
+          // it for the next drain tick. A 400 (invalid transition — typically the
+          // objective is already 'working') is NOT retried, since re-queuing would
+          // just loop; the state-poller's orphan sweep moves such a stuck objective
+          // to 'review' so a later drain PATCH (review→working) succeeds instead.
+          if (r.status !== 400) enqueueSession(objectiveId)
+        } else {
+          console.log(`[queue-drain] Auto-started queued objective ${objectiveId}`)
+        }
+      })
+      .catch((err) => console.error(`[queue-drain] Request error for objective ${objectiveId}:`, err))
+  })
+} // end host-only daemons
 
 // NOTE: there is deliberately NO generic "queue drain" here. `queue` is a manual
 // holding/pending area — cards sit there as a reminder until a human (or their
@@ -593,6 +621,9 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 
 server.listen(PORT, () => {
   console.log(`Command Center running on port ${PORT}`)
+  // Scratch instance (obj 900547): no background sweeps, ledger rebuilds or sibling
+  // bots — a screenshot server only needs to answer HTTP.
+  if (scratchVerdict.scratch) return
   // Telegram contactbook sibling — no-ops unless TELEGRAM_BOT_TOKEN + OWNER_ID are set.
   startContactbookSibling()
   // Installer switch (obj 719986): STARTER_AGENT_TEMPLATES=all|slug,slug installs

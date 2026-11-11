@@ -459,8 +459,20 @@ export interface Objective {
   /** Denormalized last-activity timestamp (obj 700850): the most recent moment the
    *  agent side did/sent something for this objective = MAX(session_intel.ended_at),
    *  advanced forward-only when a session's intel is written. NULL when the objective
-   *  has no sessions (the board falls back to updated_at). */
+   *  has no sessions (the board falls back to updated_at).
+   *  obj 900372: ALSO advanced live (every ~60s) to the running session's last
+   *  transcript write by the stall watchdog, so a silent working card shows its
+   *  real idle time in one read. */
   last_activity_at: string | null
+  /** obj 900372: true while the card is `working` and the stall watchdog flagged it
+   *  (no live process or no transcript write for N min, after its one auto-restart). */
+  stalled?: boolean
+  /** When the watchdog flagged it (ISO) — NULL when not stalled. */
+  stalled_at?: string | null
+  /** One line: stall class, idle minutes, session id. Never transcript text. */
+  stall_reason?: string | null
+  /** Watchdog auto-restarts spent in the current stall episode (0 or 1). */
+  stall_restarts?: number
 }
 
 // ── AI Review Stage ──

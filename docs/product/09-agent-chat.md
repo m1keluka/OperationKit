@@ -1,17 +1,18 @@
 # Bots
 
-**In a sentence:** Pick a bot and talk to it in one ongoing conversation, like a personal assistant. It can read and update its own notes, prepare email and calendar drafts for you to send, and hand bigger jobs to the board.
+**In a sentence:** Pick a bot and talk to it in one ongoing conversation, like a personal assistant — and set separate **side threads** going beside it when you want more than one thing happening at once. It can read and update its own notes, prepare email and calendar drafts for you to send, and hand bigger jobs to the board.
 
-> ### Bot or conversation?
+> ### Bot, conversation, side thread?
 >
 > They are different things, and the screen keeps them apart.
 >
 > | | What it is | How it is created | How it is removed |
 > |---|---|---|---|
 > | **A bot** | A durable identity — a name, a description, instructions, its own knowledge folders and tools. One file on the server. | By adding that file (see [Adding a bot](#adding-a-bot)). **Never from the Bots screen.** | By removing that file. |
-> | **A conversation** | Your message history with one bot. There is exactly **one per bot**. | Implicitly, by your first message. | **Clear conversation** empties it — the bot stays. |
+> | **The main conversation** | Your ongoing message history with one bot. There is exactly **one per bot** and it is always open. | Implicitly, by your first message. | **Clear** empties it — the bot stays. |
+> | **A side thread** | An extra, named conversation beside the main one. Its own history, its own context, and it runs **at the same time** as the others. | **+ Side thread** on the strip under the bot's name. | **Close** archives it (messages kept) — the main conversation is untouched. |
 >
-> That is why the Bots screen has no **New bot** button (it does not create bots) and no **New conversation** button (each bot already has one, and it is always open).
+> That is why the Bots screen has no **New bot** button: it does not create bots. It *does* create side threads, because a side thread is a conversation, not a bot.
 
 Bots are optional. The same bots and notes can also be reached from Claude, ChatGPT or Grok — see [Use your agents from Claude, ChatGPT or Grok](./10-agents-from-other-ai.md).
 
@@ -31,13 +32,21 @@ Bots are optional. The same bots and notes can also be reached from Claude, Chat
 1. Open **Bots** (top bar on a computer, bottom bar on a phone). The address is still `/chat`, so old bookmarks still land here.
 2. Pick a bot from the list. Each bot keeps **one ongoing conversation with you** — come back tomorrow and it is still there. Opening a bot reopens that conversation; it does not start a second one, and it does not create a bot.
 3. Type what you need. Press **Enter** to send (**Shift + Enter** for a new line).
+4. Need a second thing going at once? Press **+ Side thread** on the strip under the bot's name. You get a fresh, empty conversation with the same bot — and the main conversation (and any other side thread) keeps working while it does. Switch lanes by tapping a name on the strip; **Rename** and **Close** are next to the bot's name while a side thread is open.
 4. To show the agent something, **paste a screenshot straight into the box** (Ctrl/Cmd + V), drag an image onto the composer, or use the **paperclip**. Up to 4 images per message, 5 MB each, PNG / JPEG / GIF / WebP. An image on its own is a perfectly good message.
 
 Under every reply you will see **"Answered by …"** — the AI service and model that wrote it (for example *Claude · claude-sonnet-5*, or *Demo (no AI account)*). The top of the conversation shows which one that bot uses.
 
 Small grey lines between messages show what the bot did: "Checked inbox", "Read todo.md", "Created card #42".
 
-**Clear conversation** (top right) deletes your messages with that bot from the server. **The bot itself is not deleted** — only the conversation is emptied. Board cards and saved notes stay.
+**Clear** (top right) deletes the messages of **the conversation you are looking at** from the server. In the main conversation that empties the main history and leaves your side threads alone; in a side thread it empties only that lane. **The bot itself is never deleted**, and board cards and saved notes stay.
+
+### Side threads, in a bit more detail
+
+- **Nothing crosses.** What you say in one side thread is never shown to the bot in another one, and never in the main conversation. Each lane has its own history and the bot is handed only that lane's messages.
+- **They really do run at the same time.** Set a long job going in a side thread and keep talking in the main conversation; neither waits for the other. (Sending a *second* message into a lane that is still answering is still refused, as before — that is per lane, not per bot.)
+- **Closing is archiving.** **Close** takes the lane off the strip and keeps its messages. Your main conversation is not read or changed by closing a side thread.
+- **There is a limit per bot** — 10 open side threads by default. Close one to open another. An administrator can change it with the `agent_chat_max_threads_per_bot` setting (`0` = no limit); it is read when you press the button, so no restart is needed.
 
 ## What a bot can do
 
@@ -131,7 +140,7 @@ The agents folder is `AGENT_FILES_DIR` if set, otherwise `agents/` in the AI wor
 - A bot reads and writes **only** its own knowledge folders (paths are checked after following shortcuts/symlinks).
 - A bot only gets the tools its file lists.
 - Board cards a bot creates run like every other card — on a client install each one runs in its own locked-down sandbox (`SESSION_ISOLATION=docker`).
-- Conversations are private: nobody else (and no API key) can read your conversation with a bot.
+- Conversations are private: nobody else (and no API key) can read your conversation with a bot — side threads included. Naming someone else's side thread, or a side thread that belongs to a different bot, is refused outright rather than quietly answered from your own conversation.
 - AI keys are read from the server's secret store by name and only sent to that AI service. They are never shown, saved with a message, or logged.
 
 ## For developers
@@ -139,6 +148,7 @@ The agents folder is `AGENT_FILES_DIR` if set, otherwise `agents/` in the AI wor
 The code keeps its existing `agent` / `agent-chat` names — only the user-facing wording became "bot" (obj 900327).
 
 - Server: `app/server/src/services/agent-chat/` (agent files, providers, tools, connectors, demo) and `app/server/src/routes/agent-chat.ts` (`/api/agent-chat`).
-- Tables: `agent_chat_messages`, `agent_chat_drafts`, `agent_chat_cards` (`app/server/src/db/schema/agent-chat.ts`). No migration was needed or performed for the rename.
+- Tables: `agent_chat_messages`, `agent_chat_drafts`, `agent_chat_cards`, `agent_chat_threads` (`app/server/src/db/schema/agent-chat.ts`). No migration was needed or performed for the rename.
+- Side threads / concurrent task lanes (obj 900370): `app/server/src/services/agent-chat/threads.ts`. A message's lane is `agent_chat_messages.thread_id` — `NULL` means the main conversation, which is why every row written before the feature existed is already in the right place. Every read and write of the message table is scoped by `lanePredicate()`, the single place a lane becomes SQL; there is deliberately no predicate that spans lanes. The in-flight slot in `engine.ts` is keyed per lane, which is what makes the lanes concurrent. Proofs: `services/agent-chat/side-threads.test.ts` (isolation, concurrency, ceiling) and `routes/agent-chat-threads.test.ts` (the HTTP boundary). The row shape follows this install's own `mentor_threads`, not a new threading model.
 - Page: `app/client/src/components/agent-chat/`, routed at `/chat` and `/chat/:slug`.
 - Plugging in a real mailbox or calendar: implement `MailConnector` / `CalendarConnector` in `connectors.ts` and return it from `resolveConnectors()`. Delivery happens only in `deliver()` / `add()`, which only the Send route calls.

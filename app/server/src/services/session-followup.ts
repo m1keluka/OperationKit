@@ -44,7 +44,8 @@ import {
 import { logActivity } from '../routes/feed.js'
 import { isSessionActive } from './session-control.js'
 import { deriveBranchName, deriveWorktreeBranchName } from './branch-scope.js'
-import { spawnInTmux } from './session-tmux.js'
+import { invalidateSessionLivenessCache, spawnInTmux } from './session-tmux.js'
+import { overloadRetryPending } from './session-death.js'
 import { extractClaudeSessionId } from './session-jsonl.js'
 import { getModelEngine } from './model-registry.js'
 import { buildSpawnEnv } from './session-spawn-env.js'
@@ -121,6 +122,50 @@ function claudeConversationExists(homeDir: string, claudeSessionId: string, work
     }
   } catch {}
   return false
+}
+
+/**
+ * obj 900547 — hold the poller off a session whose respawn is in flight.
+ *
+ * `POST /:id/message` flips the card to `working` and answers the client, then
+ * respawns on the next tick (obj 700253). Until that spawn returns, the card is
+ * `working` with NO live process and a transcript whose last turn ended in a
+ * `result`, so getSessionState reads 'review' and the poller treats the wake as
+ * a session that just finished: it routes the card back to review and runs
+ * handleSessionDeath for that session id (jail mode: removes the jail HOME the
+ * respawn is about to use). The human's one message is recorded but the card
+ * never visibly starts, so they send another.
+ *
+ * The poll loop already skips any session in `overloadRetryPending` (the 529
+ * backoff respawn has the same "dead while a respawn is scheduled" shape), so
+ * the hold reuses that set rather than adding a second poller hook. Returns the
+ * release function; it only removes an entry this hold added, so a real 529
+ * backoff on the same session is never cut short.
+ *
+ * `release(graceMs)` keeps the hold a little past a SUCCESSFUL spawn: a jailed
+ * spawn's container / tmux can take a few seconds to show up in the liveness
+ * snapshots, and the same misread would happen in that gap. A failed spawn
+ * releases immediately so the revert path is not delayed.
+ */
+/** Env `CC_RESPAWN_HOLD_GRACE_MS` overrides (read at call time). */
+export function respawnHoldGraceMs(): number {
+  const n = Number(process.env.CC_RESPAWN_HOLD_GRACE_MS)
+  return Number.isFinite(n) && n >= 0 ? n : 20_000
+}
+export function holdPollerForRespawn(sessionId: string): (graceMs?: number) => void {
+  if (overloadRetryPending.has(sessionId)) return () => {}
+  overloadRetryPending.add(sessionId)
+  let released = false
+  const drop = () => {
+    if (released) return
+    released = true
+    overloadRetryPending.delete(sessionId)
+  }
+  return (graceMs = 0) => {
+    if (released) return
+    if (graceMs > 0) setTimeout(drop, graceMs).unref()
+    else drop()
+  }
 }
 
 /** Persist a follow-up into the session jsonl so the thread can show it immediately. */
@@ -397,6 +442,13 @@ export function sendFollowUp(
     requestedModel: objective.model || undefined,
   }
   registerActiveSession(sessionId, newSession)
+  // obj 900547 — the liveness snapshots (host `tmux ls` 1s, jail `docker ps` 2s)
+  // were taken BEFORE this spawn. A poll that reads them in the same window sees
+  // no process plus the previous turn's `result` in the shared transcript,
+  // decides the session ended, routes the card back to review and runs the
+  // death cleanup (jail mode: deletes the HOME this new run is writing into).
+  // Drop them so the very next state check sees the process we just started.
+  invalidateSessionLivenessCache()
   if (historyCapped && capDecision) {
     // The wake source's own attribution (ai_review_fail, follow_up, …) is folded
     // into the detail so the card still shows WHY it woke, plus that it was capped.

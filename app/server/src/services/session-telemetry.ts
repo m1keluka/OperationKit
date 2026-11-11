@@ -4,6 +4,7 @@
  */
 import fs from 'fs'
 import { getDb } from '../db/index.js'
+import { recordSessionEnvUsageFromTranscript } from './secret-env-policy.js'
 import { FALLBACK_MODEL_ID, analyzeStreamAttribution, detectMainLoopFallback, mainLoopModelsRan, mergeRanModel } from './model-attribution.js'
 import {
   type WorktreeIsolation,
@@ -87,6 +88,12 @@ export function scanStreamTelemetry(sessionId: string, jsonlPath: string, logPat
       // surfaces it as a [worktree-violation] in the log + a UI warning event.
       try { checkWorktreeViolation(trimmed, jsonlPath, logPath, isolation, new Date().toISOString()) } catch {}
     }
+  }
+
+  // D4 (obj 900540): migration log — which non-allowlisted Secrets-store names
+  // this session referenced in its own tool calls. Names + counts only.
+  if (objectiveId != null) {
+    try { recordSessionEnvUsageFromTranscript(objectiveId, sessionId, content) } catch {}
   }
 
   // Hardened attribution (obj 701053): decide refusal/fallback from the MAIN

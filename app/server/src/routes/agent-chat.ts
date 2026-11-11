@@ -27,6 +27,16 @@ import {
 } from '../services/agent-chat/connectors.js'
 import { getDb } from '../db/index.js'
 import { getAttachment, ImageRejected, parseIncomingImages, type IncomingImage } from '../services/agent-chat/attachments.js'
+import {
+  createThread,
+  deleteThread,
+  listThreads,
+  maxThreadsPerBot,
+  resolveLane,
+  ThreadRejected,
+  updateThread,
+  type ChatLane,
+} from '../services/agent-chat/threads.js'
 
 /**
  * Built-in agent chat (obj 719987) — /api/agent-chat
@@ -36,6 +46,10 @@ import { getAttachment, ImageRejected, parseIncomingImages, type IncomingImage }
  *   GET    /agents/:slug/messages      the caller's ongoing chat with that agent
  *   POST   /agents/:slug/messages      send a message, run the turn, return the new rows
  *   DELETE /agents/:slug/messages      clear the caller's chat with that agent
+ *   GET    /agents/:slug/threads       the caller's side threads with that agent
+ *   POST   /agents/:slug/threads       open a new side thread (a concurrent task lane)
+ *   PATCH  /agents/:slug/threads/:id   rename / pin / archive (= close) a side thread
+ *   DELETE /agents/:slug/threads/:id   delete a side thread and its messages
  *   GET    /attachments/:id            one image the caller attached (owner only)
  *   PUT    /drafts/:id                 edit a draft before sending
  *   POST   /drafts/:id/send            the person's Send / Add to calendar click
@@ -45,6 +59,14 @@ import { getAttachment, ImageRejected, parseIncomingImages, type IncomingImage }
  * Every chat is strictly per person: a caller only ever reads or writes their
  * own messages and drafts. Sending a draft needs a signed-in browser session —
  * an API key (a bot, another agent) can never press Send.
+ *
+ * SIDE THREADS (obj 900370). The three /messages routes take an optional
+ * `thread_id` — query string on GET/DELETE, body field on POST. Omitting it
+ * means the MAIN conversation, which is why every existing caller is unaffected.
+ * `resolveLane` is the single gate: a `thread_id` that is not the caller's own,
+ * or belongs to a different bot, 404s rather than quietly falling back to the
+ * main conversation (a silent fallback would write a side-thread message into
+ * the main history, which is exactly the leak this feature must not have).
  */
 const router: Router = Router()
 router.use(requireAuth)
@@ -87,6 +109,29 @@ function agentOr404(req: AuthRequest, res: Response): ChatAgent | null {
   return a
 }
 
+/** A ThreadRejected carries its own status; anything else is a real 500. */
+function threadError(res: Response, err: unknown): void {
+  if (err instanceof ThreadRejected) {
+    res.status(err.status).json({ error: err.message })
+    return
+  }
+  console.error('[agent-chat] side thread failed:', err instanceof Error ? err.message : err)
+  res.status(500).json({ error: 'That did not work. Try again.' })
+}
+
+/**
+ * Which conversation this request means. Returns null AFTER answering, so a
+ * caller can `if (!lane) return` the same way it does for agentOr404.
+ */
+function laneOr404(req: AuthRequest, res: Response, slug: string, raw: unknown): ChatLane | null {
+  try {
+    return resolveLane(req.user!.id, slug, raw)
+  } catch (err) {
+    threadError(res, err)
+    return null
+  }
+}
+
 router.get('/agents', (req: AuthRequest, res) => {
   const { agents, problems } = listAgents()
   res.json({
@@ -111,9 +156,71 @@ router.get('/agents/:slug/messages', (req: AuthRequest, res) => {
   }
   const a = agentOr404(req, res)
   if (!a) return
+  const lane = laneOr404(req, res, a.slug, req.query.thread_id)
+  if (!lane) return
   const after = Number(req.query.after) || 0
-  const messages = listMessages(req.user!.id, a.slug, { afterId: after })
+  const messages = listMessages(req.user!.id, a.slug, { afterId: after, lane })
   res.json({ messages, ...attachments(req.user!.id, a.slug, messages) })
+})
+
+// ── side threads / concurrent task lanes (obj 900370) ──
+
+router.get('/agents/:slug/threads', (req: AuthRequest, res) => {
+  if (req.authVia === 'agent_api_key') {
+    res.status(403).json({ error: 'Chat history is private to the person' })
+    return
+  }
+  const a = agentOr404(req, res)
+  if (!a) return
+  const threads = listThreads(req.user!.id, a.slug, { includeArchived: req.query.archived === '1' })
+  res.json({ threads, max_open: maxThreadsPerBot() })
+})
+
+router.post('/agents/:slug/threads', (req: AuthRequest, res) => {
+  if (req.authVia === 'agent_api_key') {
+    res.status(403).json({ error: 'Chat history is private to the person' })
+    return
+  }
+  const a = agentOr404(req, res)
+  if (!a) return
+  try {
+    res.status(201).json({ thread: createThread(req.user!.id, a.slug, (req.body ?? {}).title) })
+  } catch (err) {
+    threadError(res, err)
+  }
+})
+
+router.patch('/agents/:slug/threads/:id', (req: AuthRequest, res) => {
+  if (req.authVia === 'agent_api_key') {
+    res.status(403).json({ error: 'Chat history is private to the person' })
+    return
+  }
+  const a = agentOr404(req, res)
+  if (!a) return
+  const b = (req.body ?? {}) as Record<string, unknown>
+  try {
+    res.json({ thread: updateThread(req.user!.id, a.slug, Number(req.params.id), { title: b.title, pinned: b.pinned, archived: b.archived }) })
+  } catch (err) {
+    threadError(res, err)
+  }
+})
+
+/**
+ * Delete a side thread outright. The lane's messages and images go with it; the
+ * main conversation is not read or written by this path at all.
+ */
+router.delete('/agents/:slug/threads/:id', (req: AuthRequest, res) => {
+  if (req.authVia === 'agent_api_key') {
+    res.status(403).json({ error: 'Chat history is private to the person' })
+    return
+  }
+  const a = agentOr404(req, res)
+  if (!a) return
+  const lane = laneOr404(req, res, a.slug, req.params.id)
+  if (!lane) return
+  const removed = clearChat(req.user!.id, a.slug, lane)
+  deleteThread(req.user!.id, a.slug, Number(req.params.id))
+  res.json({ ok: true, removed })
 })
 
 router.post('/agents/:slug/messages', async (req: AuthRequest, res) => {
@@ -123,6 +230,8 @@ router.post('/agents/:slug/messages', async (req: AuthRequest, res) => {
   }
   const a = agentOr404(req, res)
   if (!a) return
+  const lane = laneOr404(req, res, a.slug, req.body?.thread_id)
+  if (!lane) return
   const text = typeof req.body?.text === 'string' ? req.body.text.trim() : ''
   let images: IncomingImage[]
   try {
@@ -144,7 +253,7 @@ router.post('/agents/:slug/messages', async (req: AuthRequest, res) => {
   const ac = new AbortController()
   res.on('close', () => { if (!res.writableEnded) ac.abort() })
   try {
-    const { messages } = await runTurn({ userId: req.user!.id, username: req.user!.username, agent: a, text, images, signal: ac.signal })
+    const { messages } = await runTurn({ userId: req.user!.id, username: req.user!.username, agent: a, text, images, lane, signal: ac.signal })
     res.json({ messages, ...attachments(req.user!.id, a.slug, messages) })
   } catch (err) {
     if (err instanceof ChatBusyError) {
@@ -161,7 +270,10 @@ router.delete('/agents/:slug/messages', (req: AuthRequest, res) => {
     res.status(403).json({ error: 'Chat history is private to the person' })
     return
   }
-  const removed = clearChat(req.user!.id, String(req.params.slug))
+  const slug = String(req.params.slug)
+  const lane = laneOr404(req, res, slug, req.query.thread_id)
+  if (!lane) return
+  const removed = clearChat(req.user!.id, slug, lane)
   res.json({ ok: true, removed })
 })
 

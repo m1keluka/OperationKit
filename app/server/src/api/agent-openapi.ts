@@ -349,6 +349,20 @@ export const AGENT_OPENAPI = {
               'Owning Grok bot, exactly as the filer set it (their own exact Grok bot name). null = unowned: its needs fall back to the General. ' +
               'Never inferred from the key. Also the top-level owner_bot on the needs_agent webhook.',
           },
+          last_activity_at: {
+            type: ['string', 'null'],
+            description:
+              'ISO UTC. Last moment the card\'s session wrote anything (refreshed about every 60s while working; set at session end otherwise). ' +
+              'null = no session has ever run. A working card whose last_activity_at is old is idle.',
+          },
+          stalled: {
+            type: 'boolean',
+            description:
+              'true while the card is working and the stall watchdog flagged it: no live session, or no session output for N minutes (default 10), ' +
+              'and its one automatic restart is already spent. Comes with a needs_agent webhook of need.kind=stalled.',
+          },
+          stalled_at: { type: ['string', 'null'], description: 'ISO UTC when the watchdog flagged it; null when not stalled.' },
+          stall_reason: { type: ['string', 'null'], description: 'One line: stall class (never_spawned | died_silently | hung_startup | hung_no_heartbeat), idle minutes, session id.' },
           created_at: { type: 'string' },
           updated_at: { type: 'string' },
         },
@@ -422,8 +436,8 @@ export const AGENT_OPENAPI = {
           workspace: { type: ['string', 'null'] },
           type: {
             type: 'string',
-            enum: ['created', 'status', 'entered_review', 'verdict', 'session_ended', 'pr_opened', 'pr_merged', 'pr_closed', 'deleted', 'needs_secret', 'blocked'],
-            description: 'entered_review = moved into review (Needs You). verdict = AI review landed (to=pass|fail).',
+            enum: ['created', 'status', 'entered_review', 'verdict', 'session_ended', 'pr_opened', 'pr_merged', 'pr_closed', 'deleted', 'needs_secret', 'blocked', 'stalled'],
+            description: 'entered_review = moved into review (Needs You). verdict = AI review landed (to=pass|fail). stalled = the stall watchdog flagged a working card whose session is gone or silent (its one auto-restart is spent).',
           },
           from: { type: 'string' },
           to: { type: 'string' },

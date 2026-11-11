@@ -82,6 +82,28 @@ export interface ThreadResponse {
   cards: ChatCard[]
 }
 
+/**
+ * One side thread — a concurrent task lane beside the main conversation
+ * (obj 900370). `null` as a lane id means the MAIN conversation, which has no
+ * row of its own and can never be closed.
+ */
+export interface ChatThread {
+  id: number
+  title: string
+  pinned: boolean
+  archived: boolean
+  last_active_at: string | null
+  created_at: string
+  updated_at: string
+  message_count: number
+}
+
+export interface ThreadsResponse {
+  threads: ChatThread[]
+  /** 0 means no ceiling. */
+  max_open: number
+}
+
 export const PROVIDER_LABELS: Record<ProviderId, string> = {
   claude: 'Claude',
   anthropic: 'Anthropic API',

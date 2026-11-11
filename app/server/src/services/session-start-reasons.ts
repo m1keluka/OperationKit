@@ -32,6 +32,7 @@ export const START_REASONS = [
   'plan_approved',       // planning → working on plan approval
   'decision_resolved',   // an owner resolved a decision request
   'noop_respawn',        // a no-op worker spawn was re-spawned
+  'stall_watchdog',      // obj 900372: the stall watchdog auto-restarted a card that sat in working doing nothing
   'fresh_seeded_after_cap', // obj 64: resume skipped (chain over token/round cap) — fresh session seeded from a DB summary
   'unattributed',
 ] as const
@@ -115,6 +116,19 @@ export function logSessionStart(
         db.prepare("UPDATE objectives SET last_start_reason = ?, last_start_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?")
           .run(r.reason, args.objectiveId)
       } catch {}
+      // obj 900372 — any start that is NOT the stall watchdog (a human, a bot, a
+      // follow-up) opens a fresh stall episode: clear the flag and re-arm the one
+      // auto-restart. The watchdog's own restart leaves the counter alone, which is
+      // what stops restart -> stall -> restart from looping. Separate try: a DB that
+      // predates the columns must not lose the last_start_reason mirror above.
+      // obj 900547: the abnormal-end auto-retry spends the SAME budget, so it
+      // must not re-arm it either.
+      if (r.reason !== 'stall_watchdog' && r.reason !== 'abnormal_end_retry') {
+        try {
+          db.prepare('UPDATE objectives SET stall_restarts = 0, stalled_at = NULL, stall_reason = NULL WHERE id = ? AND (stall_restarts > 0 OR stalled_at IS NOT NULL)')
+            .run(args.objectiveId)
+        } catch {}
+      }
     }
     return db.prepare('SELECT * FROM session_starts WHERE id = ?').get(info.lastInsertRowid) as SessionStartRow
   } catch (err) {

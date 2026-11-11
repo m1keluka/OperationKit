@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useBranding } from '../hooks/useBranding'
 import { BrandMark } from './BrandMark'
+import { EmailLinkRedeem, EmailLinkRequest, readLinkToken } from './login/EmailSignInLink'
 
 export function LoginPage() {
   const { login } = useAuth()
@@ -10,6 +11,18 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // obj 900497: "Email me a sign-in link" — only when this site has its own email set up.
+  const [linkToken] = useState(readLinkToken)
+  const [emailLinkAvailable, setEmailLinkAvailable] = useState(false)
+  const [mode, setMode] = useState<'password' | 'email'>('password')
+  useEffect(() => {
+    let alive = true
+    fetch('/api/auth/email-link', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : { available: false }))
+      .then((b: { available?: boolean }) => { if (alive) setEmailLinkAvailable(!!b.available) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -33,6 +46,12 @@ export function LoginPage() {
           <p className="mt-2 text-sm text-fg-2">AI Session Management</p>
         </div>
 
+        {linkToken ? (
+          <EmailLinkRedeem token={linkToken} brandName={branding.name} />
+        ) : mode === 'email' ? (
+          <EmailLinkRequest onBack={() => setMode('password')} />
+        ) : (
+        <>
         <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-border bg-surface-raised p-6">
           {error && (
             <div className="rounded bg-signal-alarm/10 px-3 py-2 text-sm text-signal-alarm">
@@ -79,6 +98,17 @@ export function LoginPage() {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
+        {emailLinkAvailable && (
+          <button
+            type="button"
+            onClick={() => setMode('email')}
+            className="mt-4 w-full text-center text-sm text-fg-2 underline-offset-4 hover:text-fg-0 hover:underline"
+          >
+            Email me a sign-in link instead
+          </button>
+        )}
+        </>
+        )}
       </div>
     </div>
   )

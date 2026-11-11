@@ -49,15 +49,26 @@ beforeAll(async () => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
   const db = getDb()
+  // Fill ALL SEVEN heavy columns, not three of them. The fixture previously
+  // populated only description/last_session_summary/acceptance_criteria, which
+  // put the full-vs-summary ratio at ~5.00x against an assertion of "> 5x" —
+  // so the guard sat a fraction of a percent from red and ANY new short column
+  // on `objectives` (which `summary` includes by design) tipped it over.
+  // Populating every prose column puts the fixture's ratio in the same
+  // neighbourhood as the real board's ~30x, which is both more faithful and
+  // leaves the assertion real headroom to detect an actual projection regression.
   const insert = db.prepare(
-    `INSERT INTO objectives (title, description, status, agent_context, workspace, last_session_summary, acceptance_criteria, updated_at)
-     VALUES (?, ?, ?, 'cto', ?, ?, ?, ?)`,
+    `INSERT INTO objectives (title, description, status, agent_context, workspace, last_session_summary,
+                             acceptance_criteria, completion_goal, approved_plan, ai_review_findings,
+                             job_review_note, updated_at)
+     VALUES (?, ?, ?, 'cto', ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   for (let i = 0; i < TOTAL; i++) {
     // Deterministic mix: 3/4 terminal (mirrors the real board's done-heavy tail).
     const status = i % 4 === 0 ? 'queue' : i % 4 === 1 ? 'done' : i % 4 === 2 ? 'cancelled' : 'done'
     const day = String(10 + (i % 20)).padStart(2, '0')
-    insert.run(`obj-${i}`, PROSE, status, i % 2 === 0 ? 'example' : 'example2', PROSE, PROSE, `2026-08-${day} 00:00:00`)
+    insert.run(`obj-${i}`, PROSE, status, i % 2 === 0 ? 'example' : 'example2', PROSE, PROSE,
+                PROSE, PROSE, PROSE, PROSE, `2026-08-${day} 00:00:00`)
   }
 
   const app = express()

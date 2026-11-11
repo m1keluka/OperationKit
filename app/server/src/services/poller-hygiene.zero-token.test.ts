@@ -111,6 +111,18 @@ describe('applyZeroTokenReviewBlock', () => {
     expect(row.ai_review_verdict).toBeNull()
   })
 
+  // obj 900372 — a card moved to review while its worker is still running is
+  // accounted when the process exits (review session_id sweep); until then its
+  // 0 tokens are not a zero-token death and must not be stamped blocked.
+  it('skips a row whose session is still alive, then blocks it once the session is gone', () => {
+    const id = seedObjective({ session_id: 'cc-zt-live' })
+    applyZeroTokenReviewBlock(getDb(), { isSessionAlive: (sid) => sid === 'cc-zt-live' })
+    const read = () => (getDb().prepare('SELECT ai_review_verdict FROM objectives WHERE id = ?').get(id) as { ai_review_verdict: string | null }).ai_review_verdict
+    expect(read()).toBeNull()
+    applyZeroTokenReviewBlock(getDb(), { isSessionAlive: () => false })
+    expect(read()).toBe('blocked')
+  })
+
   it('logs an activity_log row for the block (operator visibility)', () => {
     seedObjective({})
     applyZeroTokenReviewBlock(getDb())

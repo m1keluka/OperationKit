@@ -544,3 +544,48 @@ export function selectReviewSessionIdsToClear(
   }
   return ids
 }
+
+/**
+ * obj 900372 — plan the per-tick review `session_id` sweep so a session's END is
+ * always accounted. The poller skips `review` cards, so a card moved to review by
+ * anything other than the poller's own working→review transition (the worker or a
+ * bot PATCHing status, a CI gate, a stop) never reached handleSessionDeath: the
+ * sweep nulled session_id and the run vanished — session_count 0, $0, 0 tokens,
+ * empty timeline (#900371). Now:
+ *  - live + pending background work → keep (unchanged, obj 712954);
+ *  - live, card moved to review < graceMs ago → keep for now: the worker is still
+ *    finishing its turn; it is accounted on a later tick, once it has exited;
+ *  - otherwise clear, and if the process is gone, account its death first.
+ * Fail-safe: predicate errors fall through to "clear without accounting", the
+ * previous behavior.
+ */
+export function planReviewSessionSweep(
+  rows: Array<{ id: number; session_id: string | null; updated_at?: string | null }>,
+  probe: {
+    hasPendingWork: (sessionId: string) => boolean
+    isAlive: (sessionId: string) => boolean
+    nowMs: number
+    graceMs: number
+  },
+): { clear: number[]; account: string[] } {
+  const clear: number[] = []
+  const account: string[] = []
+  for (const r of rows) {
+    if (!r.session_id) continue
+    let alive = true
+    try { alive = probe.isAlive(r.session_id) } catch { alive = true }
+    let pending = false
+    try { pending = alive && probe.hasPendingWork(r.session_id) } catch { pending = false }
+    if (pending) continue
+    if (alive) {
+      const raw = r.updated_at ?? ''
+      const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(raw) ? raw.replace(' ', 'T') : `${raw.replace(' ', 'T')}Z`
+      const movedAt = Date.parse(iso)
+      if (Number.isFinite(movedAt) && probe.nowMs - movedAt < probe.graceMs) continue
+    } else {
+      account.push(r.session_id)
+    }
+    clear.push(r.id)
+  }
+  return { clear, account }
+}

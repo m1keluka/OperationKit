@@ -2,6 +2,7 @@
  * Users Settings tab — extracted from ConfigPage.tsx (behavior frozen).
  */
 import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { Plus, ChevronRight } from 'lucide-react'
 import {
   Card, CardHeader, Button, Badge, Alert, Skeleton, useConfirm, cn,
@@ -16,6 +17,7 @@ import {
 } from '@operationkit/shared'
 import { api } from '../../lib/api'
 import { inputCls, selectCls, SectionLabel } from './config-form'
+import type { EmailOutcome } from '../../lib/email'
 
 interface AdminUser extends User {
   workspaces: WorkspaceMembership[]
@@ -43,7 +45,11 @@ export function UsersTab() {
   const [emailDraft, setEmailDraft] = useState<Record<number, string>>({})
   const [savingEmail, setSavingEmail] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
-  const [revealed, setRevealed] = useState<{ username: string; password: string } | null>(null)
+  const [revealed, setRevealed] = useState<{ username: string; password: string; emailError?: string } | null>(null)
+  // obj 900497: invites + temp passwords go by email when this site has its own sender.
+  const [emailReady, setEmailReady] = useState<boolean | null>(null)
+  const [emailInvite, setEmailInvite] = useState(true)
+  const [emailed, setEmailed] = useState<{ username: string; to: string; what: 'invite' | 'password' } | null>(null)
   const { confirm, confirmDialog } = useConfirm()
 
   const reload = useCallback(async () => {
@@ -60,6 +66,11 @@ export function UsersTab() {
   }, [])
 
   useEffect(() => { void reload() }, [reload])
+  useEffect(() => {
+    api.get<{ configured: boolean }>('/admin/email')
+      .then(s => setEmailReady(!!s.configured))
+      .catch(() => setEmailReady(false))
+  }, [])
 
   async function createUser(e: React.FormEvent) {
     e.preventDefault()
@@ -69,13 +80,22 @@ export function UsersTab() {
       return
     }
     setCreating(true)
+    setEmailed(null)
     try {
-      await api.post('/admin/users', {
+      const sendEmail = !!(emailReady && emailInvite && newEmail.trim())
+      const created = await api.post<{ invite_email?: EmailOutcome }>('/admin/users', {
         username: newUsername.trim(), password: newPassword, role: newRole,
         ...(newEmail.trim() ? { email: newEmail.trim() } : {}),
+        ...(sendEmail ? { send_email: true } : {}),
       })
+      if (created?.invite_email?.sent) {
+        setRevealed(null)
+        setEmailed({ username: newUsername.trim(), to: newEmail.trim(), what: 'invite' })
+      } else {
+        // Fallback (today's flow): show the password to copy and share.
+        setRevealed({ username: newUsername.trim(), password: newPassword, emailError: sendEmail ? created?.invite_email?.error : undefined })
+      }
       setNewEmail('')
-      setRevealed({ username: newUsername.trim(), password: newPassword })
       setNewUsername(''); setNewPassword(''); setNewRole('member')
       await reload()
     } catch (e) {
@@ -87,9 +107,18 @@ export function UsersTab() {
 
   async function resetPassword(user: AdminUser) {
     const pwd = generateTempPassword()
+    setEmailed(null)
     try {
-      await api.post(`/admin/users/${user.id}/reset-password`, { password: pwd })
-      setRevealed({ username: user.username, password: pwd })
+      const sendEmail = !!(emailReady && user.email)
+      const r = await api.post<{ temp_password_email?: EmailOutcome }>(`/admin/users/${user.id}/reset-password`, {
+        password: pwd, ...(sendEmail ? { send_email: true } : {}),
+      })
+      if (r?.temp_password_email?.sent && user.email) {
+        setRevealed(null)
+        setEmailed({ username: user.username, to: user.email, what: 'password' })
+      } else {
+        setRevealed({ username: user.username, password: pwd, emailError: sendEmail ? r?.temp_password_email?.error : undefined })
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Reset failed')
     }
@@ -202,7 +231,7 @@ export function UsersTab() {
               type="email" placeholder="sign-in email (optional)" value={newEmail} aria-label="Sign-in email"
               onChange={e => setNewEmail(e.target.value)} className={cn(inputCls, 'sm:flex-1')}
             />
-            <select value={newRole} onChange={e => setNewRole(e.target.value as UserRole)} className={selectCls}>
+            <select value={newRole} onChange={e => setNewRole(e.target.value as UserRole)} className={selectCls} aria-label="Role">
               <option value="member">member</option>
               <option value="admin">admin</option>
             </select>
@@ -210,11 +239,30 @@ export function UsersTab() {
               {creating ? 'Creating…' : 'Create'}
             </Button>
           </div>
+          {emailReady === true && newEmail.trim() && (
+            <label className="flex items-center gap-2 text-[12px] text-fg-2">
+              <input type="checkbox" checked={emailInvite} onChange={e => setEmailInvite(e.target.checked)} className="accent-[var(--accent)]" />
+              Email the invite (sign-in link + temporary password) to {newEmail.trim()}
+            </label>
+          )}
+          {emailReady === false && (
+            <p className="text-[12px] text-fg-3" data-testid="email-not-configured-hint">
+              Email isn&apos;t set up, so new and reset passwords are shown here for you to share.{' '}
+              <Link to="/setup/email" className="text-accent hover:underline">Set up email</Link>
+            </p>
+          )}
           {error && <Alert tone="alarm">{error}</Alert>}
+          {emailed && (
+            <Alert tone="verify" title={emailed.what === 'invite' ? <>Invite emailed to {emailed.to}</> : <>Temporary password emailed to {emailed.to}</>}>
+              <span className="font-mono">{emailed.username}</span> will be asked to choose a new password at first sign-in.
+              <button type="button" onClick={() => setEmailed(null)} className="ml-2 text-signal-verify underline">dismiss</button>
+            </Alert>
+          )}
           {revealed && (
             <Alert tone="amber" title={<>Password set for <span className="font-mono">{revealed.username}</span></>}>
               <div className="mt-1 font-mono text-fg-0">{revealed.password}</div>
               <div className="mt-1">Copy this now — it will not be shown again. Share with the user over a secure channel.</div>
+              {revealed.emailError && <div className="mt-1 text-signal-alarm">Email was not sent: {revealed.emailError}</div>}
               <button type="button" onClick={() => setRevealed(null)} className="mt-1 text-signal-amber underline">dismiss</button>
             </Alert>
           )}

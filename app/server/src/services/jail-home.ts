@@ -227,6 +227,8 @@ export function sweepOrphanJailHomes(opts: {
   maxAgeMin?: number
   root?: string
   now?: number
+  /** obj 900372 — canonical transcript dir whose symlinks point INTO a jail home. */
+  transcriptDir?: string
 } ): SweepResult {
   const root = opts.root ?? JAIL_HOME_ROOT
   const maxAgeMs = (opts.maxAgeMin ?? ORPHAN_JAIL_HOME_MAX_AGE_MIN) * 60_000
@@ -252,6 +254,14 @@ export function sweepOrphanJailHomes(opts: {
       mtime = st.mtimeMs
     } catch { continue }
     if (now - mtime < maxAgeMs) continue
+    // obj 900372 — the canonical TRANSCRIPT_DIR entries are symlinks into this
+    // home. A session whose death the control plane never observed (it was
+    // spawned before a restart) reaches here with its transcript still a
+    // symlink; removing the home without materialising it erased the card's
+    // whole timeline (#900371: empty timeline, session_count 0).
+    if (opts.transcriptDir) {
+      for (const ext of ['jsonl', 'log']) materializeTranscript(path.join(opts.transcriptDir, `${name}.${ext}`))
+    }
     // Scrub first: if the recursive remove fails (a file the control plane does
     // not own), the credentials are still gone.
     scrubJailSecrets(name, root)
@@ -283,13 +293,14 @@ export function sweepOrphanJailHomesThrottled(opts: {
   enabled: boolean
   liveSessionIds: Iterable<string>
   now?: number
+  transcriptDir?: string
 }): SweepResult | null {
   if (!opts.enabled) return null
   const now = opts.now ?? Date.now()
   if (now - lastSweepAt < SWEEP_INTERVAL_MS) return null
   lastSweepAt = now
   try {
-    return sweepOrphanJailHomes({ liveSessionIds: opts.liveSessionIds, now })
+    return sweepOrphanJailHomes({ liveSessionIds: opts.liveSessionIds, now, transcriptDir: opts.transcriptDir })
   } catch (err) {
     console.warn('[jail-home] orphan sweep failed:', (err as Error).message)
     return null

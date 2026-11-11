@@ -1,0 +1,10 @@
+dry run: {"applied":false,"cutoff":"2025-11-11 12:00:00","rows":2,"minId":1,"maxId":2,"file":null,"sha256":null}
+apply: {"applied":true,"cutoff":"2025-11-11 12:00:00","rows":2,"minId":1,"maxId":2,"file":"secret-audit-before-2025-11-11-2026-11-11T12-00-00-000Z.jsonl","sha256":"04ec74bad21edc17fd58f3dcfb2130c16b628774a60964f65fbdf3d5f8f0a4e7"}
+export file:
+{"id":1,"actor_user_id":1,"action":"create","scope":"global","key":"FAKE_OLD_KEY","at":"2025-06-29 12:00:00","secret_id":null,"source":"ui","detail":null}
+{"id":2,"actor_user_id":1,"action":"inject","scope":"global","key":"FAKE_OLD_KEY","at":"2025-10-07 12:00:00","secret_id":null,"source":"spawn","detail":null}
+sidecar: 04ec74bad21edc17fd58f3dcfb2130c16b628774a60964f65fbdf3d5f8f0a4e7  secret-audit-before-2025-11-11-2026-11-11T12-00-00-000Z.jsonl
+remaining rows:
+  {"action":"use","key":"FAKE_NEW_KEY","source":"broker","detail":null}
+  {"action":"audit_prune","key":"*","source":"retention","detail":"rows=2;before=2025-11-11 12:00:00;sha256=04ec74bad21edc17;file=secret-audit-before-2025-11-11-2026-11-11T12-00-00-000Z.jsonl"}
+DELETE after prune -> secret_access_log is append-only

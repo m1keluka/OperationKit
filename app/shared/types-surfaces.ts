@@ -890,7 +890,7 @@ export const AGENT_WEBHOOK_EVENT_DESCRIPTIONS: Record<AgentWebhookEvent, string>
  *     need, so it never gets a second wake — Operator's human-done semantics are unchanged.
  *   - `pr_merged`  — the card's PR merged, i.e. the deliverable actually shipped.
  */
-export type AgentNeedKind = 'needs_secret' | 'failed_review' | 'blocked' | 'review' | 'completed' | 'pr_merged'
+export type AgentNeedKind = 'needs_secret' | 'stalled' | 'failed_review' | 'blocked' | 'review' | 'completed' | 'pr_merged'
 /** The pilot's three buckets: blocked · waiting on the agent · a Grok-only action (a Operator decision). */
 export type AgentNeedCategory = 'blocked' | 'waiting_on_agent' | 'mike_decision' | 'completed'
 

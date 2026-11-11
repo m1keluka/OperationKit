@@ -96,6 +96,7 @@ export function initSecretsSchema(db: Database.Database): void {
   }
 
   initSecretsHardeningSchema(db)
+  initSecretsSessionEnvSchema(db)
 
   // ── Scoped agent/skill assignment (obj-2388) ─────────────────────────────
   // One row = "resource R (an agent or a skill) is assigned at scope S". Reuses
@@ -141,14 +142,27 @@ export function initSecretsSchema(db: Database.Database): void {
  * APPEND-ONLY: two BEFORE triggers abort any UPDATE or DELETE on
  * secret_access_log. Nothing in the server mutates past rows, so this changes
  * no behaviour; it turns "we never edit the audit trail" from a convention into
- * a database guarantee. An operator who genuinely needs to prune it must DROP
- * the trigger first, which is a deliberate, visible act (docs/security.md →
- * "Audit log").
+ * a database guarantee. The ONLY sanctioned prune is the D5 retention job
+ * (services/secrets-audit-retention.ts, obj 900540): rows older than one year
+ * are exported and verified first, then removed inside one transaction that
+ * re-creates this guard and records an `audit_prune` row (docs/security.md →
+ * "Audit log retention").
  */
 export const SECRET_AUDIT_TRIGGERS = [
   'trg_secret_access_log_no_update',
   'trg_secret_access_log_no_delete',
 ] as const
+
+/**
+ * The append-only DELETE guard, as one statement. Shared with the D5 retention
+ * job (services/secrets-audit-retention.ts), which drops it, prunes exported
+ * rows and re-creates it inside ONE transaction — so the guard can never be
+ * left missing, and both places always install the identical trigger.
+ */
+export const SECRET_AUDIT_NO_DELETE_TRIGGER_SQL = `
+    CREATE TRIGGER IF NOT EXISTS trg_secret_access_log_no_delete
+      BEFORE DELETE ON secret_access_log
+      BEGIN SELECT RAISE(ABORT, 'secret_access_log is append-only'); END;`
 
 export function initSecretsHardeningSchema(db: Database.Database): void {
   const cols = (table: string) =>
@@ -171,8 +185,56 @@ export function initSecretsHardeningSchema(db: Database.Database): void {
       BEFORE UPDATE ON secret_access_log
       BEGIN SELECT RAISE(ABORT, 'secret_access_log is append-only'); END;
 
-    CREATE TRIGGER IF NOT EXISTS trg_secret_access_log_no_delete
-      BEFORE DELETE ON secret_access_log
-      BEGIN SELECT RAISE(ABORT, 'secret_access_log is append-only'); END;
+  `)
+  db.exec(SECRET_AUDIT_NO_DELETE_TRIGGER_SQL)
+}
+
+/**
+ * Sprint 6b, decision D4 (obj 900540): sessions get only ALLOWLISTED secrets in
+ * their environment; everything else goes through the broker.
+ *
+ *   secret_env_allowlist  one row = "sessions run by agent X / able to use skill
+ *                         Y receive KEY in their env". subject '*' with
+ *                         subject_type 'agent' = every session (a baseline).
+ *                         Names only, never a value.
+ *   secret_env_usage      MIGRATION LOG: one row per (session, key) for a store
+ *                         secret the session referenced in a tool call while
+ *                         that key was NOT on its allowlist. `mode` says whether
+ *                         the key was still passed (migration) or withheld
+ *                         (enforce). Names and counts only.
+ *
+ * The mode lives in settings.secrets_session_env_mode ('migration' | 'enforce').
+ * A missing row reads as 'migration', so every EXISTING install keeps its
+ * current env and starts logging; a fresh install is set to 'enforce' by
+ * scripts/install-bootstrap.ts.
+ */
+export function initSecretsSessionEnvSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS secret_env_allowlist (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject_type TEXT    NOT NULL CHECK(subject_type IN ('agent','skill')),
+      subject      TEXT    NOT NULL,
+      key          TEXT    NOT NULL,
+      created_by   INTEGER,
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(subject_type, subject, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_secret_env_allowlist_subject ON secret_env_allowlist(subject_type, subject);
+
+    CREATE TABLE IF NOT EXISTS secret_env_usage (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      objective_id  INTEGER,
+      session_id    TEXT    NOT NULL,
+      workspace     TEXT    NOT NULL DEFAULT '',
+      agent         TEXT    NOT NULL DEFAULT '',
+      key           TEXT    NOT NULL,
+      mode          TEXT    NOT NULL CHECK(mode IN ('migration','enforce')),
+      uses          INTEGER NOT NULL DEFAULT 1,
+      first_seen_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      last_seen_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(session_id, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_secret_env_usage_agent ON secret_env_usage(agent, key);
+    CREATE INDEX IF NOT EXISTS idx_secret_env_usage_seen ON secret_env_usage(last_seen_at DESC);
   `)
 }

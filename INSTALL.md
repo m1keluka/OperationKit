@@ -256,7 +256,10 @@ The installer:
    key-only logins, but only if a key is already installed.
 2. **Generates every secret on the server** into
    `/opt/operationkit/secrets/stack.env` (only root can read it). It prints the
-   *names* of the secrets, never the values.
+   *names* of the secrets, never the values. The key that encrypts the app's
+   stored secrets also gets its own file, `secrets/secrets-kek` (root, mode
+   400). Only the app reads it, mounted read-only, and AI sessions never see it
+   ([docs/security.md](docs/security.md#encryption-key)).
 3. **Builds the app image and the sandbox image.**
 4. **Sets up Cloudflare:** the tunnel, the web address and the Access sign-in.
    It also stores the Zero Trust team domain and the Access app's AUD tag
@@ -304,6 +307,12 @@ anything, then restarts the app.
 
 Already have a token from `claude setup-token` (it starts with `sk-ant-oat`)?
 Paste it at the same prompt instead.
+
+If the code is not accepted, the script says which of these happened: Claude
+refused the code, the server could not reach Claude, or Claude was busy. It also
+prints the other way in: run `claude setup-token` on any computer with Claude
+Code, then rerun the script with `--token` and paste that token. See
+[When something goes wrong](#when-something-goes-wrong).
 
 After the install, more Claude subscriptions are added in the app with no
 terminal at all: **Settings → Seats → Add Claude seat → Sign in with Claude**.
@@ -749,7 +758,7 @@ It writes one folder, `/opt/operationkit/backups/nightly-<time>/` (root only):
 | `command-center.db` | the database, copied with SQLite's online backup while the app runs, then integrity-checked |
 | `data.tar.gz` | seat logins (`cc-accounts`), uploads, branding |
 | `home.tar.gz` | projects, notes, agent memory, the knowledge base |
-| `secrets.tar.gz` | `secrets/`: `stack.env` holds the key that decrypts the secrets stored in the database, so a restore needs both |
+| `secrets.tar.gz` | `secrets/`: `secrets-kek` (and its copy in `stack.env`) is the key that decrypts the secrets stored in the database, so a restore needs both. Keep one more copy of `secrets-kek` somewhere you control, for example a password manager: without it no backup of the database can be read |
 | `client.conf`, `install.env`, `MANIFEST` | settings, and the commit + checksums of this backup |
 
 The newest `BACKUP_KEEP_LOCAL` (default 7) stay on the server. Log:
@@ -909,6 +918,12 @@ They are harmless, and they make the next install faster.
 | `the app did not become healthy` | `docker logs --tail 100 command-center` |
 | verify: `test card … no answer` | Claude is not connected (step 7), or the account is out of usage. |
 | verify: `no Claude seat can run a sandboxed session` | The only Claude seat cannot be used inside the sandbox (a CLI login made on the server), or none exists. Step 7, or **Settings → Seats → Add Claude seat**. |
+| claude-login: `Claude did not accept that code …` | Each code works once and expires within minutes. Open the **same link** again (good for 10 minutes), sign in, and paste the **new** code. Paste junk from the terminal (CR, bracketed-paste `ESC[200~`, spaces, quotes) is removed automatically. The reason in `[…]` is Claude's own. |
+| claude-login: `… does not belong to the link printed above` | The code came from an older link (another run of the script, or a browser tab left open). Open the link printed in **this** run. The `[…]` shows the end of both states, so you can compare. |
+| claude-login: `that code was already tried` | Pasting the same code twice is caught before it is sent. Get a new code from the link. |
+| claude-login: `Claude's sign-in service answered with an error [HTTP 429 …]` / `[HTTP 5xx …]` | Claude is busy or rate limiting. Wait a minute, then get a new code. `[HTTP 403, not a Claude reply …]` means a proxy or firewall answered instead of Claude. |
+| claude-login: `could not reach Claude's sign-in service` | A real network failure: the server got no answer from `platform.claude.com` (the reason, e.g. `Could not resolve host`, is in `[…]`). Check DNS, outbound HTTPS and the firewall. |
+| claude-login: the code still will not go through | Use a setup token instead (the script prints this on every failure): on any computer with Claude Code run `claude setup-token`, sign in with the client's account, then on the server `sudo bash /opt/operationkit-src/install/claude-login.sh --config /opt/operationkit-src/client.conf --token` and paste the `sk-ant-oat…` token. |
 | `the Cloudflare API token cannot read the Zero Trust organization` | The token lacks **Access: Organizations, Identity Providers, and Groups → Edit** (step 2). Edit the token, re-run. |
 | `starter pack '…' could not be switched on` | The message above it says why. Fix it and re-run `./install.sh`; to install without packs set `STARTER_PACKS=""`. |
 | `apt-get … failed 3 times` | The server cannot reach the Ubuntu package mirror. Check its network, then re-run. Short mirror hiccups are retried automatically. |

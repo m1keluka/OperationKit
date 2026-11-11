@@ -16,7 +16,9 @@ import {
   type ChatCard,
   type ChatDraft,
   type ChatMessage,
+  type ChatThread,
   type ThreadResponse,
+  type ThreadsResponse,
 } from './types'
 
 /* Built-in bot chat (obj 719987; user-facing terminology renamed to "bot" in
@@ -26,16 +28,21 @@ import {
    calendar actions arrive as drafts with your own Send button; bigger jobs
    arrive as board-card chips that update while the card runs.
 
-   TERMINOLOGY (obj 900327) — the two nouns are NOT interchangeable:
+   TERMINOLOGY (obj 900327, extended by obj 900370) — the nouns are NOT
+   interchangeable:
      - a BOT is the durable identity defined by one agent file. It is created by
        adding that file on the server, never from this page.
-     - a CONVERSATION is the message history between you and one bot. There is
-       exactly ONE per bot here, it starts implicitly with your first message,
-       and "Clear conversation" empties it WITHOUT deleting the bot.
-   So this page has no "New bot" and no "New conversation" control, because it
-   creates neither. The identifiers below (agent*, ChatAgentInfo, /agent-chat,
-   the agent_chat_* tables, the agents/ folder) are the UNCHANGED technical
-   names - only what a person reads was renamed. */
+     - the MAIN CONVERSATION is the ongoing message history between you and one
+       bot. There is exactly one per bot, it starts implicitly with your first
+       message, and "Clear conversation" empties it WITHOUT deleting the bot.
+     - a SIDE THREAD is an extra, named conversation beside the main one: its own
+       history, its own context, and it runs CONCURRENTLY — you can set one off
+       and keep talking in the main conversation while it works. Closing a side
+       thread archives that lane and leaves the main conversation untouched.
+   So this page still has no "New bot" control, because it creates no bots. The
+   identifiers below (agent*, ChatAgentInfo, /agent-chat, the agent_chat_*
+   tables, the agents/ folder) are the UNCHANGED technical names - only what a
+   person reads was renamed. */
 
 const OPEN_CARD = new Set(['planning', 'queue', 'working', 'ai_review'])
 
@@ -119,7 +126,61 @@ function AgentList({
   )
 }
 
-// ── one conversation (exactly one per bot) ──
+// ── the lane strip: main conversation + side threads (obj 900370) ──
+
+function LaneStrip({
+  threads,
+  lane,
+  maxOpen,
+  busy,
+  onPick,
+  onOpen,
+}: {
+  threads: ChatThread[]
+  lane: number | null
+  maxOpen: number
+  busy: boolean
+  onPick: (id: number | null) => void
+  onOpen: () => void
+}) {
+  // No side threads yet: one button, no strip. The main conversation keeps
+  // looking exactly like it did before this feature existed.
+  const atCap = maxOpen > 0 && threads.length >= maxOpen
+  const pill = (on: boolean) =>
+    cn(
+      'min-h-[36px] shrink-0 whitespace-nowrap rounded-full border px-3 text-[12.5px] transition-all duration-fast',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+      on ? 'border-line-strong bg-surface-3 text-fg-0' : 'border-line bg-surface-1 text-fg-2 hover:border-line-strong hover:text-fg-0',
+    )
+  return (
+    <div
+      role="tablist"
+      aria-label="Conversations with this bot"
+      className="flex items-center gap-2 overflow-x-auto border-b border-line-soft bg-surface-1 px-2 py-1.5 sm:px-4"
+    >
+      <button role="tab" aria-selected={lane === null} onClick={() => onPick(null)} className={pill(lane === null)}>
+        Main
+      </button>
+      {threads.map(t => (
+        <button key={t.id} role="tab" aria-selected={lane === t.id} onClick={() => onPick(t.id)} className={pill(lane === t.id)}>
+          {t.pinned && <span aria-hidden="true">★ </span>}
+          {t.title}
+          {t.message_count > 0 && <span className="ml-1 text-fg-3">{t.message_count}</span>}
+        </button>
+      ))}
+      <button
+        onClick={onOpen}
+        disabled={busy || atCap}
+        title={atCap ? `${maxOpen} open side threads is the limit for one bot — close one first` : 'Open a side thread that runs beside this conversation'}
+        className={cn(pill(false), 'disabled:opacity-45')}
+      >
+        + Side thread
+      </button>
+    </div>
+  )
+}
+
+// ── one lane of one bot: the main conversation, or one side thread ──
 
 function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => void }) {
   const [thread, setThread] = useState<ThreadResponse | null>(null)
@@ -128,20 +189,45 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
   const [images, setImages] = useState<PendingImage[]>([])
   const [pending, setPending] = useState<{ text: string; images: PendingImage[] } | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  // null = the main conversation; a number = that side thread (obj 900370).
+  const [lane, setLane] = useState<number | null>(null)
+  const [threads, setThreads] = useState<ChatThread[]>([])
+  const [maxOpen, setMaxOpen] = useState(0)
+  const [laneBusy, setLaneBusy] = useState(false)
+  // null = not renaming; a string = the name being edited in the header.
+  const [renameTo, setRenameTo] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
   const { confirm, confirmDialog } = useConfirm()
   const base = `/agent-chat/agents/${encodeURIComponent(agent.slug)}`
+  // Omitting thread_id is what asks for the main conversation, server-side.
+  const laneQuery = lane === null ? '' : `?thread_id=${lane}`
+  const activeThread = threads.find(t => t.id === lane) ?? null
 
   const load = useCallback(async () => {
     try {
-      setThread(await api.get<ThreadResponse>(`${base}/messages`))
+      setThread(await api.get<ThreadResponse>(`${base}/messages${laneQuery}`))
       setLoadError(null)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Could not load this conversation')
     }
+  }, [base, laneQuery])
+
+  // The strip is ADDITIVE: a server that does not answer it (or answers it with
+  // something unexpected) must leave the conversation working, not blank the
+  // page. So both the failure and the shape are handled here.
+  const loadThreads = useCallback(async () => {
+    try {
+      const r = await api.get<ThreadsResponse>(`${base}/threads`)
+      setThreads(Array.isArray(r?.threads) ? r.threads : [])
+      setMaxOpen(typeof r?.max_open === 'number' ? r.max_open : 0)
+    } catch {
+      /* leave the strip as it is */
+    }
   }, [base])
+
+  useEffect(() => { void loadThreads() }, [loadThreads])
 
   useEffect(() => {
     setThread(null)
@@ -150,6 +236,54 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
     setSendError(null)
     void load()
   }, [load])
+
+  const openLane = async () => {
+    setLaneBusy(true)
+    setSendError(null)
+    try {
+      const r = await api.post<{ thread: ChatThread }>(`${base}/threads`, { title: `Side thread ${threads.length + 1}` })
+      setThreads(cur => [r.thread, ...cur])
+      setLane(r.thread.id)
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : 'Could not open a side thread')
+    } finally {
+      setLaneBusy(false)
+    }
+  }
+
+  const renameLane = async (t: ChatThread, next: string) => {
+    setRenameTo(null)
+    if (next.trim() === '' || next === t.title) return
+    try {
+      const r = await api.patch<{ thread: ChatThread }>(`${base}/threads/${t.id}`, { title: next })
+      setThreads(cur => cur.map(x => (x.id === r.thread.id ? r.thread : x)))
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : 'Could not rename this side thread')
+    }
+  }
+
+  // "Close" is archive, not delete: the lane's own messages are kept, and the
+  // main conversation is not read or written at all.
+  const closeLane = async (t: ChatThread) => {
+    if (
+      !(await confirm({
+        title: `Close the side thread "${t.title}"?`,
+        message: 'It stops showing here and its messages are kept. Your main conversation with this bot is not changed.',
+        confirmLabel: 'Close side thread',
+      }))
+    )
+      return
+    try {
+      await api.patch(`${base}/threads/${t.id}`, { archived: true })
+      setThreads(cur => cur.filter(x => x.id !== t.id))
+      setLane(null)
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : 'Could not close this side thread')
+    }
+  }
+
+  // Leaving a lane abandons a half-typed rename rather than carrying it over.
+  useEffect(() => { setRenameTo(null) }, [lane])
 
   // Paste / drop / attach all end up here (obj 900157).
   const addFiles = useCallback(async (files: ArrayLike<File>) => {
@@ -194,10 +328,12 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
     try {
       const r = await api.post<ThreadResponse>(
         `${base}/messages`,
-        { text: msg, ...(attached.length ? { images: toWireImages(attached) } : {}) },
+        { text: msg, ...(lane === null ? {} : { thread_id: lane }), ...(attached.length ? { images: toWireImages(attached) } : {}) },
         { timeoutMs: 240_000 },
       )
       setThread(t => mergeThread(t, r))
+      // The strip shows per-lane message counts and ordering by last activity.
+      void loadThreads()
     } catch (e) {
       setText(msg)
       setImages(attached)
@@ -229,17 +365,21 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
   const clear = async () => {
     if (
       !(await confirm({
-        title: `Clear your conversation with ${agent.name}?`,
-        // Clearing empties the conversation. It does NOT delete the bot - the bot
-        // is its agent file on the server and stays exactly as it is.
-        message: `The messages are deleted from this server. ${agent.name} itself is not deleted — only this conversation is emptied. Board cards and saved notes stay.`,
-        confirmLabel: 'Clear conversation',
+        title: activeThread ? `Clear the side thread "${activeThread.title}"?` : `Clear your conversation with ${agent.name}?`,
+        // Clearing empties ONE lane. It does NOT delete the bot - the bot is its
+        // agent file on the server and stays exactly as it is - and clearing a
+        // side thread never touches the main conversation.
+        message: activeThread
+          ? `Only this side thread's messages are deleted. Your main conversation with ${agent.name} is not changed.`
+          : `The messages are deleted from this server. ${agent.name} itself is not deleted — only this conversation is emptied. Side threads, board cards and saved notes stay.`,
+        confirmLabel: activeThread ? 'Clear side thread' : 'Clear conversation',
         danger: true,
       }))
     )
       return
-    await api.del(`${base}/messages`)
+    await api.del(`${base}/messages${laneQuery}`)
     await load()
+    void loadThreads()
   }
 
   const drafts = useMemo(() => new Map((thread?.drafts ?? []).map(d => [d.id, d])), [thread?.drafts])
@@ -260,19 +400,61 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
           <p className="truncate text-[11.5px] text-fg-2">
             Answers with <span className="text-fg-1">{answeredBy}</span>
             {agent.version && <span> · v{agent.version}</span>}
+            {/* Named only in a side thread: the main conversation is the unlabelled default. */}
+            {activeThread && <span> · side thread <span className="text-fg-1">{activeThread.title}</span></span>}
           </p>
         </div>
+        {activeThread && renameTo !== null && (
+          <form
+            className="flex items-center gap-1"
+            onSubmit={e => { e.preventDefault(); void renameLane(activeThread, renameTo) }}
+          >
+            <label htmlFor="side-thread-name" className="sr-only">Name of this side thread</label>
+            <input
+              id="side-thread-name"
+              autoFocus
+              value={renameTo}
+              onChange={e => setRenameTo(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') setRenameTo(null) }}
+              className="min-h-[36px] w-40 rounded-md border border-line bg-surface-0 px-2 text-[13px] text-fg-0 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            />
+            <Button type="submit" variant="ghost" size="sm">Save</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setRenameTo(null)}>Cancel</Button>
+          </form>
+        )}
+        {activeThread && renameTo === null && (
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setRenameTo(activeThread.title)} className="min-h-[44px] sm:min-h-0">
+              Rename
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Close the side thread "${activeThread.title}" (your main conversation is kept)`}
+              onClick={() => void closeLane(activeThread)}
+              className="min-h-[44px] sm:min-h-0"
+            >
+              Close
+            </Button>
+          </>
+        )}
         <Button
           variant="ghost"
           size="sm"
-          aria-label={`Clear this conversation with ${agent.name} (the bot is kept)`}
+          aria-label={
+            activeThread
+              ? `Clear this side thread (your main conversation with ${agent.name} is kept)`
+              : `Clear this conversation with ${agent.name} (the bot is kept)`
+          }
           onClick={() => void clear()}
           disabled={!thread?.messages.length || !!pending}
           className="min-h-[44px] sm:min-h-0"
         >
-          Clear conversation
+          {activeThread ? 'Clear side thread' : 'Clear conversation'}
         </Button>
       </header>
+
+      <LaneStrip threads={threads} lane={lane} maxOpen={maxOpen} busy={laneBusy} onPick={setLane} onOpen={() => void openLane()} />
 
       <div ref={scroller} className="flex-1 overflow-y-auto overflow-x-clip px-3 py-4 sm:px-6" aria-live="polite">
         <div className="mx-auto flex max-w-[760px] flex-col gap-3">
@@ -288,8 +470,14 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
             <div className="flex flex-col items-center gap-4 py-10 text-center">
               <AgentAvatar agent={agent} size="lg" />
               <div className="space-y-1">
-                <p className="font-display text-[16px] font-semibold text-fg-0">Start a conversation with {agent.name}</p>
-                <p className="mx-auto max-w-[46ch] text-[13px] leading-relaxed text-fg-2">{agent.description}</p>
+                <p className="font-display text-[16px] font-semibold text-fg-0">
+                  {activeThread ? `"${activeThread.title}" is empty` : `Start a conversation with ${agent.name}`}
+                </p>
+                <p className="mx-auto max-w-[46ch] text-[13px] leading-relaxed text-fg-2">
+                  {activeThread
+                    ? `A side thread has its own history and its own context — ${agent.name} sees only what you say here, and it keeps working while you use the main conversation.`
+                    : agent.description}
+                </p>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
                 {suggestionsFor(agent).map(s => (
@@ -396,7 +584,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
               onChange={e => setText(e.target.value)}
               onKeyDown={onKey}
               onPaste={onPaste}
-              placeholder="Write a message, or paste a screenshot"
+              placeholder={activeThread ? `Write a message in "${activeThread.title}"` : 'Write a message, or paste a screenshot'}
               disabled={!!pending}
               className="max-h-40 min-h-[44px] flex-1 resize-none rounded-lg border border-line bg-surface-0 px-3.5 py-2.5 text-[16px] text-fg-0 placeholder:text-fg-3 transition-colors duration-fast hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60 sm:text-[14px]"
             />

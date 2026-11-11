@@ -42,10 +42,12 @@ jobs:
         run: bash install/test/claude-oauth-mock-test.sh
       - name: Off-site backup setup (B2 prompt, retention, restore test) against a mock
         run: bash install/test/b2-setup-test.sh
+      - name: Secrets KEK host file + audit retention cron (D2/D5, obj 900540)
+        run: bash install/test/secrets-kek-test.sh
       - name: Install docs links and anchors resolve
         run: node install/test/docs-links-test.mjs
       - name: shellcheck (shared libs + backup + B2 setup scripts)
-        run: shellcheck --version && shellcheck -x --severity=warning install/lib.sh install/api-bypass-lib.sh install/bic-lib.sh install/backup.sh install/b2-setup.sh install/test/b2-setup-test.sh install/test/api-bypass-paths-test.sh install/test/bic-lib-test.sh
+        run: shellcheck --version && shellcheck -x --severity=warning install/lib.sh install/api-bypass-lib.sh install/bic-lib.sh install/backup.sh install/b2-setup.sh install/test/b2-setup-test.sh install/test/api-bypass-paths-test.sh install/test/bic-lib-test.sh install/claude-oauth.sh install/claude-login.sh install/test/claude-oauth-mock-test.sh install/test/secrets-kek-test.sh
       - name: Without --skip-cloudflare an empty DOMAIN is refused, with the hint
         run: |
           if ./install.sh --config ci.conf --dry-run > out.txt 2>&1; then cat out.txt; exit 1; fi

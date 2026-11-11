@@ -23,6 +23,17 @@ import { Router } from 'express'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { recentConnectorDenials } from '../services/connector-guard.js'
 import { getDb } from '../db/index.js'
+import { kekStatus } from '../services/secrets-kek.js'
+import {
+  addAllowlistEntry,
+  envUsageReport,
+  getSessionEnvMode,
+  isSessionEnvMode,
+  listAllowlist,
+  removeAllowlistEntry,
+  setSessionEnvMode,
+  type AllowlistSubjectType,
+} from '../services/secret-env-policy.js'
 import { listRotationFlags, resolveRotationFlag } from '../services/chat-secret-capture.js'
 import {
   setSecret,
@@ -134,9 +145,11 @@ function parseDescription(raw: unknown): { ok: true; value: string | null | unde
 }
 
 /**
- * Message returned by POST /reveal. Reveal-with-re-auth is a design decision
- * that has not been made yet (docs/proposals/SECRETS-PROPOSAL.md), so values are
- * write-only on every install and the attempt is audited.
+ * Message returned by POST /reveal. Decision D1 (Operator, 2026-11-10, obj 900540):
+ * values are write-only FOREVER — there is no reveal path, no "revealable"
+ * class and no flag that turns one on. This route exists only as an audited
+ * tripwire so a probe shows up in the log; it can never return a value.
+ * To change a value, rotate it (replace-only).
  */
 export const REVEAL_DISABLED_MESSAGE =
   'Secret values are write-only. They are never shown after they are saved; to change one, rotate it with a new value.'
@@ -290,7 +303,8 @@ router.get('/audit', (req: AuthRequest, res) => {
 })
 
 // POST /api/secrets/reveal — always refused (403), always audited.
-// Values are write-only until the owner picks a reveal design (proposal §4).
+// D1: write-only by decision, permanently. There is no code path that returns a
+// value, and no setting/env flag to enable one (secrets-d1-write-only.test.ts).
 // The attempt is recorded even when the caller lacks access to the scope, so
 // probing shows up in the log.
 router.post('/reveal', (req: AuthRequest, res) => {
@@ -397,6 +411,77 @@ router.patch('/metadata', (req: AuthRequest, res) => {
   }
   res.json(summary)
 })
+
+// GET /api/secrets/kek-status — D2 (obj 900540). Global admin only. Says WHICH
+// provider supplies the key-encryption key and WHERE (a path or env:NAME), and
+// warns when that place is legacy or session-visible. Never loads or returns key
+// material: kekStatus() only stats the file.
+router.get('/kek-status', (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    res.status(403).json({ error: 'Global admin role required' })
+    return
+  }
+  res.json(kekStatus())
+})
+
+// ── D4 (obj 900540): session env allowlist ──────────────────────────────────
+// Global admin only. Names and counts only — no route here touches a value.
+
+// GET /api/secrets/env-policy?days=30&minSessions=1
+//   { mode, allowlist[], report: { rows[], suggestions{agent: keys[]} } }
+router.get('/env-policy', (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    res.status(403).json({ error: 'Global admin role required' })
+    return
+  }
+  const days = Number(req.query.days ?? 30)
+  const minSessions = Number(req.query.minSessions ?? 1)
+  res.json({
+    mode: getSessionEnvMode(),
+    allowlist: listAllowlist(),
+    report: envUsageReport({
+      sinceDays: Number.isFinite(days) ? days : 30,
+      minSessions: Number.isFinite(minSessions) ? minSessions : 1,
+    }),
+  })
+})
+
+// PUT /api/secrets/env-policy/mode  { mode: 'migration' | 'enforce' }
+router.put('/env-policy/mode', (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    res.status(403).json({ error: 'Global admin role required' })
+    return
+  }
+  const mode = (req.body ?? {}).mode
+  if (!isSessionEnvMode(mode)) {
+    res.status(400).json({ error: "mode must be 'migration' or 'enforce'" })
+    return
+  }
+  setSessionEnvMode(mode, req.user!.id, auditSource(req))
+  res.json({ mode: getSessionEnvMode() })
+})
+
+// POST/DELETE /api/secrets/env-policy/allowlist  { subjectType: 'agent'|'skill', subject, key }
+for (const method of ['post', 'delete'] as const) {
+  router[method]('/env-policy/allowlist', (req: AuthRequest, res) => {
+    if (req.user!.role !== 'admin') {
+      res.status(403).json({ error: 'Global admin role required' })
+      return
+    }
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const subjectType = b.subjectType as AllowlistSubjectType
+    const subject = typeof b.subject === 'string' ? b.subject.trim() : ''
+    const key = typeof b.key === 'string' ? b.key.trim() : ''
+    try {
+      const changed = method === 'post'
+        ? addAllowlistEntry(subjectType, subject, key, req.user!.id, auditSource(req))
+        : removeAllowlistEntry(subjectType, subject, key, req.user!.id, auditSource(req))
+      res.json({ changed, allowlist: listAllowlist() })
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message })
+    }
+  })
+}
 
 // GET /api/secrets/rotation-flags — secrets the owner pasted into a card chat
 // (obj 718944). Moved into the store at capture time; listed here so they get

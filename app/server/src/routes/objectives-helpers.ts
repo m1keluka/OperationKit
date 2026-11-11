@@ -37,6 +37,8 @@ const LIST_COLUMNS_ARRAY = [
   'agent_key_id', 'agent_key_label',
   // obj 900270: owning Grok bot (null = unowned) — the card chip shows it.
   'owner_bot',
+  // obj 900372: stall watchdog flag + reason + restart counter (stalled = flag set while working).
+  'stalled_at', 'stall_reason', 'stall_restarts',
 ]
 
 /**
@@ -158,6 +160,12 @@ export function mapObjective(row: Objective, userMap?: Map<number, string>): Obj
     terminal_by_human: !!r.terminal_by_human,
     skip_ai_review: !!r.skip_ai_review,
     ran_on_fallback: !!r.ran_on_fallback,
+    // obj 900372: one-read stall signal for bots. True only while the card is still
+    // `working` — a flag left on a card that already moved on is not a stall.
+    stalled: !!r.stalled_at && row.status === 'working',
+    stalled_at: (r.stalled_at as string | null | undefined) ?? null,
+    stall_reason: (r.stall_reason as string | null | undefined) ?? null,
+    last_activity_at: (r.last_activity_at as string | null | undefined) ?? null,
     acceptance_criteria: acceptance as Objective['acceptance_criteria'],
     assigned_user_ids: assignedIds,
     assigned_usernames: resolveUsernames(assignedIds, userMap),

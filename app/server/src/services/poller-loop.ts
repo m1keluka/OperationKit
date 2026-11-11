@@ -41,6 +41,8 @@ import {
 import { heartbeatBranchLease, releaseBranchLease } from './branch-lease.js'
 import { heartbeatSessionLeasesForObjective, releaseSessionLeasesForObjective } from './session-lease.js'
 import { runFanoutTick } from './fanout-runtime.js'
+import { maybeRunStallWatchdog } from './stall-watchdog.js'
+import { handleAbnormalEnd, ABNORMAL_END_START_REASON } from './abnormal-end-retry.js'
 import { runBotThreadDeliveryTick } from './bots/bot-thread-delivery.js'
 import { logObjectiveAudit, isClearDeadSessionEnabled } from './objective-audit.js'
 import { deriveBranchName } from './branch-scope.js'
@@ -79,7 +81,7 @@ import {
   classifyNoOpSpawn,
   resolveWorkerEndStatus,
   watchdogDecision,
-  selectReviewSessionIdsToClear,
+  planReviewSessionSweep,
 } from './poller-decisions.js'
 import {
   forceRouteStuckWorker,
@@ -131,6 +133,10 @@ import {
 import { teardownObjectiveJob } from './job-teardown.js'
 import { releaseBranchLeasesForObjective } from './branch-lease.js'
 
+/** obj 900372 — how long a still-running session keeps its session_id after its card
+ *  is moved to review (it is finishing its turn), before the sweep clears it anyway. */
+const REVIEW_SWEEP_LIVE_GRACE_MS = Number(process.env.CC_REVIEW_SWEEP_LIVE_GRACE_MS || 15 * 60_000)
+
 const MAX_AI_REVIEW_ITERATIONS = 5
 // No-op-spawn guard (objective 840). A worker `claude` process can exit near-
 // instantly (started_at == ended_at) producing ZERO tool calls and ZERO file
@@ -157,6 +163,41 @@ const IDLE_THRESHOLD_MS = 30 * 60 * 1000
 function workerTranscriptPath(sessionId: string): string {
   const canonical = path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
   return jailEnabled() ? resolveSessionTranscript(canonical, sessionId) : canonical
+}
+
+/** obj 900547 — production wiring for the abnormal-end auto-retry. */
+function handleAbnormalEndProd(objective: Objective): boolean {
+  const db = getDb()
+  try {
+    return handleAbnormalEnd(objective, {
+      db,
+      now: () => Date.now(),
+      readLines: (sid) => fs.readFileSync(workerTranscriptPath(sid), 'utf-8').split('\n'),
+      resume: (obj, message) => {
+        runMachineStatusUpdate(db, "UPDATE objectives SET status = 'working', updated_at = datetime('now') WHERE id = ?", obj.id)
+        sendFollowUp(obj.session_id!, message, obj)
+      },
+      noteStartReason: (id, detail) => noteStartReason(id, ABNORMAL_END_START_REASON, 'state-poller', detail),
+      notify: (row, reason) => {
+        insertAlert({
+          severity: 'high',
+          source: 'abnormal-end',
+          title: `Card #${row.id} session ended abnormally twice`,
+          message: `${row.title}\n${reason}\nThe one automatic retry is spent; the card is parked blocked and its owner bot has been woken (needs_agent kind=stalled).`,
+          dedup_key: `abnormal-end:${row.id}`,
+          url: `/objectives/${row.id}`,
+        })
+      },
+      broadcast: (id) => {
+        const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(id) as Objective | undefined
+        if (updated) broadcast({ type: 'objective_updated', payload: updated })
+      },
+      log: (m) => console.warn(m),
+    })
+  } catch (err) {
+    console.error(`[abnormal-end] check failed for obj ${objective.id} (falling back to review routing):`, err)
+    return false
+  }
 }
 
 /**
@@ -277,6 +318,17 @@ export async function pollActiveSessions(): Promise<void> {
     console.error('[state-poller] sweepOrphanedWorkingSessions failed:', err)
   }
 
+  // obj 900372 — stall watchdog: live last_activity_at heartbeat, then ONE
+  // auto-restart for a working card whose session is gone or silent for N min
+  // (default 10), then a visible `stalled` flag + needs_agent wake. Self-throttled
+  // to 60s. AWAITED, not fire-and-forget: a restart kills the old session, and the
+  // dead-session branch below must not see that kill before the respawn lands.
+  try {
+    await maybeRunStallWatchdog()
+  } catch (err) {
+    console.error('[state-poller] stall watchdog failed:', err)
+  }
+
   // Safety net: recover DELEGATORS wedged in 'working' with no live session.
   // Delegators are exempt from the watchdog and the orphan sweep, and reconcile
   // is signature-gated; this time-throttled backstop is the ONLY net that
@@ -301,7 +353,7 @@ export async function pollActiveSessions(): Promise<void> {
   // internally (default 10 min) and a no-op outside jail mode.
   try {
     const liveIds = jailEnabled() ? liveJailSessionIds() : null
-    if (liveIds) sweepOrphanJailHomesThrottled({ enabled: true, liveSessionIds: liveIds })
+    if (liveIds) sweepOrphanJailHomesThrottled({ enabled: true, liveSessionIds: liveIds, transcriptDir: TRANSCRIPT_DIR })
   } catch (err) {
     console.error('[state-poller] sweepOrphanJailHomes failed:', err)
   }
@@ -356,7 +408,7 @@ export async function pollActiveSessions(): Promise<void> {
   // Make that silent class visible instead of indistinguishable from a
   // legitimate pending human review.
   try {
-    await sweepZeroTokenReview()
+    await sweepZeroTokenReview({ isSessionAlive: (sid) => tmuxSessionAlive(sid) })
   } catch (err) {
     console.error('[state-poller] sweepZeroTokenReview failed:', err)
   }
@@ -372,19 +424,28 @@ export async function pollActiveSessions(): Promise<void> {
   if (isClearDeadSessionEnabled()) {
     try {
       const reviewRows = db.prepare(
-        `SELECT id, session_id FROM objectives
+        `SELECT id, session_id, updated_at FROM objectives
           WHERE status = 'review'
             AND session_id IS NOT NULL
             AND deleted_at IS NULL`,
-      ).all() as Array<{ id: number; session_id: string | null }>
+      ).all() as Array<{ id: number; session_id: string | null; updated_at: string | null }>
       // obj 712954 — keep the session_id of a live worker parked between turns
       // with pending work, so the orphan sweep can't reap it (see selector).
-      const toClear = selectReviewSessionIdsToClear(
-        reviewRows,
-        (sid) => tmuxSessionAlive(sid) && transcriptHasPendingWork(sid).pending,
-      )
+      // obj 900372 — and account every session whose end is observed here
+      // (it never went through the working→review transition below).
+      const plan = planReviewSessionSweep(reviewRows, {
+        hasPendingWork: (sid) => transcriptHasPendingWork(sid).pending,
+        isAlive: (sid) => tmuxSessionAlive(sid),
+        nowMs: Date.now(),
+        graceMs: REVIEW_SWEEP_LIVE_GRACE_MS,
+      })
+      for (const sid of plan.account) {
+        try { handleSessionDeath(sid) } catch (err) {
+          console.error(`[state-poller] review-sweep accounting failed for ${sid}:`, err)
+        }
+      }
       const clear = db.prepare('UPDATE objectives SET session_id = NULL WHERE id = ?')
-      db.transaction(() => { for (const id of toClear) clear.run(id) })()
+      db.transaction(() => { for (const id of plan.clear) clear.run(id) })()
     } catch (err) {
       console.error('[state-poller] review session_id sweep failed:', err)
     }
@@ -589,6 +650,12 @@ export async function pollActiveSessions(): Promise<void> {
       // obj 900412 — messages queued while this worker was mid-turn: resume the
       // same session with them instead of parking the card.
       if (handleQueuedFollowUps(objective)) continue
+
+      // obj 900547 — killed / crashed MID-TURN (real work, no final result): ONE
+      // automatic resume-with-context, sharing the stall watchdog's once-only
+      // budget; the next one flags it (needs_agent kind=stalled + alert) and parks
+      // it blocked with the cause. Falls through to review routing otherwise.
+      if (handleAbnormalEndProd(objective)) continue
 
       // ── Truthful no-output on the DEAD path (obj 900322, C3 / G11) ───────
       // Everything below this point used to route a dead session to `review`
