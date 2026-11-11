@@ -1,0 +1,55 @@
+# oss-denylist.example.txt — TEMPLATE for the OSS publish gate denylist.
+#
+# Copy this to scripts/oss-denylist.txt in your PRIVATE repo and fill in YOUR
+# real identity. The real oss-denylist.txt is upstream-only: the sync workflow
+# strips it from the published tree, and the gate excludes it from its own scan.
+#
+# HOW IT WORKS
+#   scripts/oss-sync-gate.sh reads the denylist and greps every tracked file for
+#   each pattern. ANY hit fails the gate (fail-closed) and BLOCKS the public
+#   sync. This is the safety net against FUTURE entanglement — a new client name
+#   added months from now, then forgotten.
+#
+#   When you onboard a NEW client / workspace / business identifier, ADD it here
+#   the SAME day. One pattern per line. Patterns match case-INsensitively as
+#   FIXED strings (grep -iF). Lines starting with # and blank lines are ignored.
+#
+# WHAT BELONGS HERE — your real business/personal/infra identity ONLY:
+#   - org & product brand names, client names, founder/legal names
+#   - real infra coordinates (prod IPs, real home paths)
+#   - named secret-backend PROJECTS (specific Doppler project name, specific
+#     Supabase project-ref strings) — NOT the generic vendor word.
+#
+# WHAT MUST *NOT* GO HERE (would false-positive an already-clean tree):
+#   - bare "doppler" / "supabase": legitimate third-party integrations referenced
+#     generically in code. Denylist the PROJECT NAMES, not the vendor word.
+#   - "ai-workspace" / "second-brain": generic genericized directory concepts.
+#     Real persona/vault CONTENT is blocked separately by the gate's path-absence
+#     check (no tracked file UNDER those dirs), not by a string match.
+
+# --- Org / brand / product identity ---
+your-company
+your-product
+
+# --- Client / counterparty names ---
+client-one
+client-two
+
+# --- Founder / personal identity ---
+your-legal-name
+you@your-company.com
+
+# --- Real infra coordinates ---
+203.0.113.10
+/home/youruser/
+
+# --- Named secret-backend projects (Doppler project + Supabase project-refs) ---
+your-doppler-project
+your-supabase-project-ref
+
+# --- Private identifiers your genericize step must rewrite (see oss-genericize.sh) ---
+# Not business names — internal identifiers whose survival into the public cut
+# means the genericize transform silently failed. Listing them turns that into a
+# hard gate failure. Replace with your own, e.g. your npm workspace scope.
+@your-private-scope
+can_use_your_assistant_flag

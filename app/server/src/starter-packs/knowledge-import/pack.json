@@ -1,0 +1,18 @@
+{
+  "id": "knowledge-import",
+  "name": "Knowledge base file import",
+  "description": "Drop in Excel, CSV, PDF, Word and transcript files. An AI librarian reads them on this server and files what they say into organized, linked knowledge-base notes: one per organization, person, project, product or service, and topic. Then ask questions across everything.",
+  "version": "1.0.0",
+  "agents": [
+    {
+      "slug": "kb-librarian",
+      "label": "Librarian",
+      "prompt_file": "agents/kb-librarian.md",
+      "mono": "LB"
+    }
+  ],
+  "settings": {},
+  "setup": { "path": "/api/internal/kb-ingest/setup" },
+  "sample_data": "sample-data",
+  "demo": "DEMO.md"
+}

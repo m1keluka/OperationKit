@@ -1,0 +1,11 @@
+# Operation Kit — public docker-compose.yml.
+#
+# Do not run this by hand on a new server: run the installer, which writes the
+# settings this stack needs (install dir, generated secrets, Cloudflare tunnel):
+#
+#   sudo ./install.sh --config client.conf      # see INSTALL.md
+#
+# The stack itself lives in install/docker-compose.yml. Every host path in it
+# comes from INSTALL_DIR in your client config — nothing is tied to a user name.
+include:
+  - install/docker-compose.yml

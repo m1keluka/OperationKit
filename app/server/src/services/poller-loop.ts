@@ -1,0 +1,1728 @@
+/**
+ * Worker poll loop — extracted from state-poller.ts (behavior frozen).
+ * startPoller/stopPoller stay on the facade and call pollActiveSessions.
+ */
+import fs from 'fs'
+import path from 'path'
+import { getDb } from '../db/index.js'
+import {
+  getSessionState,
+  readJsonlTail,
+  getSessionStartedAt,
+  handleSessionDeath,
+  isOverloadRetryPending,
+  spawnReviewerSession,
+  sendFollowUp,
+  resolveWorkdir,
+  startSession,
+  sweepOrphanWorkerTmux,
+  transcriptHasPendingWork,
+} from './session-manager.js'
+import { resolveSessionTranscript, tmuxSessionAlive, snapshotJailSessions } from './session-tmux.js'
+import { jailEnabled } from './session-jail.js'
+import { sweepOrphanJailHomesThrottled } from './jail-home.js'
+import { activeSessions } from './session-registry.js'
+import { detectStartupFailure, describeStartupFailure, type StartupFailure } from './session-startup-failure.js'
+import { authParkReason, isAuthFailureMessage, recordAuthFailure } from './account-router.js'
+import {
+  isFloorActiveForProject,
+  getFloorConfig,
+  runFloor,
+  resolveFloorCwd,
+  buildFloorFailFollowUp,
+  isOutcomeVerificationActiveForObjective,
+  getOutcomeAssertion,
+  evaluateOutcomeGate,
+  recordOutcomeRunRow,
+  isOracleGateActiveForObjective,
+  evaluateOracleGate,
+  type FloorRunResult,
+} from './deterministic-floor.js'
+import { heartbeatBranchLease, releaseBranchLease } from './branch-lease.js'
+import { heartbeatSessionLeasesForObjective, releaseSessionLeasesForObjective } from './session-lease.js'
+import { runFanoutTick } from './fanout-runtime.js'
+import { runBotThreadDeliveryTick } from './bots/bot-thread-delivery.js'
+import { logObjectiveAudit, isClearDeadSessionEnabled } from './objective-audit.js'
+import { deriveBranchName } from './branch-scope.js'
+import {
+  isGateRejectionMemoryEnabled,
+  isGateRejectionMemoryKilled,
+  gateRejectionDecision,
+} from './governance.js'
+import {
+  discoverAndBackfillPR,
+  isPrAutolinkKilled,
+} from './pr-linkage.js'
+import { sweepPreviewInfraResurrect } from './preview-infra-resurrect.js'
+import { relinkPrFromTranscript } from './pr-transcript-link.js'
+import { insertAlert } from './notifier.js'
+import { runCompletionGate, applyGateHandback } from './ci-green-gate.js'
+import { extractDeterministic } from './session-intel-parse.js'
+import { queueExtraction } from './session-intel-pipeline.js'
+import { hasArenaCohort } from './arena-lifecycle.js'
+import { broadcast } from '../ws/index.js'
+import { mustRouteToHumanReview } from '../lib/human-tracked.js'
+import { classifyMergeLane, isRedLaneText, GREEN_LANE_FINDINGS, type MergeLane } from './merge-lane.js'
+import { isBackendOnlyChange } from './design-context.js'
+import { resolveFilesTouched } from './files-touched.js'
+import { skipMachineStatusWrite, runMachineStatusUpdate } from '../lib/status-lock.js'
+import type {
+  Objective,
+  ObjectiveStatus,
+} from '@operationkit/shared'
+import { MAX_CONCURRENT_SESSIONS } from '@operationkit/shared'
+import { TRANSCRIPT_DIR, WATCHDOG_IDLE_FORCE_MS, WATCHDOG_WALLCLOCK_MS } from '../config.js'
+import {
+  MAX_NOOP_RESPAWNS,
+  type NoOpDecision,
+  decideDeadSessionRepark,
+  classifyNoOpSpawn,
+  resolveWorkerEndStatus,
+  watchdogDecision,
+  selectReviewSessionIdsToClear,
+} from './poller-decisions.js'
+import {
+  forceRouteStuckWorker,
+  pollAIReviewSessions,
+  sweepPRLinkageAndHarness,
+  currentTreeShaForObjective,
+  realGhExec,
+  postHarnessStatus,
+} from './poller-ai-review.js'
+import {
+  delegatorParentOf,
+  continueDelegationOnCommit,
+  reconcileDelegators,
+  sweepOrphanedWorkingSessions,
+  sweepWedgedDelegators,
+} from './poller-delegator.js'
+import {
+  sweepTopLevelQueueStarter,
+  sweepOrphanedQueueChildren,
+  sweepAutoAcceptOnPass,
+  writeHygieneDigest,
+} from './poller-hygiene.js'
+import {
+  knowledgeScanOffsets,
+  scopeScanOffsets,
+  scanForKnowledgeWrites,
+  scanForScopeBleed,
+  handleLimitDeath,
+  handleAuthDeath,
+  handleOverloadDeath,
+  handleTurnsDeath,
+  handleQueuedFollowUps,
+  recordFloorRun,
+  logFloorMilestone,
+  promoteArenaCohortIfReady,
+} from './poller-worker.js'
+import { noteStartReason } from './session-start-reasons.js'
+import { classifyTerminalOutcome, applyTruthfulOutcome, detectRefusal } from './session-outcome.js'
+import {
+  bumpAttempt,
+  getAttempts,
+  resetAttempts,
+  observeSessionElapsed,
+  evaluateCeiling,
+  markCeilingHit,
+  describeCeilingSupport,
+} from './job-accounting.js'
+import { teardownObjectiveJob } from './job-teardown.js'
+import { releaseBranchLeasesForObjective } from './branch-lease.js'
+
+const MAX_AI_REVIEW_ITERATIONS = 5
+// No-op-spawn guard (objective 840). A worker `claude` process can exit near-
+// instantly (started_at == ended_at) producing ZERO tool calls and ZERO file
+// changes — a process-level startup/auth/rate-limit exit before any model turn,
+// NOT a finished deliverable. The pre-fix poller routed such an empty tree to a
+// reviewer, which FAILed the nonexistent work and bounced it back, burning a
+// review cycle and landing the objective in a false FAIL. We instead re-spawn the
+// worker a bounded number of times; on exhaustion the objective is marked blocked
+// (verdict='blocked') with a clear reason — never silently reviewed/failed.
+// In-memory per-objective re-spawn budget (cleared on restart, à la autoResumeCounts).
+// Keyed by objective id; reset to 0 once the objective produces a non-empty session.
+export const noopRespawnCounts = new Map<number, number>()
+
+// 30 min: Fable 5 at high effort can think for many minutes inside one turn
+// with no JSONL writes — 10 min produced false stuck alerts on the best sessions.
+const IDLE_THRESHOLD_MS = 30 * 60 * 1000
+
+/**
+ * A worker's transcript. tmux mode: the canonical TRANSCRIPT_DIR path, exactly as
+ * before. Jail mode: falls back to the jail-home bind when the canonical symlink
+ * is missing — otherwise the no-op check would parse an absent file as a 0-tool
+ * session and re-spawn a jail that actually did the work.
+ */
+function workerTranscriptPath(sessionId: string): string {
+  const canonical = path.join(TRANSCRIPT_DIR, `${sessionId}.jsonl`)
+  return jailEnabled() ? resolveSessionTranscript(canonical, sessionId) : canonical
+}
+
+/**
+ * Session ids the sweeper must NOT touch: everything this process still tracks,
+ * plus every session whose jail container is actually running. The second half
+ * matters after a control-plane restart — `activeSessions` is empty then, but
+ * the jails kept running, and removing a live session's HOME would pull the
+ * wrapper out from under it. A docker hiccup (`ok: false`) makes the sweep skip
+ * this round entirely rather than guess. (obj 900038)
+ */
+function liveJailSessionIds(): string[] | null {
+  const snap = snapshotJailSessions()
+  if (!snap.ok) return null
+  return [...new Set([...activeSessions.keys(), ...snap.names])]
+}
+
+/** The wrapper's stderr log. Same jail fallback as the transcript. (obj 900038) */
+function workerLogPath(sessionId: string): string {
+  const canonical = path.join(TRANSCRIPT_DIR, `${sessionId}.log`)
+  return jailEnabled() ? resolveSessionTranscript(canonical, sessionId, 'log') : canonical
+}
+
+/**
+ * Did this worker die before the agent ever started? Reads the transcript and
+ * the wrapper log and asks {@link detectStartupFailure}. Never throws — an
+ * unreadable pair simply means "not a startup failure" and the caller falls
+ * through to the ordinary no-op rules.
+ */
+function readStartupFailure(sessionId: string): StartupFailure | null {
+  try {
+    let jsonl = ''
+    try { jsonl = fs.readFileSync(workerTranscriptPath(sessionId), 'utf-8') } catch { jsonl = '' }
+    let log = ''
+    try { log = fs.readFileSync(workerLogPath(sessionId), 'utf-8') } catch { log = '' }
+    return detectStartupFailure({ jsonlLines: jsonl.split('\n').filter(l => l.trim()), logText: log })
+  } catch {
+    return null
+  }
+}
+export const stuckAlerted = new Set<string>() // Avoid re-alerting same session
+export const watchdogRouted = new Set<string>() // Avoid re-routing a session the watchdog already force-routed
+
+/**
+ * Delegator dormancy. A delegate_mode objective whose --print session has ended
+ * is NOT awaiting a human — it ended a turn and is waiting to be woken when a
+ * worker finishes (see wakeDelegator). While it still has in-flight workers
+ * (planning/queue/working/ai_review) it must NOT enter the ai_review/review
+ * lifecycle or trigger stuck alerts. Park it as a dormant 'working' orchestrator
+ * with session_id cleared (so the poller's session-bound queries skip it);
+ * wakeDelegator revives it via a fresh follow-up that resumes from NOTES.md.
+ *
+ * Children already at the human gate (`review`) or retired (`cancelled`) do NOT
+ * count as in-flight. Counting them as pending parked parent 704132 in Working
+ * forever while W11 sat in failed-review — fireWake will not auto-wake a
+ * review parent, so the human gate is the correct place. Once no worker is
+ * in-flight this returns false, so normal routing sends the delegator to
+ * `review`. Returns true if it parked the objective (caller should skip routing).
+ */
+export function parkDelegatorIfWaiting(objective: Objective): boolean {
+  if (!objective.delegate_mode || !objective.session_id) return false
+  const db = getDb()
+  if (skipMachineStatusWrite(db, objective.id)) return true
+  const pending = (db.prepare(
+    "SELECT COUNT(*) AS n FROM objectives WHERE parent_id = ? AND status IN ('planning','queue','working','ai_review')"
+  ).get(objective.id) as { n: number }).n
+  if (pending === 0) return false // no in-flight workers — let routing reach `review`
+  handleSessionDeath(objective.session_id)
+  stuckAlerted.delete(objective.session_id)
+  watchdogRouted.delete(objective.session_id)
+  runMachineStatusUpdate(
+    db,
+    "UPDATE objectives SET status = 'working', session_id = NULL, updated_at = datetime('now') WHERE id = ?",
+    objective.id,
+  )
+  const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+  if (updated) broadcast({ type: 'objective_updated', payload: updated })
+  console.log(`[state-poller] Delegator #${objective.id} parked (orchestrating, ${pending} worker(s) pending) — no review/ai_review`)
+  return true
+}
+
+export async function pollActiveSessions(): Promise<void> {
+  // Drain the AI-review queue first so that a worker→review→worker bounce
+  // happens in the same tick when possible.
+  try {
+    await pollAIReviewSessions()
+  } catch (err) {
+    console.error('[state-poller] pollAIReviewSessions failed:', err)
+  }
+
+  // obj 715699 — start queued fan-out children up to each group's ceiling as
+  // earlier siblings finish. Fire-and-forget: starts go through the HTTP status
+  // route, and the tick is non-reentrant.
+  void runFanoutTick().catch(err => console.error('[state-poller] runFanoutTick failed:', err))
+
+  // obj 900323 — a chat-filed bot job answers in the conversation that asked.
+  // Disjoint from the agent-webhook outbox by construction: that one joins
+  // objectives.agent_key_id (always NULL for a chat-created card), this one
+  // joins bot_job_origins. Deduped on a deterministic delivery_id, so a replayed
+  // event or an overlapping tick cannot post the same message twice.
+  try {
+    runBotThreadDeliveryTick(getDb())
+  } catch (err) {
+    console.error('[state-poller] runBotThreadDeliveryTick failed:', err)
+  }
+
+  // Safety net: revive dormant delegators with workers awaiting processing.
+  try {
+    reconcileDelegators()
+  } catch (err) {
+    console.error('[state-poller] reconcileDelegators failed:', err)
+  }
+
+  // Safety net: recover objectives orphaned in 'working' with no session
+  // (invisible to the poll query below, which requires session_id IS NOT NULL).
+  try {
+    sweepOrphanedWorkingSessions()
+  } catch (err) {
+    console.error('[state-poller] sweepOrphanedWorkingSessions failed:', err)
+  }
+
+  // Safety net: recover DELEGATORS wedged in 'working' with no live session.
+  // Delegators are exempt from the watchdog and the orphan sweep, and reconcile
+  // is signature-gated; this time-throttled backstop is the ONLY net that
+  // recovers a delegator whose recovery signal never lands (spent signature).
+  try {
+    sweepWedgedDelegators()
+  } catch (err) {
+    console.error('[state-poller] sweepWedgedDelegators failed:', err)
+  }
+
+  try {
+    sweepOrphanWorkerTmux()
+  } catch (err) {
+    console.error('[state-poller] sweepOrphanWorkerTmux failed:', err)
+  }
+
+  // obj 900038 — jail homes whose session no longer exists. handleSessionDeath
+  // cleans up every death the control plane OBSERVES; this catches the ones it
+  // cannot: a SIGKILLed server, a container restart mid-session, a jail-home
+  // written by a process that died before registering. Without it one crash
+  // leaves a plaintext wrapper script on the shared /tmp forever. Throttled
+  // internally (default 10 min) and a no-op outside jail mode.
+  try {
+    const liveIds = jailEnabled() ? liveJailSessionIds() : null
+    if (liveIds) sweepOrphanJailHomesThrottled({ enabled: true, liveSessionIds: liveIds })
+  } catch (err) {
+    console.error('[state-poller] sweepOrphanJailHomes failed:', err)
+  }
+
+  // Safety net (obj 2352): auto-link worker PRs that never self-reported and
+  // re-post the harness/test-agent status for any pass-verdict PR that lacks it,
+  // so a PR can never strand behind the required gate. Idempotent + killable.
+  try {
+    await sweepPRLinkageAndHarness()
+  } catch (err) {
+    console.error('[state-poller] sweepPRLinkageAndHarness failed:', err)
+  }
+
+  // Auto-re-review for preview-infra-blocked PRs (obj 719328). A SIBLING sweep,
+  // deliberately separate from sweepPRLinkageAndHarness/selfHealHarnessStatus above
+  // — it never touches the pass-only self-heal gate. Internally throttled.
+  try {
+    await sweepPreviewInfraResurrect()
+  } catch (err) {
+    console.error('[state-poller] sweepPreviewInfraResurrect failed:', err)
+  }
+
+  // Board-hygiene sweeps (obj 700595). All three are internally throttled + flag-
+  // gated (queue-drainer / auto-accept DEFAULT OFF); the digest is always written
+  // but is read-only unless the hard-expiry flag is armed. Each is wrapped so one
+  // failure never breaks the poll loop.
+  try {
+    await sweepOrphanedQueueChildren()
+  } catch (err) {
+    console.error('[state-poller] sweepOrphanedQueueChildren failed:', err)
+  }
+  // obj 701663 — autonomous starter for TOP-LEVEL bulk-route queue cards (the
+  // missing scheduler that stranded the distill backlog). DEFAULT ON, tightly
+  // allowlisted, cap-respecting; wrapped so one failure never breaks the loop.
+  try {
+    await sweepTopLevelQueueStarter()
+  } catch (err) {
+    console.error('[state-poller] sweepTopLevelQueueStarter failed:', err)
+  }
+  try {
+    await sweepAutoAcceptOnPass()
+  } catch (err) {
+    console.error('[state-poller] sweepAutoAcceptOnPass failed:', err)
+  }
+  try {
+    writeHygieneDigest()
+  } catch (err) {
+    console.error('[state-poller] writeHygieneDigest failed:', err)
+  }
+
+  const db = getDb()
+
+  // Cards already at the human gate (status=review) used to stay in this
+  // select forever: getSessionState returns 'review' (not 'dead') when the
+  // jsonl has a result event, so FIX A's clear-session branch never ran.
+  // Each 3s tick then paid `tmux has-session` + a 1MB jsonl tail per row
+  // (~100 Needs-You cards on a busy board) and starved HTTP — creating an
+  // objective hung for several seconds. Drop them out of the live set first.
+  if (isClearDeadSessionEnabled()) {
+    try {
+      const reviewRows = db.prepare(
+        `SELECT id, session_id FROM objectives
+          WHERE status = 'review'
+            AND session_id IS NOT NULL
+            AND deleted_at IS NULL`,
+      ).all() as Array<{ id: number; session_id: string | null }>
+      // obj 712954 — keep the session_id of a live worker parked between turns
+      // with pending work, so the orphan sweep can't reap it (see selector).
+      const toClear = selectReviewSessionIdsToClear(
+        reviewRows,
+        (sid) => tmuxSessionAlive(sid) && transcriptHasPendingWork(sid).pending,
+      )
+      const clear = db.prepare('UPDATE objectives SET session_id = NULL WHERE id = ?')
+      db.transaction(() => { for (const id of toClear) clear.run(id) })()
+    } catch (err) {
+      console.error('[state-poller] review session_id sweep failed:', err)
+    }
+  }
+
+  const actives = db
+    .prepare("SELECT * FROM objectives WHERE status IN ('working', 'review') AND session_id IS NOT NULL AND deleted_at IS NULL")
+    .all() as Objective[]
+
+  for (const objective of actives) {
+    if (!objective.session_id) continue
+    // Defense in depth: never pay tmux/jsonl for a card already at Needs You.
+    if (objective.status === 'review') continue
+    // Human already clicked Done/Cancelled this tick (or earlier). Do not
+    // route a dying tmux session back to Needs You / Working over that.
+    if (skipMachineStatusWrite(db, objective.id)) continue
+
+    // A 529 overload retry is scheduled for this session — its tmux process is
+    // dead while we wait out the backoff, so skip it this tick. Handling it here
+    // would route the (transiently) dead session into review and double-spawn.
+    if (isOverloadRetryPending(objective.session_id)) continue
+
+    // Design Arena (obj 594) — DORMANT unless a cohort was registered (only happens
+    // when shouldRunArena was true at spawn). When all variant sessions finish, this
+    // renders+ranks+promotes the winner by repointing session_id at the winning
+    // variant; the very next tick then routes that winner into ai_review via the
+    // UNCHANGED transition below. While the cohort is still building, skip this tick.
+    if (hasArenaCohort(objective.id)) {
+      try {
+        await promoteArenaCohortIfReady(objective)
+      } catch (err) {
+        console.error(`[state-poller] arena cohort eval failed for #${objective.id}:`, err)
+      }
+      continue
+    }
+
+    // Real-time knowledge capture — scan for vault writes mid-session
+    if (objective.status === 'working') {
+      try {
+        scanForKnowledgeWrites(objective.session_id, objective.id)
+      } catch (err) {
+        // Non-fatal — don't break polling if knowledge scan fails
+      }
+
+      // obj 994 — keep this objective's branch lease alive while it works, and
+      // scan for scope-bleed (foreign branch ops / cross-project edits).
+      try {
+        const ownedBranch = deriveBranchName(objective)
+        if (ownedBranch) {
+          heartbeatBranchLease(getDb(), ownedBranch, objective.id)
+        }
+        // obj 1075 — keep the identity lease(s) alive while the card works, so a
+        // duplicate wake reattaches/refuses instead of double-spawning. obj 715699:
+        // PR objectives hold the `obj:<id>` identity lease too now, so heartbeat it
+        // unconditionally (a no-op for a card that holds no session_leases rows).
+        heartbeatSessionLeasesForObjective(getDb(), objective.id)
+        scanForScopeBleed(objective)
+      } catch (err) {
+        // Non-fatal — guardrail telemetry must never break the poll loop.
+      }
+    }
+
+    const detectedState = getSessionState(objective.session_id)
+
+    // Stuck session detection
+    if (detectedState === 'working' && !stuckAlerted.has(objective.session_id!)) {
+      const jsonlPath = workerTranscriptPath(objective.session_id!)
+      try {
+        const stat = fs.statSync(jsonlPath)
+        const idleMs = Date.now() - stat.mtimeMs
+        if (idleMs > IDLE_THRESHOLD_MS) {
+          stuckAlerted.add(objective.session_id!)
+          broadcast({
+            type: 'session_stuck',
+            payload: {
+              objective_id: objective.id,
+              session_id: objective.session_id!,
+              reason: `No output for ${Math.round(idleMs / 60000)} minutes`,
+            },
+          })
+        }
+      } catch {}
+
+      // Check for repeated errors in recent output. Only the last 20 lines
+      // matter, so read the transcript tail instead of the whole file — this
+      // check runs for every working session on every 3s poll tick.
+      try {
+        const content = readJsonlTail(jsonlPath)
+        const lines = content.trim().split('\n').slice(-20)
+        let errorCount = 0
+        for (const line of lines) {
+          try {
+            const event = JSON.parse(line)
+            if (event.type === 'error') errorCount++
+          } catch {}
+        }
+        if (errorCount >= 3 && !stuckAlerted.has(objective.session_id!)) {
+          stuckAlerted.add(objective.session_id!)
+          broadcast({
+            type: 'session_stuck',
+            payload: {
+              objective_id: objective.id,
+              session_id: objective.session_id!,
+              reason: `${errorCount} errors in recent output`,
+            },
+          })
+        }
+      } catch {}
+    }
+
+    // ── Configured job ceiling on the LIVE session (obj 900322, C9) ─────────
+    // Ahead of the watchdog on purpose. The watchdog is a fixed per-spawn
+    // backstop read from the process env (WATCHDOG_WALLCLOCK_MS, 8h) and it
+    // force-routes to review as "stuck". The job ceiling is a per-card,
+    // CUMULATIVE budget somebody deliberately configured, and a card that
+    // spends it is blocked with the measured numbers rather than described as
+    // stuck. A card with no configured ceiling falls straight through to the
+    // watchdog, unchanged.
+    if (detectedState === 'working' && objective.session_id) {
+      if (await enforceRunningCeiling(objective)) continue
+    }
+
+    // ── Watchdog force-route (ST3) ──────────────────────────────────────────
+    // Runs independently of the soft `stuckAlerted` gate above (which fires at
+    // 30 min and then suppresses itself) so a session that already alerted is
+    // still force-routed once it crosses the larger idle/wall-clock thresholds.
+    // Delegators parked as dormant orchestrators are exempt — their "idleness"
+    // is by design while they wait on workers.
+    if (detectedState === 'working' && !watchdogRouted.has(objective.session_id!) && !objective.delegate_mode) {
+      try {
+        const jsonlPath = workerTranscriptPath(objective.session_id!)
+        const stat = fs.statSync(jsonlPath)
+        const now = Date.now()
+        const idleMs = now - stat.mtimeMs
+        // Wall-clock must measure the CURRENT spawn, not the objective's whole
+        // life. The transcript file is appended across every resume, so its
+        // birthtime is the first-ever start — using it force-routed a just-resumed
+        // follow-up straight to review on any objective older than the budget
+        // (obj 1234 sent a follow-up and was killed 1s later). `getSessionStartedAt`
+        // is restart-durable (obj 705463): it prefers the in-memory spawn start and
+        // rehydrates from the persisted `session_spawns` row when the map was wiped
+        // by a server restart. The birthtime fallback below therefore only applies
+        // to a session this server has genuinely never spawned — before the durable
+        // clock, a post-restart resume measured from the first-ever spawn and force-
+        // routed instantly with a fake runtime (702774: 30348 min vs 0.6 min of work).
+        const spawnStartMs = getSessionStartedAt(objective.session_id!)
+        const startMs = spawnStartMs ?? (stat.birthtimeMs || stat.ctimeMs)
+        const wallClockMs = now - startMs
+        const decision = watchdogDecision({
+          idleMs,
+          wallClockMs,
+          idleForceMs: WATCHDOG_IDLE_FORCE_MS,
+          wallClockLimitMs: WATCHDOG_WALLCLOCK_MS,
+        })
+        if (decision.forceRoute && decision.reason) {
+          watchdogRouted.add(objective.session_id!)
+          const detail = decision.reason === 'idle'
+            ? `idle ${Math.round(idleMs / 60000)} min (threshold ${Math.round(WATCHDOG_IDLE_FORCE_MS / 60000)} min)`
+            : `running ${Math.round(wallClockMs / 60000)} min (budget ${Math.round(WATCHDOG_WALLCLOCK_MS / 60000)} min)`
+          forceRouteStuckWorker(objective, decision.reason, detail)
+          continue  // routed off `working`; skip the normal transition handling this tick
+        }
+      } catch (err) {
+        // Fail-safe: a stat/route error must never wedge the poller.
+        console.error(`[state-poller] watchdog check failed for obj ${objective.id}:`, err)
+      }
+    }
+
+    if (detectedState === 'dead') {
+      // Delegator waiting on workers → park as dormant orchestrator, skip review.
+      if (parkDelegatorIfWaiting(objective)) continue
+      stuckAlerted.delete(objective.session_id!)
+      watchdogRouted.delete(objective.session_id!)
+      knowledgeScanOffsets.delete(objective.session_id!)
+      scopeScanOffsets.delete(objective.session_id!)
+      const death = handleSessionDeath(objective.session_id!)
+
+      // Auth failure (401 / 403 org-disabled) before any tool call → block the
+      // card and alert; never rotate/respawn or review it. (obj 717767)
+      if (handleAuthDeath(objective, death)) continue
+
+      // Account hit a usage/spend limit → auto-rotate to a fresh account and
+      // resume uninterrupted (or queue for auto-resume when all are limited),
+      // instead of dumping to a manual-resume review. (objective 337)
+      // NOTE: the branch lease is intentionally NOT released here — the same
+      // objective resumes under the same session id, so it keeps ownership.
+      if (death.limitHit && handleLimitDeath(objective, death.spendCapHit)) continue
+
+      // Anthropic 529 (Overloaded) → retry the SAME session after a backoff
+      // instead of parking (rotation is futile; it hits every account). The
+      // backoff respawn is scheduled inside autoResumeOnOverload; the pending
+      // guard at the top of the loop keeps us from re-handling it meanwhile.
+      if (death.overloaded && handleOverloadDeath(objective)) continue
+
+      // Per-spawn turn cap (--max-turns) fired on a still-productive session →
+      // auto-continue the SAME session (bounded) instead of stranding it for a
+      // manual Resume. Wired BEFORE the route-to-review fallthrough; when the
+      // continue budget is exhausted/disabled it returns false and we fall
+      // through to review, so a genuine runaway is still stopped. (obj 1487)
+      if (death.turnsExhausted && handleTurnsDeath(objective)) continue
+
+      // obj 900412 — messages queued while this worker was mid-turn: resume the
+      // same session with them instead of parking the card.
+      if (handleQueuedFollowUps(objective)) continue
+
+      // ── Truthful no-output on the DEAD path (obj 900322, C3 / G11) ───────
+      // Everything below this point used to route a dead session to `review`
+      // with no verdict, no reason and no activity row. The classifier that
+      // knows better (`classifyNoOpSpawn` / `readStartupFailure`) is wired ONLY
+      // under the `working → review` TRANSITION branch further down, and a
+      // transcript with no `type:"result"` never reaches it: `jsonlHasResult`
+      // does not match the wrapper's `type:"error"` startup event, so
+      // `getSessionState` resolves to 'dead' and lands here instead. That is
+      // exactly the case the obj-900038 startup-failure work was built for, and
+      // it has been unreachable from its own call site ever since.
+      if (await handleDeadSessionOutcome(objective)) continue
+
+      // Session died unexpectedly -- mark as review so user can investigate.
+      // Release the branch lease (obj 994) so a re-open does a fresh acquire+spawn
+      // rather than reattaching to the now-dead session.
+      const deadBranch = deriveBranchName(objective)
+      if (deadBranch) {
+        try { releaseBranchLease(getDb(), deadBranch) } catch { /* non-fatal */ }
+      }
+      // obj 1075 — release the identity lease(s) so a legit reopen does a fresh
+      // acquire+spawn rather than reattaching to the corpse. (Not reached on
+      // limitHit — handleLimitDeath continued above and keeps the lease, since
+      // auto-resume stays under the same session id.) obj 715699: PR objectives
+      // hold `obj:<id>` too now, so this is unconditional.
+      try { releaseSessionLeasesForObjective(getDb(), objective.id) } catch { /* non-fatal */ }
+      // ── FIX A (obj 700415) — kill the MODE-1 dead-session re-park churn ────
+      // A `review` objective whose session died with a resultless transcript is
+      // re-selected by the poll query every tick (it requires session_id IS NOT
+      // NULL) and re-written status='review'+updated_at here, WITHOUT ever
+      // clearing session_id — so it can never leave the select set → infinite
+      // re-park churn + an objective_updated broadcast every tick (deliverable A
+      // §3, live on #2/#3). When re-parking an ALREADY-`review` dead session in
+      // place, clear session_id so the row drops out of the select set after one
+      // pass; and skip the write entirely when nothing would change (no
+      // updated_at bump, no broadcast). Human reopen mints a fresh session_id
+      // regardless, so it is unaffected. Working→review transitions keep the
+      // current behavior (session_id retained for inspection of the just-died
+      // working spawn). Gated by CC_POLL_CLEAR_DEAD_SESSION (default ON).
+      if (skipMachineStatusWrite(db, objective.id)) continue
+      const reparkAction = decideDeadSessionRepark(objective)
+      if (reparkAction === 'skip-noop') {
+        // Nothing would change — emit nothing (no updated_at bump / broadcast).
+        continue
+      }
+      if (reparkAction === 'clear-session') {
+        logObjectiveAudit(db, {
+          objectiveId: objective.id,
+          eventType: 'status_change',
+          fromStatus: objective.status,
+          toStatus: 'review',
+          actor: 'state-poller',
+          pathway: 'dead-session-repark-clear',
+          sessionId: objective.session_id,
+          titleSnapshot: objective.title,
+          workspace: objective.workspace,
+        })
+        runMachineStatusUpdate(
+          db,
+          "UPDATE objectives SET status = 'review', session_id = NULL, updated_at = datetime('now') WHERE id = ?",
+          objective.id,
+        )
+        const cleared = db
+          .prepare('SELECT * FROM objectives WHERE id = ?')
+          .get(objective.id) as Objective
+        broadcast({ type: 'objective_updated', payload: cleared })
+        continue
+      }
+
+      // route-to-review: working→review (session died) — unchanged behavior. Audit the transition.
+      // `status === 'review'` is already `continue`d at :269, so TS has narrowed
+      // it out of the union and flags this comparison as TS2367, which fails the
+      // `typecheck` gate. (Pre-existing on main — it landed with PR 448.) The guard
+      // is kept: it documents the intent and is a no-op at runtime. Widened so
+      // the compiler accepts it. Type-only; no behavior change.
+      if ((objective.status as string) !== 'review') {
+        logObjectiveAudit(db, {
+          objectiveId: objective.id,
+          eventType: 'status_change',
+          fromStatus: objective.status,
+          toStatus: 'review',
+          actor: 'state-poller',
+          pathway: 'dead-session-route-to-review',
+          sessionId: objective.session_id,
+          titleSnapshot: objective.title,
+          workspace: objective.workspace,
+        })
+      }
+      // No `status !== 'review'` guard: `decideDeadSessionRepark` returns
+      // 'clear-session' or 'skip-noop' for every already-`review` row and both
+      // branches `continue` above, so reaching here means the status is not
+      // 'review'. TypeScript proves it (the narrowed union excludes 'review'),
+      // and the guard was a compile error — TS2367 on main after PR 448.
+      logObjectiveAudit(db, {
+        objectiveId: objective.id,
+        eventType: 'status_change',
+        fromStatus: objective.status,
+        toStatus: 'review',
+        actor: 'state-poller',
+        pathway: 'dead-session-route-to-review',
+        sessionId: objective.session_id,
+        titleSnapshot: objective.title,
+        workspace: objective.workspace,
+      })
+      runMachineStatusUpdate(
+        db,
+        "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+        objective.id,
+      )
+
+      const updated = db
+        .prepare('SELECT * FROM objectives WHERE id = ?')
+        .get(objective.id) as Objective
+
+      broadcast({ type: 'objective_updated', payload: updated })
+      continue
+    }
+
+    const newStatus: ObjectiveStatus = detectedState
+    if (newStatus !== objective.status) {
+      // Delegator finished a turn but still has pending workers → park as a
+      // dormant orchestrator instead of routing to ai_review/review.
+      if (parkDelegatorIfWaiting(objective)) continue
+      // Session finished (or hit rate limit) — clean up account slot + detect rate limits
+      if (newStatus === 'review' && objective.status === 'working') {
+        const death = handleSessionDeath(objective.session_id!)
+        // 0-tool-call auth death → blocked + alert, no respawn. (obj 717767)
+        if (handleAuthDeath(objective, death)) continue
+        // Account hit a usage/spend limit → auto-rotate to a fresh account and
+        // resume uninterrupted (or queue for auto-resume when all are limited),
+        // instead of routing to review/ai_review for a manual resume. (objective 337)
+        if (death.limitHit && handleLimitDeath(objective, death.spendCapHit)) continue
+        // Anthropic 529 (Overloaded) → retry the same session after a backoff.
+        if (death.overloaded && handleOverloadDeath(objective)) continue
+        // Per-spawn turn cap (--max-turns) on a productive session → auto-continue
+        // the SAME session (bounded), before the route-to-review fallthrough. (obj 1487)
+        if (death.turnsExhausted && handleTurnsDeath(objective)) continue
+        // obj 900412 — the turn ended with owner messages queued behind it:
+        // hand them to the same session now rather than routing to review.
+        if (handleQueuedFollowUps(objective)) continue
+      }
+
+      // ── PR auto-linkage at session-end (obj 2352) ─────────────────────────
+      // A worker just ended (working→review). Before it flows into the reviewer
+      // (or Green-lane harness post), try to link the PR from the server-derived
+      // branch — so linkage never depends on the worker having called /pr-created.
+      // Idempotent (no-ops once pr_number is set), best-effort (never throws),
+      // bounded by the gh timeout. Copy the linked PR onto the in-memory row so
+      // the same tick can classify files, run the CI-green gate, and post harness.
+      if (
+        newStatus === 'review' &&
+        objective.status === 'working' &&
+        objective.create_pr &&
+        objective.pr_number == null &&
+        !isPrAutolinkKilled(db)
+      ) {
+        try {
+          const linked = await discoverAndBackfillPR(db, objective, realGhExec)
+          if (linked.linked) {
+            if (linked.pr_number != null) objective.pr_number = linked.pr_number
+            if (linked.pr_url) objective.pr_url = linked.pr_url
+            if (linked.branch) objective.branch_name = linked.branch
+          }
+        } catch (err) {
+          console.warn(`[state-poller] session-end PR discovery failed for obj ${objective.id}:`, (err as Error).message)
+        }
+      }
+      // obj 712954 — the branch discovery above only covers create_pr cards with
+      // no link yet, in this repo. Also link from the worker's own transcript
+      // (`gh pr create` output / code_change_published): catches create_pr = 0
+      // cards (obj 712937 → PR 717) and relinks a card still pointing at a merged
+      // PR when the worker opened a newer one (obj 712923: PR 715 → PR 716).
+      if (
+        newStatus === 'review' &&
+        objective.status === 'working' &&
+        objective.session_id &&
+        !isPrAutolinkKilled(db)
+      ) {
+        try {
+          const transcript = fs.readFileSync(workerTranscriptPath(objective.session_id!), 'utf-8')
+          const linked = await relinkPrFromTranscript(db, objective, transcript.split('\n'), realGhExec)
+          if (linked.linked) {
+            if (linked.pr_number != null) objective.pr_number = linked.pr_number
+            if (linked.pr_url) objective.pr_url = linked.pr_url
+            if (linked.branch) objective.branch_name = linked.branch
+          }
+        } catch (err) {
+          console.warn(`[state-poller] session-end transcript PR link failed for obj ${objective.id}:`, (err as Error).message)
+        }
+      }
+
+      // ── No-op-spawn guard (objective 840) ─────────────────────────────────
+      // Before routing a just-ended worker into the review lifecycle, check the
+      // synchronous deterministic intel: a session with 0 tool calls AND 0 file
+      // changes never actually executed (the claude process exited before any
+      // model turn). Reviewing it manufactures a false FAIL on an empty tree;
+      // re-spawn it (bounded) instead. Delegators are excluded — their
+      // "deliverable" is orchestration and they have a separate parked lifecycle
+      // (parkDelegatorIfWaiting / wakeDelegator).
+      let skipAiReviewForShortSession = false
+      // obj 900322 — set when THIS session delivered nothing (silence or a bare
+      // refusal with zero tools and zero file changes). Read by
+      // resolveWorkerEndStatus below to keep a routine card off `done`.
+      let decisionProducedNothing = false
+      if (
+        newStatus === 'review' &&
+        objective.status === 'working' &&
+        !objective.delegate_mode &&
+        objective.session_id
+      ) {
+        let decision: NoOpDecision = { isNoOp: false, action: 'none' }
+        let authFailureText: string | null = null
+        try {
+          const intel = await extractDeterministic(
+            workerTranscriptPath(objective.session_id!)
+          )
+          decision = classifyNoOpSpawn(
+            {
+              toolCalls: intel.toolCalls,
+              filesCreated: intel.filesCreated.length,
+              filesModified: intel.filesModified.length,
+              durationMs: intel.durationMs,
+              completedWithAnswer: intel.completedWithAnswer,
+              // obj 900038: only ask when the session looks empty. A session
+              // with real tool calls started fine by definition, and the
+              // legacy "no events at all" heuristic must not fire on it.
+              startupFailure: intel.toolCalls === 0 && !intel.completedWithAnswer
+                ? readStartupFailure(objective.session_id!)
+                : null,
+            },
+            // obj 900322 (C4) — the budget is the MAX of the in-memory map and the
+            // durable counter. The map alone was reset by every deploy (and
+            // self-deploy is an in-session action), silently re-arming the
+            // respawn budget of a card that had already burned it.
+            Math.max(noopRespawnCounts.get(objective.id) || 0, getAttempts(db, objective.id, 'noop_respawn'))
+          )
+          authFailureText = intel.errors.find(e => isAuthFailureMessage(e)) ?? null
+          decisionProducedNothing = classifyTerminalOutcome({
+            hasResult: true,
+            toolCalls: intel.toolCalls,
+            filesCreated: intel.filesCreated.length,
+            filesModified: intel.filesModified.length,
+            completedWithAnswer: intel.completedWithAnswer,
+            refusalText: detectRefusal(intel.finalResultText ?? ''),
+          }).kind === 'refused'
+        } catch (err) {
+          // Can't parse the transcript → don't risk a false positive; fall
+          // through to normal routing (the genuine-empty-deliverable path).
+          console.warn(
+            `[state-poller] no-op check: failed to parse intel for objective ${objective.id} (${objective.session_id}):`,
+            err
+          )
+        }
+
+        // obj 716791 — backstop for a no-op whose transcript carries the
+        // auth-failure wire signature ("OAuth session expired and could not be
+        // refreshed", 401, 403 org-disabled) but which handleSessionDeath did
+        // NOT classify (e.g. the session was missing from activeSessions, so
+        // no account was known and nothing was parked). Respawning would
+        // re-pick the same dead seat, so treat it like any other 0-tool auth
+        // death (obj 717767): park the seat if we can resolve it from
+        // session_runtime, block the card + alert, never noop_respawn.
+        // activeSessions can't be used here — handleSessionDeath already
+        // removed the entry above.
+        if (decision.isNoOp && authFailureText) {
+          let deadAccountId: string | null = null
+          try {
+            const row = db.prepare('SELECT account_id FROM session_runtime WHERE session_id = ?').get(objective.session_id) as { account_id: string | null } | undefined
+            deadAccountId = row?.account_id ?? null
+          } catch { /* table missing / read error → unknown seat */ }
+          if (deadAccountId) recordAuthFailure(deadAccountId, authFailureText)
+          console.warn(
+            `[state-poller] No-op spawn for objective ${objective.id} carried the auth-failure signature (account ${deadAccountId ?? 'unknown'}) — blocking, no respawn: ${authFailureText.slice(0, 160)}`
+          )
+          if (handleAuthDeath(objective, {
+            limitHit: true, spendCapHit: false, overloaded: false, turnsExhausted: false,
+            authFailed: true, authReason: authParkReason(authFailureText), toolCalls: 0, accountId: deadAccountId,
+          })) continue
+        }
+        if (decision.action === 'startup-failed') {
+          // obj 900038 — the wrapper died before the agent ran. This is an
+          // ENVIRONMENT fault (an un-enterable /workspace was the original
+          // case), so re-spawning reproduces it byte for byte. Block once,
+          // with the exit code and the stderr tail on the card, and do not
+          // consume any of the no-op respawn budget.
+          noopRespawnCounts.delete(objective.id)
+          resetAttempts(db, objective.id, 'noop_respawn')
+          const reason = describeStartupFailure(decision.startupFailure!)
+          console.error(
+            `[state-poller] Objective ${objective.id} (${objective.session_id}): ${reason.split('\n')[0]} — blocking, no respawn.`,
+          )
+          runMachineStatusUpdate(
+            db,
+            "UPDATE objectives SET status = 'review', ai_review_verdict = 'blocked', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
+            reason,
+            objective.id,
+          )
+          try {
+            db.prepare(
+              "INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail, metadata) VALUES (?, ?, ?, ?, 'error', 'session_startup_failed', ?, ?)"
+            ).run(
+              objective.project || 'unknown',
+              objective.workspace,
+              objective.id,
+              objective.session_id,
+              reason,
+              JSON.stringify({ kind: 'session_startup_failed', ...decision.startupFailure }),
+            )
+          } catch (err) {
+            console.error(`[state-poller] Failed to log startup failure for obj ${objective.id}:`, err)
+          }
+          const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+          if (updated) broadcast({ type: 'objective_updated', payload: updated })
+          continue
+        } else if (decision.action === 'respawn') {
+          // No-op spawn re-queued — NOT a deliverable, do NOT spawn a reviewer.
+          noopRespawnCounts.set(objective.id, decision.attempt!)
+          bumpAttempt(db, objective.id, 'noop_respawn') // durable twin of the line above (obj 900322)
+          console.warn(
+            `[state-poller] No-op spawn detected for objective ${objective.id} (0 tool calls / 0 file changes, attempt ${decision.attempt}/${MAX_NOOP_RESPAWNS}) — re-spawning worker, no reviewer.`
+          )
+          try {
+            db.prepare(
+              "INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail) VALUES (?, ?, ?, ?, 'milestone', 'noop_spawn_requeued', ?)"
+            ).run(
+              objective.project || 'unknown',
+              objective.workspace,
+              objective.id,
+              objective.session_id,
+              `Worker session produced 0 tool calls / 0 file changes (no-op spawn). Re-spawning worker, attempt ${decision.attempt}/${MAX_NOOP_RESPAWNS}; no reviewer spawned.`
+            )
+          } catch (err) {
+            console.error(`[state-poller] Failed to log noop-requeue for obj ${objective.id}:`, err)
+          }
+          try {
+            noteStartReason(objective.id, 'noop_respawn', 'state-poller')
+            const newSessionId = await startSession(objective)
+            runMachineStatusUpdate(
+              db,
+              "UPDATE objectives SET status = 'working', session_id = ?, ai_review_verdict = NULL, ai_review_findings = NULL, updated_at = datetime('now') WHERE id = ?",
+              newSessionId,
+              objective.id,
+            )
+          } catch (err) {
+            // All accounts exhausted → startSession already enqueued the
+            // objective with the account-router; park it in `queue` so the
+            // queue-drain (queue→working PATCH) re-spawns it when a slot frees.
+            console.warn(
+              `[state-poller] No-op respawn for objective ${objective.id} deferred (accounts busy) — parked in queue: ${err}`
+            )
+            runMachineStatusUpdate(
+              db,
+              "UPDATE objectives SET status = 'queue', session_id = NULL, updated_at = datetime('now') WHERE id = ?",
+              objective.id,
+            )
+          }
+          const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+          if (updated) broadcast({ type: 'objective_updated', payload: updated })
+          continue
+        } else if (decision.action === 'block') {
+          // Bounded re-spawns exhausted → block (never a false-FAIL review,
+          // never silently done). Mirrors the reviewer-no-verdict blocked path.
+          noopRespawnCounts.delete(objective.id)
+          resetAttempts(db, objective.id, 'noop_respawn')
+          const reason = `Worker spawn produced 0 tool calls / 0 file changes across ${MAX_NOOP_RESPAWNS} re-spawn attempts — the claude process exited before executing any work (no-op spawn). Not a deliverable; never reviewed. Needs manual investigation (process-level startup/auth/rate-limit exit).`
+          console.warn(
+            `[state-poller] No-op spawn for objective ${objective.id} exhausted ${MAX_NOOP_RESPAWNS} re-spawns — marking blocked.`
+          )
+          runMachineStatusUpdate(
+            db,
+            "UPDATE objectives SET status = 'review', ai_review_verdict = 'blocked', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
+            reason,
+            objective.id,
+          )
+          try {
+            db.prepare(
+              "INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail) VALUES (?, ?, ?, ?, 'milestone', 'noop_spawn_blocked', ?)"
+            ).run(
+              objective.project || 'unknown',
+              objective.workspace,
+              objective.id,
+              objective.session_id,
+              reason
+            )
+          } catch (err) {
+            console.error(`[state-poller] Failed to log noop-blocked for obj ${objective.id}:`, err)
+          }
+          const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+          if (updated) broadcast({ type: 'objective_updated', payload: updated })
+          continue
+        } else if (decision.action === 'skip-reviewer') {
+          skipAiReviewForShortSession = true
+          noopRespawnCounts.delete(objective.id)
+          resetAttempts(db, objective.id, 'noop_respawn')
+          console.warn(
+            `[state-poller] Short empty-tree session for objective ${objective.id} — skipping AI reviewer (human review only).`,
+          )
+        } else {
+          // Genuine non-empty session (or unparseable) — reset the re-spawn
+          // budget so a future unrelated run starts fresh, then route normally.
+          noopRespawnCounts.delete(objective.id)
+          resetAttempts(db, objective.id, 'noop_respawn')
+        }
+      }
+
+      // Type-aware auto-advance when a worker session ends successfully.
+      // Green lane skips the tmux reviewer (CI is the gate). Yellow/Red keep
+      // the existing table in resolveWorkerEndStatus.
+      let resolvedStatus: ObjectiveStatus = newStatus
+      let mergeLane: MergeLane | undefined
+      if (newStatus === 'review' && objective.status === 'working') {
+        const skipAi = !!(objective as Objective & { skip_ai_review?: boolean | number }).skip_ai_review
+        let filesKnown = false
+        let uiTouched = false
+        if (objective.create_pr) {
+          try {
+            const { files } = await resolveFilesTouched(db, objective, { ghExec: realGhExec })
+            filesKnown = files.length > 0
+            uiTouched = filesKnown && !isBackendOnlyChange(files)
+          } catch (err) {
+            console.warn(`[state-poller] merge-lane file list failed for obj ${objective.id}:`, (err as Error).message)
+          }
+        }
+        mergeLane = classifyMergeLane({
+          type: objective.type,
+          createPr: !!objective.create_pr,
+          delegateMode: !!objective.delegate_mode,
+          redPath: isRedLaneText(objective),
+          filesKnown,
+          uiTouched,
+        })
+        resolvedStatus = resolveWorkerEndStatus({
+          type: objective.type,
+          delegateMode: !!objective.delegate_mode,
+          createPr: !!objective.create_pr,
+          skipAi,
+          hasDelegatorParent: delegatorParentOf(objective) != null,
+          isRoutine: objective.routine_id != null,
+          lane: mergeLane,
+          // obj 900322 — a routine card whose session refused (or produced
+          // nothing) must not auto-complete to `done`. `decision` is the
+          // no-op classifier already computed above for this same session.
+          producedNothing: decisionProducedNothing,
+        })
+        if (mergeLane === 'green') {
+          console.log(`[state-poller] Green lane obj ${objective.id} (${objective.type}) — skip LLM reviewer → ${resolvedStatus}`)
+        }
+        if (skipAiReviewForShortSession && resolvedStatus === 'ai_review') {
+          resolvedStatus = 'review'
+          console.warn(
+            `[state-poller] Objective ${objective.id} produced no files in under 35s — routing to human review instead of ai_review.`,
+          )
+        }
+      }
+
+      // ── Re-review churn guard (objective 360) ──────────────────────────────
+      // A PASS is terminal: never re-queue an already-passed deliverable for
+      // another review, and never let consecutive reviews accumulate unbounded
+      // iterations. This was the single largest source of wasted sessions —
+      // obj-238 ran 17 review iterations (iter 1 already passed), obj-191 ran 16,
+      // each burning a full reviewer session on the same unchanged deliverable
+      // every time the worker was resurrected to `working`. A `fail` verdict is
+      // NOT terminal here (fix-then-re-review still works); only `pass` and the
+      // absolute cap short-circuit. A deliberate re-review remains available via
+      // the manual `ai_review` override route, which sets status directly.
+      if (resolvedStatus === 'ai_review') {
+        const alreadyPassed = objective.ai_review_verdict === 'pass'
+        const atAbsoluteCap = (objective.ai_review_iteration || 0) >= MAX_AI_REVIEW_ITERATIONS
+        if (alreadyPassed || atAbsoluteCap) {
+          // Forward status mirrors the reviewer PASS branch: project → human
+          // review gate, everything else → done.
+          const forwardStatus: ObjectiveStatus = objective.type === 'project' ? 'review' : 'done'
+          const why = alreadyPassed
+            ? `already passed AI review (verdict=pass, iteration ${objective.ai_review_iteration})`
+            : `hit absolute AI-review cap (${MAX_AI_REVIEW_ITERATIONS} iterations)`
+          resolvedStatus = forwardStatus
+          console.log(`[state-poller] Skipping re-review for objective ${objective.id} — ${why} → ${forwardStatus}`)
+          try {
+            db.prepare(
+              `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
+               VALUES (?, ?, ?, ?, 'milestone', 'ai_review_rereview_skipped', ?)`
+            ).run(
+              objective.project || 'unknown',
+              objective.workspace,
+              objective.id,
+              objective.session_id,
+              `${why}; advanced to ${forwardStatus} instead of spawning another reviewer.`
+            )
+          } catch (err) {
+            console.error(`[state-poller] Failed to log rereview-skip for obj ${objective.id}:`, err)
+          }
+        }
+      }
+
+      // ── KL-21 gate-rejection memory (obj-2509) ─────────────────────────────
+      // If the objective was already REJECTED (verdict=fail) and its head tree is
+      // byte-identical to the tree it was rejected on, re-grading it burns a full
+      // auditor session on an unchanged deliverable (one of this objective's two
+      // named active blockers: token waste re-grading unchanged trees). Mark it
+      // NOT_MERGEABLE and route to the human gate WITHOUT spawning the reviewer.
+      // Flag-gated (default OFF) + kill switch; the outer guard also avoids the git
+      // tree-SHA call entirely while the flag is off. Fails OPEN: any null SHA or a
+      // changed tree falls through and the auditor runs exactly as today.
+      if (
+        resolvedStatus === 'ai_review' &&
+        isGateRejectionMemoryEnabled(db) &&
+        !isGateRejectionMemoryKilled(db)
+      ) {
+        const currentTreeSha = currentTreeShaForObjective(objective)
+        const decision = gateRejectionDecision({
+          enabled: true,
+          killed: false,
+          priorVerdict: objective.ai_review_verdict,
+          rejectedTreeSha: (objective as Objective & { rejected_tree_sha?: string | null }).rejected_tree_sha,
+          currentTreeSha,
+        })
+        if (decision.skipAuditor) {
+          const forwardStatus: ObjectiveStatus = objective.type === 'project' ? 'review' : 'done'
+          resolvedStatus = mustRouteToHumanReview(objective) && forwardStatus === 'done' ? 'review' : forwardStatus
+          db.prepare(
+            "UPDATE objectives SET not_mergeable = 1, updated_at = datetime('now') WHERE id = ?"
+          ).run(objective.id)
+          console.log(`[state-poller] KL-21 gate-rejection memory: skipping auditor for obj ${objective.id} — ${decision.reason} → ${resolvedStatus}`)
+          try {
+            db.prepare(
+              `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
+               VALUES (?, ?, ?, ?, 'milestone', 'gate_rejection_memory_skip', ?)`
+            ).run(
+              objective.project || 'unknown',
+              objective.workspace,
+              objective.id,
+              objective.session_id,
+              `${decision.reason}; advanced to ${resolvedStatus} without spawning a reviewer.`,
+            )
+          } catch (err) {
+            console.error(`[state-poller] Failed to log gate-rejection skip for obj ${objective.id}:`, err)
+          }
+        }
+      }
+
+      // ── ST1: deterministic floor (P1+P2) ──────────────────────────────────
+      // A worker just finished (working→review). Before trusting its process-exit
+      // and advancing to the LLM reviewer / review / done, run the linked
+      // project's deterministic checks. The floor sits UNDER the LLM review: a red
+      // floor short-circuits the transition entirely (the reviewer never spawns),
+      // so the LLM verdict cannot override it. fail-safe-OPEN so a floor bug can
+      // never wedge the board.
+      //
+      // Activation is per-project (obj 2335): the floor runs when the project is
+      // active via isFloorActiveForProject — i.e. the GLOBAL flag is on OR this
+      // project has its own `floor_config:<project>` opt-in row. That lets one
+      // pilot arm the floor while `deterministic_floor_enabled` stays 0 in code.
+      // NOTE: getSessionState only yields working|review|dead, so a worker's
+      // session-end is always newStatus==='review' here — resolvedStatus may still
+      // be `done` (task/bug), so this entry already covers the working→done
+      // session-end path. The OTHER working→done path — a self-claimed PATCH
+      // straight to `done` — is gated symmetrically in routes/objectives.ts.
+      if (objective.status === 'working' && newStatus === 'review' && isFloorActiveForProject(db, objective.project)) {
+        let floorCfg: ReturnType<typeof getFloorConfig> = null
+        let cfgError = false
+        try {
+          floorCfg = getFloorConfig(db, objective.project)
+        } catch (err) {
+          // Malformed config row = INFRA failure → fail-safe-OPEN (log + skip).
+          cfgError = true
+          console.error(`[state-poller][floor] config parse error for obj ${objective.id} (${objective.project}) — FAILING OPEN:`, err)
+          logFloorMilestone(db, objective, 'floor_open', `config parse error; gate skipped (fail-open): ${String(err)}`)
+        }
+
+        // resolveWorkdir fails closed for an unresolvable project-linked objective
+        // (obj 1451). The floor is an advisory gate on an already-running session,
+        // so a throw here must NOT crash the poll loop — resolve the cwd defensively
+        // and, on failure, treat it as a fail-safe-OPEN (skip the gate, advance as
+        // today) exactly like a config parse error.
+        let floorCwd: string | null = null
+        if (!cfgError && floorCfg) {
+          try {
+            floorCwd = resolveFloorCwd(objective, () => resolveWorkdir(objective))
+          } catch (err) {
+            console.warn(`[state-poller][floor] resolveWorkdir failed for obj ${objective.id} — skipping floor (fail-open): ${err instanceof Error ? err.message : err}`)
+            logFloorMilestone(db, objective, 'floor_open', `resolveWorkdir threw; gate skipped (fail-open): ${String(err)}`)
+          }
+        }
+        if (!cfgError && floorCfg && floorCwd !== null) {
+          const cwd = floorCwd
+          let run: FloorRunResult
+          try {
+            run = runFloor(floorCfg, cwd)
+          } catch (err) {
+            // Any unexpected throw from the run path itself → fail-safe-OPEN.
+            run = { outcome: 'open', commands: [], openReason: `runFloor threw: ${String(err)}` }
+          }
+          recordFloorRun(db, objective, resolvedStatus, cwd, run)
+
+          if (run.outcome === 'fail') {
+            // ── RED FLOOR → automatic fail, routed back to the worker. ──
+            // The LLM reviewer is NOT spawned, so its verdict cannot override.
+            const llmWouldHaveRun = resolvedStatus === 'ai_review'
+            logFloorMilestone(
+              db,
+              objective,
+              'floor_caught_failure',
+              `Deterministic floor FAILED on \`${run.failedCommand}\` — objective auto-failed. ` +
+                `Without the floor this would have ${llmWouldHaveRun ? 'reached the LLM reviewer (whose pass could not override the red floor)' : `advanced straight to ${resolvedStatus} UNREVIEWED`}. ` +
+                `This is the verifier signal: the floor caught a failure the LLM verdict would have passed.`,
+            )
+            console.log(`[state-poller][floor] RED floor on obj ${objective.id} (${run.failedCommand}) — auto-fail, LLM review bypassed.`)
+            const followUp = buildFloorFailFollowUp(run)
+            db.prepare(
+              "UPDATE objectives SET ai_review_verdict = 'fail', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
+            ).run(followUp, objective.id)
+            if (objective.session_id) {
+              try {
+                noteStartReason(objective.id, 'merge_lane', 'state-poller')
+                const newSessionId = sendFollowUp(objective.session_id, followUp, objective)
+                runMachineStatusUpdate(
+                  db,
+                  "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
+                  newSessionId,
+                  objective.id,
+                )
+                console.log(`[state-poller][floor] obj ${objective.id} bounced to worker session ${newSessionId} with floor findings`)
+              } catch (err) {
+                console.error(`[state-poller][floor] failed to send floor-fail follow-up for obj ${objective.id}:`, err)
+                runMachineStatusUpdate(
+                  db,
+                  "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+                  objective.id,
+                )
+              }
+            } else {
+              runMachineStatusUpdate(
+                db,
+                "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+                objective.id,
+              )
+            }
+            const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+            broadcast({ type: 'objective_updated', payload: updated })
+            continue // gate applied — never reach the reviewer/advance path
+          } else if (run.outcome === 'open') {
+            // ── FAIL-SAFE-OPEN: infra error/timeout → log loudly, skip the gate. ──
+            console.error(`[state-poller][floor] FAIL-OPEN on obj ${objective.id}: ${run.openReason} — proceeding as today.`)
+            logFloorMilestone(db, objective, 'floor_open', `gate skipped (fail-open): ${run.openReason}`)
+            // fall through to the normal advance path
+          } else {
+            // ── GREEN FLOOR → proceed; the floor verified the build. ──
+            logFloorMilestone(db, objective, 'floor_pass', `all ${floorCfg.commands.length} check(s) green; advancing to ${resolvedStatus}`)
+            console.log(`[state-poller][floor] GREEN floor on obj ${objective.id} → ${resolvedStatus}`)
+          }
+        }
+
+        // P2 instrumentation: every working→done-ish transition records whether
+        // it was floor-gated. Bypasses (project not opted-in, untestable noop)
+        // are logged with the completion_goal as the admin-reviewable justification.
+        const wasGated = !cfgError && !!floorCfg && floorCwd !== null
+        logFloorMilestone(
+          db,
+          objective,
+          'floor_transition',
+          `working→${resolvedStatus} floor-gated=${wasGated}` +
+            (wasGated
+              ? ''
+              : ` (noop/bypass — ${objective.completion_goal ? 'completion_goal attached as justification' : 'NO completion_goal justification'})`),
+        )
+      }
+
+      // ── Oracle hard merge gate (obj 700316, Stage-C enforcement) ───────────
+      // When `kitchen_loop_oracle_gate` is ON, run the operationkit
+      // regression oracle (spec/cc-oracle.mjs, QUICK) as a HARD gate under the LLM
+      // reviewer: a non-GREEN verdict BLOCKS the transition and bounces the worker,
+      // exactly like a red floor. SCOPE GUARD: isOracleGateActiveForObjective is
+      // true ONLY when the flag is on AND project === 'operationkit', so no
+      // other workspace can ever be gated — even with the flag on. Flag OFF ⇒ this
+      // block is never entered ⇒ behaviour byte-for-byte identical to today.
+      // fail-safe-OPEN: any infra failure running the oracle proceeds as today.
+      if (
+        objective.status === 'working' &&
+        newStatus === 'review' &&
+        isOracleGateActiveForObjective(db, objective)
+      ) {
+        const oracleDecision = evaluateOracleGate({
+          resolveCwd: () => resolveFloorCwd(objective, () => resolveWorkdir(objective)),
+          run: (cfg, cwd) => runFloor(cfg, cwd),
+          logMilestone: (title, detail) => logFloorMilestone(db, objective, title, detail),
+        })
+        if (oracleDecision.action === 'block') {
+          logFloorMilestone(
+            db,
+            objective,
+            'oracle_caught_regression',
+            `Regression oracle returned non-GREEN — objective auto-failed (working→${resolvedStatus} blocked). ` +
+              `The oracle sits under the AI review; a non-GREEN verdict cannot be overridden.`,
+          )
+          console.log(`[state-poller][oracle] RED oracle on obj ${objective.id} — auto-fail, advance bypassed.`)
+          const followUp = oracleDecision.followUp
+          db.prepare(
+            "UPDATE objectives SET ai_review_verdict = 'fail', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
+          ).run(followUp, objective.id)
+          if (objective.session_id) {
+            try {
+              noteStartReason(objective.id, 'merge_lane', 'state-poller')
+              const newSessionId = sendFollowUp(objective.session_id, followUp, objective)
+              runMachineStatusUpdate(
+                db,
+                "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
+                newSessionId,
+                objective.id,
+              )
+              console.log(`[state-poller][oracle] obj ${objective.id} bounced to worker session ${newSessionId} with oracle findings`)
+            } catch (err) {
+              console.error(`[state-poller][oracle] failed to send oracle-fail follow-up for obj ${objective.id}:`, err)
+              runMachineStatusUpdate(
+                db,
+                "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+                objective.id,
+              )
+            }
+          } else {
+            runMachineStatusUpdate(
+              db,
+              "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+              objective.id,
+            )
+          }
+          const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+          broadcast({ type: 'objective_updated', payload: updated })
+          continue // oracle gate applied — never reach the reviewer/advance path
+        }
+      }
+
+      // ── Outcome verification (obj 700028): generalized state-delta floor for ──
+      // NON-CODE objectives. Independent of the code floor above: it arms via a
+      // per-objective/type `outcome_assertion:*` row (NOT a project's tsc/build/test
+      // config), so research/content/data/ops objectives — which the code floor
+      // never covers — get a hard, mechanical outcome check at the working→done
+      // gate. Flag-guarded (CC_OUTCOME_VERIFICATION_ENABLED / settings), GLOBAL
+      // DEFAULT OFF, fail-safe-OPEN, kill-switchable. A clean non-zero exit BLOCKS
+      // and bounces the worker exactly like a red code floor.
+      if (objective.status === 'working' && isOutcomeVerificationActiveForObjective(db, objective)) {
+        const outcomeDecision = evaluateOutcomeGate({
+          getConfig: () => getOutcomeAssertion(db, objective),
+          resolveFallbackCwd: () => resolveFloorCwd(objective, () => resolveWorkdir(objective)),
+          run: (cfg, cwd) => runFloor(cfg, cwd),
+          record: (cwd, run) => recordOutcomeRunRow(db, objective, resolvedStatus, cwd, run),
+          logMilestone: (title, detail) => logFloorMilestone(db, objective, title, detail),
+        })
+        if (outcomeDecision.action === 'block') {
+          logFloorMilestone(
+            db,
+            objective,
+            'outcome_caught_failure',
+            `Outcome verification FAILED on \`${outcomeDecision.run.failedCommand}\` — objective auto-failed (working→${resolvedStatus} blocked).`,
+          )
+          console.log(`[state-poller][outcome] RED outcome on obj ${objective.id} (${outcomeDecision.run.failedCommand}) — auto-fail, advance bypassed.`)
+          const followUp = outcomeDecision.followUp
+          db.prepare(
+            "UPDATE objectives SET ai_review_verdict = 'fail', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ?",
+          ).run(followUp, objective.id)
+          if (objective.session_id) {
+            try {
+              noteStartReason(objective.id, 'merge_lane', 'state-poller')
+              const newSessionId = sendFollowUp(objective.session_id, followUp, objective)
+              runMachineStatusUpdate(
+                db,
+                "UPDATE objectives SET status = 'working', session_id = ?, updated_at = datetime('now') WHERE id = ?",
+                newSessionId,
+                objective.id,
+              )
+              console.log(`[state-poller][outcome] obj ${objective.id} bounced to worker session ${newSessionId} with outcome findings`)
+            } catch (err) {
+              console.error(`[state-poller][outcome] failed to send outcome-fail follow-up for obj ${objective.id}:`, err)
+              runMachineStatusUpdate(
+                db,
+                "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+                objective.id,
+              )
+            }
+          } else {
+            runMachineStatusUpdate(
+              db,
+              "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+              objective.id,
+            )
+          }
+          const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+          broadcast({ type: 'objective_updated', payload: updated })
+          continue // outcome gate applied — never reach the reviewer/advance path
+        }
+      }
+
+      // Single chokepoint for the worker auto-advance path: a human-tracked
+      // objective (top-level, non-routine) must not auto-complete — redirect
+      // any resolved `done` to `review` for admin sign-off. Carve-outs:
+      // green-lane (CI is the gate), passing AI review on a non-project,
+      // delegator children, and routine-spawned jobs.
+      if (mustRouteToHumanReview(objective, { lane: mergeLane }) && resolvedStatus === 'done') {
+        resolvedStatus = 'review'
+      }
+
+      // Human may have clicked Done during floor/oracle/outcome awaits.
+      if (skipMachineStatusWrite(db, objective.id)) continue
+
+      let ciGateBlocked = false
+      if (resolvedStatus === 'ai_review') {
+        try {
+          // Increment the iteration counter BEFORE spawning so the reviewer
+          // prompt sees the correct iteration number. The objective passed to
+          // spawnReviewerSession must reflect the new iteration value too.
+          const nextIteration = (objective.ai_review_iteration || 0) + 1
+          ;(objective as Objective & { ai_review_iteration: number }).ai_review_iteration = nextIteration
+          const reviewerSessionId = await spawnReviewerSession(objective)
+          runMachineStatusUpdate(
+            db,
+            `UPDATE objectives SET
+               status = 'ai_review',
+               ai_review_session_id = ?,
+               ai_review_verdict = NULL,
+               ai_review_findings = NULL,
+               ai_review_iteration = ?,
+               updated_at = datetime('now')
+             WHERE id = ?`,
+            reviewerSessionId,
+            nextIteration,
+            objective.id,
+          )
+          console.log(`[state-poller] Spawned reviewer ${reviewerSessionId} for objective ${objective.id} (${objective.type}) iteration ${nextIteration}`)
+        } catch (err) {
+          // If reviewer can't spawn (account exhausted etc.), leave in review for human triage.
+          console.error(`[state-poller] Failed to spawn reviewer for objective ${objective.id}:`, err)
+          runMachineStatusUpdate(
+            db,
+            "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+            objective.id,
+          )
+        }
+      } else {
+        // ── CI-green gate on the WORKER-SESSION-END apply path (obj 704785) ────
+        // This write takes a VARIABLE status, so it does not grep as a `'done'`
+        // literal — which is exactly how it was missed on the first pass of this
+        // objective. It reaches `done` three ways, all of which can carry a PR:
+        //   1. resolveWorkerEndStatus() returning 'done' directly,
+        //   2. the ALWAYS-ON re-review churn guard (:3067) forwarding an
+        //      already-passed / iteration-capped objective straight to done,
+        //   3. the KL-21 gate-rejection-memory skip (:3117) doing the same.
+        // (2) is the dangerous one: an objective that already passed review (so it
+        // has a PR) and is later resurrected to `working` would forward to `done`
+        // with nothing looking at its checks. Gating the reviewer-verdict path but
+        // not this one leaves the gate LOOKING closed while a live path walks past
+        // it. On a block we rewrite `resolvedStatus` to where the handback actually
+        // landed the objective, so continueDelegationOnCommit below does not tell a
+        // delegator parent that a child finished when it did not.
+        if (resolvedStatus === 'done') {
+          const gate = await runCompletionGate(db, objective, { pathway: 'worker-end-apply', alert: insertAlert })
+          if (gate.blocked) {
+            const landed = applyGateHandback(db, objective, gate, { sendFollowUp, broadcast })
+            console.warn(
+              `[state-poller] CI-green gate ${gate.decision.action.toUpperCase()} on worker-end apply for ` +
+              `objective ${objective.id} (${gate.repo}#${gate.prNumber}) → ${landed}: ${gate.decision.reason}`,
+            )
+            resolvedStatus = landed
+            ciGateBlocked = true
+          }
+        }
+        if (!ciGateBlocked) {
+          runMachineStatusUpdate(
+            db,
+            "UPDATE objectives SET status = ?, updated_at = datetime('now') WHERE id = ?",
+            resolvedStatus,
+            objective.id,
+          )
+        }
+      }
+
+      const updated = db
+        .prepare('SELECT * FROM objectives WHERE id = ?')
+        .get(objective.id) as Objective
+
+      // Green lane skipped the tmux reviewer. If this card opened a PR, post
+      // harness/test-agent so branch protection is not starved. Never auto-merge
+      // and never auto-done — a human or the Agent API closes the card.
+      if (!ciGateBlocked && mergeLane === 'green') {
+        if (updated.create_pr || updated.pr_number) {
+          postHarnessStatus(updated, 'success', GREEN_LANE_FINDINGS)
+        }
+        try {
+          db.prepare(
+            `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
+             VALUES (?, ?, ?, ?, 'milestone', 'merge_lane_green', ?)`,
+          ).run(
+            objective.project || 'unknown',
+            objective.workspace,
+            objective.id,
+            objective.session_id,
+            GREEN_LANE_FINDINGS,
+          )
+        } catch (err) {
+          console.warn(`[state-poller] Failed to log green-lane skip for obj ${objective.id}:`, (err as Error).message)
+        }
+      }
+
+      broadcast({ type: 'objective_updated', payload: updated })
+
+      // P3 continuation engine (Strategy Layer, flag-gated). Propagate this
+      // worker-end commit UP to a delegator parent so a persistent strategy node
+      // is re-invoked after each project finishes. No-op unless CC_STRATEGY_TIER
+      // is set; mutually exclusive with the ai_review wake (:1420) because
+      // resolvedStatus is never 'ai_review' on a review/done commit → exactly one
+      // parent wake per finishing child. See continueDelegationOnCommit.
+      continueDelegationOnCommit(objective, updated, resolvedStatus)
+    }
+  }
+}
+
+
+/**
+ * Teardown dependencies for the poller's own recovery paths.
+ *
+ * Imported lazily (inside the call) rather than at module scope because
+ * `session-control` / `session-manager` pull in node-pty and the whole spawn
+ * stack; a top-level import here would make every poller test load the native
+ * runner. The teardown itself resolves ownership from DURABLE state only, so a
+ * missing dep degrades to "released the leases, killed nothing" rather than to
+ * "killed something else".
+ */
+async function pollerTeardownDeps() {
+  // Each dep is resolved independently and degrades to a no-op rather than
+  // throwing. A teardown that cannot reach the tmux killer must still release
+  // the card's leases — the alternative (an exception) strands them, which is
+  // the failure this whole module exists to remove. And a no-op killTmux can
+  // only under-kill; it can never kill a neighbour.
+  let killTmux: (name: string) => boolean = () => false
+  let stopSession: (sid: string) => void = () => {}
+  try {
+    const m = await import('./session-control.js')
+    killTmux = m.killTmuxByName
+  } catch (err) {
+    console.warn('[state-poller] teardown: tmux killer unavailable —', (err as Error).message)
+  }
+  try {
+    const m = await import('./session-manager.js')
+    stopSession = (sid: string) => { void m.stopSession(sid) }
+  } catch { /* in-process bookkeeping only; teardown proceeds without it */ }
+  return {
+    killTmux,
+    stopSession,
+    releaseBranchLeases: releaseBranchLeasesForObjective,
+    releaseSessionLeases: releaseSessionLeasesForObjective,
+  }
+}
+
+/**
+ * Observe this spawn's wall-clock and stop the job if the card's CONFIGURED
+ * cumulative ceiling is spent (obj 900322 corrections round, C9 / G12).
+ *
+ * This is the piece the first round did not have. `evaluateCeiling` existed and
+ * `objective_job_accounting.elapsed_ms` existed, but nothing in the runner ever
+ * fed either one, so "a running job is stopped at its time ceiling" was a claim
+ * about a helper rather than about the runner. This function runs on the live
+ * `working` branch of the poll loop, on every tick:
+ *
+ *  1. it measures the CURRENT spawn from the restart-durable spawn clock
+ *     (`getSessionStartedAt`, which rehydrates from `session_spawns`), falling
+ *     back to the transcript's birthtime only for a session this process never
+ *     spawned;
+ *  2. it writes that reading into the per-session ledger, which is idempotent on
+ *     (objective, session) — so ticking 1,200 times does not add 1,200×, and a
+ *     restart mid-run re-observes the same session instead of starting a second
+ *     tally;
+ *  3. cumulative elapsed is then the SUM over every session the card has had, so
+ *     a resume, a respawn or a post-restart continuation ADDS to the same total.
+ *     A retry cannot reset the budget, because the retried session is a new row
+ *     beside the old ones rather than a replacement for them.
+ *
+ * On breach it blocks the card truthfully (`ceiling-stopped`, with the measured
+ * numbers in the reason) and tears down ONLY what the card owns. Human review
+ * semantics are preserved: the card lands in `review` with a blocked verdict for
+ * a person, exactly like every other blocked outcome — it is not auto-done and
+ * not auto-cancelled.
+ *
+ * Cards with NO configured ceiling are untouched: `absent` is not `exceeded`,
+ * and this function invents no number.
+ *
+ * Returns true when it stopped the job (caller must `continue`).
+ */
+export async function enforceRunningCeiling(objective: Objective, nowMs = Date.now()): Promise<boolean> {
+  if (!objective.session_id || objective.status !== 'working') return false
+  const db = getDb()
+  try {
+    // Measure this spawn.
+    let startMs = getSessionStartedAt(objective.session_id) ?? null
+    if (startMs == null) {
+      try {
+        const st = fs.statSync(workerTranscriptPath(objective.session_id))
+        startMs = st.birthtimeMs || st.ctimeMs
+      } catch { startMs = null }
+    }
+    if (startMs != null && startMs > 0) {
+      observeSessionElapsed(db, objective.id, objective.session_id, Math.max(0, nowMs - startMs))
+    }
+
+    const verdict = evaluateCeiling(db, objective.id, objective.workspace)
+    if (verdict.state !== 'exceeded') return false
+
+    const reason =
+      `${verdict.reason} ` +
+      `Measured cumulatively across every session this card has had (${Math.round(verdict.elapsedMs / 1000)}s total), ` +
+      'so a resume, a respawn or a server restart does not reset it. ' +
+      `${describeCeilingSupport(verdict.ceiling)} ` +
+      'The job was stopped and the card is blocked for a human — it is not marked done.'
+
+    markCeilingHit(db, objective.id, reason)
+    const wrote = applyTruthfulOutcome(db, objective, {
+      kind: 'ceiling-stopped',
+      blocked: true,
+      code: 'job_ceiling_stopped',
+      reason,
+    })
+
+    // Teardown AFTER the outcome write: teardown nulls session_id, and the
+    // outcome row is keyed on it.
+    try {
+      const sid = objective.session_id
+      teardownObjectiveJob(db, objective.id, `ceiling:${sid}`, await pollerTeardownDeps())
+    } catch (err) {
+      console.error(`[state-poller] ceiling teardown failed for obj ${objective.id}:`, err)
+    }
+
+    console.warn(`[state-poller] obj ${objective.id} STOPPED at its configured job ceiling — ${verdict.reason}`)
+    if (wrote) {
+      const row = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+      if (row) broadcast({ type: 'objective_updated', payload: row })
+    }
+    return true
+  } catch (err) {
+    // A ceiling check must never wedge the tick, and must never invent a stop.
+    console.error(`[state-poller] running-ceiling check failed for obj ${objective.id}:`, err)
+    return false
+  }
+}
+
+/**
+ * Truthful terminal outcome for a worker whose session is DEAD (obj 900322, C3).
+ *
+ * Exported and called from the poller's `dead` branch — this IS the runner's
+ * code path, not a helper beside it, so a test that drives this drives the
+ * wiring.
+ *
+ * Returns true when it blocked the card (the caller must `continue`), false
+ * when the session produced real work and the pre-existing routing should run.
+ *
+ * Fail-safe by construction: an unreadable transcript yields `intel = null`,
+ * and without a conclusive startup-failure event we refuse to call that
+ * "produced nothing" — a read error must never manufacture a block.
+ */
+export async function handleDeadSessionOutcome(objective: Objective): Promise<boolean> {
+  if (objective.delegate_mode || !objective.session_id || objective.status !== 'working') return false
+  const db = getDb()
+  try {
+    // Final wall-clock reading for the session that just died, BEFORE any
+    // routing decision. Without this the time a failed attempt spent would
+    // vanish when the card retried under a new session id, and the cumulative
+    // budget would quietly refill one death at a time. Idempotent per session.
+    try {
+      const startedAt = getSessionStartedAt(objective.session_id)
+      if (startedAt) observeSessionElapsed(db, objective.id, objective.session_id, Date.now() - startedAt)
+    } catch { /* an unreadable clock must not block the outcome */ }
+    const startupFailure = readStartupFailure(objective.session_id)
+    let intel: { toolCalls: number; filesCreated: string[]; filesModified: string[]; completedWithAnswer?: boolean } | null = null
+    try {
+      intel = await extractDeterministic(workerTranscriptPath(objective.session_id))
+    } catch {
+      intel = null
+    }
+    const outcome = classifyTerminalOutcome({
+      hasResult: false, // the dead branch, by construction
+      toolCalls: intel?.toolCalls ?? 0,
+      filesCreated: intel?.filesCreated.length ?? 0,
+      filesModified: intel?.filesModified.length ?? 0,
+      completedWithAnswer: intel?.completedWithAnswer,
+      startupFailure,
+    })
+
+    if (!outcome.blocked) {
+      // Real work landed → the card is progressing, so the durable no-output
+      // budget starts fresh (the in-memory map's semantics, minus the
+      // accidental reset-on-deploy).
+      if (intel) resetAttempts(db, objective.id, 'noop_respawn')
+      return false
+    }
+    if (!startupFailure && !intel) return false // read error, not evidence of silence
+
+    // A startup failure is an ENVIRONMENT fault — re-spawning reproduces it byte
+    // for byte — so it never consumes the respawn budget and blocks immediately.
+    // A genuine no-output death does consume it, and that budget is now DURABLE
+    // (`objective_job_attempts`), so a server restart no longer hands a looping
+    // card a fresh one. Below the bound we leave the existing respawn machinery
+    // on the transition path to run; at or above it we block truthfully here.
+    const attempts = startupFailure
+      ? MAX_NOOP_RESPAWNS
+      : bumpAttempt(db, objective.id, 'noop_respawn')
+    if (!startupFailure && attempts < MAX_NOOP_RESPAWNS) return false
+
+    const reason = startupFailure
+      ? outcome.reason!
+      : `${outcome.reason} Durable attempt budget exhausted: ${attempts}/${MAX_NOOP_RESPAWNS} no-output deaths recorded for this card (the counter lives in SQLite, so a restart does not reset it).`
+    const wrote = applyTruthfulOutcome(db, objective, { ...outcome, reason })
+
+    // ── Owned, ledgered recovery teardown (obj 900322 corrections round) ──
+    // This path used to hand-roll two lease releases. It now goes through the
+    // SAME `teardownObjectiveJob` the cancel path uses, so "released exactly
+    // once" is one implementation with one ledger rather than two code paths
+    // that happen to agree today. The reason embeds the session id, so each
+    // death gets its own ledger row (the UNIQUE key is (objective, reason))
+    // while a re-tick of the same death is a no-op — the poller re-selects a
+    // card every 3s and must not re-release.
+    //
+    // Scope is unchanged and card-owned: teardown resolves tmux names from this
+    // card's own session_id and its own un-released lease rows, never a prefix
+    // scan, so a neighbouring session cannot be caught by it. Human review
+    // semantics are preserved — the card has already been written to `review`
+    // with a blocked verdict above; teardown releases resources, it does not
+    // route.
+    try {
+      teardownObjectiveJob(db, objective.id, `dead-no-output:${objective.session_id}`, await pollerTeardownDeps())
+    } catch (err) {
+      console.warn(`[state-poller] recovery teardown failed for obj ${objective.id}:`, (err as Error).message)
+      // Fall back to the direct releases so a teardown failure cannot strand leases.
+      try { releaseSessionLeasesForObjective(db, objective.id) } catch { /* non-fatal */ }
+      const deadB = deriveBranchName(objective)
+      if (deadB) { try { releaseBranchLease(db, deadB) } catch { /* non-fatal */ } }
+    }
+
+    console.warn(
+      `[state-poller] obj ${objective.id} (${objective.session_id}) died with no output — blocked with reason [${outcome.code}] instead of a silent review.`,
+    )
+    if (wrote) {
+      const blockedRow = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objective.id) as Objective
+      if (blockedRow) broadcast({ type: 'objective_updated', payload: blockedRow })
+    }
+    return true
+  } catch (err) {
+    // A classification error must never wedge the tick or invent a block.
+    console.error(`[state-poller] truthful-outcome check failed for obj ${objective.id}:`, err)
+    return false
+  }
+}

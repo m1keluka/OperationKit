@@ -1,0 +1,99 @@
+# oss-gitleaks.toml — secret-scanning config for the PUBLISHED OperationKit tree.
+#
+# Injected as `.gitleaks.toml` at the root of the assembled tree by
+# .github/workflows/oss-sync.yml (post-strip, pre-genericize), so the publish
+# gate and any public-repo contributor scan the tree the same way.
+#
+# (It lives under scripts/ rather than oss/templates/ because it is consumed by
+# the gate itself, alongside oss-denylist.txt and oss-strip-paths.txt. Like them
+# it is stripped from the published tree — only the injected copy ships.)
+#
+# WHY IT EXISTS
+#   The gate's gitleaks pass (scripts/oss-sync-gate.sh check 1) fired on five
+#   obviously-fake fixtures in the test suite and therefore FAILED every publish:
+#     app/server/src/routes/internal-auth.test.ts                 'test-internal-secret-abc123'
+#     app/server/src/routes/admin-workspaces-integrations.test.ts 'ghp_valid_secret_1234'
+#     app/server/src/services/session-spawn-env-doppler.test.ts   'dp.st.prd.SCOPED_..._9876' (x2)
+#     app/server/src/services/user-github-tokens.test.ts          'ghp_cascadetest99x'
+#
+#   The allowlist below is written as NARROW value regexes, not as a blanket
+#   "ignore every *.test.ts" path rule. A path rule would make the whole test
+#   suite a blind spot for a real credential; these patterns only match the
+#   specific literal shapes the fixtures use.
+#
+#   Second wave (obj 717763 / 718444): after #535/#538/#543 the redaction suites
+#   (secret-redaction, transcript-redact-filter, files-system, secrets-broker,
+#   live-progress .test.ts) added 18 more fake fixtures and every publish failed
+#   again. Same treatment: exact keyboard-run literals, plus two structural shapes
+#   (placeholder-signature JWT, few-char escaped PEM) no real credential can fit.
+#
+#   Third wave (obj 719327): app/client/src/lib/secretDetect.test.ts (added by
+#   obj 719065 / #579) carries 'apify_api_Zx81kQ2mNv7Lp0Rt5Ws3' as a fixture for
+#   the in-chat secret-detection UI and tripped `generic-api-key` on the first
+#   OSS sync run after it merged — unrelated to whatever PR happened to trigger
+#   that run. Same treatment: the exact literal, not a shape regex (a real Apify
+#   token is apify_api_ + 17 random chars; matching that shape would risk
+#   allowing a real one through).
+#
+#   Fourth wave (obj 719987, surfaced on PR #598 after main was merged in):
+#   install/test/cloudflare-mock-test.sh (added by #594) sends
+#   'Authorization: Bearer mock-token' to its local mock Cloudflare API and trips
+#   `curl-auth-header`. Same treatment: the exact literal only.
+#
+#   Fifth wave (obj 720345, surfaced by the OSS Sync runs for #611/#612):
+#   install/claude-oauth.sh (added by #611) sets
+#   CLAUDE_OAUTH_CLIENT_ID=9d1c250a-e61b-44d9-88ed-5944d1962f5e and trips
+#   `generic-api-key`. That UUID is NOT a credential: it is the PUBLIC OAuth client
+#   id of Claude Code (a PKCE public client — no client secret exists), shipped
+#   inside every copy of the `claude` CLI, and the installer must send it verbatim
+#   or the sign-in link does not work. Same treatment: the exact literal only, so
+#   any other UUID-shaped value next to a key-ish name still trips the gate.
+#
+#   Why not scope these by path too: the pinned gitleaks (8.21.2) treats a global
+#   [allowlist]'s `paths` and `regexes` as OR — adding a path list would allow
+#   EVERY finding in those files, which is broader, not narrower. ([[allowlists]]
+#   with `condition = "AND"` needs a newer gitleaks.) The value regexes alone are
+#   the tightest scope this version supports.
+#
+#   app/server/src/services/oss-gitleaks-allowlist.test.ts pins both directions:
+#   every regex still matches a real fixture (no dead entries), and real-shaped
+#   secrets are NOT matched by any regex.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake credential literals used as unit-test fixtures."
+regexTarget = "match"
+regexes = [
+  # internal-auth.test.ts — the shared-secret header fixture.
+  '''test-internal-secret-[a-z0-9]+''',
+  # secretDetect.test.ts (client) — the in-chat secret-detection fixture.
+  '''apify_api_Zx81kQ2mNv7Lp0Rt5Ws3''',
+  # install/test/cloudflare-mock-test.sh — bearer for the local mock Cloudflare API.
+  '''Bearer mock-token''',
+  # install/claude-oauth.sh — Claude Code's PUBLIC OAuth client id (not a secret).
+  '''9d1c250a-e61b-44d9-88ed-5944d1962f5e''',
+  # admin-workspaces-integrations.test.ts / user-github-tokens.test.ts — fake PATs.
+  # Real GitHub PATs are 36+ chars after the prefix; these are short by construction.
+  '''ghp_valid_secret_[0-9]+''',
+  '''ghp_cascadetest[0-9a-z]+''',
+  # session-spawn-env-doppler.test.ts — fake scoped service token. The workspace
+  # segment is genericized at publish time, so match it structurally.
+  '''dp\.st\.prd\.SCOPED_[A-Z0-9_]+''',
+  # Redaction suites (secret-redaction / transcript-redact-filter / files-system /
+  # secrets-broker / live-progress .test.ts) — they must feed real-SHAPED tokens to
+  # prove the redactor catches them, so each fixture is an obvious keyboard run.
+  '''ghp_abcdefghijklmnopqrstuvwxyz0123456789''',
+  '''sk-proj-ABCDEFGHIJKLMNOPQRSTUVWX''',
+  '''sk_live_abcdefghijklmnop''',
+  '''AIzaSyA1234567890abcdefghijklmnop''',
+  '''sbp_1234567890abcdef''',
+  '''envtok_9f8e7d6c5b4a39281706''',
+  '''abcd1234efgh5678ijkl''',
+  '''client_secret: "abcd-efgh-1234"''',
+  # Fake JWTs: HS256 header + {"role":...} payload + a placeholder signature.
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJyb2xlIjoi[A-Za-z0-9]+\.(c2lnbmF0dXJlLXRlc3Q|abcdefghijkl)''',
+  # PEM blocks whose body is a few chars (escaped \n inside a TS string) — no real key fits.
+  '''-----BEGIN [A-Z ]*PRIVATE KEY-----\\n[A-Za-z0-9+/]{1,24}(\\nAAAA)?\\n-----END [A-Z ]*PRIVATE KEY-----''',
+]

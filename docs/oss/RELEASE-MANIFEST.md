@@ -1,0 +1,122 @@
+# OSS release manifest — what ships, what is stripped, and why
+
+Companion to `scripts/oss-strip-paths.txt` (the machine-readable source of truth)
+and `scripts/oss-sync-gate.sh` (the fail-closed enforcement). This file is the
+*reasoning* behind those two; when they disagree, the scripts win and this file
+is the bug.
+
+The pipeline is: **assemble** (`git archive HEAD`) → **strip**
+(`oss-strip-paths.txt`) → **inject templates** (`oss/templates/`) → **snapshot
+the raw tree** → **genericize** (`oss-genericize.sh`) → **gate**
+(`oss-sync-gate.sh`, over both the raw snapshot and the genericized tree) →
+**mirror**. See `.github/workflows/oss-sync.yml`.
+
+## Classification vocabulary
+
+| Class | Meaning |
+|---|---|
+| **SHIPS** | Present in the public tree, unmodified or genericized. |
+| **STRIPPED** | Removed before publication. Never reaches the mirror. |
+| **OPTIONAL** | Ships, but inert unless the operator configures it. Costs a self-hoster nothing if ignored. |
+
+`OPTIONAL` is a claim about *runtime*, not about identity. A subsystem that is
+inert-by-default but whose **source names a specific person, client, or private
+persona** is not OPTIONAL — it is a leak that happens to be switched off, and it
+must be STRIPPED.
+
+## Agent roster
+
+| Path | Class | Notes |
+|---|---|---|
+| `app/server/seed.agents.example.json` | **SHIPS** | The blank-slate default roster: `cto`, `cmo`, `coo`, `cfo`, `general`. Gate check 3 asserts it is *present*. |
+| `app/server/seed.agents.json` | **STRIPPED** | The operator's real roster. Gitignored, on the strip list, and gate check 3 asserts it is absent. |
+| `scripts/oss-agent-allowlist.txt` | **STRIPPED** | Upstream-only gate tooling, like the denylist and the gate itself. |
+| `app/server/src/db/schema/agents.ts` | **SHIPS** | Includes `DEFAULT_AGENT_SEED`, which gate check 4 scans alongside the example seed. |
+
+Any slug outside `scripts/oss-agent-allowlist.txt` in either seed source fails
+the publish (check 4). Adding one is a reviewable one-line diff.
+
+## `app/telegram-contactbook/` — DECISION: **STRIPPED** (obj 709956)
+
+This reverses an earlier `OPTIONAL` reading of the subsystem, and the reversal is
+the point of the vocabulary note above.
+
+**What it is.** A single-owner Telegram bot that manages a contacts vault over
+chat, running as a sibling process spawned by the main server.
+
+**Why it was called OPTIONAL.** It is genuinely inert without configuration:
+`services/contactbook-supervisor.ts` returns immediately unless both
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CONTACTBOOK_OWNER_ID` are set, and again if the
+entry file is missing. A self-hoster who ignores it pays nothing.
+
+**Why that is not sufficient.** Its source is operator identity, not
+configuration:
+
+- `app/telegram-contactbook/index.ts:30` defaults its system prompt to
+  `<ai-workspace>/agents/contactbook.md` — a persona file the gate already
+  hard-blocks from ever shipping, so the published bot points at a file that
+  cannot exist.
+- `app/telegram-contactbook/README.md` documents the live host, the real webhook
+  URL, and a unix socket under the operator's home.
+- It is built around one of the operator's **private personas**, which is exactly
+  the class of leak the blank-slate work exists to remove. Shipping a whole
+  subsystem named after a private persona re-establishes by prose what deleting
+  the roster constants removed from the type system.
+
+**Decision.** `prefix:app/telegram-contactbook/` is on `scripts/oss-strip-paths.txt`.
+
+**What still ships, and why that is safe:**
+
+| Kept | Reason |
+|---|---|
+| `app/server/src/services/contactbook-supervisor.ts` | `app/server/src/index.ts` imports it, so stripping it would break the published tree's typecheck. It is generic infrastructure — spawn-a-child-with-backoff — and its one identity leak (a hardcoded `/home/<operator>/projects/operationkit/...` path, which also leaked the **private upstream repo name**) is fixed: the entry now resolves from `CC_REPO_DIR`, overridable via `CONTACTBOOK_SIBLING_ENTRY`. With the sibling stripped the path does not exist, and the existing `fs.existsSync` guard skips with a log line. |
+| `contactbook_threads` table, `/api/internal/contactbook/history` | Generic per-chat history storage for any sibling that wants it. Dropping the table would be a destructive migration on live data for no safety gain. |
+
+**Why `contactbook` is not on the denylist.** After the strip, the surviving
+occurrences are a common noun used as a subsystem name (a supervisor, a table, a
+route). Denylisting it would fail the publish on those legitimate hits. The
+enforcement that actually matters is check 4: `contactbook` is deliberately **not**
+on `scripts/oss-agent-allowlist.txt`, so it can never re-enter the shipped agent
+roster — which is where it did damage.
+
+**Explicitly out of scope here** (noted, not done): removing the subsystem from
+the private repo, and dropping `contactbook_threads`. Both are separate decisions
+with their own blast radius.
+
+## Other stripped classes
+
+Summarised; `scripts/oss-strip-paths.txt` carries the per-path reasoning.
+
+| Class | Examples |
+|---|---|
+| Real config / seeds / registries | `.env`, `seed.workspaces.json`, `seed.agents.json`, `.supabase-registry.json` |
+| Upstream-only sync tooling | `scripts/oss-*.{sh,txt}`, `docs/OSS-SYNC*.md`, `.github/workflows/oss-sync.yml` |
+| Real personas / vault content | `ai-workspace/`, `second-brain/` (also a hard path-absence gate check) |
+| Operator-specific ops scripts and docs | host deploy/cron scripts, internal runbooks, PR-triage records |
+| Internal design + evidence | `design/`, `config/`, `.evidence/`, `CLAUDE.md` |
+
+## Gate status
+
+All five gate checks now pass on `origin/main` (verified 2026-09-04, obj 709966):
+
+| Check | Status | Notes |
+|---|---|---|
+| 0 — PRE denylist (persona slugs) | ✓ PASS | 0 private persona slugs in raw assembled tree |
+| 1 — gitleaks secret scan | ✓ PASS | CI installs gitleaks; 0 secrets detected |
+| 2 — POST denylist (business identity) | ✓ PASS | 0 hits after genericization (see below) |
+| 3 — real-content absence | ✓ PASS | no ai-workspace/, second-brain/, real seeds |
+| 4 — roster conformance | ✓ PASS | 5 allow-listed slugs: cto, cmo, coo, cfo, general |
+
+### Resolved: bare `example` workspace slug (obj 709966)
+
+`oss-genericize.sh` now rewrites the bare workspace slug `example` → `example`
+(all case variants: `EXAMPLE` → `EXAMPLE`, `Example` → `Example`). Added in commit
+`4cc24bd` (obj 709964) alongside PRE/POST denylist scoping. Previously deferred
+as "too common a substring, false-positive risk" — the concern was unfounded:
+the `apply()` helper is a whole-file literal substitution with no regex, and a
+post-genericize grep over the assembled 840-file tree returns zero hits.
+
+The ~1,016 pre-fix occurrences were overwhelmingly test fixtures using `example` as
+a workspace slug value (e.g. `workspace: 'example'` in `secrets.test.ts` and ~80
+other files). All rewrite to `workspace: 'example'` at publish time; the private
+source is unchanged.

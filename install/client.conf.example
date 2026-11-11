@@ -1,0 +1,152 @@
+# ==============================================================================
+# Operation Kit — client settings
+# ------------------------------------------------------------------------------
+# ONE file per client install. Copy it, fill it in, then run the installer:
+#
+#   cp install/client.conf.example client.conf
+#   sudo ./install.sh --config client.conf
+#
+# Rules for this file:
+#   * Plain KEY="value" lines. Nothing else is run — the installer READS this
+#     file, it does not execute it.
+#   * NO passwords, API keys or tokens go in here. Every secret is generated on
+#     the server (or handed over in a separate file that is deleted after use —
+#     see INSTALL.md, "Handing over the Cloudflare token").
+#   * Lines starting with # are comments.
+# ==============================================================================
+
+# ── Who the install is for ────────────────────────────────────────────────────
+# Shown in the browser tab, the sign-in page and the top-left of the app.
+CLIENT_NAME="Example Capital Partners"
+
+# Short id, lowercase letters / digits / dashes. Used for the first workspace,
+# the Cloudflare tunnel name and the Access application name.
+CLIENT_SLUG="example-capital"
+
+# ── Web address ───────────────────────────────────────────────────────────────
+# The full address people will type. Must be a sub-domain of a domain that is
+# already on the client's Cloudflare account (ZONE below). DOMAIN, ZONE and the
+# ACCESS_* settings may be left empty for a local-only test install
+# (./install.sh --skip-cloudflare, reached over an SSH tunnel).
+DOMAIN="ops.example-capital.com"
+
+# The Cloudflare zone (the bare domain) that DOMAIN lives under.
+ZONE="example-capital.com"
+
+# ── Branding ──────────────────────────────────────────────────────────────────
+# Product name shown in the app. Leave as-is to keep "Operation Kit".
+BRAND_NAME="Operation Kit"
+
+# Optional logo: a path on the SERVER (copied in by the installer) to a square
+# PNG or SVG, at most 512 KB. Leave empty for the default mark.
+BRAND_LOGO=""
+
+# ── First administrator ───────────────────────────────────────────────────────
+# Username for the first admin account. The installer creates it with a
+# one-time setup password; the first sign-in is forced to choose a new one.
+ADMIN_USERNAME="admin"
+
+# The first admin's email. Behind Cloudflare Access, whoever signs in at the
+# Cloudflare door with THIS email lands in the app as the admin — no second
+# sign-in. Leave empty to use the first address in ACCESS_ALLOWED_EMAILS.
+# Other people get linked later in Settings → Users (their sign-in email).
+ADMIN_EMAIL=""
+
+# ── Who may open the site (Cloudflare Access) ─────────────────────────────────
+# Nobody reaches the sign-in page unless Cloudflare Access lets them through.
+# Comma-separated list of exact email addresses …
+ACCESS_ALLOWED_EMAILS="alex.partner@example-capital.com"
+# … and/or a whole email domain (everyone @example-capital.com). Optional.
+ACCESS_ALLOWED_EMAIL_DOMAIN=""
+
+# How people prove who they are at the Cloudflare door:
+#   otp        — a one-time code is emailed to them (works everywhere, no setup)
+#   google     — "Sign in with Google" (needs GOOGLE_* values in the secrets file)
+#   microsoft  — "Sign in with Microsoft" (needs AZURE_* values in the secrets file)
+ACCESS_LOGIN_METHOD="otp"
+
+# How long one Cloudflare sign-in lasts before asking again.
+ACCESS_SESSION_DURATION="24h"
+
+# Let bots reach the board API with their Operation Kit key ("on", the default).
+# The installer adds a second, path-limited Access app that steps aside on the
+# bot-facing API routes only (install/api-bypass-paths.conf) so the key is what
+# decides. Operator routes — /api/internal, /api/admin, /api/secrets,
+# /api/secret-upload, /api/webhooks, the rest of /api/auth — always stay behind
+# the Cloudflare sign-in. "off" means bots get the sign-in page instead of an
+# answer; only turn it off if no bot or AI tool will ever call this install.
+API_KEY_AUTH_BYPASS="on"
+
+# Stop Cloudflare's Browser Integrity Check from refusing your own API calls
+# ("on", the default). Browser Integrity Check turns away anything that does not
+# look like a browser, so a bot holding a perfectly good Operation Kit key gets
+# Cloudflare error 1010 (HTTP 403, an HTML page) instead of an answer — even
+# with API_KEY_AUTH_BYPASS="on", because that is a different layer. The
+# installer adds ONE Cloudflare Configuration Rule that switches the check off
+# for this install's own hostname under /api/ and nothing else. Your zone-wide
+# Browser Integrity Check setting, your WAF rules, your rate limits and your
+# other Configuration Rules are not touched. "off" skips the step.
+API_BROWSER_INTEGRITY_EXCEPTION="on"
+
+# ── AI accounts ───────────────────────────────────────────────────────────────
+# How the server's worker sessions sign in to Claude:
+#   login    — a Claude subscription (Pro / Max / Team). Someone signs in once in
+#              a browser during setup (INSTALL.md step 7). Recommended.
+#   api-key  — an Anthropic API key, billed per use. Handed over in the secrets
+#              file as ANTHROPIC_API_KEY; never typed into this file.
+CLAUDE_AUTH="login"
+
+# Optional extra model providers, comma-separated: openai, gemini.
+# Their keys go in the secrets file (OPENAI_API_KEY / GEMINI_API_KEY).
+EXTRA_PROVIDERS=""
+
+# ── Agents ────────────────────────────────────────────────────────────────────
+# Which agents appear on the board. Comma-separated, from:
+#   general, cto, cmo, coo, cfo
+AGENTS_ENABLED="general,coo,cfo"
+
+# ── Starter packs ─────────────────────────────────────────────────────────────
+# Ready-made bundles of agents + sample data, switched on after the first boot.
+# Comma-separated pack ids (folders under app/server/src/starter-packs/). If a
+# pack cannot be switched on the install stops with the reason (re-run after
+# fixing it). Leave empty for none.
+STARTER_PACKS="knowledge-import"
+
+# ── Backups ───────────────────────────────────────────────────────────────────
+# A backup runs every night at BACKUP_TIME (server time zone) into
+# INSTALL_DIR/backups on this server (the last BACKUP_KEEP_LOCAL kept). Set
+# BACKUP_TARGET to ALSO copy it, encrypted, off the server — strongly
+# recommended: a backup on the same disk does not survive losing the server.
+#   Backblaze B2 (S3 API): s3:https://s3.us-west-004.backblazeb2.com/<bucket>/<folder>
+#   Any S3-compatible:     s3:https://<endpoint>/<bucket>/<folder>
+#   Backblaze B2 (native): b2:<bucket>:<folder>
+# Its two keys go in the secrets hand-over file, never here:
+# BACKUP_ACCESS_KEY_ID and BACKUP_SECRET_ACCESS_KEY (INSTALL.md, "Backups").
+# Easiest way to fill BACKUP_TARGET and hand over the keys for B2: run
+#   sudo bash install/b2-setup.sh --config client.conf
+# in your own terminal (install.sh offers it at the end of an interactive run).
+BACKUP_TARGET=""
+BACKUP_TIME="03:30"
+BACKUP_KEEP_LOCAL="7"
+# How many off-server copies restic keeps (BACKUP_TARGET only): one per day for
+# the last BACKUP_KEEP_DAILY days, one per week for BACKUP_KEEP_WEEKLY weeks, one
+# per month for BACKUP_KEEP_MONTHLY months. About 17 snapshots with the defaults.
+BACKUP_KEEP_DAILY="7"
+BACKUP_KEEP_WEEKLY="4"
+BACKUP_KEEP_MONTHLY="6"
+
+# ── Server ────────────────────────────────────────────────────────────────────
+# Where everything is stored on the server. Change only if the client asks.
+INSTALL_DIR="/opt/operationkit"
+
+# Wall-clock time zone for schedules (e.g. America/New_York, Europe/London).
+TIMEZONE="America/New_York"
+
+# Per-session sandbox. Leave on "docker" for client installs: every AI session
+# runs in its own locked-down container that can only see its own work folder.
+SESSION_ISOLATION="docker"
+
+# Address sandboxes use to reach the app from the default Docker bridge. Leave
+# empty: the installer detects docker0's gateway (normally 172.17.0.1). Must be a
+# private address — the app is never published on the server's public address.
+DOCKER_BRIDGE_IP=""

@@ -1,0 +1,889 @@
+import { getDb, resolveStrategyId } from '../db/index.js'
+import { broadcast } from '../ws/index.js'
+import { getDefaultModelId } from './model-registry.js'
+import { notify } from './notifier.js'
+import { MAX_CONCURRENT_SESSIONS, type Objective } from '@operationkit/shared'
+import {
+  DEFAULT_SCRIPT_TIMEOUT_SEC,
+  MAX_SCRIPT_OUTPUT_BYTES,
+  OUTPUT_TAIL_BYTES,
+  decideScriptOutcome,
+  getScriptExecutor,
+  tailOf,
+  type ScriptExecResult,
+  type ScriptRunStatus,
+} from './routine-script.js'
+import {
+  classifyAiFireResult,
+  reconcileAiRunOutcomes,
+  recordRoutineFailure,
+  recordRoutineSuccess,
+} from './routine-auto-pause.js'
+import { findOpenDuplicate, recordDedupe, isDuplicateGuardEnabled } from '../lib/objective-dedupe.js'
+import { internalApiHeaders } from '../lib/internal-api-headers.js'
+
+const TICK_MS = 60 * 1000
+const PORT = parseInt(process.env.PORT || '3002', 10)
+
+// A routine is "overdue" once it has missed a scheduled fire by more than this
+// grace window. The grace absorbs the gap between a cron-match minute and the
+// tick that fires it, plus any brief in-flight/concurrency back-pressure, so a
+// healthy routine never flaps into the overdue state. Tuned for daily jobs:
+// long enough not to false-alarm, short enough to catch a real stall same-hour.
+const OVERDUE_GRACE_MS = 60 * 60 * 1000
+// The scheduler ticks every 60s and stamps `routines_last_tick`. If the most
+// recent stamp is older than this, the scheduler loop itself is dead/stalled —
+// the failure mode no per-routine check can self-report (a dead loop can't
+// alert). The health endpoint surfaces this for an external watcher.
+const TICK_STALE_MS = 3 * TICK_MS
+const HEARTBEAT_KEY = 'routines_last_tick'
+
+let tickTimer: ReturnType<typeof setInterval> | null = null
+
+// Last skip reason per routine id (in-memory, best-effort context for the
+// health endpoint). Set when a cron-matched fire is blocked by a guard.
+const lastSkipReason = new Map<number, string>()
+
+export interface RoutineRow {
+  id: number
+  name: string
+  cron_expr: string
+  objective_template: string
+  enabled: number
+  max_queue_depth: number
+  last_run_at: string | null
+  created_at: string
+  // obj 2384 — nullable link to an owning Strategy node (a delegate_mode
+  // objective). When set, runs spawn as children of the strategy and feed their
+  // summary back into its context. NULL ⇒ standalone routine (unchanged).
+  strategy_objective_id?: number | null
+  // obj 64 Part B — script routines + auto-pause (all optional: pre-migration
+  // rows and test fixtures omit them; kind NULL/undefined ⇒ 'ai').
+  kind?: string | null
+  script_command?: string | null
+  alert_marker?: string | null
+  script_timeout_sec?: number | null
+  last_run_status?: string | null
+  last_exit_code?: number | null
+  last_output_tail?: string | null
+  last_error?: string | null
+  max_consecutive_failures?: number | null
+  consecutive_failures?: number | null
+  auto_paused_at?: string | null
+  auto_pause_reason?: string | null
+  last_accounted_objective_id?: number | null
+}
+
+// ── Minimal 5-field cron matcher ──────────────────────────────────────────
+// Fields: minute hour day-of-month month day-of-week.
+// Supports: * , - / (lists, ranges, steps — e.g. "*/15", "1-5", "0,30", "1-5/2").
+// Day-of-week: 0-7 where both 0 and 7 mean Sunday.
+// TIMEZONE: matches against SERVER LOCAL TIME (new Date() getHours()/getMinutes()
+// etc.). On this VPS the container runs in UTC, so cron expressions are
+// effectively UTC unless the host TZ changes.
+// Vixie-cron rule: when BOTH day-of-month and day-of-week are restricted
+// (neither is '*'), the date matches if EITHER field matches.
+
+function matchField(field: string, value: number, min: number, max: number): boolean {
+  for (const part of field.split(',')) {
+    if (!part) continue
+    let range = part
+    let step = 1
+    const slash = part.indexOf('/')
+    if (slash !== -1) {
+      range = part.slice(0, slash)
+      step = parseInt(part.slice(slash + 1), 10)
+      if (!Number.isFinite(step) || step <= 0) continue
+    }
+    let lo: number
+    let hi: number
+    if (range === '*') {
+      lo = min
+      hi = max
+    } else if (range.includes('-')) {
+      const [a, b] = range.split('-')
+      lo = parseInt(a, 10)
+      hi = parseInt(b, 10)
+    } else {
+      lo = parseInt(range, 10)
+      // "N/step" (step on a bare number) means N through max, per cron convention
+      hi = slash !== -1 ? max : lo
+    }
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) continue
+    if (value >= lo && value <= hi && (value - lo) % step === 0) return true
+  }
+  return false
+}
+
+const FIELD_PART_RE = /^(\*|\d{1,2}(-\d{1,2})?)(\/\d{1,2})?$/
+
+/** Returns an error string if the expression is malformed, null if valid. */
+export function validateCronExpr(expr: string): string | null {
+  const fields = expr.trim().split(/\s+/)
+  if (fields.length !== 5) return 'cron_expr must have exactly 5 fields (min hour dom month dow)'
+  for (const field of fields) {
+    for (const part of field.split(',')) {
+      if (!FIELD_PART_RE.test(part)) return `invalid cron field part: '${part}'`
+    }
+  }
+  return null
+}
+
+export function cronMatches(expr: string, date: Date): boolean {
+  const fields = expr.trim().split(/\s+/)
+  if (fields.length !== 5) return false
+  const [min, hour, dom, month, dow] = fields
+
+  if (!matchField(min, date.getMinutes(), 0, 59)) return false
+  if (!matchField(hour, date.getHours(), 0, 23)) return false
+  if (!matchField(month, date.getMonth() + 1, 1, 12)) return false
+
+  const day = date.getDay()
+  const domMatch = matchField(dom, date.getDate(), 1, 31)
+  const dowMatch = matchField(dow, day, 0, 7) || (day === 0 && matchField(dow, 7, 0, 7))
+
+  if (dom === '*' && dow === '*') return true
+  if (dom === '*') return dowMatch
+  if (dow === '*') return domMatch
+  return domMatch || dowMatch // vixie OR rule
+}
+
+// ── Cadence helpers (browser-facing schedule display) ───────────────────────
+
+/**
+ * The next wall-clock instant strictly after `from` at which `expr` fires.
+ * Steps minute-by-minute (cheap for daily/hourly routines) against the same
+ * `cronMatches` used by the live tick, so display and execution never diverge.
+ * Returns null for a malformed expression or if nothing matches within a year.
+ */
+export function nextRunAt(expr: string, from: Date = new Date()): Date | null {
+  if (validateCronExpr(expr) !== null) return null
+  const cursor = new Date(from)
+  cursor.setSeconds(0, 0)
+  cursor.setMinutes(cursor.getMinutes() + 1) // strictly after `from`
+  const MAX_MINUTES = 366 * 24 * 60
+  for (let i = 0; i < MAX_MINUTES; i++) {
+    if (cronMatches(expr, cursor)) return new Date(cursor)
+    cursor.setMinutes(cursor.getMinutes() + 1)
+  }
+  return null
+}
+
+const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+
+/**
+ * Human-readable cadence for the common routine shapes (daily / hourly /
+ * every-N-min / weekdays / single weekday). Falls back to the raw expression
+ * for anything it doesn't model, so the UI always shows something truthful.
+ */
+export function describeCron(expr: string): string {
+  if (validateCronExpr(expr) !== null) return expr
+  const [min, hour, dom, month, dow] = expr.trim().split(/\s+/)
+  // Only model the day-agnostic shapes; anything pinned to a day-of-month or
+  // month is left raw (e.g. monthly schedules).
+  if (dom !== '*' || month !== '*') return expr
+
+  const everyN = /^\*\/(\d{1,2})$/.exec(min)
+  if (everyN && hour === '*' && dow === '*') return `Every ${everyN[1]} min`
+
+  const minNum = /^\d{1,2}$/.test(min) ? parseInt(min, 10) : null
+  if (minNum === null) return expr
+
+  if (hour === '*' && dow === '*') return `Hourly at :${pad2(minNum)}`
+
+  const hourNum = /^\d{1,2}$/.test(hour) ? parseInt(hour, 10) : null
+  if (hourNum === null) return expr
+  const time = `${pad2(hourNum)}:${pad2(minNum)} UTC`
+
+  if (dow === '*') return `Daily at ${time}`
+  if (dow === '1-5') return `Weekdays at ${time}`
+  if (/^\d$/.test(dow)) {
+    const d = parseInt(dow, 10) % 7 // 7 == Sunday
+    return `${DOW_NAMES[d]} at ${time}`
+  }
+  return expr
+}
+
+// ── Health ───────────────────────────────────────────────────────────────────
+
+/**
+ * The most recent wall-clock instant at or before `from` at which `expr` fires.
+ * Steps minute-by-minute backwards (same matcher as the live tick). Returns null
+ * for a malformed expression or if nothing matched within the lookback window
+ * (default 36h — comfortably covers daily and weekday cadences).
+ */
+export function mostRecentRunAt(expr: string, from: Date = new Date(), lookbackMinutes = 36 * 60): Date | null {
+  if (validateCronExpr(expr) !== null) return null
+  const cursor = new Date(from)
+  cursor.setSeconds(0, 0)
+  for (let i = 0; i <= lookbackMinutes; i++) {
+    if (cronMatches(expr, cursor)) return new Date(cursor)
+    cursor.setMinutes(cursor.getMinutes() - 1)
+  }
+  return null
+}
+
+export interface RoutineHealth {
+  id: number
+  name: string
+  enabled: boolean
+  cron_expr: string
+  cadence: string
+  last_run_at: string | null
+  expected_last_fire: string | null
+  next_run_at: string | null
+  overdue: boolean
+  minutes_overdue: number
+  last_skip_reason: string | null
+}
+
+/**
+ * A routine is overdue when it MISSED its most recent scheduled fire: the last
+ * cron-match at/before now is newer than its last_run_at, and that miss is older
+ * than the grace window. Because fireRoutine stamps last_run_at at fire time, a
+ * healthy routine (and a legitimately long in-flight run) is never overdue — only
+ * a routine that was blocked/never-ran since its scheduled time trips this.
+ */
+export function computeRoutineHealth(routine: RoutineRow, now: Date = new Date()): RoutineHealth {
+  const expected = routine.enabled ? mostRecentRunAt(routine.cron_expr, now) : null
+  const lastRun = routine.last_run_at ? new Date(routine.last_run_at) : null
+  let overdue = false
+  let minutesOverdue = 0
+  if (expected) {
+    const missed = !lastRun || lastRun.getTime() < expected.getTime()
+    if (missed && now.getTime() - expected.getTime() >= OVERDUE_GRACE_MS) {
+      overdue = true
+      minutesOverdue = Math.round((now.getTime() - expected.getTime()) / 60000)
+    }
+  }
+  return {
+    id: routine.id,
+    name: routine.name,
+    enabled: !!routine.enabled,
+    cron_expr: routine.cron_expr,
+    cadence: describeCron(routine.cron_expr),
+    last_run_at: routine.last_run_at,
+    expected_last_fire: expected ? expected.toISOString() : null,
+    next_run_at: routine.enabled ? (nextRunAt(routine.cron_expr, now)?.toISOString() ?? null) : null,
+    overdue,
+    minutes_overdue: minutesOverdue,
+    last_skip_reason: lastSkipReason.get(routine.id) ?? null,
+  }
+}
+
+export interface RoutinesHealthReport {
+  ok: boolean
+  globally_enabled: boolean
+  last_tick: string | null
+  tick_stale: boolean
+  overdue_count: number
+  routines: RoutineHealth[]
+}
+
+/** Aggregate health for every routine + scheduler-loop liveness. */
+export function routinesHealth(now: Date = new Date()): RoutinesHealthReport {
+  const db = getDb()
+  const routines = db.prepare('SELECT * FROM routines ORDER BY id').all() as RoutineRow[]
+  const tickRow = db.prepare('SELECT value FROM settings WHERE key = ?').get(HEARTBEAT_KEY) as { value: string } | undefined
+  const lastTick = tickRow?.value ?? null
+  const tickStale = !lastTick || now.getTime() - new Date(lastTick).getTime() > TICK_STALE_MS
+  const health = routines.map(r => computeRoutineHealth(r, now))
+  const overdueCount = health.filter(h => h.overdue).length
+  return {
+    // ok only when the loop is alive AND no enabled routine has silently stalled.
+    ok: !tickStale && overdueCount === 0,
+    globally_enabled: routinesGloballyEnabled(),
+    last_tick: lastTick,
+    tick_stale: tickStale,
+    overdue_count: overdueCount,
+    routines: health,
+  }
+}
+
+/** Last guard-skip reason recorded for a routine this process, if any. */
+export function getLastSkipReason(id: number): string | null {
+  return lastSkipReason.get(id) ?? null
+}
+
+// ── Firing ─────────────────────────────────────────────────────────────────
+
+export function routinesGloballyEnabled(): boolean {
+  const row = getDb()
+    .prepare("SELECT value FROM settings WHERE key = 'routines_enabled'")
+    .get() as { value: string } | undefined
+  return row ? row.value === '1' : true
+}
+
+export interface FireResult {
+  ok: boolean
+  reason?: string
+  objective_id?: number
+}
+
+/**
+ * Instantiate a routine's objective template as a board objective (status
+ * queue, routine_id set), broadcast it, then transition it to working via the
+ * internal status PATCH — the exact code path humans/Hermes use, so the
+ * session-spawn behavior is identical. Guards: per-routine queue depth and
+ * global MAX_CONCURRENT_SESSIONS. The global kill switch is checked by the
+ * tick, not here, so run-now can bypass it.
+ */
+/** Minutes a routine card may sit in `queue` with no session before the next fire retries its spawn. */
+const STRANDED_AFTER_MINUTES = 10
+
+/** PATCH the objective to `working`, which spawns its session. Never throws. */
+async function spawnRoutineObjective(objectiveId: number): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const resp = await fetch(`http://127.0.0.1:${PORT}/api/internal/objectives/${objectiveId}/status`, {
+      method: 'PATCH',
+      // obj 900027: loopback already satisfies internalApiGate, but send the shared
+      // secret too so INTERNAL_API_REQUIRE_SECRET=1 can be switched on safely.
+      headers: internalApiHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ status: 'working', reason: 'routine', actor: 'routine-scheduler' }),
+    })
+    if (!resp.ok) return { ok: false, reason: `${resp.status} ${(await resp.text()).slice(0, 300)}` }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, reason: `spawn request errored: ${err instanceof Error ? err.message : String(err)}` }
+  }
+}
+
+// ── Over-fire guard (routine #972 fired every 5 min instead of hourly, 10/1–10/2) ──
+/** Refuse an automatic fire when the previous run is newer than this fraction of the
+ *  routine's minimum cron interval. */
+const OVERFIRE_FRACTION = 0.5
+const OVERFIRE_FLOOR_MS = 60 * 1000
+const MINUTE_MS = 60 * 1000
+
+/**
+ * The smallest gap between consecutive cron matches around `around`: considers the
+ * last two matches at/before it and the next two after it (so irregular schedules like
+ * `0 9,10 * * *` resolve to their tightest spacing, 60 min). Returns null for a
+ * malformed expression or when fewer than two matches are found (e.g. yearly).
+ */
+export function minCronIntervalMs(expr: string, around: Date = new Date()): number | null {
+  if (validateCronExpr(expr) !== null) return null
+  const LOOKBACK = 8 * 24 * 60 // covers weekly cadences
+  const matches: number[] = []
+  const p0 = mostRecentRunAt(expr, around, LOOKBACK)
+  if (p0) {
+    matches.push(p0.getTime())
+    const p1 = mostRecentRunAt(expr, new Date(p0.getTime() - MINUTE_MS), LOOKBACK)
+    if (p1) matches.push(p1.getTime())
+  }
+  const n0 = nextRunAt(expr, around)
+  if (n0) {
+    matches.push(n0.getTime())
+    const n1 = nextRunAt(expr, n0)
+    if (n1) matches.push(n1.getTime())
+  }
+  const uniq = [...new Set(matches)].sort((a, b) => a - b)
+  let min: number | null = null
+  for (let i = 1; i < uniq.length; i++) {
+    const gap = uniq[i] - uniq[i - 1]
+    if (gap > 0 && (min === null || gap < min)) min = gap
+  }
+  return min
+}
+
+/**
+ * Pure over-fire check: a reason string when an AUTOMATIC fire must be refused because
+ * `lastRunAt` is more recent than max(1 min, 50% of the cron's minimum interval);
+ * null when the fire may proceed.
+ */
+export function overFireGuardReason(cronExpr: string, lastRunAt: string | null, now: Date = new Date()): string | null {
+  if (!lastRunAt) return null
+  const last = new Date(lastRunAt).getTime()
+  if (!Number.isFinite(last)) return null
+  const interval = minCronIntervalMs(cronExpr, now)
+  if (interval === null) return null
+  // The 1-min floor never applies to an every-minute cron (interval == floor), or its
+  // next legitimate fire ~60s later could be refused by timer jitter.
+  const threshold = interval > OVERFIRE_FLOOR_MS
+    ? Math.max(OVERFIRE_FLOOR_MS, interval * OVERFIRE_FRACTION)
+    : interval * OVERFIRE_FRACTION
+  const sinceMs = now.getTime() - last
+  if (sinceMs >= threshold) return null
+  const mins = (ms: number) => Math.round((ms / MINUTE_MS) * 10) / 10
+  return (
+    `over-fire guard: last run ${mins(sinceMs)} min ago < ${mins(threshold)} min ` +
+    `(50% of the ${mins(interval)}-min minimum interval of '${cronExpr}')`
+  )
+}
+
+/**
+ * obj 64 — a script routine's escalation into the AI card path. The card comes
+ * from the routine's objective_template (same INSERT as an AI fire) with the
+ * script output tail appended to its description; when the template is missing
+ * or unusable, `fallbackTitle` is used instead.
+ */
+interface ScriptEscalation {
+  descriptionSuffix: string
+  fallbackTitle: string
+}
+
+async function fireAiRoutine(
+  routine: RoutineRow,
+  source: 'cron' | 'run-now',
+  escalation?: ScriptEscalation,
+): Promise<FireResult> {
+  const db = getDb()
+
+  // Over-fire guard — EVERY automatic fire path (fresh card AND stranded-card retry)
+  // goes through here, so it sits first. An explicit 'run-now' (admin/internal route,
+  // granola) is deliberately unguarded. last_run_at is re-read from the DB rather than
+  // trusted from the caller's (possibly stale) row. A script escalation already
+  // passed this guard when the script was launched (and stamped last_run_at).
+  if (source !== 'run-now' && !escalation) {
+    const fresh = db.prepare('SELECT last_run_at FROM routines WHERE id = ?').get(routine.id) as
+      | { last_run_at: string | null }
+      | undefined
+    const reason = overFireGuardReason(routine.cron_expr, fresh?.last_run_at ?? routine.last_run_at)
+    if (reason) {
+      console.warn(`[routines] '${routine.name}' (#${routine.id}) refused: ${reason}`)
+      lastSkipReason.set(routine.id, reason)
+      return { ok: false, reason }
+    }
+  }
+
+  // Queue-depth guard. Count only GENUINELY IN-FLIGHT objectives for this
+  // routine — `done` is terminal and `review` is parked awaiting a human;
+  // neither should block the next scheduled fire. Counting `review` here is what
+  // let a single stranded review card permanently fill a maxq=1 slot and
+  // silently kill the schedule (obj 1970: all 7 routines stopped firing ~Jun 21).
+  // With routine tasks now auto-completing to `done` (resolveWorkerEndStatus),
+  // this is belt-and-suspenders: even a future routing regression that parks a
+  // routine card in `review` can no longer stop the job from firing on cadence.
+  // Stranded-card retry (obj 713168). If an earlier fire created the card but its
+  // spawn PATCH failed (server busy/restarting, transient 409), the card sits in
+  // `queue` with no session forever and the depth guard below then skips every
+  // future fire — silently (vansh-offboard and 7 hourly jobs wedged this way on
+  // 2026-10-03). Re-attempt the spawn of the oldest such card instead of skipping,
+  // and surface the failure reason so it shows in /routines/health.
+  const stranded = db.prepare(
+    `SELECT id FROM objectives WHERE routine_id = ? AND status = 'queue' AND session_id IS NULL
+       AND COALESCE(session_count, 0) = 0 AND created_at <= datetime('now', '-${STRANDED_AFTER_MINUTES} minutes')
+     ORDER BY id LIMIT 1`
+  ).get(routine.id) as { id: number } | undefined
+  if (stranded) {
+    db.prepare("UPDATE routines SET last_run_at = ? WHERE id = ?").run(new Date().toISOString(), routine.id)
+    const spawn = await spawnRoutineObjective(stranded.id)
+    if (!spawn.ok) {
+      return { ok: false, reason: `stranded objective ${stranded.id} still not spawning: ${spawn.reason}` }
+    }
+    console.log(`[routines] '${routine.name}': re-spawned stranded objective ${stranded.id} (${source})`)
+    return { ok: true, objective_id: stranded.id, reason: `re-spawned stranded objective ${stranded.id}` }
+  }
+
+  const pending = (db.prepare(
+    "SELECT COUNT(*) AS n FROM objectives WHERE routine_id = ? AND status IN ('planning','queue','working','ai_review')"
+  ).get(routine.id) as { n: number }).n
+  if (pending >= routine.max_queue_depth) {
+    return { ok: false, reason: `queue depth guard: ${pending} in-flight objective(s) >= max_queue_depth ${routine.max_queue_depth}` }
+  }
+
+  // Count only cards that actually hold a running session. `review` is parked
+  // awaiting a human (no session) — counting it let 162 Needs-You cards hold the
+  // cap at 100 and silently skip every routine for a month (obj 713168). Matches
+  // the spawn cap in poller-hygiene.ts.
+  const active = (db.prepare(
+    "SELECT COUNT(*) AS n FROM objectives WHERE status IN ('working', 'ai_review')"
+  ).get() as { n: number }).n
+  if (active >= MAX_CONCURRENT_SESSIONS) {
+    return { ok: false, reason: `concurrency guard: ${active} active sessions >= MAX_CONCURRENT_SESSIONS ${MAX_CONCURRENT_SESSIONS}` }
+  }
+
+  let tpl: Record<string, unknown>
+  try {
+    tpl = JSON.parse(routine.objective_template) as Record<string, unknown>
+    if (!tpl || typeof tpl !== 'object') throw new Error('not an object')
+  } catch {
+    if (!escalation) return { ok: false, reason: 'objective_template is not valid JSON' }
+    tpl = {}
+  }
+  const str = (k: string): string | null => (typeof tpl[k] === 'string' && (tpl[k] as string).trim() ? (tpl[k] as string) : null)
+  const title = str('title') ?? escalation?.fallbackTitle ?? null
+  if (!title) return { ok: false, reason: 'objective_template.title is required' }
+  const type = ['project', 'bug', 'task'].includes(tpl.type as string) ? (tpl.type as string) : 'task'
+
+  // obj 2384 — Strategy ownership. If this routine is owned by a Strategy node,
+  // the run-objective becomes a CHILD of that strategy (parent_id + derived
+  // depth) so completion feeds back into the strategy's rolling context via the
+  // continuation seam (delegatorParentOf → appendChildResult). The link is honored
+  // only when the target still exists AND is a delegator (delegate_mode=1) — the
+  // sole node type delegatorParentOf will wake; otherwise we degrade gracefully to
+  // a standalone run (parent_id NULL), exactly the pre-2384 behavior. This keeps
+  // existing standalone routines byte-identical.
+  let parentId: number | null = null
+  let parentDepth = 0
+  if (routine.strategy_objective_id != null) {
+    const strat = db
+      .prepare('SELECT id, depth, delegate_mode FROM objectives WHERE id = ?')
+      .get(routine.strategy_objective_id) as { id: number; depth: number | null; delegate_mode: number } | undefined
+    if (strat && strat.delegate_mode) {
+      parentId = strat.id
+      parentDepth = (strat.depth ?? 0) + 1
+    } else {
+      console.warn(`[routines] '${routine.name}': strategy_objective_id ${routine.strategy_objective_id} is missing or not a delegator — running standalone`)
+    }
+  }
+
+  // Mark last_run_at BEFORE the async spawn so a slow spawn can't double-fire
+  // within the same minute.
+  db.prepare("UPDATE routines SET last_run_at = ? WHERE id = ?").run(new Date().toISOString(), routine.id)
+
+  // Provenance (obj 2386): a routine-spawned objective is always origin='routine'.
+  // strategy_id reflects the OWNING Strategy (obj 2384 routines.strategy_objective_id)
+  // when the routine is owned by one — the same node resolved as parentId above —
+  // so a strategy-owned recurring job is queryable via strategy_id like any other
+  // member. Standalone routines leave strategy_id NULL (unchanged behavior).
+  const routineStrategyId = resolveStrategyId(db, null, parentId)
+
+  // Per-owner routines (the multi-owner content engine) belong to a specific
+  // person, and a member in an `own`-visibility workspace only lists objectives
+  // where they are the assignee or the creator. A routine-spawned row carried
+  // neither, so the nightly run was invisible and unstartable to the very person
+  // it was filed for. Honored only when the template names a real user; every
+  // pre-existing template omits the key and is byte-identical to before.
+  let assignedUserId: number | null = null
+  const rawAssignee = tpl.assigned_user_id
+  if (typeof rawAssignee === 'number' && Number.isInteger(rawAssignee) && rawAssignee > 0) {
+    const u = db.prepare('SELECT id FROM users WHERE id = ?').get(rawAssignee) as { id: number } | undefined
+    if (u) assignedUserId = u.id
+    else console.warn(`[routines] '${routine.name}': assigned_user_id ${rawAssignee} does not exist — leaving unassigned`)
+  }
+
+  // Duplicate guard (obj 64 Part C, lib/objective-dedupe.ts): an automatic cron fire
+  // does not file a card while an OPEN same-title card from ANOTHER source exists in
+  // the workspace inside the guard window. Same-routine cards are excluded — the
+  // queue-depth guard above owns those. 'run-now' (explicit) and script escalations
+  // are not guarded. last_run_at is already stamped, so a refusal skips this slot.
+  if (source !== 'run-now' && !escalation && isDuplicateGuardEnabled(db)) {
+    const dup = findOpenDuplicate(db, { title, workspace: str('workspace') || 'example', excludeRoutineId: routine.id, excludeParentId: parentId })
+    if (dup) {
+      const reason = `duplicate guard: open card #${dup.id} ("${dup.title}", ${dup.status}) has the same title`
+      recordDedupe({ event: 'duplicate_refused', source: `routine-scheduler:${routine.id}`, title, workspace: str('workspace') || 'example', existingId: dup.id, project: str('project') })
+      lastSkipReason.set(routine.id, reason)
+      return { ok: false, reason }
+    }
+  }
+
+  const result = db.prepare(
+    `INSERT INTO objectives
+       (title, description, agent_context, workspace, project, category,
+        completion_goal, workflow_hint, effort, model, type, routine_id,
+        parent_id, depth, status, origin, strategy_id, assigned_user_id, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queue', 'routine', ?, ?, ?)`
+  ).run(
+    title,
+    (str('description') || '') + (escalation?.descriptionSuffix ?? ''),
+    str('agent_context') || 'general',
+    str('workspace') || 'example',
+    str('project'),
+    str('category') || 'general',
+    str('completion_goal'),
+    str('workflow_hint'),
+    str('effort') || 'normal',
+    str('model') || getDefaultModelId(),
+    type,
+    routine.id,
+    parentId,
+    parentDepth,
+    routineStrategyId,
+    assignedUserId,
+    assignedUserId,
+  )
+  const objectiveId = result.lastInsertRowid as number
+  if (assignedUserId != null) {
+    db.prepare('INSERT OR IGNORE INTO objective_assignees (objective_id, user_id) VALUES (?, ?)')
+      .run(result.lastInsertRowid as number, assignedUserId)
+  }
+  if (tpl.create_pr === true || tpl.create_pr === 1) {
+    db.prepare('UPDATE objectives SET create_pr = 1 WHERE id = ?').run(objectiveId)
+  }
+
+  const obj = db.prepare('SELECT * FROM objectives WHERE id = ?').get(objectiveId) as Objective
+  if (obj) broadcast({ type: 'objective_updated', payload: obj })
+  console.log(`[routines] '${routine.name}' fired (${source}) → objective ${objectiveId} queued`)
+
+  const spawn = await spawnRoutineObjective(objectiveId)
+  if (!spawn.ok) {
+    console.warn(`[routines] '${routine.name}': objective ${objectiveId} created but spawn failed: ${spawn.reason}`)
+    return { ok: true, objective_id: objectiveId, reason: `created but spawn failed: ${spawn.reason}` }
+  }
+
+  console.log(`[routines] '${routine.name}': objective ${objectiveId} transitioned to working (session spawned)`)
+  return { ok: true, objective_id: objectiveId }
+}
+
+// ── Script routines + auto-pause (obj 64 Part B) ────────────────────────────
+
+/** Script routine ids with a run in progress (in-memory; prevents overlap). */
+const runningScripts = new Set<number>()
+
+export function isScriptRoutine(routine: Pick<RoutineRow, 'kind'>): boolean {
+  return routine.kind === 'script'
+}
+
+export interface FireOptions {
+  /**
+   * Script routines only: start the script and return immediately instead of
+   * awaiting it (the tick + run-now endpoints use this so a 10-min script
+   * never blocks the scheduler loop or an HTTP request). Tests await it.
+   */
+  background?: boolean
+}
+
+export interface ScriptRunResult extends FireResult {
+  status?: ScriptRunStatus
+  exit_code?: number | null
+}
+
+/**
+ * Run a script routine once: execute → decide → persist → (maybe) escalate →
+ * count toward the auto-pause streak. On `ok` no card is created and no model
+ * is called. Never throws.
+ */
+async function runScriptRoutine(routine: RoutineRow, source: 'cron' | 'run-now'): Promise<ScriptRunResult> {
+  const db = getDb()
+  const command = (routine.script_command ?? '').trim()
+  const timeoutSec =
+    Number.isInteger(routine.script_timeout_sec) && (routine.script_timeout_sec as number) > 0
+      ? (routine.script_timeout_sec as number)
+      : DEFAULT_SCRIPT_TIMEOUT_SEC
+
+  let exec: ScriptExecResult
+  if (!command) {
+    exec = { exitCode: null, timedOut: false, spawnError: 'script_command is empty', output: '', durationMs: 0 }
+  } else {
+    try {
+      exec = await getScriptExecutor()(command, { timeoutMs: timeoutSec * 1000, maxOutputBytes: MAX_SCRIPT_OUTPUT_BYTES })
+    } catch (err) {
+      exec = {
+        exitCode: null,
+        timedOut: false,
+        spawnError: err instanceof Error ? err.message : String(err),
+        output: '',
+        durationMs: 0,
+      }
+    }
+  }
+
+  const outcome = decideScriptOutcome(exec, { alertMarker: routine.alert_marker, timeoutSec })
+  const tail = tailOf(exec.output || '')
+  db.prepare(
+    `UPDATE routines SET last_run_status = ?, last_exit_code = ?, last_output_tail = ?,
+            last_error = CASE WHEN ? THEN ? ELSE last_error END
+      WHERE id = ?`,
+  ).run(outcome.status, exec.exitCode, tail, outcome.isFailure ? 1 : 0, outcome.reason, routine.id)
+  console.log(`[routines] script '${routine.name}' (${source}) → ${outcome.status} (${outcome.reason}, ${exec.durationMs}ms)`)
+
+  let objectiveId: number | undefined
+  let escalationNote: string | undefined
+  if (outcome.escalate) {
+    const suffix =
+      `\n\n---\n**Script routine escalation** — \`${routine.name}\` ${outcome.status === 'alert' ? 'raised an alert' : 'failed'} ` +
+      `(${outcome.reason}).\n\nCommand: \`${command}\`\n\nOutput tail (last ${Math.round(OUTPUT_TAIL_BYTES / 1024)}KB):\n` +
+      '```\n' + (tail || '(no output)') + '\n```\n'
+    const fire = await fireAiRoutine(routine, source, {
+      descriptionSuffix: suffix,
+      fallbackTitle: `Routine '${routine.name}' script ${outcome.status === 'alert' ? 'alert' : 'failure'}`,
+    })
+    objectiveId = fire.objective_id
+    escalationNote = fire.ok ? fire.reason : `escalation not created: ${fire.reason}`
+    if (!fire.ok) console.warn(`[routines] script '${routine.name}' escalation skipped: ${fire.reason}`)
+  }
+
+  if (outcome.isFailure) await recordRoutineFailure(routine.id, outcome.reason)
+  else recordRoutineSuccess(routine.id)
+
+  const reason = [outcome.reason, escalationNote].filter(Boolean).join('; ')
+  return {
+    ok: !outcome.isFailure,
+    reason,
+    objective_id: objectiveId,
+    status: outcome.status,
+    exit_code: exec.exitCode,
+  }
+}
+
+/**
+ * Fire a routine. AI routines: instantiate the objective template as a card and
+ * spawn its session (fireAiRoutine). Script routines: run the command with no
+ * model call and only escalate to a card on failure / alert marker. Either way
+ * the result feeds the K-consecutive-failure auto-pause (routine-auto-pause.ts).
+ */
+export async function fireRoutine(
+  routine: RoutineRow,
+  source: 'cron' | 'run-now',
+  opts: FireOptions = {},
+): Promise<FireResult> {
+  if (!isScriptRoutine(routine)) {
+    // Count any already-finished runs first so the streak is current.
+    try {
+      await reconcileAiRunOutcomes(routine.id)
+    } catch (err) {
+      console.warn(`[routines] '${routine.name}' outcome reconcile failed:`, err instanceof Error ? err.message : err)
+    }
+    const res = await fireAiRoutine(routine, source)
+    if (classifyAiFireResult(res) === 'failure') {
+      await recordRoutineFailure(routine.id, res.reason ?? 'unknown fire error')
+    }
+    return res
+  }
+
+  const db = getDb()
+  if (source !== 'run-now') {
+    const fresh = db.prepare('SELECT last_run_at FROM routines WHERE id = ?').get(routine.id) as
+      | { last_run_at: string | null }
+      | undefined
+    const reason = overFireGuardReason(routine.cron_expr, fresh?.last_run_at ?? routine.last_run_at)
+    if (reason) {
+      lastSkipReason.set(routine.id, reason)
+      return { ok: false, reason }
+    }
+  }
+  if (runningScripts.has(routine.id)) {
+    return { ok: false, reason: 'script already running' }
+  }
+  runningScripts.add(routine.id)
+  // Stamp before the (possibly long) run so the double-fire / over-fire guards hold.
+  db.prepare('UPDATE routines SET last_run_at = ? WHERE id = ?').run(new Date().toISOString(), routine.id)
+
+  const run = runScriptRoutine(routine, source)
+    .catch((err): ScriptRunResult => {
+      console.error(`[routines] script '${routine.name}' run crashed:`, err)
+      return { ok: false, reason: `script run crashed: ${err instanceof Error ? err.message : String(err)}` }
+    })
+    .finally(() => runningScripts.delete(routine.id))
+
+  if (opts.background) {
+    void run.then(res => {
+      if (res.ok) lastSkipReason.delete(routine.id)
+      else lastSkipReason.set(routine.id, res.reason ?? 'script failed')
+    })
+    return { ok: true, reason: 'script run started' }
+  }
+  return run
+}
+
+// ── Scheduler ──────────────────────────────────────────────────────────────
+
+function sameMinute(isoA: string | null, b: Date): boolean {
+  if (!isoA) return false
+  return isoA.slice(0, 16) === b.toISOString().slice(0, 16)
+}
+
+/** Stamp the scheduler heartbeat so the health endpoint can detect a dead loop. */
+function recordTickHeartbeat(now: Date): void {
+  try {
+    getDb()
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(HEARTBEAT_KEY, now.toISOString())
+  } catch (err) {
+    console.warn('[routines] failed to record tick heartbeat:', err instanceof Error ? err.message : err)
+  }
+}
+
+/**
+ * Raise a HIGH alert for any enabled routine that has silently stalled (missed a
+ * scheduled fire past the grace window). notify() persists the alert, broadcasts
+ * it to the UI, and emails it — and dedups, so a persistently-overdue routine
+ * nags rather than spams. This is the "make it obvious when jobs aren't running"
+ * surface: a stalled routine no longer fails in silence.
+ */
+async function alertOnStalledRoutines(now: Date): Promise<void> {
+  const db = getDb()
+  const routines = db.prepare('SELECT * FROM routines WHERE enabled = 1').all() as RoutineRow[]
+  for (const routine of routines) {
+    const health = computeRoutineHealth(routine, now)
+    if (!health.overdue) continue
+    const reason = health.last_skip_reason ? ` Last skip: ${health.last_skip_reason}.` : ''
+    await notify({
+      severity: 'high',
+      source: 'routines',
+      title: `Routine '${routine.name}' has stopped firing`,
+      message:
+        `Routine '${routine.name}' (${health.cadence}) is overdue by ~${health.minutes_overdue} min. ` +
+        `Expected fire at ${health.expected_last_fire}; last actual run ${health.last_run_at ?? 'never'}.${reason} ` +
+        `Check the board for a stranded card filling its queue slot, or the scheduler logs.`,
+      dedup_key: `routine-overdue-${routine.id}`,
+      url: '/jobs',
+    })
+  }
+}
+
+async function tick(): Promise<void> {
+  const now = new Date()
+  const db = getDb()
+  recordTickHeartbeat(now)
+
+  if (!routinesGloballyEnabled()) {
+    console.log('[routines] tick — kill switch off (settings.routines_enabled != 1), skipping')
+    return
+  }
+
+  // obj 64 — count finished AI runs (cancelled / review-fail ⇒ failure, done ⇒
+  // success) before firing; this may auto-pause a routine, so re-select after.
+  const enabledAi = db.prepare("SELECT id, name FROM routines WHERE enabled = 1 AND COALESCE(kind, 'ai') = 'ai'").all() as {
+    id: number
+    name: string
+  }[]
+  for (const r of enabledAi) {
+    try {
+      await reconcileAiRunOutcomes(r.id)
+    } catch (err) {
+      console.warn(`[routines] '${r.name}' outcome reconcile failed:`, err instanceof Error ? err.message : err)
+    }
+  }
+
+  const routines = db.prepare('SELECT * FROM routines WHERE enabled = 1').all() as RoutineRow[]
+  let fired = 0
+  for (const routine of routines) {
+    if (!cronMatches(routine.cron_expr, now)) continue
+    // Double-fire guard: skip if this routine already fired this minute
+    // (timer drift can land two ticks inside one wall-clock minute).
+    if (sameMinute(routine.last_run_at, now)) continue
+    try {
+      // Script routines run in the background so a long script never stalls the loop.
+      const result = await fireRoutine(routine, 'cron', { background: isScriptRoutine(routine) })
+      if (result.ok) {
+        fired++
+        // A created-but-not-spawned card is ok:true with a reason — keep it visible.
+        if (result.reason) lastSkipReason.set(routine.id, result.reason)
+        else lastSkipReason.delete(routine.id)
+      } else {
+        lastSkipReason.set(routine.id, result.reason ?? 'unknown')
+        console.log(`[routines] '${routine.name}' skipped: ${result.reason}`)
+      }
+    } catch (err) {
+      console.error(`[routines] '${routine.name}' fire failed:`, err)
+    }
+  }
+  console.log(`[routines] tick — ${routines.length} enabled, ${fired} fired`)
+
+  // Surface silently-stalled routines (missed fires) as alerts. Runs every tick;
+  // notify()'s dedup keeps a persistent stall to a periodic nag, not a flood.
+  try {
+    await alertOnStalledRoutines(now)
+  } catch (err) {
+    console.error('[routines] stall-alert sweep failed:', err)
+  }
+}
+
+export function startRoutineScheduler(): void {
+  if (tickTimer) return
+  tickTimer = setInterval(() => {
+    tick().catch(err => console.error('[routines] tick failed:', err))
+  }, TICK_MS)
+  console.log('[routines] Scheduler started — 60s tick, cron matched against server local time')
+}
+
+export function stopRoutineScheduler(): void {
+  if (tickTimer) {
+    clearInterval(tickTimer)
+    tickTimer = null
+    console.log('[routines] Scheduler stopped')
+  }
+}

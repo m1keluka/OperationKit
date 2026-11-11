@@ -1,0 +1,214 @@
+/**
+ * Alerts, mentor threads, and assistant configs — extracted from db/index.ts
+ * (behavior frozen). Additive CREATE TABLE + column ALTERs only.
+ */
+import type Database from 'better-sqlite3'
+import { AGENTS_DIR, SECOND_BRAIN_DIR } from '../../config.js'
+
+export function initMentorSchema(db: Database.Database): void {
+  // Alerts — ingested from cron scripts and external monitors
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      severity TEXT NOT NULL DEFAULT 'normal' CHECK(severity IN ('normal', 'high', 'emergency')),
+      source TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL DEFAULT '',
+      dedup_key TEXT,
+      url TEXT,
+      email_sent_at TEXT,
+      acked_at TEXT,
+      acked_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_alerts_acked ON alerts(acked_at);
+    CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at);
+    CREATE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(dedup_key);
+  `)
+
+  // Mentor chat tables. Phase 2.5 swap: each thread is backed by a Claude Code
+  // subprocess (see services/mentor-session.ts), so the JSONL log on disk is the
+  // source of truth for messages — no mentor_messages table.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS thread_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS mentor_threads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL DEFAULT 'Untitled',
+      tags TEXT NOT NULL DEFAULT '[]',
+      pinned INTEGER NOT NULL DEFAULT 0,
+      archived INTEGER NOT NULL DEFAULT 0,
+      account_id TEXT,
+      session_id TEXT,
+      last_active_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS mentor_summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_id INTEGER NOT NULL REFERENCES mentor_threads(id) ON DELETE CASCADE,
+      content TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `)
+
+  // Backfill columns for upgrades from the Phase 1 schema (Phase 1 had only
+  // title/tags/pinned/archived/timestamps; the new columns landed in Phase 2.5).
+  // SQLite ignores ADD COLUMN if the column already exists, but the wrapper
+  // doesn't — we have to introspect.
+  type MentorThreadColumn = { name: string }
+  const mentorThreadCols = db.prepare('PRAGMA table_info(mentor_threads)').all() as MentorThreadColumn[]
+  const haveMentorCols = new Set(mentorThreadCols.map(c => c.name))
+  if (!haveMentorCols.has('account_id')) db.exec('ALTER TABLE mentor_threads ADD COLUMN account_id TEXT')
+  if (!haveMentorCols.has('session_id')) db.exec('ALTER TABLE mentor_threads ADD COLUMN session_id TEXT')
+  if (!haveMentorCols.has('last_active_at')) db.exec('ALTER TABLE mentor_threads ADD COLUMN last_active_at TEXT')
+  if (!haveMentorCols.has('last_message_role')) db.exec('ALTER TABLE mentor_threads ADD COLUMN last_message_role TEXT')
+  if (!haveMentorCols.has('done')) db.exec('ALTER TABLE mentor_threads ADD COLUMN done INTEGER NOT NULL DEFAULT 0')
+  if (!haveMentorCols.has('workspace')) {
+    db.exec("ALTER TABLE mentor_threads ADD COLUMN workspace TEXT NOT NULL DEFAULT 'example'")
+  }
+  if (!haveMentorCols.has('created_by')) {
+    db.exec('ALTER TABLE mentor_threads ADD COLUMN created_by INTEGER REFERENCES users(id) ON DELETE SET NULL')
+  }
+  try {
+    db.exec('ALTER TABLE mentor_threads ADD COLUMN folder_id INTEGER REFERENCES thread_folders(id) ON DELETE SET NULL')
+  } catch {
+    // column already exists — safe to ignore
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mentor_threads_workspace ON mentor_threads(workspace)")
+
+  // Phase 6: thread_folders gains a workspace column so folder visibility can
+  // be scoped per workspace membership, matching mentor_threads.
+  type FolderColumn = { name: string }
+  const folderCols = db.prepare('PRAGMA table_info(thread_folders)').all() as FolderColumn[]
+  const haveFolderCols = new Set(folderCols.map(c => c.name))
+  if (!haveFolderCols.has('workspace')) {
+    db.exec("ALTER TABLE thread_folders ADD COLUMN workspace TEXT NOT NULL DEFAULT 'example'")
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_thread_folders_workspace ON thread_folders(workspace)")
+
+  // ── Personal Assistant configs (obj 701700, Phase 1) ──────────────────────
+  // Per-(user, workspace) assistant config that replaces the hardcoded
+  // single-user ("Operator"/Assistant) path in services/mentor-session.ts. Grain
+  // mirrors user_workspaces (PK user_id, workspace). Nested persona/autonomy/
+  // arrays are stored as JSON-in-TEXT, matching mentor_threads.tags. Defaults
+  // are fail-closed (read_only, no capabilities/connectors) at the column level;
+  // the resolver's create-on-read writes a sensible confirm_external default.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS assistant_configs (
+      user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      workspace            TEXT    NOT NULL,
+      display_name         TEXT    NOT NULL DEFAULT 'Assistant',
+      tagline              TEXT,
+      system_prompt        TEXT    NOT NULL DEFAULT '',
+      manual_source        TEXT,
+      model                TEXT,
+      autonomy             TEXT    NOT NULL DEFAULT '{"level":"read_only"}',
+      enabled_capabilities TEXT    NOT NULL DEFAULT '[]',
+      enabled_connectors   TEXT    NOT NULL DEFAULT '[]',
+      connector_bindings   TEXT    NOT NULL DEFAULT '{}',
+      knowledge_sources    TEXT    NOT NULL DEFAULT '[]',
+      enabled              INTEGER NOT NULL DEFAULT 1,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, workspace)
+    );
+  `)
+  // PRAGMA-guarded ALTERs for forward-compatible column additions (idempotent;
+  // re-running init is safe). None yet beyond the initial create, but the guard
+  // block matches the repo's mentor_threads upgrade pattern.
+  type AssistantConfigColumn = { name: string }
+  const assistantCfgCols = db.prepare('PRAGMA table_info(assistant_configs)').all() as AssistantConfigColumn[]
+  const haveAssistantCfgCols = new Set(assistantCfgCols.map(c => c.name))
+  if (!haveAssistantCfgCols.has('model')) db.exec('ALTER TABLE assistant_configs ADD COLUMN model TEXT')
+
+  // Optional owner seed for the assistant persona (obj 701700; decoupled from a
+  // hardcoded slug/path in obj 709956). This reproduces the owner's assistant
+  // behavior through the generic config path, but ONLY when the operator has
+  // opted in by pointing ASSISTANT_AGENT_SLUG at a row in the agent registry.
+  // A blank-slate install seeds cto/cmo/coo/cfo/general and sets no such slug,
+  // so this block is a no-op there: no private persona is implied, nothing
+  // crashes, and the mentor subsystem falls back to the generic
+  // `defaultAssistantConfig` create-on-read path.
+  // Idempotent — only seeds when the owner user exists AND has no config row yet.
+  try {
+    const personaSlug = (process.env.ASSISTANT_AGENT_SLUG || '').trim()
+    const ownerUsername = process.env.MENTOR_TELEGRAM_OWNER_USERNAME || ''
+    if (personaSlug && ownerUsername) {
+      // Resolve the persona's operating manual from the registry (initAgentsSchema
+      // runs earlier in initDb, so the table exists). prompt_file is normally NULL
+      // because the slug→filename mapping is the identity.
+      const agentRow = db
+        .prepare('SELECT slug, label, prompt_file FROM agents WHERE slug = ? AND archived = 0')
+        .get(personaSlug) as { slug: string; label: string; prompt_file: string | null } | undefined
+      const owner = db
+        .prepare('SELECT id FROM users WHERE username = ?')
+        .get(ownerUsername) as { id: number } | undefined
+      if (agentRow && owner) {
+        const promptFile = agentRow.prompt_file || `${agentRow.slug}.md`
+        const manualPath = promptFile.startsWith('/')
+          ? promptFile
+          : `${AGENTS_DIR}/${promptFile.endsWith('.md') ? promptFile : `${promptFile}.md`}`
+        const ownerWorkspace = process.env.ASSISTANT_OWNER_WORKSPACE || 'example'
+        const existing = db
+          .prepare('SELECT 1 FROM assistant_configs WHERE user_id = ? AND workspace = ?')
+          .get(owner.id, ownerWorkspace)
+        if (!existing) {
+          const googleEmail = (process.env.ASSISTANT_OWNER_GOOGLE_EMAIL || '').trim()
+          const displayName = process.env.ASSISTANT_DISPLAY_NAME || agentRow.label
+          const systemPrompt = [
+            `Read ${manualPath} NOW as your complete operating manual. It is your`,
+            'persona, capability map, and rules. It SUPERSEDES the mentor-workspace CLAUDE.md',
+            'and any other persona — when they conflict, the operating manual wins.',
+            '',
+            'Capabilities (the operating manual documents these in full):',
+            ...(googleEmail
+              ? [
+                  '- Google Workspace (Gmail/Calendar/Drive/Docs/Sheets/Slides) via the',
+                  '  `google-workspace` MCP server, already wired into this session. Always pass',
+                  `  user_google_email: "${googleEmail}"; never start an OAuth flow.`,
+                ]
+              : []),
+            '- The Command Center board internal API at http://localhost:3002/api/internal/...',
+            '  (briefing, objectives read, objective create — create is confirmation-gated).',
+            `- Vault retrieval over ${SECOND_BRAIN_DIR} (active.md → index.md → kb_search).`,
+          ].join('\n')
+          db.prepare(
+            `INSERT INTO assistant_configs
+               (user_id, workspace, display_name, tagline, system_prompt, manual_source,
+                model, autonomy, enabled_capabilities, enabled_connectors, connector_bindings,
+                knowledge_sources, enabled)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+          ).run(
+            owner.id,
+            ownerWorkspace,
+            displayName,
+            process.env.ASSISTANT_TAGLINE || null,
+            systemPrompt,
+            JSON.stringify({ id: `${agentRow.slug}-md`, kind: 'file', locator: manualPath, label: 'Operating manual', writable: false }),
+            null,
+            JSON.stringify({ level: 'confirm_external' }),
+            JSON.stringify(['read-inbox', 'send-email', 'create-document', 'set-up-job', 'send-report']),
+            JSON.stringify(googleEmail ? ['google-workspace'] : []),
+            JSON.stringify(googleEmail ? { 'google-workspace': { identity: googleEmail, credentialRef: 'env:GOOGLE_CREDENTIALS_DIR' } } : {}),
+            JSON.stringify([{ id: 'vault', kind: 'vault', locator: SECOND_BRAIN_DIR, label: 'Second brain' }]),
+          )
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[db] assistant owner seed skipped:', (err as Error).message)
+  }
+
+  // Drop the old mentor_messages table if it still exists from Phase 1. The
+  // JSONL transcripts on disk now hold the conversation history.
+  db.exec('DROP TABLE IF EXISTS mentor_messages')
+
+}

@@ -1,0 +1,164 @@
+# Client installer smoke test (obj 719935): run ./install.sh for real on a fresh
+# GitHub-hosted Ubuntu 24.04 VM, verify, uninstall, re-install, verify again, and
+# report the measured times. No Cloudflare account in CI, so the tunnel/Access
+# step is skipped here (it has its own API-level test: install/test/cloudflare-mock-test.sh)
+# and the test card is skipped (no Claude credential in CI).
+name: install-smoke
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install/**'
+      - 'app/Dockerfile'
+      - 'app/jail/**'
+      - '.github/workflows/install-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Client config (fake sample data; local mode, so no DOMAIN/ZONE/Access)
+        # The knowledge-import starter pack stays ON: it is what failed on the
+        # first real install (obj 720210), and the installer now stops if it fails.
+        run: |
+          sed -e 's#^INSTALL_DIR=.*#INSTALL_DIR="/opt/operationkit"#' \
+              -e 's#^DOMAIN=.*#DOMAIN=""#' -e 's#^ZONE=.*#ZONE=""#' \
+              -e 's#^ACCESS_ALLOWED_EMAILS=.*#ACCESS_ALLOWED_EMAILS=""#' \
+              install/client.conf.example > ci.conf
+          grep -q '^STARTER_PACKS="knowledge-import"' ci.conf
+      - name: Key-auth API bypass list + guard (operator routes can never be added)
+        run: bash install/test/api-bypass-paths-test.sh
+      - name: Browser-integrity exception stays narrow (scope, matching, 1010 vs 401)
+        run: bash install/test/bic-lib-test.sh
+      - name: Cloudflare API logic against a mock
+        run: bash install/test/cloudflare-mock-test.sh
+      - name: Claude sign-in (link + code) against a mock
+        run: bash install/test/claude-oauth-mock-test.sh
+      - name: Off-site backup setup (B2 prompt, retention, restore test) against a mock
+        run: bash install/test/b2-setup-test.sh
+      - name: Install docs links and anchors resolve
+        run: node install/test/docs-links-test.mjs
+      - name: shellcheck (shared libs + backup + B2 setup scripts)
+        run: shellcheck --version && shellcheck -x --severity=warning install/lib.sh install/api-bypass-lib.sh install/bic-lib.sh install/backup.sh install/b2-setup.sh install/test/b2-setup-test.sh install/test/api-bypass-paths-test.sh install/test/bic-lib-test.sh
+      - name: Without --skip-cloudflare an empty DOMAIN is refused, with the hint
+        run: |
+          if ./install.sh --config ci.conf --dry-run > out.txt 2>&1; then cat out.txt; exit 1; fi
+          grep -q 'or install with --skip-cloudflare' out.txt
+      - name: Dry run
+        run: sudo ./install.sh --config ci.conf --dry-run --skip-cloudflare
+      - name: Install (timed)
+        run: |
+          start=$(date +%s)
+          sudo ./install.sh --config ci.conf --skip-cloudflare --skip-ssh-hardening --skip-verify | tee install.log
+          echo "INSTALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+      - name: Install output (build log tail, tunnel instructions, step 7 hint)
+        run: |
+          grep -q 'full build log: /opt/operationkit/logs/build-' install.log
+          sudo ls /opt/operationkit/logs/build-*.log
+          grep -q 'ssh -N -L 3002:127.0.0.1:3002' install.log
+          ! grep -q 'https://localhost' install.log
+          grep -q 'INSTALL.md step 7' install.log
+      - name: Knowledge-base starter pack is ON for the client workspace
+        run: |
+          sudo bash scripts/starter-pack.sh status | tee packs.txt
+          grep -qE '^ON +knowledge-import' packs.txt
+      - name: Build commit in /api/health
+        run: |
+          want=$(git rev-parse HEAD | cut -c1-12)
+          got=$(curl -fsS http://127.0.0.1:3002/api/health | jq -r .commit)
+          echo "commit: want $want, got $got"; test "$got" = "$want"
+      - name: Client install logs stay quiet (host-boot, dev-feedback, posthog)
+        run: |
+          sudo docker logs command-center > app.log 2>&1
+          ! grep -E 'run-all failed|MISSING required env vars|\[posthog-bot-prs\].*error' app.log
+      - name: verify.sh fails fast when no Claude seat can run (no 600s wait)
+        run: |
+          start=$(date +%s)
+          if sudo bash install/verify.sh --config ci.conf --card-timeout 600 > v.txt 2>&1; then cat v.txt; exit 1; fi
+          cat v.txt; took=$(( $(date +%s) - start )); echo "took ${took}s"
+          grep -q 'no Claude seat can run a sandboxed session' v.txt
+          test "$took" -lt 120
+      - name: Verify
+        run: sudo bash install/verify.sh --config ci.conf --local-only --skip-card
+      - name: No secret values in the install log or the settings file
+        run: |
+          sudo test "$(sudo stat -c %a /opt/operationkit/secrets/stack.env)" = 600
+          sudo test "$(sudo stat -c %a /opt/operationkit/secrets)" = 700
+          # settings file: no secret-looking KEYS (comment lines are prose, skipped)
+          ! grep -vE '^#' /opt/operationkit/install.env | grep -qiE '^[A-Z_]*(SECRET|TOKEN|_KEY|PASSWORD)'
+      - name: Backup, then restore it
+        run: |
+          sudo test -f /etc/cron.d/operationkit-backup
+          sudo bash install/backup.sh run --config ci.conf --label manual
+          dir=$(sudo find /opt/operationkit/backups -maxdepth 1 -name 'manual-*' | sort | tail -1)
+          sudo ls -l "$dir"
+          for f in command-center.db data.tar.gz home.tar.gz secrets.tar.gz client.conf MANIFEST; do sudo test -s "$dir/$f"; done
+          sudo test "$(sudo stat -c %a "$dir")" = 700
+          # The restore test on a real database (local mode: the newest backup folder).
+          sudo bash install/backup.sh verify --config ci.conf | tee verify.out
+          grep -q "^RESTORE TEST: PASS" verify.out
+          # Lose something, restore, and it is back.
+          sudo touch /opt/operationkit/state/data/branding/ci-marker
+          sudo bash install/backup.sh run --config ci.conf --label manual
+          dir=$(sudo find /opt/operationkit/backups -maxdepth 1 -name 'manual-*' | sort | tail -1)
+          sudo rm /opt/operationkit/state/data/branding/ci-marker
+          sudo bash install/backup.sh restore "$dir" --config ci.conf --yes
+          sudo test -f /opt/operationkit/state/data/branding/ci-marker
+          sudo bash scripts/starter-pack.sh status | grep -qE '^ON +knowledge-import'
+          sudo bash install/backup.sh list --config ci.conf
+      - name: update.sh (pre-update backup, rollback image tag, re-install at this commit)
+        run: |
+          sudo bash install/update.sh --config ci.conf --ref "$(git rev-parse HEAD)" -- --skip-ssh-hardening --skip-verify | tee update.log
+          sudo find /opt/operationkit/backups -maxdepth 1 -name 'pre-update-*' | grep -q .
+          sudo docker image ls operationkit-app --format '{{.Tag}}' | grep -q '^pre-update-'
+          grep -q 'To go back to the version' update.log
+          sudo bash install/verify.sh --config ci.conf --local-only --skip-card
+      - name: After update.sh, 3002 is on 127.0.0.1 + the Docker bridge only, and the bridge gets 200 (obj 900185)
+        run: |
+          bip=$(sudo grep '^OK_DOCKER_BRIDGE_IP=' /opt/operationkit/install.env | cut -d= -f2)
+          echo "bridge ip: $bip"; test -n "$bip"
+          sudo ss -lntp | grep ':3002 ' | tee ss.txt
+          ! grep -qE '(0\.0\.0\.0|\[::\]|\*):3002 ' ss.txt
+          grep -q '127.0.0.1:3002 ' ss.txt
+          grep -qF "$bip:3002 " ss.txt
+          host=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3002/api/health); echo "host: $host"; test "$host" = 200
+          bridge=$(sudo docker run --rm curlimages/curl -s -o /dev/null -m 10 -w '%{http_code}' "http://$bip:3002/api/health" || true)
+          echo "bridge: $bridge"; test "$bridge" = 200
+          sudo ufw status | tee ufw.txt
+          grep -q 'Status: active' ufw.txt
+          grep -qE "^$bip 3002/tcp on docker0 +ALLOW" ufw.txt
+          ! grep -qE '^3002(/tcp)? ' ufw.txt
+          pub=$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+          nic=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://$pub:3002/api/health" || true)
+          echo "primary NIC $pub:3002 -> $nic"; test "$nic" = 000
+      - name: Sandbox smoke (jail image runs non-root, no docker socket)
+        run: |
+          sudo docker run --rm ok-jail:local bash -lc 'id -u; test ! -S /var/run/docker.sock; command -v claude'
+      - name: Uninstall (keep images) and re-install (timed demo reset)
+        run: |
+          sudo bash install/uninstall.sh --config ci.conf --yes --keep-images
+          test ! -d /opt/operationkit
+          test ! -f /etc/cron.d/operationkit-backup
+          start=$(date +%s)
+          sudo ./install.sh --config ci.conf --skip-cloudflare --skip-ssh-hardening --skip-verify
+          echo "REINSTALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+          sudo bash install/verify.sh --config ci.conf --local-only --skip-card
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### Install smoke"
+            echo "- fresh install (images built from scratch): ${INSTALL_SECONDS:-n/a}s"
+            echo "- re-install after uninstall --keep-images: ${REINSTALL_SECONDS:-n/a}s"
+            echo '```'; sudo cat /opt/operationkit/install-timing.log 2>/dev/null || true; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+      - name: Logs on failure
+        if: failure()
+        run: sudo docker logs --tail 200 command-center || true

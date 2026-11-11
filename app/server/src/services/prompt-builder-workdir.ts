@@ -1,0 +1,226 @@
+/**
+ * Prompt-builder workdir, agent maps, and on-behalf user resolution —
+ * extracted from prompt-builder.ts (behavior frozen).
+ *
+ * No prompt assembly. buildPrompt stays on the prompt-builder.ts facade.
+ */
+import fs from 'fs'
+import path from 'path'
+import type { Objective } from '@operationkit/shared'
+import { getDb } from '../db/index.js'
+import { resolveAgentWorkdir } from './agent-registry.js'
+import { parseAgentFile, renderAgentInstructions } from './agent-file.js'
+import {
+  AGENTS_DIR,
+  WORKSPACES_JSON,
+  PROJECTS_DIR,
+  HOME_DIR,
+} from '../config.js'
+
+// ── On-behalf-of user resolution ──
+
+export interface OnBehalfUser {
+  username: string
+  role: 'admin' | 'member'
+  workspaces: string[]
+  profilePathAbs: string | null
+}
+
+/**
+ * Look up the human the session is working on behalf of. Order of preference:
+ *  1. assigned_user_id  — explicit ownership
+ *  2. created_by        — fallback to whoever filed the objective
+ * Returns null when neither field is set (legacy rows or pre-multi-user).
+ *
+ * Also resolves an optional per-user profile file at
+ *   ~/ai-workspace/users/<username>/profile.md
+ * which sessions read for tone/preference/access defaults. The absolute path
+ * is included so the prompt can reference it (the spawn shell HOME is the
+ * ccuser dir, not /home/operator, so ~/ in instructions won't resolve correctly).
+ */
+export function resolveOnBehalfUser(objective: Objective): OnBehalfUser | null {
+  const userId = objective.assigned_user_id ?? objective.created_by
+  if (!userId) return null
+  try {
+    const db = getDb()
+    const row = db
+      .prepare("SELECT username, role FROM users WHERE id = ?")
+      .get(userId) as { username: string; role: 'admin' | 'member' } | undefined
+    if (!row) return null
+    const wsRows = db
+      .prepare("SELECT workspace FROM user_workspaces WHERE user_id = ?")
+      .all(userId) as { workspace: string }[]
+    const profileAbs = `/home/operator/ai-workspace/users/${row.username}/profile.md`
+    return {
+      username: row.username,
+      role: row.role,
+      workspaces: wsRows.map(r => r.workspace),
+      profilePathAbs: fs.existsSync(profileAbs) ? profileAbs : null,
+    }
+  } catch (err) {
+    console.warn(`[session-manager] resolveOnBehalfUser(${userId}) failed:`, (err as Error).message)
+    return null
+  }
+}
+
+// ── Constants ──
+
+export const MAX_OBJECTIVE_HISTORY_CHARS = 20000
+export const OBJ_COMPACTION_THRESHOLD = 30
+export const OBJ_COMPACTION_TAIL_TURNS = 15
+export const COMPACTION_SESSION_SENTINEL = 'compaction'
+
+export type ObjectiveTurn = { role: 'user' | 'assistant'; text: string }
+
+// ── Functions ──
+
+/** Read agent instructions file server-side to inline into prompts (saves setup tool calls) */
+/**
+ * An agent installed from an agent file (obj 719986) lives at
+ * `<AGENT_FILES_DIR|AGENTS_DIR>/<slug>/agent.yaml` (or agent.md). When present
+ * and valid it wins over a legacy flat `<slug>.md` persona.
+ */
+function readAgentFileInstructions(agentName: string): string | null {
+  if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(agentName)) return null
+  const dir = path.join(process.env.AGENT_FILES_DIR || AGENTS_DIR, agentName)
+  for (const name of ['agent.yaml', 'agent.yml', 'agent.md']) {
+    const p = path.join(dir, name)
+    let text: string
+    try {
+      text = fs.readFileSync(p, 'utf-8')
+    } catch {
+      continue
+    }
+    const r = parseAgentFile(text, { filename: p })
+    if (r.ok) return renderAgentInstructions(r.agent)
+    console.warn(`[prompt-builder] agent file ${p} is invalid; falling back to the legacy persona`)
+    return null
+  }
+  return null
+}
+
+export function readAgentInstructions(agentName: string): string | null {
+  const fromFile = readAgentFileInstructions(agentName)
+  if (fromFile) return fromFile
+  try {
+    const agentPath = path.join(AGENTS_DIR, `${agentName}.md`)
+    const content = fs.readFileSync(agentPath, 'utf-8')
+    // Truncate to ~4000 chars to keep prompt reasonable
+    return content.length > 4000 ? content.slice(0, 4000) + '\n\n[... truncated — read full file at ~/ai-workspace/agents/' + agentName + '.md]' : content
+  } catch {
+    return null
+  }
+}
+
+/** Expand a leading `~` and drop trailing slashes. Relative paths are rejected (`null`). */
+function expandRepoPath(raw: string): string | null {
+  const p = raw.trim().replace(/^~(?=\/|$)/, HOME_DIR).replace(/\/+$/, '')
+  return p.startsWith('/') ? p : null
+}
+
+function isBareProjectsRoot(p: string): boolean {
+  return path.resolve(p) === path.resolve(PROJECTS_DIR) || path.resolve(p) === '/'
+}
+
+/** workspace_repos.repo_path rows for a project name, the objective's own workspace first. */
+export function loadDbRepoPaths(project: string, workspace: string): string[] {
+  try {
+    const rows = getDb()
+      .prepare(
+        `SELECT repo_path FROM workspace_repos
+          WHERE name = ? AND repo_path IS NOT NULL AND TRIM(repo_path) != ''
+          ORDER BY (workspace = ?) DESC, id ASC`,
+      )
+      .all(project, workspace) as { repo_path: string }[]
+    return rows.map(r => r.repo_path)
+  } catch {
+    return [] // table missing / DB unavailable → no fallback (still fails closed)
+  }
+}
+
+// Load workspaces config for project path resolution
+export function loadWorkspacesConfig(): Record<string, { projects: Array<{ name: string; path: string }> }> | null {
+  try {
+    const content = fs.readFileSync(WORKSPACES_JSON, 'utf-8')
+    return JSON.parse(content).workspaces
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Resolve the directory a session for `objective` should run in.
+ *
+ * For a project-linked objective the directory MUST be the project's real
+ * checkout, because every project-scoped session is isolated into a git worktree
+ * cut from it. Two safety invariants (obj 1451):
+ *
+ *  1. Search EVERY workspace, not just `objective.workspace`. A project is
+ *     registered under one workspace (e.g. operationkit under
+ *     'operator'), but objectives can be tagged with a different workspace
+ *     (e.g. 'example'). The old code only looked in `workspaces[objective.workspace]`,
+ *     so an example-tagged operationkit objective missed the lookup and fell
+ *     through to the bare projects root.
+ *
+ *  2. FAIL CLOSED for a project-linked objective that resolves to nothing.
+ *     Never return the bare `PROJECTS_DIR` root (the `cto` registry-workdir fallback):
+ *     that root is not a git repo, so `ensureWorktree` fails and the session
+ *     spawns UNGUARDED in the live tree — the 2026-04-25 crash-loop class. We
+ *     throw a descriptive error instead so the spawn aborts before any status
+ *     mutation and the operator sees a blocked card, not a silent unguarded run.
+ *
+ * `deps` is injectable purely for hermetic unit testing; production passes none.
+ */
+export function resolveWorkdir(
+  objective: Objective,
+  deps: {
+    workspaces?: Record<string, { projects: Array<{ name: string; path: string }> }> | null
+    existsSync?: (p: string) => boolean
+    /** DB-registered checkouts for a project name (workspace_repos.repo_path). */
+    dbRepoPaths?: (project: string, workspace: string) => string[]
+  } = {},
+): string {
+  const existsSync = deps.existsSync ?? fs.existsSync
+  // If objective has a linked project, resolve its path from workspaces.json.
+  if (objective.project) {
+    const workspaces =
+      deps.workspaces !== undefined ? deps.workspaces : loadWorkspacesConfig()
+    if (workspaces) {
+      // Search the objective's OWN workspace first (preserves prior behaviour
+      // when the project lives there), then EVERY other workspace.
+      const ordered = [
+        workspaces[objective.workspace],
+        ...Object.entries(workspaces)
+          .filter(([name]) => name !== objective.workspace)
+          .map(([, ws]) => ws),
+      ].filter((ws): ws is { projects: Array<{ name: string; path: string }> } => !!ws)
+      for (const ws of ordered) {
+        const proj = ws.projects?.find(p => p.name === objective.project)
+        if (proj) {
+          const resolved = proj.path.replace('~', HOME_DIR).replace(/\/+$/, '')
+          if (existsSync(resolved)) return resolved
+        }
+      }
+    }
+    // Fallback: a repo registered through the Config page / admin API lives in the
+    // DB `workspace_repos` table. Fresh installs never had a workspaces.json, so
+    // without this a repo registered via POST /api/admin/workspaces/:slug/repos
+    // could never be resolved. Same rules as above: own workspace first, the path
+    // must exist, and the bare projects root is NEVER accepted.
+    const dbPaths = (deps.dbRepoPaths ?? loadDbRepoPaths)(objective.project, objective.workspace)
+    for (const raw of dbPaths) {
+      const resolved = expandRepoPath(raw)
+      if (!resolved || isBareProjectsRoot(resolved)) continue
+      if (existsSync(resolved)) return resolved
+    }
+    // Project-linked but unresolvable to an existing checkout → FAIL CLOSED.
+    // Do NOT fall back to the bare projects root, which would spawn an unguarded
+    // session in the live tree.
+    throw new Error(
+      `resolveWorkdir: objective ${objective.id} is linked to project "${objective.project}" but no workspace in workspaces.json (nor any workspace_repos.repo_path) maps it to an existing checkout. Refusing to fall back to the bare projects root "${PROJECTS_DIR}" — that would spawn an UNGUARDED session in the live checkout (obj 1451 fail-closed). Register "${objective.project}" under a workspace.`,
+    )
+  }
+  // Non-project objective → agent-based workdir (unchanged).
+  return resolveAgentWorkdir(objective.agent_context)
+}
+

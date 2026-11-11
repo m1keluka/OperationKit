@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# cla.yml — Contributor License Agreement check (CLA Assistant Lite).
+#
+# Ships DISABLED until a maintainer turns it on.
+# The job only runs when the repository variable CLA_ENABLED == 'true'. While it
+# is unset this workflow is a skipped no-op, so it cannot block any PR (bot PRs
+# included). How to enable: see "For maintainers: the CLA check" in CONTRIBUTING.md.
+#
+# Uses ONLY the default GITHUB_TOKEN — no personal access token, GitHub App or
+# repository secret. Signatures are committed to signatures/cla.json on the
+# dedicated `cla-signatures` branch (create it, unprotected, before enabling).
+#
+# pull_request_target is required so the action can comment/set status on PRs
+# from forks. It does NOT check out or run any PR code, so the elevated token is
+# never exposed to contributed code. Do not add a checkout step to this job.
+# ---------------------------------------------------------------------------
+name: CLA
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+permissions:
+  actions: write
+  contents: write        # commit signatures to the cla-signatures branch
+  pull-requests: write   # comment on the PR
+  statuses: write        # set the CLA status check
+
+jobs:
+  CLAAssistant:
+    if: >-
+      vars.CLA_ENABLED == 'true' &&
+      (github.event_name == 'pull_request_target' ||
+       (github.event.issue.pull_request &&
+        (github.event.comment.body == 'recheck' ||
+         github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA')))
+    runs-on: ubuntu-latest
+    steps:
+      - name: CLA Assistant Lite
+        # contributor-assistant/github-action v2.6.1, pinned to the release commit.
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: 'signatures/cla.json'
+          path-to-document: '${{ github.server_url }}/${{ github.repository }}/blob/main/CLA/INDIVIDUAL_CLA.md'
+          branch: 'cla-signatures'
+          # Accounts that never need to sign. Bots are always exempt. Before
+          # enabling, append the maintainer / automation logins that open PRs
+          # (comma-separated, no spaces), plus any entity signatories recorded
+          # out-of-band via CLA/ENTITY_CLA.md.
+          allowlist: 'dependabot[bot],github-actions[bot],renovate[bot],*[bot]'
+          lock-pullrequest-aftermerge: false

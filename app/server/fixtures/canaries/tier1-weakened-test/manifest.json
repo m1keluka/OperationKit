@@ -1,0 +1,8 @@
+{
+  "id": "tier1-weakened-test",
+  "tier": 1,
+  "description": "Assertion-weakened test: the author's own test was neutered to expect(true).toBe(true), so it passes against a broken isEven(). A SEALED reference check (which the weakened test cannot cheat) runs the real assertions and fails. The gate MUST reject.",
+  "brokenKind": "weakened-test",
+  "expectedVerdict": "reject",
+  "commands": ["node reference-check.mjs"]
+}

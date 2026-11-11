@@ -1,0 +1,967 @@
+/**
+ * Shared platform types: corrections, changelog, secrets, mentor, alerts,
+ * workspaces, API request/response — extracted from types.ts (behavior frozen).
+ *
+ * `@operationkit/shared` still resolves to types.ts, which re-exports this.
+ */
+import type {
+  AgentContext,
+  EffortLevel,
+  ModelChoice,
+  ObjectiveCategory,
+  ObjectiveStatus,
+  ObjectiveType,
+  SessionMessage,
+  User,
+} from './types-core.js'
+
+// ── Human Corrections (ST5 mistake-labeling surface) ──
+
+/**
+ * A human-submitted correction: "this session got X wrong." Each active row is
+ * injected as a high-priority gotcha into the next spawn's context for the same
+ * objective (and sibling objectives of the same agent role in the workspace).
+ */
+export interface Correction {
+  id: number
+  objective_id: number
+  session_id: string | null
+  workspace: string | null
+  agent_context: string | null
+  label: string
+  created_by: number | null
+  active: boolean
+  created_at: string
+}
+
+export interface CreateCorrectionRequest {
+  label: string
+}
+
+// ── Stakeholder changelog (obj 937) ──
+
+/**
+ * Stakeholder-facing brief the AI reviewer produces as part of the PR audit —
+ * the reviewer already drives the feature in a browser and captures screenshots,
+ * so it is positioned to explain what shipped in plain English. Emitted in the
+ * reviewer's `<feature_brief>` block and parsed by the state poller.
+ */
+export interface FeatureBrief {
+  /** One-line plain-English headline a non-technical stakeholder understands. */
+  headline: string
+  /** 1–3 sentence plain-English description of what the feature does for users. */
+  description: string
+  /** How-it-works overview: the flow / what happens behind the scenes, in plain terms. */
+  overview: string
+  /** Whether this change is worth showing stakeholders (false for pure refactors/chores). */
+  audience_worthy: boolean
+}
+
+export type ChangelogCategory = 'feature' | 'fix' | 'improvement' | 'infra'
+export type ChangelogStatus = 'published' | 'draft' | 'skipped'
+
+/**
+ * One normalized "What's Shipping" entry — a merged, stakeholder-worthy PR. Fed
+ * by the org-level GitHub webhook (collector), enriched from objective_reviews
+ * when the PR was audited by this harness, translated into non-jargon copy.
+ */
+export interface ChangelogEntry {
+  id: number
+  repo: string
+  pr_number: number
+  pr_url: string
+  merge_commit_sha: string | null
+  platform: string
+  author: string | null
+  merged_at: string
+  category: ChangelogCategory
+  status: ChangelogStatus
+  title_eng: string
+  headline: string
+  body_stakeholder: string
+  overview: string
+  feature_brief: string
+  screenshots: string[]
+  objective_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Test Credentials ──
+
+/**
+ * Test credential set surfaced through the Settings UI and consumed by the
+ * AI Reviewer at session spawn time. `fields` is decrypted on the wire (the
+ * SQLite column is AES-256-GCM encrypted at rest via services/crypto.ts).
+ */
+export interface TestCredential {
+  slug: string
+  workspace: string
+  project: string | null
+  label: string
+  login_url: string
+  /** Plaintext key→value pairs. Server decrypts on read; client never sees
+   *  the encrypted form. */
+  fields: Record<string, string>
+  notes: string | null
+  created_by: number | null
+  created_at: string
+  updated_at: string
+}
+
+/** Body for POST /api/test-credentials. Fields are plaintext on the wire and
+ *  encrypted server-side before persistence. */
+export interface CreateTestCredentialRequest {
+  slug: string
+  workspace: string
+  project?: string | null
+  label: string
+  login_url: string
+  fields: Record<string, string>
+  notes?: string | null
+}
+
+/** Body for PUT /api/test-credentials/:slug. All fields optional — only
+ *  provided keys are updated. `fields`, when present, fully replaces the
+ *  encrypted blob. */
+export interface UpdateTestCredentialRequest {
+  workspace?: string
+  project?: string | null
+  label?: string
+  login_url?: string
+  fields?: Record<string, string>
+  notes?: string | null
+}
+
+// ── Native scoped secrets store (obj-2353) ──
+//
+// Wire contract for the secrets-store surfaces. These mirror the service-layer
+// types in server/src/services/secrets-store.ts EXACTLY. The decrypted value
+// NEVER appears in any of these shapes — `SecretSummary` is metadata only, so
+// "raw never returned after write" is guaranteed by the type itself.
+
+export type SecretScopeType = 'global' | 'workspace' | 'user' | 'workspace_user'
+
+/** Metadata-only view of a stored secret. NEVER carries the value. */
+export interface SecretSummary {
+  id: number
+  scopeType: SecretScopeType
+  workspace: string | null
+  userId: number | null
+  key: string
+  version: number
+  createdBy: number | null
+  updatedBy: number | null
+  createdAt: string
+  updatedAt: string
+  /** Server-process only: never injected into a session. (Already on the wire; now typed.) */
+  serviceOnly?: boolean
+  /** obj 900498: operator note about what the secret is for. Never part of the value. */
+  description?: string | null
+  /** obj 900498: last time the server decrypted it for a real use (spawn, broker, server read). */
+  lastUsedAt?: string | null
+}
+
+/** One entry in a secret's version history (metadata only). */
+export interface SecretVersionSummary {
+  version: number
+  changedBy: number | null
+  changedAt: string
+  /** obj 719065: how the value arrived when it was not typed in Settings — e.g.
+   *  "agent Grok Bot (key #4) relayed request on card #123". null = Settings / API. */
+  via?: string | null
+}
+
+/** Body for POST /api/secrets — create-or-update a secret at a scope. The
+ *  plaintext `value` is sent once over TLS and encrypted server-side; it is
+ *  never echoed back (the response is a `SecretSummary`). */
+export interface SetSecretRequest {
+  scopeType: SecretScopeType
+  workspace?: string | null
+  userId?: number | null
+  key: string
+  value: string
+  /** obj 900498: optional. Omitted on an update = keep the existing description. */
+  description?: string | null
+}
+
+/** Body for POST /api/secrets/rotate (obj 900498) — replace the value of an
+ *  EXISTING secret. 404 if it does not exist: rotation never creates. */
+export type RotateSecretRequest = SetSecretRequest
+
+/** Body for PATCH /api/secrets/metadata (obj 900498) — description only; the value is untouched. */
+export interface SecretMetadataRequest {
+  scopeType: SecretScopeType
+  workspace?: string | null
+  userId?: number | null
+  key: string
+  /** null or '' clears it. */
+  description: string | null
+}
+
+/** One row of the append-only secrets audit log (obj 900498). There is no value field. */
+export interface SecretAuditEntry {
+  id: number
+  actorUserId: number | null
+  actorUsername: string | null
+  /** create | update | rotate | describe | delete | rollback | read | inject | use | reveal_attempt */
+  action: string
+  scope: string
+  key: string
+  at: string
+  secretId: number | null
+  /** ui | api | spawn | broker | server | … — how it reached the store. */
+  source: string | null
+  detail: string | null
+}
+
+/** GET /api/secrets/audit response. Pass `nextBeforeId` back as `beforeId` for the next page. */
+export interface SecretAuditPage {
+  entries: SecretAuditEntry[]
+  nextBeforeId: number | null
+}
+
+/** Body for POST /api/secrets/rollback — re-apply a prior version as a new one. */
+export interface RollbackSecretRequest {
+  scopeType: SecretScopeType
+  workspace?: string | null
+  userId?: number | null
+  key: string
+  toVersion: number
+}
+
+/** Body for POST /api/secrets/move — re-scope an existing secret WITHOUT
+ *  re-entering its value. The server re-parents the row (same ciphertext, same
+ *  version history); the plaintext is never decrypted, sent, or returned. */
+export interface MoveSecretRequest {
+  scopeType: SecretScopeType
+  workspace?: string | null
+  userId?: number | null
+  key: string
+  to: {
+    scopeType: SecretScopeType
+    workspace?: string | null
+    userId?: number | null
+  }
+}
+
+/** GET /api/secrets/principals — the organizations and users the caller may
+ *  target when choosing a scope. Powers the admin scope pickers so the UI never
+ *  has to ask for a raw numeric user id. Members receive only themselves and
+ *  their own organizations; admins receive everything. */
+export interface SecretPrincipals {
+  /** `workspace` slugs, surfaced in the UI under the label "Organization". */
+  organizations: { slug: string; name: string }[]
+  users: { id: number; username: string }[]
+  /** True when the caller may address the `global` (Command-Center-wide) scope. */
+  canUseGlobal: boolean
+}
+
+/** A row from GET /api/secrets/access-log (global admin only). */
+export interface SecretAccessLogEntry {
+  actorUserId: number | null
+  action: string
+  scope: string
+  key: string
+  at: string
+}
+
+// ── Scoped agent/skill assignment (obj-2388) ────────────────────────────────
+// Reuses the obj-2353/1731 credential scope model (global/workspace/user) and
+// ADDS `project` as a new scope target, so an agent OR a skill can be assigned
+// to a user / org(=workspace) / project the same way a credential is scoped.
+// Semantics generalize Phase-7 `default_agent_pool`: if a resource_type has any
+// assignment scoped to a session's workspace or project, availability is
+// RESTRICTED to the resolved union (global baseline + matching workspace +
+// matching project + matching user); otherwise it is unrestricted (legacy
+// allow-any). See services/resource-assignments.ts for resolution.
+
+/** What kind of resource an assignment governs. */
+export type ResourceType = 'agent' | 'skill'
+
+/** Scope target for an assignment. `workspace` is the org tier (post-rebrand);
+ *  `project` is the new finer tier added by obj-2388. */
+export type ResourceScopeType = 'global' | 'workspace' | 'user' | 'project'
+
+/** A stored agent/skill→scope assignment (metadata only; no secrets). */
+export interface ResourceAssignment {
+  id: number
+  resourceType: ResourceType
+  resourceId: string // agent name (e.g. 'cmo') or skill name (e.g. 'campaign-audit')
+  scopeType: ResourceScopeType
+  workspace: string | null
+  project: string | null
+  userId: number | null
+  createdBy: number | null
+  createdAt: string
+}
+
+/** Body for POST /api/resource-assignments — create-or-ignore an assignment. */
+export interface SetResourceAssignmentRequest {
+  resourceType: ResourceType
+  resourceId: string
+  scopeType: ResourceScopeType
+  workspace?: string | null
+  project?: string | null
+  userId?: number | null
+}
+
+/** Result of resolving which resources are available to a session context. */
+export interface ResolvedResourceAvailability {
+  resourceType: ResourceType
+  restricted: boolean // false = legacy allow-any (no scoping for this context)
+  allowed: string[] // resource_ids available when restricted
+}
+
+export interface PlanningMessage {
+  id: number
+  objective_id: number
+  session_id: string | null
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
+
+// ── Mentor Chat ──
+
+export type MentorSessionState = 'idle' | 'working' | 'review'
+
+export interface ThreadFolder {
+  id: number
+  title: string
+  workspace: string
+  created_at: string
+  updated_at: string
+}
+
+export interface MentorThread {
+  id: number
+  title: string
+  tags: string[]
+  pinned: boolean
+  archived: boolean
+  done: boolean
+  folder_id: number | null
+  account_id: string | null
+  session_id: string | null
+  last_active_at: string | null
+  last_message_role: 'user' | 'assistant' | null
+  workspace: string
+  created_by: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MentorSummary {
+  id: number
+  thread_id: number
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateMentorThreadRequest {
+  title?: string
+  tags?: string[]
+  workspace?: string
+}
+
+export interface UpdateMentorThreadRequest {
+  title?: string
+  tags?: string[]
+  pinned?: boolean
+  archived?: boolean
+  done?: boolean
+  folder_id?: number | null
+  workspace?: string
+}
+
+export interface PostMentorMessageRequest {
+  content: string
+  filePaths?: string[]
+}
+
+export interface MentorUploadResponse {
+  files: Array<{ originalName: string; path: string; size: number; mimetype: string }>
+}
+
+export interface MentorThreadOutput {
+  thread: MentorThread
+  state: MentorSessionState
+  messages: SessionMessage[]
+}
+
+export interface PostMentorMessageResponse {
+  thread: MentorThread
+  session_id: string | null
+}
+
+// ── Alerts ──
+
+export type AlertSeverity = 'normal' | 'high' | 'emergency'
+
+export interface Alert {
+  id: number
+  severity: AlertSeverity
+  source: string
+  title: string
+  message: string
+  dedup_key: string | null
+  url: string | null
+  email_sent_at: string | null
+  acked_at: string | null
+  acked_by: string | null
+  created_at: string
+}
+
+/** Body for POST /api/alerts (bearer-token ingest from cron / external scripts). */
+export interface IngestAlertRequest {
+  severity: AlertSeverity
+  source: string
+  title: string
+  message: string
+  dedup_key?: string
+  url?: string
+}
+
+// ── Workspace Config ──
+
+export interface WorkspaceProject {
+  name: string
+  description: string
+  path: string
+  github: string | null
+  stack: string[]
+}
+
+export interface WorkspaceConfig {
+  name: string
+  description: string
+  context: string
+  knowledge: {
+    qmd_collection: string
+    qmd_filter?: string
+    indexes: string[]
+  }
+  projects: WorkspaceProject[]
+}
+
+export interface WorkspacesConfig {
+  workspaces: Record<string, WorkspaceConfig>
+}
+
+// A repo/project attached to a workspace and persisted in the SQLite
+// `workspace_repos` table (admin-managed via the Config page). Distinct from
+// the legacy read-only `WorkspaceProject` entries that come from workspaces.json.
+export interface WorkspaceRepo {
+  id: number
+  workspace: string
+  name: string
+  description: string | null
+  github: string | null
+  repo_path: string | null
+  stack: string[]
+  /** Folder inside the checkout that holds living product docs. */
+  docs_path: string
+  /** When true, the daily docs-breathe Job may open a PR here. */
+  docs_enabled: boolean
+  created_at: string
+}
+
+// ── Workspace integrations (GitHub org + PostHog, connected per workspace) ──
+
+export type IntegrationKind = 'github' | 'posthog'
+export type IntegrationStatus = 'connected' | 'error' | 'disconnected'
+
+/**
+ * Masked, API-safe view of a workspace integration. Raw secrets (PATs,
+ * project/personal API keys) live ONLY in the server DB and are NEVER included
+ * here — only a last-4 fingerprint for display. Returned by
+ * GET /admin/workspaces/:slug/integrations.
+ */
+export interface WorkspaceIntegration {
+  workspace: string
+  kind: IntegrationKind
+  status: IntegrationStatus
+  error: string | null
+  // github
+  org: string | null
+  token_last4: string | null
+  repo_count: number | null
+  // posthog
+  host: string | null
+  project_api_key_last4: string | null
+  personal_api_key_last4: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** A repo on a connected GitHub org, surfaced so the UI can pick one to attach. */
+export interface GithubOrgRepo {
+  name: string
+  full_name: string
+  private: boolean
+  language: string | null
+}
+
+/** Body for POST /admin/workspaces/:slug/integrations/github. */
+export interface ConnectGithubRequest {
+  org: string
+  token: string
+}
+
+/** Body for POST /admin/workspaces/:slug/integrations/posthog. */
+export interface ConnectPosthogRequest {
+  host: string
+  project_api_key: string
+  personal_api_key?: string | null
+}
+
+// ── API Request/Response ──
+
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface LoginResponse {
+  user: User
+}
+
+/** POST /api/auth/token — JSON Bearer for agents (no cookie). */
+export interface TokenResponse {
+  token: string
+  token_type: 'Bearer'
+  expires_in: number
+  user: User
+}
+
+/** GET /api/auth/api-key — whether Settings has minted a key. Never the secret. */
+export interface ApiKeySummary {
+  configured: boolean
+  last4: string | null
+  created_at: string | null
+}
+
+/** POST /api/auth/api-key — plaintext shown once. */
+export interface ApiKeyIssued {
+  token: string
+  last4: string
+  created_at: string
+}
+
+// ── Agent API keys (obj 714090) ──────────────────────────────────────────────
+// Named, scoped, multi-key principals so each Grok Bot is its own
+// least-privilege identity instead of a copy of the user's whole account.
+// The legacy single users.api_token_hash key above keeps full access.
+
+/** Every scope an agent key can carry. Order is the display order. */
+export const AGENT_SCOPES = [
+  'board:read',
+  'board:write',
+  'board:start',
+  'board:cancel',
+  'board:done',
+  'board:delete',
+  'vault:read',
+  'vault:write',
+  'board:secrets_request',
+] as const
+export type AgentScope = (typeof AGENT_SCOPES)[number]
+
+/** New-key default: everything except the human signatures (done, delete). */
+export const DEFAULT_AGENT_SCOPES: AgentScope[] = [
+  'board:read',
+  'board:write',
+  'board:start',
+  'board:cancel',
+  'vault:read',
+  'vault:write',
+]
+
+export const AGENT_SCOPE_DESCRIPTIONS: Record<AgentScope, string> = {
+  'board:read': 'List, search and read cards and threads',
+  'board:write': 'Create, edit, message and stop cards',
+  'board:start': 'Start a card (status → working, approve plan)',
+  // obj 718417: cancel split out of done so a bot can retire a duplicate
+  // without holding Operator's signature.
+  'board:cancel': 'Retire a card (status → cancelled), e.g. a duplicate',
+  'board:done': 'Sign off a card (status → done)',
+  'board:delete': 'Delete cards',
+  'vault:read': 'Search and read the second-brain vault',
+  'vault:write': 'Write vault markdown files',
+  // obj 719065: write-only. Never in the default set — Operator grants it per key.
+  'board:secrets_request': 'Relay a card\'s secret request: mint a one-time, write-only upload link (never reads a value)',
+}
+
+/** GET /api/auth/agent-keys row. Never carries the secret. */
+/**
+ * Legacy marker in `AgentApiKeySummary.connectors`: this key predates the
+ * allow-list and was migrated to its previous behaviour (every connector its
+ * owner has). Settings shows it as a prompt to narrow the key.
+ */
+export const LEGACY_ALL_CONNECTORS = '*'
+
+/**
+ * Marker in a key's `connectors` list meaning "inherit whatever connected
+ * accounts my owner is authorised to use" (obj 900303).
+ *
+ * It is a MODE, not a connector id: it may only appear on its own, and the
+ * server rejects a list that mixes it with ids.
+ *
+ * It is NOT a widening of the owner. A key in inherit mode simply stops
+ * narrowing its owner; every owner-level test still runs on each use — the
+ * connection must belong to the key's owner, the owner's per-connector
+ * agent/workspace rules still apply, and work delegated by somebody else still
+ * needs the owner's opt-in. Disconnect or revoke the connection and an
+ * inheriting key loses it on the next use, with no key edit.
+ *
+ * Deliberately distinct from `LEGACY_ALL_CONNECTORS`: `'*'` is a frozen snapshot
+ * written once by a migration so pre-allow-list keys kept working, and Settings
+ * nags you to narrow it. `'owner'` is a live, chosen mode.
+ *
+ * It says nothing about agent scopes: an inheriting key still only does what its
+ * scopes allow, and still never gets board:done / board:delete by default.
+ * It says nothing about Secrets either — those are a separate store.
+ */
+export const INHERIT_OWNER_CONNECTORS = 'owner'
+
+/**
+ * What a brand-new key gets when the caller says nothing about connectors.
+ * Existing keys are NEVER rewritten to this — see db/schema/agent-keys.ts.
+ */
+export const DEFAULT_NEW_KEY_CONNECTORS: readonly string[] = [INHERIT_OWNER_CONNECTORS]
+
+export interface AgentApiKeySummary {
+  id: number
+  label: string
+  last4: string
+  scopes: AgentScope[]
+  /** null = every workspace the owning user can see. */
+  workspaces: string[] | null
+  /**
+   * Connector ids this key may use, and only ever its OWNER's copy of them.
+   * null or empty = explicitly none (deny-all).
+   * `['owner']` = inherit the owner's authorised connectors — the default for a
+   * key created after obj 900303 (see INHERIT_OWNER_CONNECTORS).
+   * `['*']` = the migrated legacy keys (see LEGACY_ALL_CONNECTORS).
+   */
+  connectors: string[] | null
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
+/** POST /api/auth/agent-keys — plaintext shown once. */
+export interface AgentApiKeyIssued extends AgentApiKeySummary {
+  token: string
+}
+
+export interface CreateAgentApiKeyRequest {
+  label: string
+  scopes?: AgentScope[]
+  workspaces?: string[] | null
+  /**
+   * Connector ids the key may use.
+   * OMITTED = `['owner']`: inherit the owner's authorised connectors (obj 900303).
+   * `null` or `[]` = explicitly none. An explicit list = exactly those ids.
+   */
+  connectors?: string[] | null
+}
+
+/** PATCH /api/auth/agent-keys/:id — the owner or an admin narrowing a key. */
+export interface UpdateAgentApiKeyRequest {
+  connectors?: string[] | null
+}
+
+/** GET /api/auth/me `api_key` block when the caller authenticated with a key. */
+export interface ApiKeyIdentity {
+  kind: 'agent' | 'legacy'
+  id: number | null
+  label: string
+  scopes: AgentScope[]
+  workspaces: string[] | null
+  /**
+   * Connector ids this key may use — always only the KEY OWNER's own
+   * connections. `['*']` on the legacy full-access key, which is the owner
+   * themselves. Never a credential, only ids.
+   */
+  connectors: string[]
+}
+
+export interface CreateObjectiveRequest {
+  title: string
+  description: string
+  /** OPTIONAL since obj 708817 — the human create form no longer collects an
+   *  agent. When absent the server resolves the workspace's primary pool agent
+   *  (`default_agent_pool[0]`, else 'general'). Callers that DO send it keep
+   *  their exact previous behaviour. */
+  agent_context?: AgentContext
+  workspace?: string
+  project?: string | null
+  /** Board-Project association: id of a Project row in the same workspace.
+   *  When set with a parent_id, the parent's project_id is inherited if this
+   *  is omitted. Rejected with 400 if the project belongs to a different workspace. */
+  project_id?: number | null
+  category?: ObjectiveCategory
+  parent_id?: number | null
+  assigned_user_id?: number | null
+  assigned_user_ids?: number[]
+  create_pr?: boolean
+  delegate_mode?: boolean
+  completion_goal?: string | null
+  workflow_hint?: string | null
+  effort?: EffortLevel
+  model?: ModelChoice
+  type?: ObjectiveType
+  skip_ai_review?: boolean
+  /** Associate a manual objective with a Strategy (obj 2386). Accepts the id of
+   *  an is_strategy=1 objective; invalid/dangling ids degrade to inherited/null.
+   *  Lets a hand-created objective (even parent_id IS NULL) show its strategy. */
+  strategy_id?: number | null
+  /** Explicit Strategy marker (obj 2835). A Strategy is the intentional top tier
+   *  and must be opted into at creation — it is NEVER inferred from
+   *  delegate_mode/parent_id. Defaults to false (is_strategy=0). */
+  is_strategy?: boolean
+  /** obj 64: create even when an OPEN card with the same normalized title exists in
+   *  the workspace (created inside the duplicate-guard window, default 24h). Without
+   *  it the server answers 409 { reason: 'duplicate_24h', existing_id }. */
+  force?: boolean
+  /** obj 900270: the Grok bot that owns this card (a bot name or id), or null for
+   *  unowned. Optional; absent = null. Set EXPLICITLY by the filing bot — the
+   *  server never infers it from the calling credential. Validated by
+   *  validateOwnerBot (trimmed, max OWNER_BOT_MAX_LENGTH, safe charset) → 400. */
+  owner_bot?: string | null
+}
+
+export interface UpdateObjectiveRequest {
+  title?: string
+  description?: string
+  agent_context?: AgentContext
+  workspace?: string
+  project?: string | null
+  /** Board-Project association update. null = detach from current project.
+   *  Rejected with 400 if the project belongs to a different workspace. */
+  project_id?: number | null
+  category?: ObjectiveCategory
+  parent_id?: number | null
+  assigned_user_id?: number | null
+  assigned_user_ids?: number[]
+  create_pr?: boolean
+  delegate_mode?: boolean
+  completion_goal?: string | null
+  workflow_hint?: string | null
+  effort?: EffortLevel
+  model?: ModelChoice
+  type?: ObjectiveType
+  /** Per-objective opt-out from the AI Review stage. */
+  skip_ai_review?: boolean
+  /** Pointer into `test_credentials.slug`; null detaches any current
+   *  selection so the reviewer falls back to workspace+project lookup. */
+  test_cred_slug?: string | null
+  /** Associate/re-associate this objective with a Strategy (obj 2386), or null
+   *  to detach. Validated against is_strategy=1; invalid ids degrade to detach. */
+  strategy_id?: number | null
+  /** Explicit Strategy marker (obj 2835). Only changes the stored marker when
+   *  supplied; NEVER re-derived from delegate_mode/parent_id on update. */
+  is_strategy?: boolean
+  /** Admin-only PR link override (obj 712954). pr_url must be a GitHub PR URL;
+   *  pr_number, when sent, must equal the URL's number; null clears the link. */
+  pr_url?: string | null
+  pr_number?: number | null
+  branch_name?: string | null
+  /** obj 900270: set or change the owning bot. null (or "") clears it (unowned);
+   *  omitted leaves it unchanged. Same validation as on create. */
+  owner_bot?: string | null
+}
+
+// ── Owner bot (obj 900270) ───────────────────────────────────────────────────
+
+/** Longest owner_bot value accepted (after trimming). */
+export const OWNER_BOT_MAX_LENGTH = 64
+/**
+ * Safe charset for owner_bot: starts with a letter or digit, then letters,
+ * digits, single spaces and `_ . : @ -`. Covers a Grok bot name ("Grok: Research")
+ * or an id ("grok-research", "bot_12"). No quotes, angle brackets, slashes,
+ * control characters, tabs or newlines.
+ */
+export const OWNER_BOT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9_.:@-]| (?! ))*$/
+
+/**
+ * Validate an owner_bot input. `undefined` = not supplied (leave unchanged / null
+ * on create). `null` or a blank string = clear (unowned). Anything else must be
+ * a string that is, after trimming, 1..OWNER_BOT_MAX_LENGTH characters of the
+ * safe charset.
+ */
+export function validateOwnerBot(raw: unknown):
+  | { ok: true; value: string | null | undefined }
+  | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, value: undefined }
+  if (raw === null) return { ok: true, value: null }
+  if (typeof raw !== 'string') return { ok: false, error: 'owner_bot must be a string or null' }
+  const v = raw.trim()
+  if (!v) return { ok: true, value: null }
+  if (v.length > OWNER_BOT_MAX_LENGTH) return { ok: false, error: `owner_bot must be at most ${OWNER_BOT_MAX_LENGTH} characters` }
+  if (!OWNER_BOT_PATTERN.test(v)) {
+    return { ok: false, error: 'owner_bot may contain only letters, digits, single spaces and _ . : @ - (and must start with a letter or digit)' }
+  }
+  return { ok: true, value: v }
+}
+
+export interface StatusChangeRequest {
+  status: ObjectiveStatus
+  /** obj 64: start (queue → working) even while a same-title twin created in the
+   *  duplicate-guard window is already working/ai_review. */
+  force?: boolean
+}
+
+export interface ApiError {
+  error: string
+}
+
+
+// ── Agent-key webhooks (obj 719278) ──────────────────────────────────────────
+
+/** Event types an agent key's webhook can be sent. One per card change. */
+export const AGENT_WEBHOOK_EVENTS = [
+  'created',
+  'working',
+  'pr_opened',
+  'ai_review',
+  'entered_review',
+  'needs_secret',
+  'failed',
+  'stalled',
+  'done',
+  'cancelled',
+  'merged',
+  'pr_closed',
+  'status_changed',
+  'needs_agent',
+] as const
+export type AgentWebhookEvent = (typeof AGENT_WEBHOOK_EVENTS)[number]
+
+/** What a new webhook subscribes to until the owner changes it. */
+export const DEFAULT_AGENT_WEBHOOK_EVENTS: AgentWebhookEvent[] = [
+  'pr_opened',
+  'ai_review',
+  'entered_review',
+  'needs_secret',
+  'failed',
+  'stalled',
+  'done',
+]
+
+export const AGENT_WEBHOOK_EVENT_DESCRIPTIONS: Record<AgentWebhookEvent, string> = {
+  created: 'Card created',
+  working: 'A session started (status → working)',
+  pr_opened: 'A PR was linked to the card',
+  ai_review: 'AI review passed (payload carries the verdict)',
+  entered_review: 'Moved to Needs You (review)',
+  needs_secret: 'The worker asked for a secret',
+  failed: 'AI review failed',
+  stalled: 'Blocked: backstop parked it, or a blocker was raised',
+  done: 'Signed off (status → done)',
+  cancelled: 'Cancelled',
+  merged: 'Its PR merged',
+  pr_closed: 'Its PR closed without merging',
+  status_changed: 'Any other status move (queue, planning, ai_review)',
+  needs_agent: 'The card needs its agent — blocked, failed review, waiting on a Operator decision, or (obj 900309) it COMPLETED: a card that went straight to done without passing through review, or its PR merged. Once per card need and at most once per completion, never per status move. Payload carries owner_bot',
+}
+
+/** Why a card needs its agent (most urgent first). Mirrors get_attention's kinds, minus the time-based `stuck`. */
+/**
+ * Why a card needs its agent.
+ *
+ * The first four are OPEN-card needs (most urgent first), mirroring get_attention's
+ * kinds minus the time-based `stuck`. They drive the escalation ladder recorded in
+ * agent_webhook_card_need_state.
+ *
+ * obj 900309 adds two TERMINAL, actionable completion kinds. They are deliberately NOT
+ * part of that ladder — a finished card has no more-urgent successor, and classifyNeed()
+ * returns null for a terminal card, which CLEARS the ladder. They are deduped instead by
+ * a stable per-card event_id, so a card wakes its owner at most once per completion for
+ * the card's whole life:
+ *   - `completed`  — the card reached `done` WITHOUT passing through `review`. That is the
+ *     reviewer-PASS auto-route a child card takes (mustRouteToHumanReview() is false when
+ *     parent_id is set), which is exactly the path that used to finish silently. A
+ *     top-level card Operator signs off in `review` already woke its owner with the `review`
+ *     need, so it never gets a second wake — Operator's human-done semantics are unchanged.
+ *   - `pr_merged`  — the card's PR merged, i.e. the deliverable actually shipped.
+ */
+export type AgentNeedKind = 'needs_secret' | 'failed_review' | 'blocked' | 'review' | 'completed' | 'pr_merged'
+/** The pilot's three buckets: blocked · waiting on the agent · a Grok-only action (a Operator decision). */
+export type AgentNeedCategory = 'blocked' | 'waiting_on_agent' | 'mike_decision' | 'completed'
+
+export interface AgentNeed {
+  kind: AgentNeedKind
+  category: AgentNeedCategory
+  /** One line built from card state only — never the description, a transcript, or a secret value. */
+  why: string
+}
+
+/** The JSON body POSTed to a webhook. No secret values, no transcript text. */
+export interface AgentWebhookPayload {
+  /** Stable per (card change, key) — use it to dedupe retries. */
+  event_id: string
+  event: AgentWebhookEvent
+  test?: boolean
+  objective: {
+    id: number
+    workspace: string | null
+    title: string | null
+    status: string | null
+    pr_url: string | null
+    url: string
+  }
+  /** Present on status moves. */
+  from_status?: string
+  /** Present on ai_review / failed / stalled-from-review. */
+  verdict?: string
+  /** event `needs_agent` only: why the card needs the agent. */
+  need?: AgentNeed
+  /** event `needs_agent` only: short status, e.g. "review · AI review fail". */
+  status_summary?: string
+  /**
+   * obj 900270: the card's owner_bot — the Grok bot the filer named as owner — or
+   * null when the card is unowned. Present on every card event from this build on
+   * (always on `needs_agent`, so a router can tell "unowned" from "old sender").
+   * Never inferred from the agent key.
+   */
+  owner_bot?: string | null
+  /** event `needs_agent` only: one line a Bot can act on without parsing ("Card #12 (example) needs General: …"). */
+  summary?: string
+  occurred_at: string
+  sent_at: string
+  agent_key: { id: number; label: string }
+}
+
+/** GET /api/auth/agent-keys/:id/webhook. The sender key itself is never returned. */
+export interface AgentWebhookConfig {
+  key_id: number
+  url: string
+  header_name: string
+  header_prefix: string
+  events: AgentWebhookEvent[]
+  enabled: boolean
+  /** true once a sender key is stored in Secrets (value never returned). */
+  has_secret: boolean
+  secret_name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentWebhookDelivery {
+  id: number
+  event_id: string
+  event: AgentWebhookEvent
+  objective_id: number | null
+  status: 'pending' | 'delivered' | 'failed'
+  attempts: number
+  last_status_code: number | null
+  last_error: string | null
+  next_attempt_at: string | null
+  created_at: string
+  delivered_at: string | null
+}

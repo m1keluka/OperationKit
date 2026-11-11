@@ -1,0 +1,21 @@
+.env
+*.env
+!.env.example
+node_modules
+dist
+data
+*.db
+*.log
+*.pem
+*.key
+sms-*.csv
+app/client/tsconfig.tsbuildinfo
+.playwright-mcp/
+
+# Real (non-example) registry seeds — never published to the OSS mirror.
+seed.agents.json
+app/server/seed.agents.json
+
+# Real content-engine owner seed (names of real people) — never published (obj 900493).
+seed.content-owners.json
+app/server/seed.content-owners.json
