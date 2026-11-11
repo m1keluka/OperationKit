@@ -16,10 +16,14 @@ import { isContentOwner } from '../services/content-owners.js'
 import { CF_ACCESS_HEADER, CF_ACCESS_LOGOUT_PATH, getCfAccessVerifier } from '../lib/cf-access.js'
 import { cfAccessIdentifies } from '../lib/cf-access-identity.js'
 import type { LoginRequest, TokenResponse, User } from '@operationkit/shared'
+import emailLinkRouter from './auth-email-link.js'
 
 const TOKEN_EXPIRES_IN_SEC = 7 * 24 * 60 * 60
 
 const router = Router()
+
+// obj 900497: "Email me a sign-in link" (only when this install's own email is set up).
+router.use('/email-link', emailLinkRouter)
 
 // Real bcrypt hash so a missing-user 401 spends the same compare time as a
 // wrong-password 401. Value is never a valid login — we only compare against

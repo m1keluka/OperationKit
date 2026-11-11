@@ -22,6 +22,7 @@ import {
   type StoredImage,
 } from './attachments.js'
 import { runTool, toolSpecsFor, ToolUseError, type ToolContext } from './tools.js'
+import { laneKey, lanePredicate, laneThreadId, MAIN_LANE, touchThread, type ChatLane } from './threads.js'
 
 export const MAX_STEPS = 8
 const HISTORY_LIMIT = 40
@@ -118,15 +119,28 @@ function withImages(rows: ChatMessageRow[]): ChatMessageRow[] {
   return rows
 }
 
-export function listMessages(userId: number, slug: string, opts: { afterId?: number; limit?: number } = {}): ChatMessageRow[] {
+/**
+ * One LANE's history (obj 900370). `lane` defaults to the main conversation, so
+ * every pre-existing caller keeps reading exactly what it read before. The lane
+ * predicate is `thread_id IS NULL` or `thread_id = N` and never both: this is
+ * the query that makes thread A's messages unreachable from thread B.
+ */
+export function listMessages(
+  userId: number,
+  slug: string,
+  opts: { afterId?: number; limit?: number; lane?: ChatLane } = {},
+): ChatMessageRow[] {
   const limit = Math.min(500, Math.max(1, opts.limit ?? 200))
+  const { sql: laneSql, params: laneParams } = lanePredicate(opts.lane ?? MAIN_LANE)
   const rows = getDb()
     .prepare(
       `SELECT * FROM (
-         SELECT * FROM agent_chat_messages WHERE user_id = ? AND agent_slug = ? AND id > ? ORDER BY id DESC LIMIT ?
+         SELECT * FROM agent_chat_messages
+          WHERE user_id = ? AND agent_slug = ? AND ${laneSql} AND id > ?
+          ORDER BY id DESC LIMIT ?
        ) ORDER BY id`,
     )
-    .all(userId, slug, opts.afterId ?? 0, limit) as Record<string, unknown>[]
+    .all(userId, slug, ...laneParams, opts.afterId ?? 0, limit) as Record<string, unknown>[]
   return withImages(rows.map(mapRow))
 }
 
@@ -135,22 +149,33 @@ function addMessage(
   slug: string,
   m: Omit<ChatMessageRow, 'id' | 'created_at' | 'images'>,
   images: IncomingImage[] = [],
+  lane: ChatLane = MAIN_LANE,
 ): ChatMessageRow {
   const db = getDb()
   const info = db
-    .prepare('INSERT INTO agent_chat_messages (user_id, agent_slug, role, content, provider, model, tool_name, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(userId, slug, m.role, m.content, m.provider, m.model, m.tool_name, m.meta ? JSON.stringify(m.meta) : null)
+    .prepare(
+      'INSERT INTO agent_chat_messages (user_id, agent_slug, role, content, provider, model, tool_name, meta, thread_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    )
+    .run(userId, slug, m.role, m.content, m.provider, m.model, m.tool_name, m.meta ? JSON.stringify(m.meta) : null, laneThreadId(lane))
   const id = Number(info.lastInsertRowid)
   const row = mapRow(db.prepare('SELECT * FROM agent_chat_messages WHERE id = ?').get(id) as Record<string, unknown>)
-  row.images = saveImages(id, userId, slug, images)
+  row.images = saveImages(id, userId, slug, images, lane)
   return row
 }
 
-export function clearChat(userId: number, slug: string): number {
+/**
+ * Empty ONE lane (obj 900370). Closing or clearing a side thread must leave the
+ * main conversation byte-for-byte as it was, which is why this is lane-scoped
+ * rather than keyed on (person, bot) alone.
+ */
+export function clearChat(userId: number, slug: string, lane: ChatLane = MAIN_LANE): number {
   // The images belong to the messages: "Clear chat" must take them too, or the
   // bytes outlive the conversation the person just deleted.
-  deleteAttachmentsForChat(userId, slug)
-  return getDb().prepare('DELETE FROM agent_chat_messages WHERE user_id = ? AND agent_slug = ?').run(userId, slug).changes
+  deleteAttachmentsForChat(userId, slug, lane)
+  const { sql, params } = lanePredicate(lane)
+  return getDb()
+    .prepare(`DELETE FROM agent_chat_messages WHERE user_id = ? AND agent_slug = ? AND ${sql}`)
+    .run(userId, slug, ...params).changes
 }
 
 /**
@@ -209,6 +234,12 @@ export interface TurnInput {
   username: string
   agent: ChatAgent
   text: string
+  /**
+   * Which conversation of this bot the turn belongs to (obj 900370). Omitted =
+   * the main conversation. Two lanes of the SAME bot may run concurrently; a
+   * second turn in the SAME lane is still refused with ChatBusyError.
+   */
+  lane?: ChatLane
   /** Validated images attached to this message (obj 900157). */
   images?: IncomingImage[]
   env?: NodeJS.ProcessEnv
@@ -221,20 +252,27 @@ export async function runTurn(input: TurnInput): Promise<{ messages: ChatMessage
   const { userId, agent } = input
   const env = input.env ?? process.env
   const now = input.now ?? (() => new Date())
-  const key = `${userId}:${agent.slug}`
+  const lane = input.lane ?? MAIN_LANE
+  // The in-flight slot is per LANE, not per bot (obj 900370): that is what makes
+  // side threads concurrent task lanes rather than a queue behind one chat.
+  const key = `${userId}:${agent.slug}:${laneKey(lane)}`
   if (inFlight.has(key)) throw new ChatBusyError('This agent is still answering your last message.')
   inFlight.add(key)
   const created: ChatMessageRow[] = []
+  // A lane-local addMessage, so no call below can forget which lane it is in.
+  const add = (
+    m: Omit<ChatMessageRow, 'id' | 'created_at' | 'images'>,
+    imgs: IncomingImage[] = [],
+  ) => addMessage(userId, agent.slug, m, imgs, lane)
   try {
     const images = input.images ?? []
-    const prior = listMessages(userId, agent.slug, { limit: HISTORY_LIMIT })
-    const userRow = addMessage(
-      userId,
-      agent.slug,
+    const prior = listMessages(userId, agent.slug, { limit: HISTORY_LIMIT, lane })
+    const userRow = add(
       { role: 'user', content: input.text, provider: null, model: null, tool_name: null, meta: null },
       images,
     )
     created.push(userRow)
+    touchThread(lane)
 
     const demo = isDemoOn(env) || agent.slug === DEMO_AGENT_SLUG
     // Demo switched on by env (AGENT_CHAT_DEMO=1) never went through the settings
@@ -251,7 +289,7 @@ export async function runTurn(input: TurnInput): Promise<{ messages: ChatMessage
       providerId = chooseProviderId(agent, installDefaultProvider(), { ...input.deps, env })
       provider = createProvider(providerId, agent, { ...input.deps, env })
     } catch (err) {
-      created.push(addMessage(userId, agent.slug, { role: 'error', content: err instanceof Error ? err.message : String(err), provider: providerId, model: null, tool_name: null, meta: null }))
+      created.push(add({ role: 'error', content: err instanceof Error ? err.message : String(err), provider: providerId, model: null, tool_name: null, meta: null }))
       return { messages: created }
     }
 
@@ -265,7 +303,7 @@ export async function runTurn(input: TurnInput): Promise<{ messages: ChatMessage
     // Silently dropping the screenshot is the bug this objective exists for: the
     // model then answers "I can't open screenshots" and nobody knows why.
     if (images.length > 0 && !provider.supportsImages) {
-      created.push(addMessage(userId, agent.slug, {
+      created.push(add({
         role: 'error',
         content: `${agent.name} is answered by ${provider.label}, which cannot look at images on this install. Your ${images.length === 1 ? 'image is' : 'images are'} saved in this chat — give the agent an AI provider that reads images (Anthropic API, OpenAI or Grok) and ask again.`,
         provider: provider.id,
@@ -286,12 +324,12 @@ export async function runTurn(input: TurnInput): Promise<{ messages: ChatMessage
         out = await provider.complete({ system, messages: convo, tools, agent, signal: input.signal })
       } catch (err) {
         const msg = err instanceof ProviderError ? err.message : `The AI provider failed: ${err instanceof Error ? err.message : String(err)}`
-        created.push(addMessage(userId, agent.slug, { role: 'error', content: msg.slice(0, 500), provider: provider.id, model: provider.model, tool_name: null, meta: { provider_label: provider.label } }))
+        created.push(add({ role: 'error', content: msg.slice(0, 500), provider: provider.id, model: provider.model, tool_name: null, meta: { provider_label: provider.label } }))
         return { messages: created }
       }
 
       if (out.toolCalls.length === 0) {
-        created.push(addMessage(userId, agent.slug, {
+        created.push(add({
           role: 'assistant',
           content: (out.content ?? '').trim() || '(no reply)',
           provider: provider.id,
@@ -310,7 +348,7 @@ export async function runTurn(input: TurnInput): Promise<{ messages: ChatMessage
         try {
           const r = runTool(ctx, c.function.name, args)
           resultForModel = r.result
-          created.push(addMessage(userId, agent.slug, {
+          created.push(add({
             role: 'tool',
             content: r.summary,
             provider: provider.id,
@@ -321,12 +359,12 @@ export async function runTurn(input: TurnInput): Promise<{ messages: ChatMessage
         } catch (err) {
           const msg = err instanceof ToolUseError ? err.message : `Tool failed: ${err instanceof Error ? err.message : String(err)}`
           resultForModel = { error: msg }
-          created.push(addMessage(userId, agent.slug, { role: 'tool', content: msg, provider: provider.id, model: provider.model, tool_name: c.function.name, meta: { ok: false } }))
+          created.push(add({ role: 'tool', content: msg, provider: provider.id, model: provider.model, tool_name: c.function.name, meta: { ok: false } }))
         }
         convo.push({ role: 'tool', tool_call_id: c.id, name: c.function.name, content: JSON.stringify(resultForModel) })
       }
     }
-    created.push(addMessage(userId, agent.slug, { role: 'error', content: `Stopped after ${MAX_STEPS} steps without a final answer. Try a more specific request.`, provider: provider.id, model: provider.model, tool_name: null, meta: null }))
+    created.push(add({ role: 'error', content: `Stopped after ${MAX_STEPS} steps without a final answer. Try a more specific request.`, provider: provider.id, model: provider.model, tool_name: null, meta: null }))
     return { messages: created }
   } finally {
     inFlight.delete(key)

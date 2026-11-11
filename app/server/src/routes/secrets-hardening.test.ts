@@ -225,6 +225,54 @@ describe('POST /reveal — refused and audited', () => {
   })
 })
 
+describe('D1 (obj 900540): no flag can turn reveal on', () => {
+  it('stays 403 and value-free with every plausible reveal flag set in settings and env', async () => {
+    await seed()
+    const db = getDb()
+    for (const k of ['secrets_reveal_enabled', 'secret_reveal', 'reveal_enabled', 'secrets_revealable']) {
+      db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')`).run(k)
+    }
+    process.env.SECRETS_REVEAL_ENABLED = '1'
+    try {
+      for (const c of [ADMIN_C(), EXAMPLE_C()]) {
+        const r = await call('POST', '/reveal', { ...EXAMPLE, key: 'STRIPE_KEY', password: 'x', assertion: {} }, c)
+        expect(r.status).toBe(403)
+        assertMasked(r.text)
+      }
+    } finally {
+      delete process.env.SECRETS_REVEAL_ENABLED
+    }
+  })
+})
+
+describe('D2/D4 admin surfaces (obj 900540)', () => {
+  it('GET /kek-status is admin-only and carries a location, never key material', async () => {
+    expect((await call('GET', '/kek-status', undefined, EXAMPLE_C())).status).toBe(403)
+    const r = await call('GET', '/kek-status', undefined, ADMIN_C())
+    expect(r.status).toBe(200)
+    expect(r.json).toMatchObject({ ok: true, provider: 'env', location: 'env:SECRETS_MASTER_KEY' })
+    expect(r.text).not.toContain(process.env.SECRETS_MASTER_KEY as string)
+  })
+  it('env-policy: admin-only; mode switch and allowlist edits are validated and audited', async () => {
+    expect((await call('GET', '/env-policy', undefined, EXAMPLE_C())).status).toBe(403)
+    expect((await call('PUT', '/env-policy/mode', { mode: 'enforce' }, EXAMPLE_C())).status).toBe(403)
+    expect((await call('PUT', '/env-policy/mode', { mode: 'off' }, ADMIN_C())).status).toBe(400)
+    expect((await call('POST', '/env-policy/allowlist', { subjectType: 'agent', subject: 'cto', key: 'BAD NAME' }, ADMIN_C())).status).toBe(400)
+    const add = await call('POST', '/env-policy/allowlist', { subjectType: 'agent', subject: 'cto', key: 'FAKE_KEY' }, ADMIN_C())
+    expect(add.json).toMatchObject({ changed: true })
+    const put = await call('PUT', '/env-policy/mode', { mode: 'enforce' }, ADMIN_C())
+    expect(put.json).toEqual({ mode: 'enforce' })
+    const got = await call('GET', '/env-policy', undefined, ADMIN_C())
+    expect(got.json).toMatchObject({ mode: 'enforce', allowlist: [{ subjectType: 'agent', subject: 'cto', key: 'FAKE_KEY' }] })
+    const del = await call('DELETE', '/env-policy/allowlist', { subjectType: 'agent', subject: 'cto', key: 'FAKE_KEY' }, ADMIN_C())
+    expect(del.json).toMatchObject({ changed: true, allowlist: [] })
+    const audit = store.queryAccessLog({ action: 'env_policy' }).entries
+    expect(audit.map(e => e.detail)).toEqual(['disallow:agent:cto', 'mode:migration->enforce', 'allow:agent:cto'])
+    expect(audit.every(e => e.source === 'ui' && e.actorUserId === ADMIN)).toBe(true)
+    getDb().exec(`DELETE FROM settings WHERE key = 'secrets_session_env_mode'`)
+  })
+})
+
 describe('GET /audit', () => {
   it('whole log is admin-only; a member may read the history of a secret in their own scope', async () => {
     await seed()

@@ -79,7 +79,11 @@ jobs can work in it. That connection is theirs alone:
    secrets. When the job stops, its sandbox is removed.
 5. **Secrets are never shown.** Passwords, API keys and tokens are generated on the server or typed
    once into a masked field. They are stored encrypted (AES-256-GCM) and the app shows only their
-   names, never their values, not even to administrators. If someone pastes a key into a chat by
+   names, never their values, not even to administrators. There is no reveal feature, by design.
+   The encryption key sits in its own root-only file that AI jobs cannot see. On a new install each
+   AI job receives only the secrets allowlisted for its agent, and uses the others through a broker
+   that never hands it the value. Older installs move to this after a logging period. Every use and change is written to an audit log that cannot be edited. The log is
+   kept for one year, then exported to a file and pruned. If someone pastes a key into a chat by
    mistake, the known secret values are blanked out before the chat is saved.
 6. **Outside AI apps get limited keys.** When Claude, ChatGPT or Grok connect to the install, each
    uses its own named key with ticked permissions (read notes, write notes, create cards…) and a

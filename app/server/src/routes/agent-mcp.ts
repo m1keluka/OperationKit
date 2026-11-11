@@ -109,7 +109,9 @@ function pick<T extends Record<string, unknown>>(row: T, keys: readonly string[]
  * was to ask a human to read the board. The owner is a routing decision; it is
  * echoed explicitly, always, including as an explicit `null` meaning "unowned".
  */
-const ALWAYS_ECHO = new Set(['owner_bot'])
+// obj 900372: last_activity_at is echoed as an explicit null too — "never active" must
+// be distinguishable from "this build does not report activity".
+const ALWAYS_ECHO = new Set(['owner_bot', 'last_activity_at'])
 
 function compact(row: Record<string, unknown>, max = 4000): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -170,7 +172,9 @@ function receipt(confirmation: string, card: Record<string, unknown>, extra: Rec
   }, 600)
 }
 
-const CARD_ROW = ['id', 'title', 'status', 'type', 'workspace', 'project', 'agent_context', 'parent_id', 'has_blockers', 'ai_review_verdict', 'pr_url', 'owner_bot', 'updated_at'] as const
+// obj 900372: last_activity_at + stalled ride on every slim row so a bot sees a silent
+// working card in ONE list_objectives read (no per-card get_progress fan-out).
+const CARD_ROW = ['id', 'title', 'status', 'type', 'workspace', 'project', 'agent_context', 'parent_id', 'has_blockers', 'ai_review_verdict', 'pr_url', 'owner_bot', 'updated_at', 'last_activity_at', 'stalled', 'stall_reason'] as const
 const slimCard = (r: Record<string, unknown>) => compact(pick(r, CARD_ROW), 300)
 
 const STATUSES = ['planning', 'queue', 'working', 'ai_review', 'review', 'done', 'cancelled'] as const

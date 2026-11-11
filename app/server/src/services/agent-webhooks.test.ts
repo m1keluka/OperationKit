@@ -675,11 +675,18 @@ describe('needs_agent on the General key', () => {
     expect(wakes()).toHaveLength(0) // CoS did not file it → CoS is not told
   })
 
-  it('a card CoS does not own never wakes CoS', async () => {
+  it('obj 900553: a keyless (UI-created) unowned card falls back to CoS — exactly one wake', async () => {
+    // Before obj 900553 this pinned ZERO wakes: the enqueue JOIN on agent_key_id
+    // left every browser-created card dark. An unowned keyless card now routes to
+    // the General, the same place an unowned API card's need ends up.
     const id = seedCard(null)
     upd(id, `status = 'review', ai_review_verdict = 'fail'`)
     await tick()
-    expect(wakes()).toHaveLength(0)
+    const w = wakes()
+    expect(w).toHaveLength(1)
+    expect(w[0].objective.id).toBe(id)
+    expect(w[0].owner_bot).toBeNull()
+    expect(w[0].need.kind).toBe('failed_review')
   })
 
   it('a failing routine retries the same wake (same event id) and never blocks the card', async () => {

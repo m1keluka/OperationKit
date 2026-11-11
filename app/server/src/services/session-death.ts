@@ -4,6 +4,10 @@
  * the counters they share live here so handleSessionDeath can reset them.
  */
 import fs from 'fs'
+import path from 'path'
+import type { Objective } from '@operationkit/shared'
+import { TRANSCRIPT_DIR } from '../config.js'
+import type { ActiveSession } from './session-registry.js'
 import { cleanupJailHome } from './jail-home.js'
 import { getDb } from '../db/index.js'
 import {
@@ -169,9 +173,68 @@ export function decideTurnsContinue(input: { count: number; max: number }): { co
   return { continue: count < max }
 }
 
+/** Sessions whose death this process already accounted (obj 900372). Bounded. */
+const deathsHandled = new Set<string>()
+function markDeathHandled(sessionId: string): void {
+  deathsHandled.add(sessionId)
+  if (deathsHandled.size > 5000) {
+    const first = deathsHandled.values().next().value
+    if (first !== undefined) deathsHandled.delete(first)
+  }
+}
+
+/**
+ * obj 900372 — rebuild the minimal ActiveSession for a session this process did
+ * not spawn. The in-memory map is wiped by every backend restart / self-deploy
+ * while the tmux/jail session keeps running, and handleSessionDeath used to
+ * return early for such a session — so its end was never accounted: no
+ * session_intel row, session_count / total_tokens / cost stayed 0,
+ * last_activity_at never moved, and the jail HOME was left for the orphan sweep
+ * (which then deleted the transcript the canonical symlink pointed at → empty
+ * timeline). #900371 is the observed case: a real PR, then review with
+ * session_count 0, $0, 0 tokens and an empty timeline.
+ *
+ * Idempotent: only when the card still points at this session AND no
+ * session_intel row exists for it yet, so a death that was already handled
+ * (map entry deleted, extraction landed) is never re-accounted.
+ */
+export function rehydrateEndedSession(sessionId: string, transcriptDir: string = TRANSCRIPT_DIR): ActiveSession | null {
+  // Already handled in THIS process: its extraction may still be queued (no
+  // session_intel row yet), so the DB check alone would double-count it.
+  if (deathsHandled.has(sessionId)) return null
+  try {
+    const db = getDb()
+    const objective = db.prepare('SELECT * FROM objectives WHERE session_id = ?').get(sessionId) as Objective | undefined
+    if (!objective) return null
+    if (db.prepare('SELECT 1 FROM session_intel WHERE session_id = ?').get(sessionId)) return null
+    let accountId: string | null = null
+    try {
+      const rt = db.prepare('SELECT account_id FROM session_runtime WHERE session_id = ?').get(sessionId) as { account_id: string | null } | undefined
+      accountId = rt?.account_id ?? null
+    } catch { /* table missing on an old DB → unattributed */ }
+    return {
+      jsonlPath: path.join(transcriptDir, `${sessionId}.jsonl`),
+      logPath: path.join(transcriptDir, `${sessionId}.log`),
+      startedAt: Date.parse(String(objective.last_start_at ?? '')) || Date.now(),
+      accountId,
+      objective,
+    }
+  } catch {
+    return null
+  }
+}
+
 export function handleSessionDeath(sessionId: string): SessionDeathResult {
-  const session = activeSessions.get(sessionId)
+  let session = activeSessions.get(sessionId)
+  if (!session) {
+    const rehydrated = rehydrateEndedSession(sessionId)
+    if (rehydrated) {
+      console.warn(`[session-manager] ${sessionId} ended but was not in the live map (server restarted mid-session) — accounting it from the DB row`)
+      session = rehydrated
+    }
+  }
   if (!session) return { limitHit: false, spendCapHit: false, overloaded: false, turnsExhausted: false, authFailed: false, authReason: null, toolCalls: 0, accountId: null }
+  markDeathHandled(sessionId)
 
   const { accountId, jsonlPath, logPath, objective } = session
   let limitHit = false

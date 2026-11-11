@@ -34,6 +34,8 @@ const SettingsSeats = lazy(() => import('./components/settings/SettingsSeats').t
 const SettingsOrg = lazy(() => import('./components/settings/SettingsOrg').then(m => ({ default: m.SettingsOrg })))
 const SettingsAgents = lazy(() => import('./components/settings/SettingsAgents').then(m => ({ default: m.SettingsAgents })))
 const SettingsPlatform = lazy(() => import('./components/settings/SettingsPlatform').then(m => ({ default: m.SettingsPlatform })))
+// obj 900497: onboarding checklist (Sprint 4b mounts the Email panel route below).
+const SetupPage = lazy(() => import('./components/setup/SetupPage').then(m => ({ default: m.SetupPage })))
 const SettingsBranding = lazy(() => import('./components/settings/SettingsBranding').then(m => ({ default: m.SettingsBranding })))
 const SettingsEmail = lazy(() => import('./components/settings/SettingsEmail').then(m => ({ default: m.SettingsEmail })))
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })))
@@ -239,6 +241,10 @@ function AppContent() {
           <Route path={AGENTS_ROUTE} element={<AgentsHub workspace={workspace} />} />
           <Route path="/strategies" element={<StrategiesPage workspace={workspace} />} />
           <Route path="/strategy/:id" element={<StrategyDetailPage workspace={workspace} />} />
+          {/* Emailed links point at /login (obj 900497); once signed in it is just home. */}
+          <Route path="/login" element={<Navigate to="/" replace />} />
+          <Route path="/setup" element={<SetupPage />} />
+          <Route path="/setup/email" element={<SetupPage />} />
           <Route path="/settings" element={<SettingsPage />}>
             <Route index element={<Navigate to="api-mcp" replace />} />
             <Route path="models" element={<SettingsSeats />} />

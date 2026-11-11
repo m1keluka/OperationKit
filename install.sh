@@ -142,6 +142,9 @@ fi
 secret_ensure CC_JWT_SECRET rand_hex
 secret_ensure INTERNAL_API_SECRET rand_hex
 secret_ensure SECRETS_MASTER_KEY rand_b64
+# D2: the key-encryption key gets its own root-only file, mounted read-only into
+# the app container only (never into a session sandbox). See kek_file_ensure.
+kek_file_ensure
 secret_ensure TEST_CRED_ENCRYPTION_KEY rand_b64
 # Encrypts the off-server backups (install/backup.sh). Without it a backup
 # cannot be read: INSTALL.md "Backups" says where to keep a copy.
@@ -163,6 +166,7 @@ write_settings() {
   cat <<EOF
 # Written by install.sh from $(basename "$CONFIG") — not secret. Re-run install.sh to change.
 OK_STATE=$OK_STATE
+OK_KEK_FILE=$OK_SECRETS/secrets-kek
 OK_APP_HOME=$APP_HOME
 OK_DOMAIN=${DOMAIN:-localhost}
 OK_LOCAL_ONLY=$SKIP_CF
@@ -288,6 +292,7 @@ fi
 step "9. Nightly backup"
 b_args=(install-cron --config "$CONFIG"); [ "$DRY_RUN" -eq 1 ] && b_args+=(--dry-run)
 bash "$OK_LIB_DIR/backup.sh" "${b_args[@]}"
+audit_retention_cron_ensure
 # Optional off-site backups: only asked in a real terminal (never when Claude
 # Code drives the install over plain ssh, never in CI), only while
 # BACKUP_TARGET is empty, and Enter skips. It re-writes the same cron job, so

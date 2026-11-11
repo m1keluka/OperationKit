@@ -30,6 +30,7 @@ import {
   writeEmptyGoogleCredsDir,
 } from './user-google-connections.js'
 import { resolveSecrets } from './secrets-store.js'
+import { allowlistedKeys, getSessionEnvMode, sessionKeyFilter, sessionSubjects } from './secret-env-policy.js'
 import {
   SESSION_SECRET_ACCESS_FLAG,
   mintSessionToken,
@@ -458,6 +459,7 @@ export function buildSpawnEnv(opts: {
           userId: actingUserId,
           audit: true,
           actorUserId: null,
+          keyFilter: sessionSecretKeyFilter(objective, actingUserId),
         }),
       )
     } catch (err) {
@@ -483,6 +485,27 @@ export function buildSpawnEnv(opts: {
   applySessionTrustEnv(env, objective, actingUserId)
 
   return env
+}
+
+/**
+ * D4 (obj 900540): which Secrets-store keys this session may hold in its env.
+ * Migration mode (default for existing installs) = every key, unchanged; the
+ * session-end scan logs non-allowlisted names it referenced. Enforce mode = only
+ * keys allowlisted for the card's agent profile or its skills; the rest stay
+ * reachable through the broker. If the allowlist cannot be read in enforce mode,
+ * nothing from the store is injected (fail closed).
+ */
+export function sessionSecretKeyFilter(
+  objective: Objective,
+  actingUserId: number | null,
+): ((key: string) => boolean) | undefined {
+  const mode = getSessionEnvMode()
+  if (mode !== 'enforce') return undefined
+  try {
+    return sessionKeyFilter(mode, allowlistedKeys(sessionSubjects(objective, actingUserId)))
+  } catch {
+    return () => false
+  }
 }
 
 /** git config key for the github.com https credential helper (obj 900208). */

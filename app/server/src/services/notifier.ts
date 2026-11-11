@@ -2,6 +2,7 @@ import fs from 'fs'
 import { getDb } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
 import type { Alert, AlertSeverity } from '@operationkit/shared'
+import { emailConfigured, sendMail } from './mailer/index.js'
 
 export type Severity = AlertSeverity
 
@@ -79,16 +80,8 @@ export function insertAlert(args: NotifyArgs): Alert | null {
   return rowToAlert(row)
 }
 
-async function sendEmail(alert: Alert): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY
-  const from = process.env.ALERTS_FROM_EMAIL || 'alerts@example.com'
-  const to = process.env.ALERTS_TO_EMAIL
-  if (!apiKey || !to) {
-    console.warn('[notifier] RESEND_API_KEY or ALERTS_TO_EMAIL missing — email skipped:', alert.title)
-    return false
-  }
-  const subject = `${SUBJECT_PREFIX[alert.severity]}${alert.title}`.slice(0, 250)
-  const body = [
+function alertBody(alert: Alert): string {
+  return [
     alert.message,
     '',
     `Source: ${alert.source}`,
@@ -97,6 +90,25 @@ async function sendEmail(alert: Alert): Promise<boolean> {
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+async function sendEmail(alert: Alert): Promise<boolean> {
+  const to = process.env.ALERTS_TO_EMAIL
+  const subject = `${SUBJECT_PREFIX[alert.severity]}${alert.title}`.slice(0, 250)
+  // obj 900497: an install with its own sender (Settings → Email) sends alerts
+  // through it. The legacy RESEND_API_KEY path below stays for installs that
+  // configured alerts that way and have not set up the mailer.
+  if (to && emailConfigured()) {
+    const result = await sendMail({ to, subject, text: alertBody(alert) })
+    return result.ok
+  }
+  const apiKey = process.env.RESEND_API_KEY
+  const from = process.env.ALERTS_FROM_EMAIL || 'alerts@example.com'
+  if (!apiKey || !to) {
+    console.warn('[notifier] RESEND_API_KEY or ALERTS_TO_EMAIL missing — email skipped:', alert.title)
+    return false
+  }
+  const body = alertBody(alert)
 
   try {
     const res = await fetch(RESEND_API, {

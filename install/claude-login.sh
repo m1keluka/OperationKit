@@ -13,6 +13,8 @@
 #               The script swaps it for a one-year subscription token — the
 #               same thing `claude setup-token` makes. No laptop install needed.
 #            Already have a setup token (sk-ant-oat…)? Paste that instead.
+#            If the code will not go through, the script prints the other way:
+#            `claude setup-token` on any machine with Claude Code, then --token.
 #   api-key  (pay-per-use Anthropic API key, starts with sk-ant-api…)
 #            Paste the key when asked. Typing is hidden.
 #
@@ -35,7 +37,7 @@ while [ $# -gt 0 ]; do
     --config) shift; CONFIG=${1:-} ;;
     --from-file) shift; FROM_FILE=${1:-} ;;
     --token) PASTE_TOKEN=1 ;;
-    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
   shift
@@ -47,7 +49,7 @@ mode=$(conf CLAUDE_AUTH login)
 
 if [ -n "$FROM_FILE" ]; then
   [ -s "$FROM_FILE" ] || die "file is empty or missing: $FROM_FILE"
-  value=$(head -n1 "$FROM_FILE" | tr -d '[:space:]')
+  value=$(claude_paste_clean "$(head -n1 "$FROM_FILE")")
   shred -u "$FROM_FILE" 2>/dev/null || rm -f "$FROM_FILE"
 else
   [ -t 0 ] || die "no terminal to type into — run with: ssh -t <server> sudo bash $0 --config $CONFIG (or use --from-file)"
@@ -56,26 +58,16 @@ else
     oauth_dir=$(mktemp -d); chmod 700 "$oauth_dir"
     trap 'rm -rf "$oauth_dir"' EXIT
     url=$(claude_oauth_begin "$oauth_dir")
-    echo "1. Open this link in any browser and sign in with the client's Claude account (Pro, Max or Team):"
+    echo "1. Open this link in any browser and sign in with the client's Claude account (Pro, Max or Team)."
+    echo "   It is one long line. If your terminal wraps it, copy all of it:"
     echo
-    echo "   $url"
+    echo "$url"
     echo
-    echo "2. Claude shows an Authentication code. Copy it."
-    value=
-    for attempt in 1 2 3; do
-      printf 'Paste the code (hidden), or a setup token sk-ant-oat…, then press Enter: '
-      IFS= read -rs pasted; echo
-      pasted=$(tr -d '[:space:]' <<<"$pasted")
-      if [[ "$pasted" == sk-ant-oat* ]]; then value=$pasted; break; fi
-      rc=0; value=$(claude_oauth_exchange "$oauth_dir" "$pasted") || rc=$?
-      [ "$rc" -eq 0 ] && break
-      value=
-      case "$rc" in
-        2|4|7) [ "$attempt" -lt 3 ] && { warn "$(claude_oauth_error "$rc"). Try again."; continue; } ;;
-      esac
-      die "$(claude_oauth_error "$rc"). Nothing was saved."
-    done
-    unset pasted
+    echo "2. Claude shows an Authentication code. Copy it (the copy button is fine) and paste it here."
+    echo "   The link is good for 10 minutes. Each code works once."
+    # Prompt loop lives in claude-oauth.sh (tested there); on failure it prints the
+    # reason and the `claude setup-token` + --token way, then returns 1.
+    value=$(claude_oauth_interactive "$oauth_dir" "sudo bash $0 --config $CONFIG") || exit 1
     [ -n "$value" ] || die "sign-in did not finish. Nothing was saved."
     log "Signed in with Claude."
   else
@@ -85,8 +77,9 @@ else
     else
       printf 'Paste the Anthropic API key (hidden), then press Enter: '
     fi
-    IFS= read -rs value; echo
-    value=$(tr -d '[:space:]' <<<"$value")
+    [ -t 1 ] && printf '\033[?2004l'   # deliver the paste without ESC[200~ … ESC[201~
+    IFS= read -rs value || true; echo
+    value=$(claude_paste_clean "$value")
   fi
 fi
 

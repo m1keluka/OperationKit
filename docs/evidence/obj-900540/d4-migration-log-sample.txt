@@ -1,0 +1,37 @@
+$ secrets-env-allowlist.ts status
+mode: migration
+allowlist entries: 1
+migration log rows: 4
+broker for non-allowlisted names (session_secret_access): OFF
+
+$ secrets-env-allowlist.ts report --days 30
+mode: migration — last 30 days — names referenced by sessions WITHOUT an allowlist entry
+
+agent cmo:
+  FAKE_CRM_TOKEN                   1 session(s), 1 reference(s), last 2026-11-11 05:10:28
+
+agent cto:
+  FAKE_MAPS_KEY                    2 session(s), 2 reference(s), last 2026-11-11 05:10:28
+  FAKE_SLACK_WEBHOOK               1 session(s), 1 reference(s), last 2026-11-11 05:10:28
+
+to allowlist: secrets-env-allowlist.ts allow --agent <slug> NAME…   (or: apply --yes)
+
+$ secrets-env-allowlist.ts apply --min-sessions 1
+[dry-run] would allow agent cmo: FAKE_CRM_TOKEN
+[dry-run] would allow agent cto: FAKE_MAPS_KEY
+[dry-run] would allow agent cto: FAKE_SLACK_WEBHOOK
+dry run — re-run with --yes to write these entries
+
+-- raw secret_env_usage rows (names + counts only) --
+{"objective_id":101,"session_id":"sess-101-a","workspace":"acme","agent":"cto","key":"FAKE_MAPS_KEY","mode":"migration","uses":1}
+{"objective_id":103,"session_id":"sess-103-a","workspace":"acme","agent":"cto","key":"FAKE_MAPS_KEY","mode":"migration","uses":1}
+{"objective_id":103,"session_id":"sess-103-a","workspace":"acme","agent":"cto","key":"FAKE_SLACK_WEBHOOK","mode":"migration","uses":1}
+{"objective_id":102,"session_id":"sess-102-a","workspace":"acme","agent":"cmo","key":"FAKE_CRM_TOKEN","mode":"migration","uses":1}
+
+$ secrets-env-allowlist.ts mode enforce
+mode: enforce
+NOTE: session_secret_access is OFF, so sessions cannot reach non-allowlisted names through the broker either.
+
+-- env_policy audit rows --
+{"action":"env_policy","key":"*","source":"cli","detail":"mode:migration->enforce"}
+{"action":"env_policy","key":"FAKE_STRIPE_KEY","source":"cli","detail":"allow:agent:cto"}

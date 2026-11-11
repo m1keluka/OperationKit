@@ -58,13 +58,20 @@ services:
       # Needed ONLY to start the per-session sandbox containers. Sessions never
       # see this socket: each sandbox mounts just its own work folder + home.
       - /var/run/docker.sock:/var/run/docker.sock
+      # D2 (obj 900540): the secrets-store key-encryption key, read-only, app only.
+      # Root-owned mode 400 on the host (install/lib.sh kek_file_ensure). Session
+      # sandboxes mount only their own work folder + home, so they never see it.
+      - ${OK_KEK_FILE:?run ./install.sh}:/run/secrets/operationkit-secrets-kek:ro
     environment:
       NODE_ENV: production
       PORT: "3002"
       TZ: ${OK_TIMEZONE:-UTC}
       JWT_SECRET: ${CC_JWT_SECRET:?missing — run ./install.sh}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?missing — run ./install.sh}
-      SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:?missing — run ./install.sh}
+      # D2: the KEK comes from the read-only file above, NOT from an env var, so it
+      # cannot leak through a child process environment.
+      SECRETS_KEK_PROVIDER: host-file
+      SECRETS_KEK_FILE: /run/secrets/operationkit-secrets-kek
       TEST_CRED_ENCRYPTION_KEY: ${TEST_CRED_ENCRYPTION_KEY:?missing — run ./install.sh}
       CORS_ORIGINS: https://${OK_DOMAIN}
       OK_BRAND_NAME: ${OK_BRAND_NAME:-OperationKit}

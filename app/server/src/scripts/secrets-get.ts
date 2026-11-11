@@ -4,6 +4,8 @@
  *
  *   docker exec command-center tsx /app/server/src/scripts/secrets-get.ts GRANOLA_API_KEY
  *
+ * Machine path for host scripts, not a human reveal surface (D1): pipe the
+ * output into the consumer. Every call is audited as source=cli (threat T4).
  * Never logs the value. Exit 1 if missing. Does not print a trailing newline
  * so callers can use the output as a token.
  */
@@ -17,6 +19,6 @@ if (!key) {
 }
 
 initDb()
-const value = getSecretValue({ scopeType: 'global' }, key)
+const value = getSecretValue({ scopeType: 'global' }, key, null, 'cli')
 if (value == null || value === '') process.exit(1)
 process.stdout.write(value)

@@ -12,6 +12,8 @@ import { listArtifacts, readArtifact } from '../services/live-artifacts.js'
 import { FanoutError, registerFanout } from '../services/fanout.js'
 import { runFanoutTick } from '../services/fanout-runtime.js'
 import { buildProgressView, parseArtifactReadQuery, parseProgressQuery, sendArtifactError } from './objectives-progress.js'
+import { AccountabilityError, classifyObjective, isStepAdvance, recordMeaningfulProgress, setAccountability } from '../services/accountability.js'
+import { latestProgress } from '../services/objective-progress.js'
 
 function localOnly(req: Request, res: Response): boolean {
   if (isLocalhost(req)) return true
@@ -79,7 +81,70 @@ router.post('/objectives/:id/progress', (req, res) => {
   try {
     const body = { ...(req.body ?? {}) }
     if (!body.session_id && objective.session_id) body.session_id = objective.session_id
-    res.status(201).json(recordProgress(getDb(), objective.id, body, 'worker'))
+    const db = getDb()
+
+    // obj 900367 §3.2 — the accountability record rides along with the snapshot
+    // a worker is already posting. Doing it here rather than on a second
+    // endpoint is the point: "what is the next concrete thing that must happen"
+    // is answerable precisely when a worker stops to report progress, and a
+    // separate call is one a worker would forget. All three fields are OPTIONAL
+    // and only the ones present are written, so every existing caller — and
+    // scripts/cc-live.mjs as it stands — is byte-for-byte unaffected.
+    //
+    // These are DECLARED values: the worker is stating them, not the server
+    // guessing them from prose. last_meaningful_progress_at is deliberately NOT
+    // accepted from the body — only the server writes it (below).
+    const prev = latestProgress(db, objective.id)
+    const record: Record<string, unknown> = {}
+    if ('next_action' in body) record.next_action = body.next_action
+    if ('next_check_at' in body) record.next_check_at = body.next_check_at
+    if ('waiting_on' in body) record.waiting_on = body.waiting_on
+    const declaredAccountability = Object.keys(record).length > 0
+    let accountabilityError: string | null = null
+    try {
+      if (declaredAccountability) setAccountability(db, objective.id, record)
+    } catch (err) {
+      if (!(err instanceof AccountabilityError)) throw err
+      accountabilityError = err.message
+    }
+    if (accountabilityError) {
+      res.status(400).json({ error: accountabilityError })
+      return
+    }
+    // These three are not progress payload fields; strip them before the
+    // snapshot validator sees them.
+    delete body.next_action
+    delete body.next_check_at
+    delete body.waiting_on
+
+    // A lead handing a card off has something to DECLARE but no step to report.
+    // Requiring it to invent a progress snapshot to record "waiting on
+    // human:operator" would put a fake step in the card's history, so an
+    // accountability-only post is answered with the record and no progress row.
+    //
+    // `declaredAccountability` is load-bearing in that condition, not
+    // decoration: without it an EMPTY or malformed body took this branch and
+    // returned 200, silently turning the endpoint's "invalid body -> 400"
+    // contract into a success. A post that declares nothing and reports nothing
+    // is still invalid and must fall through to the snapshot validator.
+    const hasSnapshot = ['step', 'total_steps', 'label', 'note', 'result', 'artifacts']
+      .some((k) => body[k] !== undefined && body[k] !== null)
+    if (declaredAccountability && !hasSnapshot) {
+      res.status(200).json({ accountability: classifyObjective(db, objective.id) })
+      return
+    }
+
+    const event = recordProgress(db, objective.id, body, 'worker')
+
+    // Only a snapshot whose STEP ADVANCED counts as meaningful progress (§3.2).
+    // A worker re-posting the same step with a new note is narrating, not
+    // progressing, and a card that can refresh its own freshness by narrating
+    // can never be found stalled.
+    if (isStepAdvance(prev?.step ?? null, event.step)) {
+      recordMeaningfulProgress(db, objective.id, 'progress_step')
+    }
+
+    res.status(201).json(event)
   } catch (err) {
     if (err instanceof ProgressValidationError) {
       res.status(400).json({ error: err.message })
@@ -87,6 +152,16 @@ router.post('/objectives/:id/progress', (req, res) => {
     }
     throw err
   }
+})
+
+// The accountability record + the server's classification of it (obj 900367).
+// Read-only; the write side is the POST above (worker/lead) and the server's own
+// meaningful-progress stamp. Returns 404 for an unknown card, like its siblings.
+router.get('/objectives/:id/accountability', (req, res) => {
+  if (!localOnly(req, res)) return
+  const objective = loadObjective(req, res)
+  if (!objective) return
+  res.json(classifyObjective(getDb(), objective.id))
 })
 
 // Same view bots get — lets a parent read its children's progress mid-run.

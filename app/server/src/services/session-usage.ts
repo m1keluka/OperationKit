@@ -15,6 +15,7 @@ import path from 'path'
 import { getDb } from '../db/index.js'
 import { TRANSCRIPT_DIR } from '../config.js'
 import { ResultCostTracker } from './result-cost.js'
+import { UnresultedUsageTracker } from './unresulted-usage.js'
 
 /**
  * Sum token count and cost across every `result` event in a jsonl file.
@@ -36,11 +37,15 @@ export function sumResultEventsFromContent(content: string): { tokens: number; c
   let tokens = 0
   let cost = 0
   const tracker = new ResultCostTracker()
+  // obj 900547 — a process killed mid-turn writes no `result`; recover its usage
+  // from the assistant events so an abnormal end is never credited as 0.
+  const unresulted = new UnresultedUsageTracker()
   for (const line of content.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
     try {
       const event = JSON.parse(trimmed)
+      unresulted.feed(event)
       if (event.type === 'result') {
         const share = tracker.take(event)
         if (!share) continue
@@ -54,7 +59,8 @@ export function sumResultEventsFromContent(content: string): { tokens: number; c
       }
     } catch {}
   }
-  return { tokens, cost }
+  const unreported = unresulted.finish()
+  return { tokens: tokens + unreported.tokens, cost: cost + unreported.cost }
 }
 
 export function extractUsageFromResultEvent(event: Record<string, unknown>): { tokens: number; cost: number } {

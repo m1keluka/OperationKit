@@ -1,7 +1,7 @@
 # Secrets proposal: hardened, still usable (Sprint 6, obj 900498)
 
-**For:** Operator · **Status:** proposal plus a first PR. The PR ships only the uncontroversial parts; everything else waits for the decisions in §5.
-**Short version:** the native store's foundations are sound: AES-256-GCM, scoped, versioned, write-only in the UI, with use-without-reveal through the broker. The real exposure is in three other places. (1) The master key sits where sessions can read it. (2) Every session receives *every* secret its workspace can see as plain environment variables. (3) Anything that can `docker exec` can decrypt the whole store without leaving a trace. Fix those three first. Reveal and 1Password come after.
+**For:** Operator · **Status:** **decided** (Operator, 2026-11-10 11:55 PM ET; see §5). PR #682 (obj 900498) shipped the uncontroversial parts. Sprint 6b (obj 900540) implements D1–D5; see §8.
+**Short version:** the native store's foundations are sound: AES-256-GCM, scoped, versioned, write-only in the UI, with use-without-reveal through the broker. The real exposure is in three other places. (1) The master key sits where sessions can read it. (2) Every session receives *every* secret its workspace can see as plain environment variables. (3) Anything that can `docker exec` can decrypt the whole store without leaving a trace. Fix those three first. (Decided: reveal is ruled out by D1; 1Password comes later under D3.)
 
 ---
 
@@ -77,13 +77,7 @@
 
 1. **Encryption.** Envelope (DEK per secret, wrapped by a KEK) with AAD binding. `kek_id` per row. KEK rotation re-wraps DEKs only.
 2. **KEK location** (choose in D2). Default: a host file outside every session-visible mount, mounted read-only into the server container only, with an escrow copy off-box. Optional: AWS/GCP KMS unwrap at boot, or a 1P-held KEK.
-3. **Write-only by default.** Reveal exists only for secrets explicitly created as *revealable*, and only after:
-   - a fresh passkey/WebAuthn assertion (`userVerification: required`), or password re-entry as fallback;
-   - a 5-minute sudo window;
-   - owner/admin cookie sessions only, never agent keys, bearer tokens or sessions;
-   - a rate limit of 10 per hour;
-   - every reveal written to the audit log **and** raised in the AlertBell.
-   - If Cloudflare Access fronts the install, also require a fresh CF Access JWT (`iat` < 5 min).
+3. **Write-only, always (D1).** No reveal path for anyone: no *revealable* class, no step-up flow, no flag. A value is replaced, never read back. `POST /api/secrets/reveal` stays only as an audited tripwire that always refuses.
 4. **Delivery.** Sessions get only allow-listed names in env. The broker serves everything else by placeholder (exists today). Each session gets a scoped HMAC token (exists today). Output masking stays on.
 5. **Audit.** Append-only log of every write, use and reveal attempt, with source. **Done in this PR.** Next: export to the vault or KB daily, and a hash chain (each row stores `sha256(prev_hash || row)`) for tamper *evidence* beyond the trigger.
 6. **Lifecycle.**
@@ -94,11 +88,15 @@
 
 | # | Decision | Options | Rec |
 |---|---|---|---|
-| **D1** | Can a human ever see a stored value again? | (a) Never: write-only like GitHub/Vercel. (b) Opt-in *revealable* secrets behind passkey/password re-auth plus audit plus alert. | **(b), off by default.** Most secrets stay write-only. |
-| **D2** | Where does the KEK live? | (a) Host file outside session mounts (free, all installs). (b) Cloud KMS (~$1/mo, needs an IAM key on the box). (c) 1Password-held KEK (needs a 1P service account). | **(a) as default, (b)/(c) optional.** (a) closes T2 by itself. |
-| **D3** | 1Password? | (a) No. (b) Optional per-workspace provider (`op://` refs). (c) Make 1P the store. | **(b)**, after A. |
-| **D4** | What goes into a session env? | (a) Everything in scope (today). (b) Allowlist per agent profile/skill, broker for the rest. | **(b)**, with a migration mode that logs which un-listed names a session tried to use. |
-| **D5** | Audit retention | Forever / 1 year + export | **1 year in DB, then export.** Pruning requires dropping the trigger on purpose. |
+Decided by Operator on 2026-11-10, 11:55 PM ET. His words are in the **Decision** column.
+
+| # | Decision | Options | Rec | **Decision (Operator)** |
+|---|---|---|---|---|
+| **D1** | Can a human ever see a stored value again? | (a) Never: write-only like GitHub/Vercel. (b) Opt-in *revealable* secrets behind passkey/password re-auth plus audit plus alert. | (b), off by default. | **(a) Never, write-only.** No reveal path at all. Remove reveal code and flags, or keep them out. Replace-only. |
+| **D2** | Where does the KEK live? | (a) Host file outside session mounts (free, all installs). (b) Cloud KMS (~$1/mo, needs an IAM key on the box). (c) 1Password-held KEK (needs a 1P service account). | (a) as default, (b)/(c) optional. | **Host file by default, KMS/1Password optional.** The KEK goes in a host file outside every session mount. The installer creates it with tight permissions and the backup docs cover it. A pluggable interface lets a cloud KMS or 1Password KEK be added later. Do not build those now. |
+| **D3** | 1Password? | (a) No. (b) Optional per-workspace provider (`op://` refs). (c) Make 1P the store. | (b), after A. | **(b) Optional per workspace, later.** Do not build it now. Leave only a documented extension point. |
+| **D4** | What goes into a session env? | (a) Everything in scope (today). (b) Allowlist per agent profile/skill, broker for the rest. | (b), with a migration mode. | **(b) Allowlist only, with a logging migration.** Ship a migration mode, on by default for existing installs, that still passes today's set but logs which non-allowlisted names a session used. Add a doc and a command to review those logs and build allowlists, and a switch to enforce. |
+| **D5** | Audit retention | Forever / 1 year + export | 1 year in DB, then export. | **1 year, then export.** Keep 1 year in the DB, then export to a documented path and prune with a deliberate, audited retention job that respects the append-only design. |
 
 ## 6. What this PR ships (uncontroversial, no key or data changes)
 
@@ -110,16 +108,35 @@
 
 ## 7. Follow-up plan (after Operator decides)
 
-| Phase | Work | Depends on |
-|---|---|---|
-| F1 | Move the KEK out of the session-visible path; document key escrow; `secrets-get` audits as `source=cli` | D2 |
-| F2 | Envelope encryption + AAD + `kek_id`; one-time re-wrap migration (backup, transaction, verify-decrypt-all, keep the old key 30 days) | D2 |
-| F3 | Allowlist injection + "would-have-used" telemetry mode, then enforce | D4 |
-| F4 | Revealable class + WebAuthn/password step-up + sudo window + AlertBell | D1, Sprint 4b passkeys |
-| F5 | 1Password provider (`value_ref`, service account, Events API ingest) | D3, F2 |
-| F6 | Audit hash chain + daily export; stale/expiry badges | D5 |
+| Phase | Work | Depends on | Status |
+|---|---|---|---|
+| F1 | Move the KEK out of the session-visible path; document key escrow; `secrets-get` audits as `source=cli` | D2 | **Done in Sprint 6b** (§8) |
+| F2 | Envelope encryption + AAD + `kek_id`; one-time re-wrap migration (backup, transaction, verify-decrypt-all, keep the old key 30 days) | D2 | Open. The KEK provider seam from 6b is where it plugs in. |
+| F3 | Allowlist injection + "would-have-used" telemetry mode, then enforce | D4 | **Done in Sprint 6b** (§8) |
+| ~~F4~~ | ~~Revealable class + step-up re-auth~~ | D1 | **Cancelled by D1.** Not to be built. |
+| F5 | 1Password provider (`value_ref`, service account, Events API ingest) | D3, F2 | Deferred ("later"). Extension point documented in §8. |
+| F6 | Audit hash chain + daily export; stale/expiry badges | D5 | 1-year retention + export **done in Sprint 6b**. Hash chain and badges still open. |
 
 ---
+
+## 8. Sprint 6b: what shipped for D1–D5 (obj 900540)
+
+| Decision | Shipped | Where | Tests |
+|---|---|---|---|
+| **D1** write-only | No reveal code, class or flag. `POST /reveal` is a permanent audited tripwire (403 for everyone). A source scan fails the build if a reveal flag, setting, env read or control is added. | `routes/secrets.ts` | `secrets-d1-write-only.test.ts`, `secrets-hardening.test.ts` (flags cannot enable reveal) |
+| **D2** host-file KEK | `KekProvider` registry. `host-file` is the default (`SECRETS_KEK_FILE`, default `/run/secrets/operationkit-secrets-kek`); it refuses group/other-readable files. `env` and `legacy-file` are kept only so un-migrated installs still boot, and are flagged *legacy*. `GET /api/secrets/kek-status` and the boot log say where the key came from, never what it is. The installer writes `secrets/secrets-kek` (root, 400) from the existing key and mounts it read-only into the app only. The env var is no longer passed to the container, and the tmux wrapper unsets it. `secrets-get.ts` reads audit as `source=cli`. | `services/secrets-kek.ts`, `install/lib.sh` (`kek_file_ensure`), `install/docker-compose.yml` | `secrets-kek.test.ts`, `install/test/secrets-kek-test.sh` |
+| **D3** 1Password later | Not built. Extension point below. | — | — |
+| **D4** allowlist + migration | Tables `secret_env_allowlist` (agent / skill / `*`) and `secret_env_usage`. Mode setting `secrets_session_env_mode`: a missing row means **migration** (existing installs), and `install-bootstrap` writes **enforce** on a fresh install. In enforce mode, `buildSpawnEnv` filters store keys *before* decrypting or auditing them. The prompt lists only the names the session holds and points to the broker. At session end, references to non-allowlisted names in the session's tool calls are logged (names and counts). Review and switch with `scripts/secrets-env-allowlist.ts` (`report`, `apply`, `mode`) or `/api/secrets/env-policy`. Every change is audited as `env_policy`. | `services/secret-env-policy.ts`, `session-spawn-env.ts`, `session-telemetry.ts`, `session-trust-prompt.ts` | `secret-env-policy.test.ts`, `secrets-hardening.test.ts` |
+| **D5** 1 year + export | `scripts/secrets-audit-retention.ts` (dry run by default, `--apply`, minimum 365 days). It exports to `$SECRETS_AUDIT_EXPORT_DIR` (default `/app/data/audit-exports`) as JSONL (600) plus `.sha256`, verifies the file, then in one transaction drops the delete guard, deletes exactly the exported ids, re-creates the guard and appends `audit_prune`. The UPDATE guard is never touched. The installer schedules it monthly. | `services/secrets-audit-retention.ts`, `install/lib.sh` (`audit_retention_cron_ensure`) | `secrets-audit-retention.test.ts`, `install/test/secrets-kek-test.sh` |
+
+User-facing docs: [docs/security.md](../security.md) (Encryption key, Session secret allowlist, Audit log retention, and Moving the key on a custom setup).
+
+**Not changed by this PR:** the upstream operator's own `docker-compose.yml` and its live key file. The app keeps reading the legacy location there and logs a warning at boot until the operator follows the custom-setup steps in docs/security.md. That step needs a container recreate, so it is a separate, owner-scheduled change.
+
+### Extension points (D2 KMS / 1Password KEK, D3 1Password per workspace)
+
+- **Another KEK source** (AWS/GCP KMS unwrap, a 1Password-held KEK): implement `KekProvider` (`id`, `available`, `load` returning exactly 32 bytes, `describe` returning a location and never the key), call `registerKekProvider()` at boot, and pin it with `SECRETS_KEK_PROVIDER=<id>`. Built-in ids cannot be replaced. A remote provider runs once, at first use, and must fail loudly when unreachable.
+- **1Password per workspace (D3)**: a store row would carry a `value_ref` (`op://vault/item/field`) instead of `value_encrypted`. It would be resolved at the two plaintext seams only, `resolveSecrets` (spawn) and the broker, through a vault-scoped, read-only service account whose token is itself a store secret under the KEK. Rules: never resolved for an API response (D1 still holds); the D4 allowlist and audit apply unchanged; a 1Password outage fails that one key, not the spawn. Nothing for this exists in the schema yet, on purpose.
 
 ## Appendix A: vendor detail
 
@@ -143,10 +160,6 @@ Sources: docs.railway.com/guides/variables · docs.railway.com/enterprise/securi
 | HashiCorp Vault Transit | Same as KMS, self-hosted | Heavy for one node (unseal, HA). |
 | 1Password-held KEK (`op read` at boot) | Same as KMS, with 1P audit | The secret-zero is the `ops_` token; 1P outage at boot. |
 
-## Appendix C: step-up re-auth pattern (for F4)
+## Appendix C: step-up re-auth pattern (withdrawn)
 
-1. `POST /api/secrets/reveal/challenge {secretId}` returns a WebAuthn challenge bound to `(userId, secretId, action='reveal', exp=60s)`.
-2. The browser calls `navigator.credentials.get({ userVerification: 'required' })`.
-3. `POST /api/secrets/reveal` with the assertion. The server verifies it, opens a 5-minute sudo window, and returns the value once with `Cache-Control: no-store`. It writes `reveal` to the audit log and raises an AlertBell notice to all admins.
-4. Password re-entry is the fallback when no passkey is registered. If Cloudflare Access is present, also require a CF JWT with `iat` under 5 minutes.
-5. Never offered to bearer, agent-key or session principals. A rate limit applies.
+**Not adopted.** D1 chose write-only with no reveal path, so the step-up re-auth design that stood here (F4) was removed. It must not be built.

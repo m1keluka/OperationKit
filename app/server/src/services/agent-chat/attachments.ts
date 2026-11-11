@@ -13,6 +13,7 @@
 // through one owner-checked route and handed to the model as a real image
 // content block.
 import { getDb } from '../../db/index.js'
+import { lanePredicate, laneThreadId, MAIN_LANE, type ChatLane } from './threads.js'
 
 export const MAX_IMAGES_PER_MESSAGE = 4
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -118,15 +119,22 @@ function toStored(r: Record<string, unknown>): StoredImage {
   return { id, name: String(r.name ?? 'image'), media_type: String(r.media_type), size: Number(r.size ?? 0), url: attachmentUrl(id) }
 }
 
-export function saveImages(messageId: number, userId: number, slug: string, images: IncomingImage[]): StoredImage[] {
+export function saveImages(
+  messageId: number,
+  userId: number,
+  slug: string,
+  images: IncomingImage[],
+  /** The lane the owning message is in (obj 900370). Main conversation by default. */
+  lane: ChatLane = MAIN_LANE,
+): StoredImage[] {
   if (images.length === 0) return []
   const db = getDb()
   const insert = db.prepare(
-    'INSERT INTO agent_chat_attachments (message_id, user_id, agent_slug, name, media_type, size, bytes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO agent_chat_attachments (message_id, user_id, agent_slug, name, media_type, size, bytes, thread_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   )
   const out: StoredImage[] = []
   for (const img of images) {
-    const info = insert.run(messageId, userId, slug, img.name, img.media_type, img.bytes.length, img.bytes)
+    const info = insert.run(messageId, userId, slug, img.name, img.media_type, img.bytes.length, img.bytes, laneThreadId(lane))
     out.push({ id: Number(info.lastInsertRowid), name: img.name, media_type: img.media_type, size: img.bytes.length, url: attachmentUrl(Number(info.lastInsertRowid)) })
   }
   return out
@@ -176,6 +184,15 @@ export function imageDataForMessage(messageId: number): { media_type: string; da
   }))
 }
 
-export function deleteAttachmentsForChat(userId: number, slug: string): number {
-  return getDb().prepare('DELETE FROM agent_chat_attachments WHERE user_id = ? AND agent_slug = ?').run(userId, slug).changes
+/**
+ * Drop the images of ONE lane (obj 900370) — the main conversation unless a side
+ * thread is named. Scoped by the same lane predicate the messages use, so
+ * "Clear this conversation" in a side thread cannot take the main chat's
+ * screenshots with it.
+ */
+export function deleteAttachmentsForChat(userId: number, slug: string, lane: ChatLane = MAIN_LANE): number {
+  const { sql, params } = lanePredicate(lane)
+  return getDb()
+    .prepare(`DELETE FROM agent_chat_attachments WHERE user_id = ? AND agent_slug = ? AND ${sql}`)
+    .run(userId, slug, ...params).changes
 }

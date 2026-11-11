@@ -585,9 +585,22 @@ export function selectZeroTokenReviewCandidates(db: Database): Objective[] {
  * `writeHygieneDigest`) so the actual behavior is unit-testable without fighting
  * a module-level timer.
  */
-export function applyZeroTokenReviewBlock(db: Database): void {
+export function applyZeroTokenReviewBlock(
+  db: Database,
+  opts: { isSessionAlive?: (sessionId: string) => boolean } = {},
+): void {
   const candidates = selectZeroTokenReviewCandidates(db)
   for (const obj of candidates) {
+    // obj 900372 — a card moved to `review` while its worker is still running
+    // (worker/bot PATCH, CI gate) keeps its session_id until the process exits,
+    // and the review session_id sweep accounts its usage THEN (#900371). Its
+    // tokens are legitimately still 0 until that happens, so it is not a
+    // zero-token death yet — re-checked on the next sweep.
+    if (obj.session_id && opts.isSessionAlive) {
+      let alive = false
+      try { alive = opts.isSessionAlive(obj.session_id) } catch { alive = false }
+      if (alive) continue
+    }
     const reason =
       'Session ended with 0 recorded tokens, $0 cost, and no summary — the worker ' +
       'never completed a model turn the usual accounting pipeline could extract ' +
@@ -619,9 +632,11 @@ const ZERO_TOKEN_REVIEW_SWEEP_INTERVAL_MS = 60 * 1000
  * reason to run it every 3s). See {@link applyZeroTokenReviewBlock} for the
  * actual behavior.
  */
-export async function sweepZeroTokenReview(): Promise<void> {
+export async function sweepZeroTokenReview(
+  opts: { isSessionAlive?: (sessionId: string) => boolean } = {},
+): Promise<void> {
   const now = Date.now()
   if (now - lastZeroTokenReviewSweep < ZERO_TOKEN_REVIEW_SWEEP_INTERVAL_MS) return
   lastZeroTokenReviewSweep = now
-  applyZeroTokenReviewBlock(getDb())
+  applyZeroTokenReviewBlock(getDb(), opts)
 }

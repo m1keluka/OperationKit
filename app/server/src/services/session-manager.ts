@@ -3,6 +3,7 @@ import fs from 'fs'
 import { TRANSCRIPT_DIR } from '../config.js'
 import { getDb } from '../db/index.js'
 import { transcriptHasPendingWork } from './session-control.js'
+import { protectedTmuxSessions } from './scratch-instance.js'
 import { listSeatRecords } from './account-router.js'
 
 // Re-export moved functions so existing consumers don't break
@@ -199,7 +200,10 @@ export function reapPredecessorSessions(objectiveId: number, keepSessionId: stri
   } catch {
     return // no tmux server / no sessions → nothing to reap
   }
+  // obj 900547: never kill the tmux session this process itself runs inside.
+  const self = protectedTmuxSessions()
   for (const name of selectPredecessorsToReap(objectiveId, keepSessionId, sessionNames)) {
+    if (self.has(name)) continue
     try {
       execSync(`tmux kill-session -t ${JSON.stringify(name)} 2>/dev/null`, { timeout: 5000 })
       console.warn(
@@ -224,6 +228,17 @@ export function selectOrphanWorkerSessions(
   sessionNames: string[],
   liveSessionIds: Iterable<string>,
   hasPendingWork?: (sessionName: string) => boolean,
+  guard?: {
+    /** tmux sessions this process runs inside — never reaped (obj 900547). */
+    protectedNames?: Set<string>
+    /**
+     * Does THIS database know the objective? A worker tmux for an objective the DB
+     * has never heard of is not this server's to judge: it belongs to another
+     * instance (the #900543 case: a scratch server with a temp DB saw the jail's
+     * own worker session and reaped it). obj 900547.
+     */
+    objectiveKnown?: (objectiveId: number) => boolean
+  },
 ): string[] {
   const live = new Set(liveSessionIds)
   const liveObjectives = new Set<string>()
@@ -233,6 +248,10 @@ export function selectOrphanWorkerSessions(
   }
   return sessionNames.filter((name) => {
     if (!ORPHAN_WORKER_TMUX_RE.test(name) || live.has(name)) return false
+    if (guard?.protectedNames?.has(name)) return false
+    if (guard?.objectiveKnown) {
+      try { if (!guard.objectiveKnown(Number(/^cc-(\d+)-/.exec(name)![1]))) return false } catch { return false }
+    }
     // obj 712954 — a worker parked between turns with a pending ScheduleWakeup /
     // async Agent / Monitor (inside the horizon) is not an orphan: killing it is
     // what stopped obj 712937's 19:45 wakeup from ever firing. Only spare it when no
@@ -277,7 +296,12 @@ export function sweepOrphanWorkerTmux(): void {
     return
   }
 
-  for (const name of selectOrphanWorkerSessions(sessionNames, live, (n) => transcriptHasPendingWork(n).pending)) {
+  const known = getDb().prepare('SELECT 1 FROM objectives WHERE id = ?')
+  const guard = {
+    protectedNames: protectedTmuxSessions(),
+    objectiveKnown: (id: number) => !!known.get(id),
+  }
+  for (const name of selectOrphanWorkerSessions(sessionNames, live, (n) => transcriptHasPendingWork(n).pending, guard)) {
     try {
       execSync(`tmux kill-session -t ${JSON.stringify(name)} 2>/dev/null`, { timeout: 5000 })
       console.warn(`[session-reaper] killed orphan worker tmux '${name}' (not a live working/ai_review session_id)`)

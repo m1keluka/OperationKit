@@ -50,9 +50,13 @@ export type SecretAction =
   | 'describe'
   /** Someone asked to see a value. Reveal is not enabled, so this is always refused. */
   | 'reveal_attempt'
+  /** D4 (obj 900540): session-env allowlist or mode changed. key = the name, or * for the mode. */
+  | 'env_policy'
+  /** D5 (obj 900540): the retention job exported and pruned rows older than the window. */
+  | 'audit_prune'
 
 /** How an audited action reached the store. Free-form on disk; these are the ones the server writes. */
-export type SecretAuditSource = 'ui' | 'api' | 'spawn' | 'broker' | 'server' | 'chat' | 'relay'
+export type SecretAuditSource = 'ui' | 'api' | 'spawn' | 'broker' | 'server' | 'chat' | 'relay' | 'cli' | 'retention' | 'policy'
 
 /** Optional context for an audit row. NEVER a value, a fragment of one, or a hash of one. */
 export interface SecretAuditExtra {
@@ -422,10 +426,11 @@ export function getSecretValue(
   scope: SecretScope,
   key: string,
   actorUserId?: number | null,
+  source: SecretAuditSource = 'server',
 ): string | null {
   const row = findRow(normalizeScope(scope), key)
   if (!row) return null
-  logAccess(actorUserId ?? null, 'read', scopeLabel(scope), key, { secretId: row.id, source: 'server' })
+  logAccess(actorUserId ?? null, 'read', scopeLabel(scope), key, { secretId: row.id, source })
   touchLastUsed([row.id])
   return decryptSecret(row.value_encrypted)
 }
@@ -599,6 +604,12 @@ export interface ResolveOptions {
    * answer.
    */
   includeServiceOnly?: boolean
+  /**
+   * D4 (obj 900540): keep only keys this returns true for. Applied BEFORE
+   * decryption and audit, so a withheld key is never decrypted, never written
+   * as `inject` and never stamped last-used. Omitted = every key.
+   */
+  keyFilter?: (key: string) => boolean
 }
 
 /**
@@ -653,6 +664,7 @@ export function resolveSecrets(opts: ResolveOptions = {}): Record<string, string
     // Server-process credentials are not an agent's to hold.
     if (!opts.includeServiceOnly && Number(r.service_only) > 0) continue
     if (isServerOnlySecretKey(r.key)) continue
+    if (opts.keyFilter && !opts.keyFilter(r.key)) continue
     const cur = winners.get(r.key)
     if (!cur || PRECEDENCE[r.scope_type] >= PRECEDENCE[cur.scope_type]) {
       winners.set(r.key, r)

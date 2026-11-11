@@ -9,6 +9,8 @@
  *   enqueue tick:  objective_events (id > cursor)
  *                  ⋈ objectives.agent_key_id ⋈ agent_key_webhooks (enabled, key live)
  *                  → map kind → filter → INSERT OR IGNORE agent_webhook_deliveries
+ *                  (+ keyless cards, agent_key_id IS NULL → needs_agent family only,
+ *                   recipient chosen by owner_bot with CoS fallback — obj 900553)
  *   deliver tick:  due pending rows → signed POST (10s timeout) → delivered |
  *                  retry with backoff | failed after MAX_ATTEMPTS
  *
@@ -58,6 +60,7 @@ import {
   type AgentNeedKind,
 } from '@operationkit/shared'
 import { isBlockedAddress, pinnedHttpsPost, resolveWebhookDestination, type PinnedPostInit } from './webhook-egress.js'
+import { resolveBot } from './bots/bot-registry.js'
 
 export const CURSOR_SETTING = 'agent_webhook_cursor'
 export const MAX_ATTEMPTS = 5
@@ -141,6 +144,9 @@ export function mapChange(kind: string, from: string | null, to: string | null):
     case 'needs_secret':
       return { event: 'needs_secret' }
     case 'blocked':
+      return { event: 'stalled' }
+    // obj 900372: the stall watchdog flagged a working card whose session is gone or silent.
+    case 'stalled':
       return { event: 'stalled' }
     case 'pr':
       if (to === 'merged') return { event: 'merged' }
@@ -365,6 +371,9 @@ interface EventJoinRow {
   needs_secret: string | null
   deleted_at: string | null
   owner_bot: string | null
+  /** obj 900372: set while the stall watchdog has the card flagged. */
+  stall_reason?: string | null
+  stalled_at?: string | null
   key_id: number
   key_label: string
   key_workspaces: string | null
@@ -373,6 +382,11 @@ interface EventJoinRow {
   /** 1 when the key owner is a member of the card's CURRENT workspace. */
   owner_member: number
   events: string
+}
+
+/** A keyless card's event before its recipient is chosen (obj 900553). */
+type KeylessEventRow = Omit<EventJoinRow, 'key_id' | 'key_label' | 'key_workspaces' | 'owner_role' | 'owner_member' | 'events'> & {
+  key_id: null
 }
 
 /**
@@ -431,10 +445,13 @@ export interface NeedCardState {
   blocked_reason?: string | null
   needs_secret: string | null
   deleted_at?: string | null
+  /** obj 900372: stall watchdog flag (ISO) + its one-line reason. */
+  stalled_at?: string | null
+  stall_reason?: string | null
 }
 
 /** Most urgent first — a later kind never re-wakes over an earlier one. */
-export const NEED_ORDER: AgentNeedKind[] = ['needs_secret', 'failed_review', 'blocked', 'review']
+export const NEED_ORDER: AgentNeedKind[] = ['needs_secret', 'stalled', 'failed_review', 'blocked', 'review']
 
 /** Pending secret NAMES only (never the worker's free-text reason, never a value). */
 function secretNames(raw: string | null): string[] {
@@ -461,6 +478,15 @@ export function classifyNeed(c: NeedCardState): AgentNeed | null {
   const secrets = secretNames(c.needs_secret)
   if (secrets.length) {
     return { kind: 'needs_secret', category: 'mike_decision', why: `Worker is waiting on a secret only Operator can supply: ${secrets.slice(0, 5).join(', ')}` }
+  }
+  // obj 900372: a working card the stall watchdog flagged — its one auto-restart is
+  // spent and nothing is happening. The reason is built from session state only.
+  if (c.status === 'working' && c.stalled_at) {
+    return {
+      kind: 'stalled',
+      category: 'blocked',
+      why: `Session stalled in working with no activity${c.stall_reason ? ` (${c.stall_reason.split(' — ')[0]})` : ''}: restart it, reroute it, or take it to Operator`,
+    }
   }
   if (c.status === 'review' && c.ai_review_verdict === 'fail') {
     return { kind: 'failed_review', category: 'waiting_on_agent', why: 'AI review failed: reopen it with the fixes, or take it to Operator' }
@@ -619,6 +645,84 @@ export function buildCompletionPayload(row: EventJoinRow, need: AgentNeed): Omit
   }
 }
 
+// ── Keyless cards: recipient by owner_bot, CoS fallback (obj 900553) ─────────
+
+/**
+ * A webhook that could receive a needs_agent wake for a card NO key filed
+ * (`objectives.agent_key_id IS NULL` — every browser/UI-created and chat-created
+ * card). Only enabled webhooks on live keys that subscribe to `needs_agent`.
+ */
+export interface KeylessCandidate {
+  key_id: number
+  key_label: string
+  key_workspaces: string | null
+  key_user_id: number
+  owner_role: string | null
+  events: string
+}
+
+export type KeylessRoute = 'owner_bot' | 'cos_fallback' | 'shared_fallback'
+
+/** Registry id a free-text name (owner_bot or a key label) resolves to, or null. */
+function botIdFor(raw: string | null | undefined, db?: Database.Database): string | null {
+  if (!raw || !raw.trim()) return null
+  const r = resolveBot(raw, db)
+  return r.ok ? r.bot.id : null
+}
+
+/**
+ * Who receives the needs_agent / completion wake of a keyless card? (obj 900553)
+ *
+ * Before this, the enqueue JOIN was on `objectives.agent_key_id`, so a keyless
+ * card produced zero rows and its owner was never woken. The recipient is now
+ * chosen from webhooks that ALREADY exist and that the card's workspace is
+ * ALREADY inside (same `cardInKeyScope` gate as a key's own cards) — no key gets
+ * a workspace, scope or event it did not already have. Tiers, first hit wins:
+ *
+ *  1. `owner_bot` — a webhook whose key label resolves (bot registry: id, name or
+ *     alias) to the SAME bot as the card's owner_bot.
+ *  2. CoS fallback — owner_bot empty, unknown, or with no webhook of its own:
+ *     the General's key, then General's.
+ *  3. Shared fallback — a key whose label names NO registry bot: the shared
+ *     connection, which is exactly where an unowned API card is delivered (its
+ *     needs_agent webhook is the CoS wake routine, cos-card-wake.md). A key
+ *     labelled for a DIFFERENT bot is never used as a fallback.
+ *
+ * Within a tier the lowest key id wins, so the choice is deterministic and a
+ * need is exactly one delivery. No candidate → no delivery (nothing to widen).
+ */
+export function selectKeylessRecipient(
+  card: { owner_bot: string | null; workspace: string | null },
+  candidates: KeylessCandidate[],
+  isMember: (userId: number, workspace: string | null) => boolean,
+  db?: Database.Database,
+): { candidate: KeylessCandidate; route: KeylessRoute } | null {
+  const inScope = candidates
+    .filter(c => parseEvents(c.events).includes('needs_agent'))
+    .filter(c => cardInKeyScope({
+      workspace: card.workspace,
+      key_workspaces: c.key_workspaces,
+      owner_role: c.owner_role,
+      owner_member: c.owner_role === 'admin' ? 1 : (isMember(c.key_user_id, card.workspace) ? 1 : 0),
+    }))
+    .sort((a, b) => a.key_id - b.key_id)
+  if (!inScope.length) return null
+  const labelled = inScope.map(c => ({ c, bot: botIdFor(c.key_label, db) }))
+
+  const owner = botIdFor(card.owner_bot, db)
+  if (owner) {
+    const hit = labelled.find(x => x.bot === owner)
+    if (hit) return { candidate: hit.c, route: 'owner_bot' }
+  }
+  for (const fallback of ['General', 'General']) {
+    const id = botIdFor(fallback, db)
+    const hit = id ? labelled.find(x => x.bot === id) : undefined
+    if (hit) return { candidate: hit.c, route: 'cos_fallback' }
+  }
+  const shared = labelled.find(x => x.bot === null)
+  return shared ? { candidate: shared.c, route: 'shared_fallback' } : null
+}
+
 function readCursor(db: Database.Database): number | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(CURSOR_SETTING) as { value: string } | undefined
   if (!row) return null
@@ -646,10 +750,24 @@ export function enqueueAgentWebhookEvents(db: Database.Database = getDb(), now =
     }
     if (head <= cursor) return 0
 
-    const rows = db.prepare(
-      `SELECT e.id, e.objective_id, e.kind, e.from_value, e.to_value, e.detail, e.created_at,
+    // obj 900553: webhooks that may receive a KEYLESS card's needs_agent wake.
+    // Empty (an install with no needs_agent webhook) → the keyless half of the
+    // query below is skipped entirely and the query is exactly what it was.
+    const keylessCandidates = (db.prepare(
+      `SELECT k.id AS key_id, k.label AS key_label, k.workspaces AS key_workspaces, k.user_id AS key_user_id,
+              u.role AS owner_role, w.events
+         FROM agent_key_webhooks w
+         JOIN agent_api_keys k ON k.id = w.key_id AND k.revoked_at IS NULL
+         LEFT JOIN users u ON u.id = k.user_id
+        WHERE w.enabled = 1
+        ORDER BY k.id ASC`,
+    ).all() as KeylessCandidate[]).filter(c => parseEvents(c.events).includes('needs_agent'))
+
+    const cardCols = `e.id, e.objective_id, e.kind, e.from_value, e.to_value, e.detail, e.created_at,
               o.title, o.status, o.workspace, o.pr_url,
               o.has_blockers, o.ai_review_verdict, o.blocked_reason, o.needs_secret, o.deleted_at, o.owner_bot,
+              o.stalled_at, o.stall_reason`
+    const keyedSql = `SELECT ${cardCols},
               k.id AS key_id, k.label AS key_label, k.workspaces AS key_workspaces, w.events,
               u.role AS owner_role,
               EXISTS (SELECT 1 FROM user_workspaces uw WHERE uw.user_id = k.user_id AND uw.workspace = o.workspace) AS owner_member
@@ -658,10 +776,21 @@ export function enqueueAgentWebhookEvents(db: Database.Database = getDb(), now =
          JOIN agent_key_webhooks w ON w.key_id = o.agent_key_id AND w.enabled = 1
          JOIN agent_api_keys k ON k.id = w.key_id AND k.revoked_at IS NULL
          LEFT JOIN users u ON u.id = k.user_id
-        WHERE e.id > ? AND e.id <= ?
-        ORDER BY e.id ASC
-        LIMIT ?`,
-    ).all(cursor, head, ENQUEUE_BATCH + 1) as EventJoinRow[]
+        WHERE e.id > ? AND e.id <= ?`
+    // Keyless cards (agent_key_id IS NULL) ride the SAME page, so the cursor and
+    // batch semantics are unchanged; their recipient is resolved per row below.
+    const keylessSql = `SELECT ${cardCols},
+              NULL AS key_id, NULL AS key_label, NULL AS key_workspaces, NULL AS events,
+              NULL AS owner_role, 0 AS owner_member
+         FROM objective_events e
+         JOIN objectives o ON o.id = e.objective_id
+        WHERE o.agent_key_id IS NULL AND e.id > ? AND e.id <= ?`
+    const rows = (keylessCandidates.length
+      ? db.prepare(`SELECT * FROM (${keyedSql} UNION ALL ${keylessSql}) ORDER BY id ASC LIMIT ?`)
+        .all(cursor, head, cursor, head, ENQUEUE_BATCH + 1)
+      : db.prepare(`${keyedSql} ORDER BY e.id ASC LIMIT ?`).all(cursor, head, ENQUEUE_BATCH + 1)) as Array<EventJoinRow | KeylessEventRow>
+    const memberStmt = db.prepare('SELECT 1 FROM user_workspaces WHERE user_id = ? AND workspace = ?')
+    const isMember = (userId: number, workspace: string | null) => !!memberStmt.get(userId, workspace)
 
     const hasMore = rows.length > ENQUEUE_BATCH
     const page = hasMore ? rows.slice(0, ENQUEUE_BATCH) : rows
@@ -717,7 +846,27 @@ export function enqueueAgentWebhookEvents(db: Database.Database = getDb(), now =
       return insert.run(payload.event_id, row.key_id, row.objective_id, row.id, 'needs_agent', JSON.stringify(payload), sqliteNow(now)).changes
     }
     let queued = 0
-    for (const row of page) {
+    for (const raw of page) {
+      if (raw.key_id == null) {
+        // obj 900553: a card no key filed (browser/UI, chat). Only the needs_agent
+        // family (needs, completed, pr_merged) — never the raw status events, which
+        // stay a "cards YOU filed" feed. Same event ids, same dedupe as keyed cards.
+        const pick = selectKeylessRecipient(raw, keylessCandidates, isMember, db)
+        if (!pick) continue
+        const routed: EventJoinRow = {
+          ...raw,
+          key_id: pick.candidate.key_id,
+          key_label: pick.candidate.key_label,
+          key_workspaces: pick.candidate.key_workspaces,
+          owner_role: pick.candidate.owner_role,
+          owner_member: 1, // scope already checked by selectKeylessRecipient
+          events: pick.candidate.events,
+        }
+        queued += enqueueNeed(routed)
+        queued += enqueueCompletion(routed)
+        continue
+      }
+      const row: EventJoinRow = raw
       // A key is never told about a card outside its scope (e.g. the card was moved
       // after the key created it, or the owner lost the workspace).
       if (!cardInKeyScope(row)) continue

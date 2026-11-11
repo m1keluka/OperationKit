@@ -8,11 +8,11 @@
  * key). Separate keys mean a leak/rotation of one blast radius never touches the
  * other, and each is independently testable.
  *
- * Key material:
- * - The 32-byte key is read from `process.env.SECRETS_MASTER_KEY` (base64).
- * - Host-file fallback: `/home/operator/projects/.secrets-master-key` (mode 600),
- *   mirroring the test-cred-key + doppler-token-file pattern, so the same image
- *   works whether or not a compose-level secret injector is active.
+ * Key material (Sprint 6b / D2, obj 900540): resolved by the KEK provider
+ * registry in `secrets-kek.ts` — a host file outside every session mount by
+ * default (`SECRETS_KEK_FILE`, default `/run/secrets/operationkit-secrets-kek`),
+ * with `SECRETS_MASTER_KEY` (env) and the old operator host file as legacy
+ * fallbacks so existing installs keep starting.
  * - FAIL-LOUD: missing / non-base64 / wrong-length key throws on first use. The
  *   secrets store must NEVER silently degrade to plaintext.
  * - The key is cached after first successful decode; restart after rotating.
@@ -40,55 +40,24 @@ import {
   createDecipheriv,
   randomBytes,
 } from 'crypto'
-import { readFileSync } from 'fs'
+import { selectKekProvider } from './secrets-kek.js'
 
 const ALGO = 'aes-256-gcm'
 const IV_BYTES = 12
-const KEY_BYTES = 32
-const KEY_FILE = '/home/operator/projects/.secrets-master-key'
 
 let cachedKey: Buffer | null = null
 
 /**
- * Resolves and caches the 32-byte AES-256-GCM secrets master key from
- * `process.env.SECRETS_MASTER_KEY` (base64), falling back to the host file
- * `/home/operator/projects/.secrets-master-key`. Throws with an actionable message
- * if missing or not exactly 32 bytes — fail-loud so encrypted-at-rest never
- * silently degrades to plaintext.
+ * Resolves and caches the 32-byte key through the KEK provider registry
+ * (services/secrets-kek.ts, decision D2): the host file outside every session
+ * mount by default, the legacy `SECRETS_MASTER_KEY` env var / operator file as
+ * compatibility fallbacks. Throws with an actionable message if no provider can
+ * supply exactly 32 bytes — fail-loud so encrypted-at-rest never silently
+ * degrades to plaintext.
  */
 function getKey(): Buffer {
   if (cachedKey) return cachedKey
-  let raw = process.env.SECRETS_MASTER_KEY
-  if (!raw || raw.length === 0) {
-    // Host-file fallback — DEDICATED file, separate from .test-cred-encryption-key.
-    // Path is outside the repo so it never ships in builds.
-    try {
-      const fromFile = readFileSync(KEY_FILE, 'utf8').trim()
-      if (fromFile.length > 0) raw = fromFile
-    } catch {}
-  }
-  if (!raw || raw.length === 0) {
-    throw new Error(
-      'SECRETS_MASTER_KEY is not set. Add a 32-byte base64-encoded key to the ' +
-      'server environment OR write it to ' + KEY_FILE + ' (mode 600), then ' +
-      'restart. This key is DEDICATED to the secrets store and MUST be distinct ' +
-      'from TEST_CRED_ENCRYPTION_KEY. Generate one with: ' +
-      'node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"'
-    )
-  }
-  let buf: Buffer
-  try {
-    buf = Buffer.from(raw, 'base64')
-  } catch {
-    throw new Error('SECRETS_MASTER_KEY is not valid base64.')
-  }
-  if (buf.length !== KEY_BYTES) {
-    throw new Error(
-      `SECRETS_MASTER_KEY must decode to exactly ${KEY_BYTES} bytes ` +
-      `(got ${buf.length}). Regenerate with crypto.randomBytes(32).toString('base64').`
-    )
-  }
-  cachedKey = buf
+  cachedKey = selectKekProvider(process.env).load(process.env)
   return cachedKey
 }
 

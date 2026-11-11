@@ -25,6 +25,9 @@ export const SCRUBBED_TABLES = [
   // Built-in agent chat (obj 719987): a person may paste a key into a chat.
   'agent_chat_messages',
   'agent_chat_drafts',
+  // A side thread's NAME is person-typed text too (obj 900370), so a key pasted
+  // into "name this lane" is redacted on the same boundary as the messages.
+  'agent_chat_threads',
 ] as const
 
 const WRITE_SQL_RE = new RegExp(

@@ -234,6 +234,56 @@ rand_hex() { openssl rand -hex 32; }
 rand_b64() { openssl rand -base64 32; }
 rand_sk()  { printf 'sk-%s' "$(openssl rand -hex 24)"; }
 
+# kek_file_ensure — D2 (obj 900540): the secrets-store key-encryption key lives in
+# its OWN host file, $OK_SECRETS/secrets-kek (root, mode 400), mounted read-only
+# into the app container only (install/docker-compose.yml). Sessions never see
+# it: sandboxes do not mount secrets/, and the app no longer receives the key as
+# an environment variable. The file is created from the SECRETS_MASTER_KEY already
+# in stack.env, so an existing install keeps decrypting with the same key.
+#
+# The stack.env copy is KEPT on purpose (same root-only folder): an older
+# install.sh run after a rollback would otherwise find no SECRETS_MASTER_KEY,
+# generate a NEW one and orphan every stored secret. It is no longer handed to
+# the container. Two different values = stop: never guess which key is real.
+kek_file_ensure() {
+  local file=$OK_SECRETS/secrets-kek env_key cur
+  env_key=$(env_get "$OK_SECRETS_ENV" SECRETS_MASTER_KEY)
+  if [ -f "$file" ]; then
+    cur=$(tr -d "\n" < "$file")
+    if [ -n "$env_key" ] && [ "$cur" != "$env_key" ]; then
+      die "secrets/secrets-kek and SECRETS_MASTER_KEY in secrets/stack.env hold DIFFERENT keys. Restore the right one from a backup (INSTALL.md, Encryption key) — the installer will not guess."
+    fi
+    [ "$DRY_RUN" -eq 1 ] || { chmod 400 "$file"; chown 0:0 "$file" 2>/dev/null || true; }
+    log "  secrets KEK: kept (secrets/secrets-kek, mode 400)"
+    return 0
+  fi
+  # Dry run: secret_ensure did not really write stack.env, so there may be no key yet.
+  if [ "$DRY_RUN" -eq 1 ]; then printf "  [dry-run] would write %s (mode 400) from SECRETS_MASTER_KEY\n" "$file"; return 0; fi
+  [ -n "$env_key" ] || die "SECRETS_MASTER_KEY is missing from secrets/stack.env — cannot create secrets/secrets-kek"
+  # printf is a shell builtin (no argv in ps); umask 277 = the file is born 0400.
+  (umask 277; printf "%s\n" "$env_key" > "$file")
+  chmod 400 "$file"; chown 0:0 "$file" 2>/dev/null || true
+  log "  secrets KEK: written to secrets/secrets-kek (mode 400), from the existing key"
+}
+
+# audit_retention_cron_ensure — D5 (obj 900540): the secrets audit log keeps one
+# year in the database; once a month older rows are exported to
+# state/data/audit-exports/ (JSONL + .sha256, inside the nightly backup) and only
+# then pruned, by the app's own audited retention job. The job writes an
+# audit_prune row naming the file and its hash. OK_RETENTION_CRON_FILE: test hook.
+audit_retention_cron_ensure() {
+  local cron_file=${OK_RETENTION_CRON_FILE:-/etc/cron.d/operationkit-secrets-audit-retention}
+  local line="15 4 1 * * root docker exec command-center tsx server/src/scripts/secrets-audit-retention.ts --apply >> $OK_DIR/logs/secrets-audit-retention.log 2>&1"
+  if [ "$DRY_RUN" -eq 1 ]; then log "  [dry-run] would write $cron_file: monthly secrets audit export + prune (keeps 1 year)"; return 0; fi
+  install -d -m 755 "$OK_DIR/logs"
+  { echo "# Operation Kit secrets audit retention (D5: 1 year in the database, then export + prune)."
+    echo "# Written by install.sh. Exports: $OK_STATE/data/audit-exports/. Docs: docs/security.md, Audit log retention."
+    echo "SHELL=/bin/bash"; echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    echo "$line"; } > "$cron_file.tmp"
+  chmod 644 "$cron_file.tmp"; mv "$cron_file.tmp" "$cron_file"
+  log "  secrets audit log: kept 1 year, then exported to state/data/audit-exports/ and pruned (monthly)"
+}
+
 # env_get FILE KEY — prints the value (callers must not print it further).
 env_get() { [ -f "$1" ] && grep -E "^$2=" "$1" | head -1 | cut -d= -f2- || true; }
 

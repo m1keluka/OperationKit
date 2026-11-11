@@ -7,6 +7,7 @@
 import fs from 'fs'
 import { easternDayKey } from '../lib/eastern-day.js'
 import { ResultCostTracker } from './result-cost.js'
+import { UnresultedUsageTracker } from './unresulted-usage.js'
 
 export interface DeterministicIntel {
   filesCreated: string[]
@@ -50,6 +51,13 @@ export interface DeterministicIntel {
    * hand-built intel literals stay valid.
    */
   completedWithAnswer?: boolean
+  /**
+   * obj 900547 — usage of CLI processes that died without a `result` event,
+   * recovered from the `assistant` events' per-message usage (cost estimated
+   * from list prices). Already INCLUDED in totalTokens/totalCost/modelUsage;
+   * reported separately so an abnormal end is visible. Optional for literals.
+   */
+  unreportedUsage?: { tokens: number; cost: number; messages: number }
 }
 
 // ── Deterministic Parser (Phase A — $0 cost) ──
@@ -66,6 +74,7 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
   let exitCode: number | null = null
   let totalTokens = 0
   let totalCost = 0
+  const unresulted = new UnresultedUsageTracker()
   const costTracker = new ResultCostTracker()
   let startedAt = ''
   let endedAt = ''
@@ -118,6 +127,7 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
     } catch {
       continue
     }
+    unresulted.feed(event)
 
     // Track timestamps
     const ts = (event.timestamp as string) || ''
@@ -284,6 +294,23 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
   const modelTokens = Object.values(modelUsage).reduce((s, m) => s + m.tokens, 0)
   if (modelTokens > 0) totalTokens = modelTokens
 
+  // obj 900547 — a process killed mid-turn never writes its `result`, so the
+  // loop above saw none of its usage (#900543: 130 tool calls recorded as 0
+  // tokens). Add what the assistant events report for those processes.
+  const unreported = unresulted.finish()
+  if (unreported.tokens > 0) {
+    totalTokens += unreported.tokens
+    totalCost += unreported.cost
+    const day = easternDayKey(lastTs || startedAt || new Date())
+    for (const [model, u] of Object.entries(unreported.models)) {
+      const agg = modelUsage[model] ?? { tokens: 0, cost_usd: 0 }
+      agg.tokens += u.tokens
+      agg.cost_usd += u.cost_usd
+      modelUsage[model] = agg
+      bumpDaily(day, model, u.cost_usd, u.tokens)
+    }
+  }
+
   return {
     filesCreated: Array.from(filesCreated),
     filesModified: Array.from(filesModified),
@@ -307,6 +334,7 @@ export async function extractDeterministic(jsonlPath: string): Promise<Determini
     truncatedByUsageLimit,
     finalResultText,
     completedWithAnswer,
+    ...(unreported.tokens > 0 ? { unreportedUsage: { tokens: unreported.tokens, cost: unreported.cost, messages: unreported.messages } } : {}),
   }
 }
 

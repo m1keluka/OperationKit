@@ -2,6 +2,8 @@ import { Router } from 'express'
 import bcrypt from 'bcrypt'
 import { getDb } from '../db/index.js'
 import { requireAuth, requireAdmin, type AuthRequest } from '../middleware/auth.js'
+import { sendInvite, sendTempPassword } from '../services/mailer/account-emails.js'
+import type { SendResult } from '../services/mailer/types.js'
 import type {
   CreateUserRequest,
   ResetPasswordRequest,
@@ -21,6 +23,16 @@ interface UserRow {
   role: UserRole
   email: string | null
   created_at: string
+}
+
+/**
+ * obj 900497: outcome of the optional invite / temp-password email. `sent:false`
+ * tells the UI to fall back to showing the password on screen (today's flow).
+ */
+function emailOutcome(r: SendResult | null): { sent: boolean; error?: string; not_configured?: boolean } {
+  if (!r) return { sent: false }
+  if (r.ok) return { sent: true }
+  return { sent: false, error: r.error, ...(r.code === 'not_configured' ? { not_configured: true } : {}) }
 }
 
 const EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/
@@ -86,6 +98,7 @@ router.get('/', (_req: AuthRequest, res) => {
 // POST /api/admin/users  body: { username, password, role?, email? }
 router.post('/', async (req: AuthRequest, res) => {
   const { username, password, role = 'member', email: rawEmail } = req.body as CreateUserRequest
+  const sendEmail = (req.body as { send_email?: unknown }).send_email === true
 
   if (!username?.trim() || typeof password !== 'string' || password.length < 8) {
     res.status(400).json({ error: 'username and password (min 8 chars) required' })
@@ -118,7 +131,16 @@ router.post('/', async (req: AuthRequest, res) => {
     .prepare('SELECT id, username, role, email, created_at FROM users WHERE id = ?')
     .get(result.lastInsertRowid) as User
 
-  res.status(201).json(user)
+  // obj 900497: email the invite (sign-in link + temp password) when asked and
+  // the user has an email. A password that travelled by email must be changed
+  // at first sign-in, so the account is flagged only when the send succeeded.
+  let invite: SendResult | null = null
+  if (sendEmail && parsed.email) {
+    invite = await sendInvite({ to: parsed.email, username: user.username, tempPassword: password, invitedBy: req.user?.username })
+    if (invite.ok) db.prepare('UPDATE users SET must_change_password = 1 WHERE id = ?').run(user.id)
+  }
+
+  res.status(201).json({ ...user, invite_email: emailOutcome(sendEmail ? invite ?? { ok: false, provider: null, code: 'invalid', error: 'This user has no email address' } : null) })
 })
 
 // POST /api/admin/users/:id/reset-password  body: { password }
@@ -130,13 +152,14 @@ router.post('/:id/reset-password', async (req: AuthRequest, res) => {
     return
   }
   const { password } = req.body as ResetPasswordRequest
+  const sendEmail = (req.body as { send_email?: unknown }).send_email === true
   if (typeof password !== 'string' || password.length < 8) {
     res.status(400).json({ error: 'password (min 8 chars) required' })
     return
   }
 
   const db = getDb()
-  const exists = db.prepare('SELECT id FROM users WHERE id = ?').get(userId)
+  const exists = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(userId) as { id: number; username: string; email: string | null } | undefined
   if (!exists) {
     res.status(404).json({ error: 'User not found' })
     return
@@ -144,7 +167,16 @@ router.post('/:id/reset-password', async (req: AuthRequest, res) => {
 
   const hash = await bcrypt.hash(password, BCRYPT_ROUNDS)
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId)
-  res.json({ ok: true })
+
+  // obj 900497: optionally email the temp password; on failure the UI shows it.
+  let mail: SendResult | null = null
+  if (sendEmail) {
+    mail = exists.email
+      ? await sendTempPassword({ to: exists.email, username: exists.username, tempPassword: password })
+      : { ok: false, provider: null, code: 'invalid', error: 'This user has no email address' }
+    if (mail.ok) db.prepare('UPDATE users SET must_change_password = 1 WHERE id = ?').run(userId)
+  }
+  res.json({ ok: true, temp_password_email: emailOutcome(mail) })
 })
 
 // DELETE /api/admin/users/:id — kill switch; cascades to user_workspaces.

@@ -8,6 +8,32 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### `install/claude-login.sh` accepts the pasted code; real error messages (obj 900541)
+
+A fresh install reported every pasted Authentication code as *"from a different sign-in
+link"*, then stopped with *"could not reach Claude"*. This happened over SSH from Linux and
+Windows PowerShell and in the DigitalOcean web console. Three causes, all fixed in
+`install/claude-oauth.sh`:
+
+- **Paste junk.** The paste was only stripped of whitespace. Bracketed-paste markers
+  (`ESC[200~` … `ESC[201~`, or `[200~` with the ESC lost), other escape sequences, NBSP /
+  zero-width spaces, quotes and a URL-encoded `%23` survived and corrupted the `#state`
+  half. All of these are now removed, and the terminal's bracketed-paste mode is turned off
+  before the prompt. The whole callback URL can also be pasted.
+- **The state check was a hard gate.** PKCE is what ties a code to its link, so the script
+  now always tries the exchange and lets Claude decide. It only reports "a different link"
+  when Claude also refuses the code, and then it shows the end of both states.
+- **Every unexpected reply was reported as a network failure.** Now only "no HTTP answer"
+  (DNS, connect, TLS, timeout) says *could not reach*, with curl's reason. A 429 or 5xx is
+  reported as *Claude's sign-in service answered with an error* (new rc 8), and a web page
+  from a proxy is called out. A reused code is caught before it is sent (new rc 9).
+  Claude's own error text is shown in `[…]`.
+
+Every failure now prints the fallback: `claude setup-token` on any machine with Claude Code,
+then rerun with `--token`. Covered by `install/test/claude-oauth-mock-test.sh` (CI job
+*install-smoke*), which makes no live calls. Troubleshooting rows are in INSTALL.md →
+*When something goes wrong*.
+
 ### Sessions no longer refuse scraping, site ToS, or bot-check work (obj 900192)
 
 On card #900184 a session was asked to source commercial cleaning companies from the
