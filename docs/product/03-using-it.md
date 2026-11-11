@@ -40,17 +40,22 @@ Your business's shared memory: plain markdown files on your own server that you 
 
 ## Dashboard
 
-Operator view: how many Claude seats are free, Grok/Codex connected, models on/off, spend, host CPU/disk. Connect a SuperGrok or Claude seat here — not in Settings.
+Operator view: how many Claude seats are free, Grok/Codex connected, spend, host CPU/disk. Subscription seats and
+model config moved to Settings → Models (sprint 4b, obj 900496) — the Dashboard links there instead of managing
+them inline.
 
 ## Settings
 
 | Tab | Who | What |
 | --- | --- | --- |
-| You | everyone | API key (`cc_live_`), agent keys, personal secrets |
-| Connectors | everyone | your GitHub and Google Workspace (Gmail, Calendar, Drive) accounts, and which agents and workspaces may use them — see [Connectors](./04-you.md#connectors) |
+| Models | global admin | subscription seats (Claude/Codex/Grok), BYOK API-key providers, engine failover, model registry |
+| API & MCP | everyone | API key (`cc_live_`), agent keys (MCP), personal secrets |
+| Integrations | everyone | your GitHub and Google Workspace (Gmail, Calendar, Drive) accounts, and which agents and workspaces may use them — see [Integrations](./04-you.md#integrations) |
 | Secrets | workspace/global admin | org/global keys, reviewer test logins |
 | Org | global admin | organizations, users, **linked repos** |
-| Agents | global admin | agent roster, assignments, skill graph |
+| Agents & Skills | global admin | agent roster, assignments, skill graph |
+| Branding | global admin | reserved slot (sister sprint 3) |
+| Email | global admin | reserved slot (sister sprint 5) |
 | Platform | global admin | host cron |
 
 ## ⌘K

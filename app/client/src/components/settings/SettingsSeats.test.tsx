@@ -47,6 +47,9 @@ const { store, apiMock, ApiErrorMock } = vi.hoisted(() => {
     get: vi.fn((url: string) => {
       if (url === '/admin/seats') return Promise.resolve({ seats: structuredClone(store.seats), kinds: ['claude', 'codex', 'grok'], provisioning: structuredClone(store.provisioning) })
       if (url.startsWith('/admin/seats/failover/')) return Promise.resolve({ workspace: 'main', enabled: false, order: ['claude', 'codex', 'grok'] })
+      // Models page also mounts the BYOK provider-keys list and the model registry.
+      if (url === '/secrets?scopeType=global') return Promise.resolve([])
+      if (url === '/models/all') return Promise.resolve({ models: [] })
       return Promise.resolve(null)
     }),
     post: vi.fn(),

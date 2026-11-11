@@ -230,7 +230,8 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       hint: n.href,
       onSelect: () => { navigate(n.href) },
     }))
-    items.push({ label: 'Connectors', hint: '/settings/connectors', onSelect: () => { navigate('/settings/connectors') } })
+    items.push({ label: 'Settings', hint: '/settings', onSelect: () => { navigate('/settings') } })
+    items.push({ label: 'Integrations', hint: '/settings/integrations', onSelect: () => { navigate('/settings/integrations') } })
     if (canSeeSettings) {
       items.push({ label: 'Secrets', hint: '/settings/secrets', onSelect: () => { navigate('/settings/secrets') } })
     }

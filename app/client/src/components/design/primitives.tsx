@@ -38,17 +38,17 @@ export function StatusDot({ status, size = 8 }: { status: ObjectiveStatus; size?
  * (audit risk #5) — the registry merely overlays it once it arrives.
  */
 const DEFAULT_AGENT_META: Record<string, AgentAvatarMeta> = {
-  cto:     { mono: 'CT', hex: '#6F9AD8', tw: 'bg-agent-cto' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
-  cmo:     { mono: 'CM', hex: '#D389B0', tw: 'bg-agent-cmo' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
-  coo:     { mono: 'CO', hex: '#6FB58C', tw: 'bg-agent-coo' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
-  cfo:     { mono: 'CF', hex: '#D6A24E', tw: 'bg-agent-cfo' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
-  general: { mono: 'GN', hex: '#8C8A92', tw: 'bg-agent-general' },  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
+  cto:     { mono: 'CT', hex: 'var(--agent-cto)', tw: 'bg-agent-cto' },
+  cmo:     { mono: 'CM', hex: 'var(--agent-cmo)', tw: 'bg-agent-cmo' },
+  coo:     { mono: 'CO', hex: 'var(--agent-coo)', tw: 'bg-agent-coo' },
+  cfo:     { mono: 'CF', hex: 'var(--agent-cfo)', tw: 'bg-agent-cfo' },
+  general: { mono: 'GN', hex: 'var(--agent-general)', tw: 'bg-agent-general' },
 }
 
 export interface AgentAvatarMeta { mono: string; hex: string; tw: string }
 
 /** Neutral grey used for any slug the registry hasn't styled. Never blank. */
-const NEUTRAL_AGENT_META: AgentAvatarMeta = { mono: '··', hex: '#8C8A92', tw: 'bg-agent-general' }  // ui-conformance-ignore: mirrors the agent-* token for the monogram's inline background
+const NEUTRAL_AGENT_META: AgentAvatarMeta = { mono: '··', hex: 'var(--agent-general)', tw: 'bg-agent-general' }
 
 let registryMeta: Record<string, AgentAvatarMeta> = {}
 

@@ -19,3 +19,7 @@ app/server/seed.agents.json
 # Real content-engine owner seed (names of real people) — never published (obj 900493).
 seed.content-owners.json
 app/server/seed.content-owners.json
+
+# Per-install branding override (obj 900494) — config/branding.json.example is
+# the checked-in template; the real file is per-install runtime state.
+config/branding.json

@@ -12,11 +12,11 @@ import { setAgentRegistryMeta } from '../components/design/primitives'
  * is never empty enough to make an objective uncreatable.
  */
 const FALLBACK_AGENTS: AgentRow[] = [
-  { slug: 'cto', label: 'CTO', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'projects', workdir_path: null, mono: 'CT', badge_hex: '#6F9AD8', badge_tw: 'bg-agent-cto', archived: false, sort_order: 1 },
-  { slug: 'cmo', label: 'CMO', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'workspace', workdir_path: null, mono: 'CM', badge_hex: '#D389B0', badge_tw: 'bg-agent-cmo', archived: false, sort_order: 2 },
-  { slug: 'coo', label: 'COO', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'workspace', workdir_path: null, mono: 'CO', badge_hex: '#6FB58C', badge_tw: 'bg-agent-coo', archived: false, sort_order: 3 },
-  { slug: 'cfo', label: 'CFO', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'workspace', workdir_path: null, mono: 'CF', badge_hex: '#D6A24E', badge_tw: 'bg-agent-cfo', archived: false, sort_order: 4 },
-  { slug: 'general', label: 'General', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'home', workdir_path: null, mono: 'GN', badge_hex: '#8C8A92', badge_tw: 'bg-agent-general', archived: false, sort_order: 5 },
+  { slug: 'cto', label: 'CTO', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'projects', workdir_path: null, mono: 'CT', badge_hex: 'var(--agent-cto)', badge_tw: 'bg-agent-cto', archived: false, sort_order: 1 },
+  { slug: 'cmo', label: 'CMO', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'workspace', workdir_path: null, mono: 'CM', badge_hex: 'var(--agent-cmo)', badge_tw: 'bg-agent-cmo', archived: false, sort_order: 2 },
+  { slug: 'coo', label: 'COO', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'workspace', workdir_path: null, mono: 'CO', badge_hex: 'var(--agent-coo)', badge_tw: 'bg-agent-coo', archived: false, sort_order: 3 },
+  { slug: 'cfo', label: 'CFO', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'workspace', workdir_path: null, mono: 'CF', badge_hex: 'var(--agent-cfo)', badge_tw: 'bg-agent-cfo', archived: false, sort_order: 4 },
+  { slug: 'general', label: 'General', kind: 'executive', assignable: true, prompt_file: null, workdir_kind: 'home', workdir_path: null, mono: 'GN', badge_hex: 'var(--agent-general)', badge_tw: 'bg-agent-general', archived: false, sort_order: 5 },
 ]
 
 interface UseAgentsResult {

@@ -101,6 +101,7 @@ import {
   sweepOrphanedQueueChildren,
   sweepAutoAcceptOnPass,
   writeHygieneDigest,
+  sweepZeroTokenReview,
 } from './poller-hygiene.js'
 import {
   knowledgeScanOffsets,
@@ -349,6 +350,15 @@ export async function pollActiveSessions(): Promise<void> {
     writeHygieneDigest()
   } catch (err) {
     console.error('[state-poller] writeHygieneDigest failed:', err)
+  }
+  // obj 900510 — a session that lands in `review` with 0 tokens / $0 cost / no
+  // summary never completed a model turn the normal accounting could extract.
+  // Make that silent class visible instead of indistinguishable from a
+  // legitimate pending human review.
+  try {
+    await sweepZeroTokenReview()
+  } catch (err) {
+    console.error('[state-poller] sweepZeroTokenReview failed:', err)
   }
 
   const db = getDb()

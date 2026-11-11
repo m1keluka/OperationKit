@@ -2,7 +2,7 @@
 
 **In a sentence:** OperationKit is the infrastructure layer an AI implementation consultant installs for each client, on the client's own server: a knowledge base, AI workers that run jobs as cards, optional bots to talk to, and an MCP connection for the AI apps people already use.
 
-**In a paragraph:** You open a card, pick an agent, and a sandboxed worker session starts on the server. The card is the source of truth: queue → working → review → done. The **Knowledge base** holds the client's files and notes; **Chat** is one ongoing conversation per agent; **Agents → Templates** adds ready-made agents from one-file templates; **Settings → Connectors** links GitHub and Google Workspace. Claude, ChatGPT and Grok reach the same notes, agents and board through one MCP address. Each client's AI work runs on that client's own AI account.
+**In a paragraph:** You open a card, pick an agent, and a sandboxed worker session starts on the server. The card is the source of truth: queue → working → review → done. The **Knowledge base** holds the client's files and notes; **Chat** is one ongoing conversation per agent; **Agents → Templates** adds ready-made agents from one-file templates; **Settings → Integrations** links GitHub and Google Workspace. Claude, ChatGPT and Grok reach the same notes, agents and board through one MCP address. Each client's AI work runs on that client's own AI account.
 
 New install? Start with [INSTALL.md](../../INSTALL.md). Connecting an outside AI app: [Connect your AI](../CONNECT-YOUR-AGENT.md). The plain-language security page: [Security overview](../SECURITY-OVERVIEW.md).
 

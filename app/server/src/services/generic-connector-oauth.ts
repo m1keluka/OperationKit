@@ -32,7 +32,8 @@ function envPrefix(connectorId: string): string {
   return connectorId.toUpperCase().replace(/-/g, '_')
 }
 
-function redirectUriFor(connectorId: string): string {
+/** Exposed for the guided-OAuth wizard (obj 900506): the exact value to paste into the vendor's redirect-URI field. */
+export function redirectUriFor(connectorId: string): string {
   const base = process.env.APP_BASE_URL || ''
   return `${base}/api/user/connector-oauth/${connectorId}/callback`
 }

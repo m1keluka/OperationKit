@@ -30,7 +30,7 @@ Boot also calls `startContactbookSibling` after listen (no-ops unless Telegram e
 | `/api/projects/:project/feed`, `/api/feed/all` | `routes/feed.ts` | yes | activity feed |
 | `/api/docs` | `routes/docs.ts` | yes | vault tree + file R/W + search |
 | `/api/briefing` | `routes/briefing.ts` | yes | board briefing (Agent API / MCP); the assistant chat was removed |
-| `/api/connectors` | `routes/connectors.ts` | yes | Settings → Connectors; one file per connector in `connectors/defs/` |
+| `/api/connectors` | `routes/connectors.ts` | yes | Settings → Integrations; one file per connector in `connectors/defs/` |
 | `/api/status` | `routes/status.ts` | yes | UptimeRobot |
 | `/api/webhooks` | `routes/webhooks.ts` | yes | UptimeRobot ingest |
 | `/api/webhooks/github` | `routes/github-webhook.ts` | yes | PR-merged HMAC |
@@ -175,8 +175,12 @@ users, user_workspaces, objectives, schema_meta, objective_audit, external_check
 | `/settings/platform` | redirect → `/jobs#host-cron` | |
 | `/feed` | `ProjectFeed` | System |
 | `/config` | `ConfigPage` | System |
-| `/settings/you` | `AccountSettings` | |
-| `/settings/connectors` | `SettingsConnectors` | |
+| `/settings/api-mcp` | `AccountSettings` | renamed from `/settings/you` (sprint 4b, obj 900496); old path redirects |
+| `/settings/integrations` | `SettingsConnectors` | renamed from `/settings/connectors`; old path redirects |
+| `/settings/models` | `SettingsSeats` | renamed from `/settings/seats`; old path redirects |
+| `/settings/agents-skills` | `SettingsAgents` | Agents/Skills/Tools + Assignments explanation (sprint 4b); distinct from `/settings/agents`, which 4a claims as a redirect to the Agents hub |
+| `/settings/branding` | `SettingsBranding` | sprint 3 panel slot, mounted if its component exists |
+| `/settings/email` | `SettingsEmail` | sprint 5 panel slot, mounted if its component exists |
 | `/settings/test-credentials` | `TestCredentialsPage` | |
 | `/settings/secrets` | `SecretsPage` | |
 

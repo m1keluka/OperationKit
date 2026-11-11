@@ -541,3 +541,87 @@ export function writeHygieneDigest(): void {
   }
 }
 
+
+// ── Zero-token review guard (obj 900510) ─────────────────────────────────────
+//
+// A worker that produced total_tokens=0, cost=$0 AND no last_session_summary
+// never actually ran a model turn worth grading — a genuine turn burns tokens
+// on the system prompt alone, so all-zero usage is a reliable signature of a
+// session that died before (or without) the normal accounting pipeline running
+// (see state-poller.ts's startup sweep fix, obj 900510, for one concrete cause:
+// a session that finished in the few seconds a backend self-deploy paused the
+// poller). Landing such a row in plain `review` with ai_review_verdict IS NULL
+// is indistinguishable from a legitimate pending-human-review card — the
+// operator has no way to tell "nothing happened, investigate" from "waiting on
+// a human". This sweep makes that silent class VISIBLE: it never deletes or
+// retries anything, it only stamps a `blocked` verdict + reason onto a row that
+// already carries the all-zero signature, which the hygiene digest and the
+// card UI already surface for any other `blocked` row.
+//
+// Naturally idempotent and self-terminating: once `ai_review_verdict` is set
+// the row no longer matches `ai_review_verdict IS NULL`, so a repeat tick never
+// re-touches it. delegate_mode is excluded — an orchestrator's "deliverable" is
+// orchestration, not tokens, and it has its own parked lifecycle.
+export function selectZeroTokenReviewCandidates(db: Database): Objective[] {
+  return db
+    .prepare(
+      `SELECT * FROM objectives
+        WHERE status = 'review'
+          AND delegate_mode = 0
+          AND ai_review_verdict IS NULL
+          AND total_tokens = 0
+          AND total_cost_usd = 0
+          AND last_session_summary IS NULL
+          AND deleted_at IS NULL
+        ORDER BY updated_at ASC`,
+    )
+    .all() as Objective[]
+}
+
+/**
+ * Pure(ish) core: stamp a visible `blocked` verdict on every row
+ * {@link selectZeroTokenReviewCandidates} returns. Separated from the throttled
+ * `sweepZeroTokenReview` wrapper below (same split as `buildHygieneDigest` /
+ * `writeHygieneDigest`) so the actual behavior is unit-testable without fighting
+ * a module-level timer.
+ */
+export function applyZeroTokenReviewBlock(db: Database): void {
+  const candidates = selectZeroTokenReviewCandidates(db)
+  for (const obj of candidates) {
+    const reason =
+      'Session ended with 0 recorded tokens, $0 cost, and no summary — the worker ' +
+      'never completed a model turn the usual accounting pipeline could extract ' +
+      '(e.g. it died during a backend restart window, or crashed before producing ' +
+      'any output). Not a deliverable; needs manual investigation rather than human review.'
+    db.prepare(
+      "UPDATE objectives SET ai_review_verdict = 'blocked', ai_review_findings = ?, updated_at = datetime('now') WHERE id = ? AND ai_review_verdict IS NULL",
+    ).run(reason, obj.id)
+    try {
+      db.prepare(
+        "INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail) VALUES (?, ?, ?, ?, 'milestone', 'zero_token_review_blocked', ?)",
+      ).run(obj.project || 'unknown', obj.workspace, obj.id, obj.session_id, reason)
+    } catch (err) {
+      console.error(`[state-poller] Failed to log zero-token-review block for obj ${obj.id}:`, err)
+    }
+    console.warn(
+      `[state-poller] Objective ${obj.id} (${obj.session_id ?? 'no session'}) landed in review with 0 tokens / $0 cost / no summary — blocking with a visible reason instead of a silent review.`,
+    )
+    const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(obj.id) as Objective
+    if (updated) broadcast({ type: 'objective_updated', payload: updated })
+  }
+}
+
+let lastZeroTokenReviewSweep = 0
+const ZERO_TOKEN_REVIEW_SWEEP_INTERVAL_MS = 60 * 1000
+
+/**
+ * Throttled wrapper the poll loop calls every tick (cheap indexed query, but no
+ * reason to run it every 3s). See {@link applyZeroTokenReviewBlock} for the
+ * actual behavior.
+ */
+export async function sweepZeroTokenReview(): Promise<void> {
+  const now = Date.now()
+  if (now - lastZeroTokenReviewSweep < ZERO_TOKEN_REVIEW_SWEEP_INTERVAL_MS) return
+  lastZeroTokenReviewSweep = now
+  applyZeroTokenReviewBlock(getDb())
+}

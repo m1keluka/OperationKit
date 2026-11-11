@@ -132,6 +132,31 @@ describe('connectors routes', () => {
     }
   })
 
+  it('carries auth_path + oauth_setup for the guided-OAuth wizard (obj 900506)', async () => {
+    const { json } = await call('GET', '/')
+    const list = json as ConnectorSummary[]
+
+    const slack = list.find(c => c.id === 'slack')!
+    expect(slack.auth_path).toBe('oauth_guided')
+    expect(slack.setup_guide).toBe('docs/connectors/guides/slack.md')
+    expect(slack.oauth_setup).not.toBeNull()
+    expect(slack.oauth_setup!.redirect_uri).toMatch(/\/api\/user\/connector-oauth\/slack\/callback$/)
+    expect(slack.oauth_setup!.scopes).toEqual(
+      expect.arrayContaining(['channels:read', 'channels:history', 'chat:write', 'users:read']),
+    )
+
+    const google = list.find(c => c.id === 'google-workspace')!
+    expect(google.auth_path).toBe('oauth_guided')
+    expect(google.oauth_setup).not.toBeNull()
+    expect(google.oauth_setup!.redirect_uri).toMatch(/\/api\/user\/google\/callback$/)
+    expect(google.oauth_setup!.scopes.length).toBeGreaterThan(0)
+
+    // auth_path: 'api_key' connectors get no oauth_setup.
+    const github = list.find(c => c.id === 'github')!
+    expect(github.auth_path).toBe('api_key')
+    expect(github.oauth_setup).toBeNull()
+  })
+
   it('connects GitHub with a token and never sends the token back', async () => {
     const bad = await call('POST', '/github/connect', { fields: { token: 'ghp_wrong' } })
     expect(bad.status).toBe(400)

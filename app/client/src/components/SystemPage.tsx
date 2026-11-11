@@ -10,7 +10,6 @@ import { Link } from 'react-router-dom'
 import { Info } from 'lucide-react'
 import { api } from '../lib/api'
 import { MODELS_SETTINGS_ROUTE } from '../lib/routes'
-import { ModelsModule } from './ModelsModule'
 import { CostModule } from './CostModule'
 import {
   PageContainer,
@@ -374,9 +373,6 @@ export function SystemPage() {
         >
           Manage AI accounts in Settings &gt; Models
         </Link>
-
-        {/* Models configuration */}
-        <ModelsModule />
 
         {/* Queue */}
         {accounts && accounts.queue.length > 0 && (

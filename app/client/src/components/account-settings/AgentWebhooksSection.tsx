@@ -166,6 +166,7 @@ function WebhookEditor({
   const [removing, setRemoving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [revealedSecret, setRevealedSecret] = useState('')
   const [test, setTest] = useState<TestResult | null>(null)
   const [deliveries, setDeliveries] = useState<AgentWebhookDelivery[] | null>(hook ? null : [])
   const { confirm, confirmDialog } = useConfirm()
@@ -189,13 +190,17 @@ function WebhookEditor({
   }
 
   const needsSecret = !hook?.has_secret
-  const canSave = url.trim().length > 0 && events.length > 0 && headerName.trim().length > 0 && (!needsSecret || secret.length >= 8)
+  const formFieldsValid = url.trim().length > 0 && events.length > 0 && headerName.trim().length > 0
+  const canSave = formFieldsValid && (!needsSecret || secret.length >= 8)
+  const canGenerate = formFieldsValid
 
-  async function save() {
-    if (!canSave) return
+  async function save(opts?: { generate?: boolean }) {
+    const generate = opts?.generate ?? false
+    if (!generate && !canSave) return
     setSaving(true)
     setError('')
     setNotice('')
+    setRevealedSecret('')
     try {
       const res = await api.put<{ webhook: AgentWebhookConfig }>(`/auth/agent-keys/${keyId}/webhook`, {
         url: url.trim(),
@@ -203,16 +208,44 @@ function WebhookEditor({
         header_prefix: headerPrefix,
         events,
         enabled,
-        ...(secret ? { secret } : {}),
+        ...(generate ? { generate_secret: true } : secret ? { secret } : {}),
       })
       setSecret('')
       onSaved(res?.webhook ?? null)
-      setNotice('Saved. The sender key is stored in Secrets and will not be shown again.')
+      if (res?.webhook?.generated_secret) {
+        setRevealedSecret(res.webhook.generated_secret)
+        setNotice('Saved. Copy the sender key below now — it will not be shown again.')
+      } else {
+        setNotice('Saved. The sender key is stored in Secrets and will not be shown again.')
+      }
       void loadDeliveries()
     } catch (err) {
       setError(errorText(err, 'Save failed'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function generateAndSave() {
+    if (!canGenerate) return
+    const ok = hook?.has_secret
+      ? await confirm({
+          title: 'Replace the sender key?',
+          message: 'A new key is generated and stored; the old one stops working for this webhook.',
+          confirmLabel: 'Generate new key',
+          danger: true,
+        })
+      : true
+    if (!ok) return
+    await save({ generate: true })
+  }
+
+  async function copyRevealedSecret() {
+    try {
+      await navigator.clipboard.writeText(revealedSecret)
+      setNotice('Copied. This is the only time it will be shown.')
+    } catch {
+      // Clipboard API unavailable — the key is still selectable/visible in the field below.
     }
   }
 
@@ -275,19 +308,40 @@ function WebhookEditor({
 
       <div>
         <label htmlFor={id('secret')} className="block text-xs font-medium text-fg-1">Sender key</label>
-        <input
-          id={id('secret')}
-          type="password"
-          autoComplete="new-password"
-          value={secret}
-          onChange={e => setSecret(e.target.value)}
-          placeholder={hook?.has_secret ? 'Stored — leave blank to keep it' : 'The key your bot expects (min 8 characters)'}
-          className={cn(INPUT, 'font-mono')}
-        />
+        <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-start">
+          <input
+            id={id('secret')}
+            type="password"
+            autoComplete="new-password"
+            value={secret}
+            onChange={e => setSecret(e.target.value)}
+            placeholder={hook?.has_secret ? 'Stored — leave blank to keep it' : 'Paste your bot’s key, or generate one below'}
+            className={cn(INPUT, 'mt-0 font-mono flex-1')}
+          />
+          <Button
+            type="button"
+            className="shrink-0"
+            loading={saving}
+            disabled={!canGenerate}
+            onClick={() => void generateAndSave()}
+          >
+            {hook?.has_secret ? 'Generate new key' : 'Generate key'}
+          </Button>
+        </div>
         <p className="mt-1 text-[11px] text-fg-2">
           Sent as the auth header below and used to sign each body (<span className="font-mono">X-CC-Signature: sha256=…</span>).
           {hook?.has_secret && <> Stored in Secrets as <span className="font-mono">{hook.secret_name}</span>.</>}
+          {' '}Generate has the server pick a random key instead of you typing one — shown once, right after you save.
         </p>
+        {revealedSecret && (
+          <div role="status" className="mt-2 rounded-md border border-line-strong bg-surface-2 p-3">
+            <p className="text-[11px] font-medium text-fg-1">Your new sender key (shown once — copy it now)</p>
+            <div className="mt-1 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded bg-surface px-2 py-1 font-mono text-xs text-fg-0">{revealedSecret}</code>
+              <Button type="button" className="shrink-0" onClick={() => void copyRevealedSecret()}>Copy</Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

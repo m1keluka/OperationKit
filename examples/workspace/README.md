@@ -23,9 +23,17 @@ examples/workspace/
   skills/                      # reusable, parameterized capabilities
     summarize-notes/SKILL.md
     draft-update/SKILL.md
+  tools/                       # raw capability a skill calls (API, MCP, CLI)
+    github/TOOL.md
+    google-workspace/TOOL.md
   workspaces/
     acme/context.md            # per-workspace business context (placeholder)
 ```
 
 Everything here is fictional ("Acme"). Replace it with your own personas, skills,
 and context. Nothing in this tree references any real person, company, or host.
+The two `tools/` entries are an exception: they document two connectors that
+really do ship in this repo (`app/server/src/connectors/defs/github.ts`,
+`google-workspace.ts`), so you can see a Tool definition wired to a real
+credential before writing your own — see
+[`docs/connectors/TOOLS-LAYER-WIRING.md`](../../docs/connectors/TOOLS-LAYER-WIRING.md).

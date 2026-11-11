@@ -243,6 +243,13 @@ export interface SaveWebhookInput {
   enabled?: unknown
   /** Write-only. Omit to keep the stored key. */
   secret?: unknown
+  /** If true (and `secret` is omitted), the server generates the sender key instead of the caller supplying one. */
+  generate_secret?: unknown
+}
+
+/** 32 bytes of randomness, hex-encoded — well inside the 8-512 char bound `saveWebhookConfig` already enforces. */
+function generateSenderKey(): string {
+  return crypto.randomBytes(32).toString('hex')
 }
 
 export function saveWebhookConfig(userId: number, keyId: number, input: SaveWebhookInput): Result<AgentWebhookConfig> {
@@ -286,8 +293,14 @@ export function saveWebhookConfig(userId: number, keyId: number, input: SaveWebh
   const enabled = input.enabled === undefined ? (existing ? !!existing.enabled : true) : input.enabled
   if (typeof enabled !== 'boolean') return { ok: false, status: 400, error: 'enabled must be true or false' }
 
+  const wantsGenerated = input.generate_secret === true
+    && (input.secret === undefined || input.secret === null || input.secret === '')
+  let generatedSecret: string | null = null
+
   const name = secretNameFor(keyId)
-  if (input.secret !== undefined && input.secret !== null && input.secret !== '') {
+  if (wantsGenerated) {
+    generatedSecret = generateSenderKey()
+  } else if (input.secret !== undefined && input.secret !== null && input.secret !== '') {
     if (typeof input.secret !== 'string' || input.secret.length < 8 || input.secret.length > 512 || /[\r\n]/.test(input.secret)) {
       return { ok: false, status: 400, error: 'sender key must be 8-512 characters on one line' }
     }
@@ -295,8 +308,9 @@ export function saveWebhookConfig(userId: number, keyId: number, input: SaveWebh
     return { ok: false, status: 400, error: 'sender key is required the first time' }
   }
 
-  if (typeof input.secret === 'string' && input.secret) {
-    setSecret({ scope: scopeFor(userId), key: name, value: input.secret, actorUserId: userId, via: `agent key #${keyId} webhook` })
+  const secretToStore = generatedSecret ?? (typeof input.secret === 'string' && input.secret ? input.secret : null)
+  if (secretToStore) {
+    setSecret({ scope: scopeFor(userId), key: name, value: secretToStore, actorUserId: userId, via: `agent key #${keyId} webhook` })
   }
   db.prepare(
     `INSERT INTO agent_key_webhooks (key_id, user_id, url, header_name, header_prefix, events, enabled)
@@ -306,7 +320,8 @@ export function saveWebhookConfig(userId: number, keyId: number, input: SaveWebh
        updated_at = datetime('now')`,
   ).run(keyId, userId, url.url, hn, headerPrefix, JSON.stringify(events), enabled ? 1 : 0)
   const row = db.prepare('SELECT * FROM agent_key_webhooks WHERE key_id = ?').get(keyId) as WebhookRow
-  return { ok: true, value: toConfig(row) }
+  const value = toConfig(row)
+  return { ok: true, value: generatedSecret ? { ...value, generated_secret: generatedSecret } : value }
 }
 
 export function deleteWebhookConfig(userId: number, keyId: number): Result<true> {

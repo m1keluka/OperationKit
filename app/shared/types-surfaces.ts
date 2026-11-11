@@ -950,6 +950,12 @@ export interface AgentWebhookConfig {
   secret_name: string
   created_at: string
   updated_at: string
+  /**
+   * Present ONLY in the response to a save that requested `generate_secret: true` —
+   * the server-generated sender key, shown exactly once. Never returned again,
+   * including on a later GET of this same webhook.
+   */
+  generated_secret?: string
 }
 
 export interface AgentWebhookDelivery {
