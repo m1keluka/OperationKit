@@ -1,9 +1,11 @@
 /**
  * Connectors API (obj 720115) — Settings → Connectors.
  *
- *   GET    /api/connectors              → every connector + this person's status and access rules
- *   POST   /api/connectors/:id/connect  → token connectors: { fields } → { status }
- *                                         sign-in connectors: → { redirect_url }
+ *   GET    /api/connectors                         → every connector + this person's status and access rules
+ *   GET    /api/connectors/dcr-client-metadata/:id  → CIMD client metadata document (public; a provider's auth server fetches this)
+ *   POST   /api/connectors/:id/connect              → token connectors: { fields } → { status }
+ *                                                      sign-in connectors: → { redirect_url }
+ *                                                      dcr_mcp token fallback: { fields } → { status } (Sprint 7.3)
  *   POST   /api/connectors/:id/check    → re-test the stored connection → { status }
  *   PUT    /api/connectors/:id/access   → { agents, workspaces } (null = all) → { access }
  *   DELETE /api/connectors/:id          → disconnect → { status }
@@ -12,14 +14,42 @@
  * Changes need a signed-in person in the browser: API keys may read, not change.
  */
 import { Router } from 'express'
-import type { Response } from 'express'
+import type { Request, Response } from 'express'
 import type { ConnectorSummary } from '@operationkit/shared'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { listConnectors, getConnector } from '../connectors/registry.js'
 import { getAccess, setAccess, parseAccessBody } from '../connectors/access.js'
 import { NOT_CONNECTED, type ConnectorDefinition, type ConnectOutcome } from '../connectors/types.js'
+import { buildClientMetadataDocument } from '../connectors/dcr-client.js'
+import { dcrRedirectUri } from '../connectors/dcr-routes.js'
+import { redirectUriFor } from '../services/generic-connector-oauth.js'
+import { redirectUriFor as googleRedirectUriFor } from '../services/user-google-connections.js'
+
+/** Google Workspace's callback lives at a different, older route than the generic oauth_guided store. */
+function oauthRedirectUriFor(connectorId: string): string {
+  return connectorId === 'google-workspace' ? googleRedirectUriFor() : redirectUriFor(connectorId)
+}
 
 const router = Router()
+
+// Public: a `dcr_mcp` connector's provider fetches this unauthenticated — the
+// URL IS the CIMD client_id (see connectors/dcr-client.ts). Must stay BEFORE
+// requireAuth below.
+router.get('/dcr-client-metadata/:id', async (req: Request, res: Response) => {
+  const def = await getConnector(String(req.params.id))
+  if (!def || def.auth_path !== 'dcr_mcp' || !def.mcp_url) {
+    res.status(404).json({ error: 'No such dcr_mcp connector.' })
+    return
+  }
+  res.json(
+    buildClientMetadataDocument({
+      clientName: `Command Center — ${def.name}`,
+      redirectUri: dcrRedirectUri(def.id),
+      scope: def.dcr_scope,
+    }),
+  )
+})
+
 router.use(requireAuth)
 
 function callerId(req: AuthRequest, res: Response): number | null {
@@ -61,6 +91,12 @@ async function summarize(def: ConnectorDefinition, userId: number): Promise<Conn
     can_check: typeof def.check === 'function',
     status,
     access: getAccess(def.id, userId),
+    auth_path: def.auth_path ?? null,
+    oauth_setup:
+      def.auth_path === 'oauth_guided' && def.oauth
+        ? { redirect_uri: oauthRedirectUriFor(def.id), scopes: def.oauth.scopes }
+        : null,
+    setup_guide: def.setup_guide ?? null,
   }
 }
 
@@ -98,6 +134,22 @@ router.post('/:id/connect', async (req: AuthRequest, res: Response) => {
   }
   try {
     if (def.connect.kind === 'oauth') {
+      // A `dcr_mcp` connector's token fallback (Sprint 7.3, obj 900507): the
+      // UI only renders the sign-in button for an 'oauth'-kind connector
+      // (the guided fallback control is Sprint 7.2's wizard, not built yet),
+      // but the fallback itself is real — a caller that posts `fields`
+      // directly reaches it here rather than always starting OAuth. Existing
+      // oauth connectors (Google Workspace) never send `fields`, so their
+      // behavior is unchanged.
+      const rawFields = req.body?.fields
+      if (rawFields && typeof rawFields === 'object' && def.connectWithFields) {
+        const fields: Record<string, string> = {}
+        for (const [k, v] of Object.entries(rawFields as Record<string, unknown>)) {
+          fields[k] = typeof v === 'string' ? v : ''
+        }
+        sendOutcome(res, await def.connectWithFields({ userId }, fields))
+        return
+      }
       if (!def.startOAuth) throw new Error('missing startOAuth')
       sendOutcome(res, await def.startOAuth({ userId }))
       return

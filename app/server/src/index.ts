@@ -72,6 +72,7 @@ import { devIngestCors } from './middleware/dev-ingest-token.js'
 import userGithubTokenRouter from './routes/user-github-token.js'
 import secretsRouter from './routes/secrets.js'
 import userGoogleRouter from './routes/user-google.js'
+import userDcrRouter from './routes/user-dcr.js'
 import connectorsRouter from './routes/connectors.js'
 import connectorOAuthCallbackRouter from './routes/connector-oauth-callback.js'
 import resourceAssignmentsRouter from './routes/resource-assignments.js'
@@ -275,6 +276,7 @@ app.use('/api/test-credentials', testCredentialsRouter)   // workspace-admin sco
 app.use('/api/internal/test-credentials', internalTestCredentialsRouter)  // localhost-only plaintext fetch for reviewer spawn
 app.use('/api/user/github-token', userGithubTokenRouter)  // per-user GitHub PAT: link/validate/revoke (auth; encrypted at rest, masked)
 app.use('/api/user/google', userGoogleRouter)              // per-user Google Workspace OAuth: connect/callback/disconnect (auth except callback; encrypted at rest, masked)
+app.use('/api/user/dcr', userDcrRouter)                   // dcr_mcp connectors (Notion, Linear): generic DCR/CIMD OAuth callback (public; CSRF-bound by signed state, obj 900507)
 app.use('/api/connectors', connectorsRouter)              // Settings → Connectors: one file per connector in connectors/defs (auth; credentials never returned, obj 720115)
 app.use('/api/user/connector-oauth', connectorOAuthCallbackRouter)  // generic oauth_guided callback for the Sprint 7.4 catalog preload (public: vendor redirect target, CSRF-bound by signed state, obj 900508)
 app.use('/api/secrets', secretsRouter)                    // native scoped secrets store: scoped CRUD + versions + rollback (auth; encrypted at rest, masked summaries only)

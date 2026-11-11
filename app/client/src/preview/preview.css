@@ -1,5 +1,8 @@
-/* Workspace preview — scoped tokens. Production :root stays Mission Control dark.
-   Light/dark here is a paper-desk work tool (Docs/Drive), not an inversion. */
+/* Workspace preview — scoped tokens. This surface keeps its own neutral
+   "paper-desk" grey ramp (Docs/Drive feel) independent of the app shell's
+   brand surfaces, but brand/status colors always resolve to the global
+   Operation Kit tokens (index.css) — never a literal hex — so a re-brand
+   (env/config/Branding panel) still reaches this preview. */
 
 .cc-ws {
   min-height: 100%;
@@ -22,27 +25,14 @@
   --line: #e4e7ec;
   --line-soft: #eef0f3;
   --line-strong: #d0d5dd;
-  --ok-signal: #c2410c;
-  --ok-ember: #9a3412;
-  --ok-carbon: #1c1f26;
-  --accent: #c2410c;
-  --accent-hover: #9a3412;
-  --accent-press: #7c2d12;
-  --accent-fg: #ffffff;
-  --accent-tint: rgba(194, 65, 12, 0.08);
-  --accent-line: rgba(194, 65, 12, 0.28);
-  --ok-verify: #15803d;
-  --ok-amber: #b45309;
-  --ok-alarm: #dc2626;
+  /* accent / ok-signal / ok-verify / ok-amber / ok-alarm / st-* intentionally NOT
+     redeclared here — they inherit the global :root values (index.css), which is
+     how a re-brand (env/config/Branding panel) reaches this preview surface too. */
   --st-planning: #6d5bd0;
   --st-queue: #667085;
   --st-working: #2563eb;
   --st-ai: #0f9d8e;
-  --st-review: #b45309;
-  --st-human: var(--accent);
-  --st-done: #15803d;
   --st-cancelled: #667085;
-  --status-human: var(--st-human);
 }
 
 .cc-ws[data-theme='dark'] {

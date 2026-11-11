@@ -150,6 +150,49 @@ export function initTokensSchema(db: Database.Database): void {
       last_refreshed_at       TEXT,
       last_error              TEXT                                   -- last refresh failure, surfaced as connection health
     );
+
+    -- Per-install DCR/CIMD client registrations (Sprint 7.3, obj 900507). One
+    -- row per auth_path='dcr_mcp' connector (e.g. notion, linear) — this
+    -- install registers itself as an OAuth client against the PROVIDER'S OWN
+    -- auth server ONCE, and every user of this install authorizes through that
+    -- same client_id. Mirrors the shape of a guided-OAuth connector's single
+    -- GOOGLE_OAUTH_CLIENT_ID, just resolved dynamically instead of from env.
+    --
+    -- client_secret_encrypted is AES-256-GCM via services/crypto.ts (same
+    -- primitive as user_github_tokens/user_google_connections) and is NULL for
+    -- a CIMD registration (a public client, PKCE-only, has no secret).
+    CREATE TABLE IF NOT EXISTS dcr_client_registrations (
+      connector_id            TEXT    PRIMARY KEY,                     -- e.g. 'notion', 'linear'
+      issuer                  TEXT    NOT NULL,                        -- the provider's own auth server base URL
+      registration_method     TEXT    NOT NULL CHECK(registration_method IN ('cimd','dcr')),
+      client_id               TEXT    NOT NULL,                        -- DCR: issued client_id; CIMD: this install's metadata-document URL
+      client_secret_encrypted TEXT,                                    -- DCR confidential clients only; NULL for CIMD
+      redirect_uri            TEXT    NOT NULL,
+      registered_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Per-user grants for an auth_path='dcr_mcp' connector (Sprint 7.3, obj
+    -- 900507): the authorization-code tokens obtained through the install's
+    -- dcr_client_registrations client, OR the token/API-key fallback when
+    -- registration fails at runtime or the provider only partially supports
+    -- DCR/CIMD. Both paths store their bearer credential the same way
+    -- (access_token_encrypted) so a connector's credential read does not need
+    -- to branch on auth_method. One row per (connector_id, user_id) — a person
+    -- connects Notion and Linear independently.
+    CREATE TABLE IF NOT EXISTS user_dcr_connections (
+      connector_id            TEXT    NOT NULL,
+      user_id                 INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      auth_method             TEXT    NOT NULL CHECK(auth_method IN ('oauth','api_key')),
+      account_label           TEXT,                                    -- e.g. workspace name/email; never a secret
+      access_token_encrypted  TEXT    NOT NULL,                        -- OAuth access token OR the API key; NEVER returned raw
+      refresh_token_encrypted TEXT,                                    -- OAuth only; NULL for api_key
+      access_token_expires_at TEXT,
+      scopes                  TEXT,
+      connected_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+      last_refreshed_at       TEXT,
+      last_error              TEXT,
+      PRIMARY KEY (connector_id, user_id)
+    );
   `)
 
   // objective_prs — per-objective PR log (obj 2300). An objective may open MANY

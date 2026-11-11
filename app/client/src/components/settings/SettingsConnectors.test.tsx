@@ -39,6 +39,9 @@ function github(over: Partial<ConnectorSummary> = {}): ConnectorSummary {
     can_check: true,
     status: { state: 'not_connected', account: null, details: [], connected_at: null, checked_at: null, error: null },
     access: { agents: null, workspaces: null },
+    auth_path: 'api_key',
+    oauth_setup: null,
+    setup_guide: null,
     ...over,
   }
 }
@@ -59,6 +62,9 @@ function google(over: Partial<ConnectorSummary> = {}): ConnectorSummary {
     can_check: false,
     status: { state: 'not_connected', account: null, details: [], connected_at: null, checked_at: null, error: null },
     access: { agents: null, workspaces: null },
+    auth_path: 'oauth_guided',
+    oauth_setup: { redirect_uri: 'https://example.test/api/user/connector-oauth/google-workspace/callback', scopes: ['gmail'] },
+    setup_guide: 'docs/connectors/guides/google-workspace.md',
     ...over,
   }
 }

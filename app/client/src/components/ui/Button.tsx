@@ -3,7 +3,8 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { cn } from './cn'
 
 /* Button — token-bound action primitive. Three variants:
-     primary   = Signal Orange fill + white fg (the one accent; primary actions only)
+     primary   = accent fill + accent-fg text (the one accent; primary actions only;
+                 install-configurable — see docs/branding.md)
      secondary = surface-1 + hairline, lifts to line-strong on hover
      ghost     = transparent, fg-1 text, subtle surface on hover
    Sizes meet the 44px mobile hit-target at `md`+ via min-h. */

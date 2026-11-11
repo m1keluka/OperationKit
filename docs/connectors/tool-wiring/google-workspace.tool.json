@@ -1,0 +1,25 @@
+{
+  "frontmatter": {
+    "name": "google-workspace",
+    "kind": "http-api",
+    "description": "Read/draft Gmail, manage Calendar, and work with Drive as the connected Google account.",
+    "connector_id": "google-workspace",
+    "auth_path": "oauth_guided",
+    "setup_guide": "docs/connectors/guides/google-workspace.md",
+    "auth": {
+      "secrets": [
+        {
+          "env": "GOOGLE_WORKSPACE_CONNECTION",
+          "source": "session-spawn-env",
+          "note": "Ambient -- 'user' when the acting user has a Google Workspace connection (connectors/defs/google-workspace.ts, auth_path: oauth_guided), 'absent' otherwise. Set by buildSpawnEnv() (app/server/src/services/session-spawn-env.ts). Always check this before using Google/Docs/Gmail -- never fall back to another account."
+        },
+        {
+          "env": "USER_GOOGLE_EMAIL",
+          "source": "session-spawn-env",
+          "note": "Present only when GOOGLE_WORKSPACE_CONNECTION=user. The connected account's address -- send/read mail and Docs ONLY as this address."
+        }
+      ]
+    }
+  },
+  "body": "# Google Workspace\n\nLets an agent send/read email and work with Docs/Sheets/Drive as the connected Google account (Settings -> Connectors -> Google Workspace), scoped to the granted products (Gmail, Calendar, Drive).\n\n## Using it\n\nCheck `$GOOGLE_WORKSPACE_CONNECTION` first:\n- `user` -- `$USER_GOOGLE_EMAIL` names the account to act as. Never pick a different account from disk.\n- `absent` -- the owner has no Google connection. Do not send mail; tell them to connect at Settings -> Account -> Google Workspace.\n\n## Gotchas\n\n- The connection is per-person and OAuth-based (`auth_path: oauth_guided`) -- if the server has no `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` configured, the connector reports unavailable and no token is ever issued.\n- Scope is limited to what the user granted at consent (`grantedProducts()` in `connectors/defs/google-workspace.ts`) -- do not assume Drive access just because Gmail is present.\n\nSee `app/server/src/connectors/defs/google-workspace.ts` and `docs/connectors/guides/google-workspace.md`.\n"
+}

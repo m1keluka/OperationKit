@@ -11,6 +11,7 @@ import type { ConnectorAccess, ConnectorStatus, ConnectorSummary } from '@operat
 import { Badge, Button, Card } from '../ui'
 import { AccessEditor } from './AccessEditor'
 import { fmtDate } from '../account-settings/helpers'
+import { GuidedOAuthWizard } from './GuidedOAuthWizard'
 
 function StateBadge({ status, available }: { status: ConnectorStatus; available: boolean }) {
   if (status.state === 'connected') return <Badge tone="verify">Connected</Badge>
@@ -48,7 +49,9 @@ export function ConnectorCard({
   const [fields, setFields] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<'connect' | 'check' | 'disconnect' | null>(null)
   const [showAccess, setShowAccess] = useState(false)
+  const [showWizard, setShowWizard] = useState(false)
   const connected = c.status.state !== 'not_connected'
+  const hasGuidedWizard = c.auth_path === 'oauth_guided' && c.oauth_setup !== null
 
   async function run(kind: 'connect' | 'check' | 'disconnect', fn: () => Promise<unknown>) {
     setBusy(kind)
@@ -132,15 +135,29 @@ export function ConnectorCard({
               </div>
             </div>
           ) : !c.available ? (
-            <p className="text-[13px] text-fg-2">{c.unavailable_reason}</p>
+            <div className="space-y-2">
+              <p className="text-[13px] text-fg-2">{c.unavailable_reason}</p>
+              {hasGuidedWizard && (
+                <Button variant="secondary" onClick={() => setShowWizard(true)}>
+                  Setup guide
+                </Button>
+              )}
+            </div>
           ) : c.connect.kind === 'oauth' ? (
-            <Button
-              variant="primary"
-              loading={busy === 'connect'}
-              onClick={() => run('connect', () => actions.connect(c.id))}
-            >
-              {c.connect.button_label}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                loading={busy === 'connect'}
+                onClick={() => run('connect', () => actions.connect(c.id))}
+              >
+                {c.connect.button_label}
+              </Button>
+              {hasGuidedWizard && (
+                <Button variant="secondary" onClick={() => setShowWizard(true)}>
+                  Setup guide
+                </Button>
+              )}
+            </div>
           ) : (
             <form
               className="space-y-3"
@@ -210,6 +227,7 @@ export function ConnectorCard({
           )}
         </div>
       </section>
+      {hasGuidedWizard && <GuidedOAuthWizard connector={c} open={showWizard} onClose={() => setShowWizard(false)} />}
     </Card>
   )
 }

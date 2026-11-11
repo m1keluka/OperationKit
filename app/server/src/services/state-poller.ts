@@ -134,6 +134,7 @@ export {
 import {
   pollActiveSessions,
   parkDelegatorIfWaiting,
+  handleDeadSessionOutcome,
 } from './poller-loop.js'
 
 // Poll cadence. Overridable via CC_POLL_INTERVAL_MS so ops can relieve
@@ -154,8 +155,10 @@ export function startPoller(): void {
   if (pollTimer) return
 
   // Startup sweep: any objectives stuck in 'working' with no active process are stale
-  // (e.g., from a container restart that killed all sessions)
-  sweepStaleWorkingSessions()
+  // (e.g., from a container restart that killed all sessions). Async (obj 900510 —
+  // the sweep now reads the dead session's transcript before re-parking it), so this
+  // fires in the background rather than blocking server boot on a slow sweep.
+  void sweepStaleWorkingSessions()
 
   pollTimer = setInterval(() => {
     // A tick that overruns the cadence used to stack overlapping polls, each
@@ -170,32 +173,80 @@ export function startPoller(): void {
   console.log(`State poller started (every ${POLL_INTERVAL_MS}ms)`)
 }
 
-/** On startup, move any 'working' objectives with dead sessions to 'review' */
-function sweepStaleWorkingSessions(): void {
+/**
+ * On startup, move any 'working' objectives with dead sessions to 'review'.
+ *
+ * obj 900510: this used to be a bare `UPDATE ... SET status = 'review'` with NO
+ * call to `handleSessionDeath` (which releases the account slot, extracts the
+ * real token/cost usage, and queues the LLM session-summary extraction) and no
+ * call to the no-op/startup-failure classifier the LIVE poll loop
+ * (`pollActiveSessions` → `handleDeadSessionOutcome`) already uses for the exact
+ * same "session died while nobody was watching" case.
+ *
+ * A session that finishes (or is killed) during the few seconds a backend
+ * restart pauses the poller (self-deploy — `POST /api/internal/deploy
+ * {"mode":"both"}` — is this project's own normal workflow, so a
+ * `create_pr: true` card on THIS project routinely triggers one) is caught by
+ * THIS sweep on the next boot, not by the live loop. Skipping the real
+ * accounting here meant such a card landed in `review` with total_tokens=0,
+ * cost=$0, no last_session_summary and no PR — forever, since once the row is
+ * no longer 'working' nothing ever re-extracts it. Reusing the same
+ * `handleSessionDeath` + `handleDeadSessionOutcome` pipeline the live loop uses
+ * fixes both: real usage is recorded when the session actually did work, and a
+ * session that produced nothing gets a visible `blocked` verdict + reason
+ * instead of a silent, unexplained `review`.
+ */
+async function sweepStaleWorkingSessions(): Promise<void> {
   const db = getDb()
   const stale = db
     .prepare("SELECT * FROM objectives WHERE status = 'working' AND session_id IS NOT NULL")
     .all() as Objective[]
 
+  let swept = 0
   for (const obj of stale) {
     const state = getSessionState(obj.session_id!)
-    if (state === 'dead') {
-      if (parkDelegatorIfWaiting(obj)) continue
-      console.log(`[state-poller] Startup sweep: objective ${obj.id} ("${obj.title}") was stuck in 'working' — moving to 'review'`)
-      runMachineStatusUpdate(
-        db,
-        "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
-        obj.id,
-      )
-      const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(obj.id) as Objective
-      broadcast({ type: 'objective_updated', payload: updated })
+    if (state !== 'dead') continue
+    if (parkDelegatorIfWaiting(obj)) continue
+
+    // Release the account slot and record whatever real usage the dead session
+    // actually produced (tokens, cost, intel extraction, session summary) BEFORE
+    // any status mutation — exactly what the live poll loop does on every other
+    // dead-session path. Without this call the session's true usage is lost the
+    // instant its row leaves 'working'.
+    try { handleSessionDeath(obj.session_id!) } catch (err) {
+      console.error(`[state-poller] Startup sweep: handleSessionDeath failed for obj ${obj.id} (${obj.session_id}):`, err)
     }
+
+    // Give the same truthful-outcome classifier the live loop uses a chance to
+    // recognise a no-output / startup-failure death and park it with a visible
+    // blocked verdict + reason, instead of a bare, unexplained 'review'. Returns
+    // true (and has already updated the row + broadcast) when it did so.
+    let handled = false
+    try {
+      handled = await handleDeadSessionOutcome(obj)
+    } catch (err) {
+      console.error(`[state-poller] Startup sweep: handleDeadSessionOutcome failed for obj ${obj.id} (${obj.session_id}):`, err)
+    }
+    if (handled) {
+      swept++
+      continue
+    }
+
+    // Genuine deliverable (or an unparseable transcript — fail open rather than
+    // invent a block): fall back to the original plain re-park, now carrying the
+    // usage just recorded above instead of none at all.
+    console.log(`[state-poller] Startup sweep: objective ${obj.id} ("${obj.title}") was stuck in 'working' — moving to 'review'`)
+    runMachineStatusUpdate(
+      db,
+      "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",
+      obj.id,
+    )
+    const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(obj.id) as Objective
+    broadcast({ type: 'objective_updated', payload: updated })
+    swept++
   }
 
-  if (stale.length > 0) {
-    const swept = stale.filter(o => getSessionState(o.session_id!) === 'dead').length
-    if (swept > 0) console.log(`[state-poller] Startup sweep: moved ${swept} stale objectives to review`)
-  }
+  if (swept > 0) console.log(`[state-poller] Startup sweep: moved ${swept} stale objectives to review`)
 }
 
 export function stopPoller(): void {

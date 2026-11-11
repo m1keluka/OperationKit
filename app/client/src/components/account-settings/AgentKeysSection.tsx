@@ -159,7 +159,7 @@ export function AgentKeysSection() {
     if (catalogue.options.length === 0) {
       return (
         <span className="text-xs text-fg-2">
-          You have not connected any accounts yet — add one in Settings → Connectors.
+          You have not connected any accounts yet — add one in Settings → Integrations.
         </span>
       )
     }
@@ -446,7 +446,7 @@ export function AgentKeysSection() {
               A new key follows YOUR access: it can use the connected accounts you are allowed to use,
               and nothing else. Never anyone else&rsquo;s account, never more than you have right now —
               each use is re-checked against your access at that moment, so disconnecting an account or
-              narrowing it in Settings &rarr; Connectors takes effect immediately, with no key to edit.
+              narrowing it in Settings &rarr; Integrations takes effect immediately, with no key to edit.
             </p>
             <p className="mt-1 max-w-prose text-[11px] text-fg-2">
               This is about connected accounts only. It does not change what the key can DO on the board
@@ -559,7 +559,7 @@ export function AgentKeysSection() {
                       )
                     }}
                   >
-                    Connectors
+                    Integrations
                   </Button>
                   <Button variant="danger" loading={revoking === k.id} onClick={() => void revoke(k)}>
                     Revoke

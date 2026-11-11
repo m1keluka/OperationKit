@@ -1,9 +1,10 @@
 /**
- * Settings → Connectors (obj 720115). Outside accounts — GitHub, Google
- * Workspace, and whatever is added to the server's connectors/defs folder —
- * each with connect/disconnect, status, and who may use it.
+ * Settings → Integrations (obj 720115, renamed sprint 4b / obj 900496). Outside
+ * accounts — GitHub, Google Workspace, and whatever is added to the server's
+ * connectors/defs folder — each with connect/disconnect, status, and who may
+ * use it.
  *
- * Every connector here is the signed-in person's own. The server keeps the
+ * Every integration here is the signed-in person's own. The server keeps the
  * credential encrypted and only ever sends back a description of it.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -76,7 +77,7 @@ export function SettingsConnectors() {
       setConnectors(await api.get<ConnectorSummary[]>('/connectors'))
       setLoadError('')
     } catch (err) {
-      setLoadError(errText(err, 'Could not load connectors.'))
+      setLoadError(errText(err, 'Could not load integrations.'))
       setConnectors(prev => prev ?? [])
     }
   }, [])
@@ -166,7 +167,7 @@ export function SettingsConnectors() {
           <Alert tone={notice.ok ? 'verify' : 'alarm'}>{notice.text}</Alert>
         </div>
       )}
-      {loadError && <Alert tone="alarm" title="Could not load connectors">{loadError}</Alert>}
+      {loadError && <Alert tone="alarm" title="Could not load integrations">{loadError}</Alert>}
 
       {connectors === null ? (
         <div className="space-y-4">
@@ -174,7 +175,7 @@ export function SettingsConnectors() {
           <CardSkeleton />
         </div>
       ) : connectors.length === 0 && !loadError ? (
-        <EmptyState title="No connectors yet" description="This server has no connectors installed." />
+        <EmptyState title="No integrations yet" description="This server has no integrations installed." />
       ) : (
         connectors.map(c => (
           <ConnectorCard

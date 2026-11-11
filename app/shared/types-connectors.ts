@@ -73,6 +73,24 @@ export interface ConnectorDenial {
   at: string
 }
 
+/**
+ * Which catalog UX flow a connector uses (Sprint 7 proposal, PR #681 §3).
+ * Mirrors `ConnectorAuthPath` in `server/src/connectors/types.ts` — kept as a
+ * plain string union here since the shared package cannot import server code.
+ */
+export type ConnectorAuthPath = 'dcr_mcp' | 'oauth_guided' | 'api_key' | 'self_hosted_aggregator'
+
+/**
+ * Guided-OAuth setup detail (obj 900506, Sprint 7.2) — present only when
+ * `auth_path === 'oauth_guided'`. `redirect_uri` is computed server-side from
+ * this install's own domain (never a shared/Example callback), so the guided
+ * wizard can show it pre-filled rather than asking the person to guess it.
+ */
+export interface ConnectorOAuthSetup {
+  redirect_uri: string
+  scopes: string[]
+}
+
 export interface ConnectorSummary {
   id: string
   name: string
@@ -87,6 +105,11 @@ export interface ConnectorSummary {
   can_check: boolean
   status: ConnectorStatus
   access: ConnectorAccess
+  auth_path: ConnectorAuthPath | null
+  /** Set only for `auth_path === 'oauth_guided'` connectors. */
+  oauth_setup: ConnectorOAuthSetup | null
+  /** Relative path to this connector's setup walkthrough, e.g. `docs/connectors/guides/slack.md`. */
+  setup_guide: string | null
 }
 
 /** POST /api/connectors/:id/connect — either finished, or go sign in. */

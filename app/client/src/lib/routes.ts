@@ -23,12 +23,12 @@ export const HOST_CRON_ANCHOR = 'host-cron'
 export const HOST_CRON_ROUTE = `${JOBS_ROUTE}#${HOST_CRON_ANCHOR}`
 
 /**
- * Where AI accounts (subscription seats) are managed. Sprint 4b renames
- * Settings → Seats to Settings → Models; until that route exists this points at
- * the current Seats tab. 4b flips this ONE constant to '/settings/models' in the
- * PR that adds the route — every link (the System page's included) follows.
+ * Where AI accounts (subscription seats) are managed. Sprint 4b (obj 900496)
+ * renamed Settings → Seats to Settings → Models; '/settings/seats' now
+ * redirects here. Every link (the System page's included) follows this one
+ * constant.
  */
-export const MODELS_SETTINGS_ROUTE = '/settings/seats'
+export const MODELS_SETTINGS_ROUTE = '/settings/models'
 
 /**
  * Old URLs → their new homes (obj 900495). App.tsx renders exactly this table

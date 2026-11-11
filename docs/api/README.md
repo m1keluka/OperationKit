@@ -484,7 +484,7 @@ Messages API MCP connector (beta `mcp-client-2025-11-20`). This needs both halve
 }
 ```
 
-**Claude.ai custom connector** (Settings → Connectors → Add custom connector): set the URL to `https://<your-install-host>/api/mcp`. Claude.ai connectors authenticate with OAuth or not at all. They cannot send a static `Authorization` header, so a Claude.ai connector gets `401` until the OAuth resource-server follow-up ships. Until then, use the Messages API or Claude Code snippets above.
+**Claude.ai custom connector** (Settings → Integrations → Add custom connector): set the URL to `https://<your-install-host>/api/mcp`. Claude.ai connectors authenticate with OAuth or not at all. They cannot send a static `Authorization` header, so a Claude.ai connector gets `401` until the OAuth resource-server follow-up ships. Until then, use the Messages API or Claude Code snippets above.
 
 ### Raw JSON-RPC (debugging)
 

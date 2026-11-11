@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 //
-// obj 720115 moved GitHub and Google Workspace into Settings → Connectors.
-// Settings → Account now shows a pointer card instead of its own Google card;
+// obj 720115 moved GitHub and Google Workspace into Settings → Integrations
+// (renamed from Connectors in the sprint 4b reorg, obj 900496).
+// Settings → API & MCP now shows a pointer card instead of its own Google card;
 // this proves the pointer works and the old connect flow is not left behind.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushSync } from 'react-dom'
@@ -65,7 +66,7 @@ async function render() {
 
 const calledUrls = () => apiMock.get.mock.calls.map(c => String(c[0]))
 
-describe('Settings → Account points Google Workspace at Connectors', () => {
+describe('Settings → API & MCP points Google Workspace at Integrations', () => {
   it('shows the pointer card and no Google connect button', async () => {
     await render()
     expect(container.textContent).toContain('GitHub and Google Workspace')
@@ -79,11 +80,11 @@ describe('Settings → Account points Google Workspace at Connectors', () => {
     expect(apiMock.post).not.toHaveBeenCalledWith('/user/google/connect')
   })
 
-  it('the Open Connectors link goes to /settings/connectors', async () => {
+  it('the Open Integrations link goes to /settings/integrations', async () => {
     await render()
-    const link = Array.from(container.querySelectorAll('a')).find(a => a.textContent === 'Open Connectors')
-    expect(link?.getAttribute('href')).toBe('/settings/connectors')
+    const link = Array.from(container.querySelectorAll('a')).find(a => a.textContent === 'Open Integrations')
+    expect(link?.getAttribute('href')).toBe('/settings/integrations')
     link!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
-    expect(navigateMock).toHaveBeenCalledWith('/settings/connectors')
+    expect(navigateMock).toHaveBeenCalledWith('/settings/integrations')
   })
 })

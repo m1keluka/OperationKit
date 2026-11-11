@@ -11,6 +11,8 @@ import { resolveWorkdir } from './prompt-builder.js'
 import { deriveBranchName } from './branch-scope.js'
 import { TMUX_SCRIPT_DIR } from './session-tmux.js'
 import { bestEffortFetch, resolveGitFetchToken } from './repo-git-auth.js'
+import { resolveIsolationMode } from './session-jail.js'
+import { JAIL_UID, JAIL_GID } from './jail-workspace.js'
 
 export type WorktreeIsolation = { projectDir: string; worktreePath: string; sessionId: string }
 
@@ -98,6 +100,30 @@ export function resolveWorktreeBase(objective: Objective, projectDir: string): s
  */
 export function isPrivateWorktreeGitDir(gitDir: string | null | undefined): boolean {
   return !!gitDir && gitDir.includes('/worktrees/')
+}
+
+/**
+ * Which OS identity a freshly-created worktree must be handed to so the
+ * session can actually write to it, as a `chown`-ready `uid:gid` string.
+ *
+ * obj 900510 root cause: `ensureWorktree` used to chown unconditionally to the
+ * literal `ccuser:ccuser` OS account — correct for tmux-mode sessions (which
+ * run `runuser -u ccuser`), but WRONG whenever `SESSION_ISOLATION=docker`: a
+ * jailed session's worktree is bind-mounted into a sibling container that runs
+ * as `JAIL_UID:JAIL_GID` (default 1000:1000, see jail-workspace.ts), a
+ * different OS identity than `ccuser`. `resolveJailWorkspace`'s `worktree`
+ * branch (jail-workspace.ts:138-140) hands that bind source straight through
+ * with NO ownership fix — unlike its own `scratch` branch, which calls
+ * `applyJailOwnership`. The jail uid then gets `Permission denied` on every
+ * Edit/Write inside `/workspace`, so the worker makes zero tool calls, racks
+ * up zero tokens, and the session dies in seconds with an empty transcript —
+ * the exact "worktree owned by a different user than the worker process"
+ * symptom #900499 hit and worked around with a throwaway /tmp clone.
+ * Pure + exported for unit testing; depends only on process.env so it needs no
+ * I/O.
+ */
+export function resolveWorktreeChownTarget(env: NodeJS.ProcessEnv = process.env): string {
+  return resolveIsolationMode(env) === 'docker' ? `${JAIL_UID}:${JAIL_GID}` : 'ccuser:ccuser'
 }
 
 /**
@@ -191,13 +217,14 @@ export function ensureWorktree(objective: Objective, branchName: string): string
     // other branch's ref is already ccuser-owned, so this just matches steady
     // state. isPrivateWorktreeGitDir guards (2) from ever hitting the shared dir.
     try {
-      execSync(`chown -R ccuser:ccuser ${JSON.stringify(worktreePath)} 2>/dev/null || true`, { timeout: 10000 })
+      const chownTarget = resolveWorktreeChownTarget()
+      execSync(`chown -R ${chownTarget} ${JSON.stringify(worktreePath)} 2>/dev/null || true`, { timeout: 10000 })
       const adminGitDir = execSync(
         `git -C ${JSON.stringify(worktreePath)} rev-parse --absolute-git-dir`,
         { timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] },
       ).toString().trim()
       if (isPrivateWorktreeGitDir(adminGitDir)) {
-        execSync(`chown -R ccuser:ccuser ${JSON.stringify(adminGitDir)} 2>/dev/null || true`, { timeout: 10000 })
+        execSync(`chown -R ${chownTarget} ${JSON.stringify(adminGitDir)} 2>/dev/null || true`, { timeout: 10000 })
       }
       // Shared common .git dir (its refs/heads + reflogs hold the branch the
       // session commits on). --git-common-dir resolves to the real <project>/.git
@@ -211,7 +238,7 @@ export function ensureWorktree(objective: Objective, branchName: string): string
         for (const sub of ['refs/heads', 'logs/refs/heads']) {
           const target = path.join(commonAbs, sub)
           if (fs.existsSync(target)) {
-            execSync(`chown -R ccuser:ccuser ${JSON.stringify(target)} 2>/dev/null || true`, { timeout: 10000 })
+            execSync(`chown -R ${chownTarget} ${JSON.stringify(target)} 2>/dev/null || true`, { timeout: 10000 })
           }
         }
       }

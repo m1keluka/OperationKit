@@ -16,6 +16,8 @@ import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, cn, useCo
 import { SeatDeviceLogin } from './SeatDeviceLogin'
 import { SeatClaudeSignIn } from './SeatClaudeSignIn'
 import { ProvisioningBanner, SeatUsageStats, type ProvisioningHint, type SeatUsage } from './SeatUsage'
+import { ProviderKeysSection } from './ProviderKeysSection'
+import { ModelsModule } from '../ModelsModule'
 
 export type { ProvisioningHint, SeatUsage } from './SeatUsage'
 
@@ -901,14 +903,22 @@ export function SeatPool({ refreshMs }: { refreshMs?: number } = {}) {
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
+// Renamed from Settings → Seats to Settings → Models in the sprint 4b reorg
+// (obj 900496, see docs/settings/SPRINT-4B-REORG.md): the subscription seat
+// pool below is unchanged behavior, with BYOK provider keys, engine failover,
+// and the model registry (moved from the Dashboard, not rebuilt) alongside it
+// so "which model runs, on whose credentials" is one page.
 export function SettingsSeats() {
   const [notice, setNotice] = useState<Notice>(null)
   return (
     <div className="max-w-4xl space-y-6">
-      <p className="text-[13px] leading-relaxed text-fg-2">
-        Subscriptions sessions run on. Each card uses the healthy seat with the lowest priority number for its engine;
-        a seat that hits a limit cools down and the next one takes over.
-      </p>
+      <div>
+        <h3 className="font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">Subscription seats</h3>
+        <p className="mt-1 text-[13px] leading-relaxed text-fg-2">
+          Subscriptions sessions run on. Each card uses the healthy seat with the lowest priority number for its
+          engine; a seat that hits a limit cools down and the next one takes over.
+        </p>
+      </div>
 
       <SeatPool />
 
@@ -917,11 +927,16 @@ export function SettingsSeats() {
           <Alert tone={notice.ok ? 'verify' : 'alarm'}>{notice.text}</Alert>
         </div>
       )}
-      <FailoverPanel onNotice={setNotice} />
 
       <p className="border-t border-line-soft pt-4 text-[12px] text-fg-3">
         Connect only subscriptions you own and follow each provider's terms.
       </p>
+
+      <ProviderKeysSection />
+
+      <FailoverPanel onNotice={setNotice} />
+
+      <ModelsModule />
     </div>
   )
 }

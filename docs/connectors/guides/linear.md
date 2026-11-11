@@ -1,23 +1,17 @@
 # Connect Linear
 
-**Status: catalog entry only — not yet connectable through Settings → Connectors.**
+Linear connects with sign-in (`auth_path: 'dcr_mcp'`) — this install registers itself
+against Linear's own hosted MCP server (`mcp.linear.app`) the first time anyone clicks
+Connect. There is no central Example app and nothing to pre-register: Linear's own docs
+state the interactive flow "uses OAuth 2.1 with dynamic client registration" (verified
+in
+[`docs/connectors/DCR-CIMD-VENDOR-VERIFICATION.md`](../DCR-CIMD-VENDOR-VERIFICATION.md)),
+so Command Center registers this install the moment it's needed and reuses that
+registration afterward.
 
-Linear's `mcp.linear.app` supports OAuth 2.1 Dynamic Client Registration and Client ID
-Metadata Documents — Linear's own docs state "the interactive setup flow uses OAuth
-2.1 with dynamic client registration" (verified directly,
-`docs/connectors/DCR-CIMD-VENDOR-VERIFICATION.md`, obj 900505). Driving that flow
-needs the shared DCR client (Sprint 7.3), not built yet.
+1. In Settings → Connectors → Linear, click **Connect Linear**.
+2. Approve the request on Linear's own consent screen.
 
-## What works today
-
-Linear also accepts a plain **bearer token / Linear API key**, no OAuth needed:
-
-1. In Linear, go to **Settings → API → Personal API keys** and create a key.
-2. Store it as a plain Settings → Secrets value and reference it from a Tool
-   definition's `auth.secrets[].env`.
-
-Once Sprint 7.3 ships the DCR client, this connector can switch to the full OAuth
-flow without changing its catalog identity (`id: 'linear'`).
-
-See `app/server/src/connectors/defs/linear.ts` and
-`app/server/src/connectors/lib/deferred-connector.ts`.
+If registration or sign-in fails (network issue, or the vendor's support partially
+changes), paste a Linear API key instead (Linear → Settings → API → Personal API keys),
+as the token fallback. See `app/server/src/connectors/defs/linear.ts`.

@@ -1,14 +1,15 @@
-# You
+# API & MCP
 
-Settings → **You** is the identity page. It is not Secrets and it is not Dashboard seats.
+Settings → **API & MCP** is the identity page (renamed from **You** in the sprint 4b settings reorg,
+obj 900496). It is not Secrets and it is not Dashboard seats.
 
 ## API key
 
 Generate. Copy. Paste into Grok Bot or any agent as `Authorization: Bearer cc_live_…`. We show the full key **once**. Generate new to rotate (old key dies). Revoke to kill it.
 
-## Connectors
+## Integrations
 
-Settings → **Connectors** is where you link the outside accounts agents work in for you. Each connector shows whether it is connected, as whom, and when it was last checked.
+Settings → **Integrations** (renamed from **Connectors**) is where you link the outside accounts agents work in for you. Each connector shows whether it is connected, as whom, and when it was last checked.
 
 - **GitHub** — paste a fine-grained personal access token. Pull requests and commits on cards assigned to you use that login and email. **Check connection** re-tests it. Disconnecting here does not cancel the token on GitHub; do that there too.
 - **Google Workspace** — **Sign in with Google** covers Gmail, Calendar and Drive (including Docs and Sheets). Sessions acting as you send email and work with files as that Google account. Disconnecting cancels the sign-in at Google.
@@ -23,7 +24,7 @@ Adding a new kind of connector (Slack, Microsoft 365, an MCP server) is one file
 
 ## Agent keys and your connected accounts
 
-One key per bot, in **Settings → You → Agent keys**. Each key carries its own name, its own tick-list
+One key per bot, in **Settings → API & MCP → Agent keys** (MCP). Each key carries its own name, its own tick-list
 of what it may do on the board, and its own workspace list. Under **"Your connected accounts it may
 use"** you choose one of three things:
 

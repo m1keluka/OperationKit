@@ -32,6 +32,10 @@ const SettingsSecrets = lazy(() => import('./components/settings/SettingsSecrets
 const SettingsConnectors = lazy(() => import('./components/settings/SettingsConnectors').then(m => ({ default: m.SettingsConnectors })))
 const SettingsSeats = lazy(() => import('./components/settings/SettingsSeats').then(m => ({ default: m.SettingsSeats })))
 const SettingsOrg = lazy(() => import('./components/settings/SettingsOrg').then(m => ({ default: m.SettingsOrg })))
+const SettingsAgents = lazy(() => import('./components/settings/SettingsAgents').then(m => ({ default: m.SettingsAgents })))
+const SettingsPlatform = lazy(() => import('./components/settings/SettingsPlatform').then(m => ({ default: m.SettingsPlatform })))
+const SettingsBranding = lazy(() => import('./components/settings/SettingsBranding').then(m => ({ default: m.SettingsBranding })))
+const SettingsEmail = lazy(() => import('./components/settings/SettingsEmail').then(m => ({ default: m.SettingsEmail })))
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })))
 const LoopsPage = lazy(() => import('./components/LoopsPage').then(m => ({ default: m.LoopsPage })))
 const JobsBoard = lazy(() => import('./components/JobsBoard').then(m => ({ default: m.JobsBoard })))
@@ -236,13 +240,23 @@ function AppContent() {
           <Route path="/strategies" element={<StrategiesPage workspace={workspace} />} />
           <Route path="/strategy/:id" element={<StrategyDetailPage workspace={workspace} />} />
           <Route path="/settings" element={<SettingsPage />}>
-            <Route index element={<Navigate to="you" replace />} />
-            <Route path="you" element={<AccountSettings embedded />} />
+            <Route index element={<Navigate to="api-mcp" replace />} />
+            <Route path="models" element={<SettingsSeats />} />
+            <Route path="api-mcp" element={<AccountSettings embedded />} />
             <Route path="secrets" element={<SettingsSecrets />} />
-            <Route path="connectors" element={<SettingsConnectors />} />
-            <Route path="seats" element={<SettingsSeats />} />
+            <Route path="integrations" element={<SettingsConnectors />} />
             <Route path="org" element={<SettingsOrg />} />
-            <Route path="account" element={<Navigate to="/settings/you" replace />} />
+            <Route path="agents-skills" element={<SettingsAgents />} />
+            <Route path="branding" element={<SettingsBranding />} />
+            <Route path="email" element={<SettingsEmail />} />
+            <Route path="platform" element={<SettingsPlatform />} />
+            {/* Old bookmarks (pre sprint-4b-reorg, obj 900496), plus older ones before that.
+                SettingsPage itself does the real redirect; these just need to match so the
+                router mounts SettingsPage at all for these URLs. */}
+            <Route path="you" element={<Navigate to="/settings/api-mcp" replace />} />
+            <Route path="connectors" element={<Navigate to="/settings/integrations" replace />} />
+            <Route path="seats" element={<Navigate to="/settings/models" replace />} />
+            <Route path="account" element={<Navigate to="/settings/api-mcp" replace />} />
             <Route path="test-credentials" element={<Navigate to="/settings/secrets" replace />} />
           </Route>
           <Route path="*" element={<NotFound />} />

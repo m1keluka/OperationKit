@@ -345,7 +345,11 @@ export function WorkspacesTab() {
 
       {workspaces.length === 0 && (
         <Card>
-          <EmptyState icon={<Boxes className="h-5 w-5" />} title="No organizations" description="Create one to get started." />
+          <EmptyState
+            icon={<Boxes className="h-5 w-5" />}
+            title="No organizations"
+            description="An organization is a workspace boundary — its own board, secrets and users. Create one when a project or team needs to be kept separate from the rest."
+          />
         </Card>
       )}
 

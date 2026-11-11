@@ -6,77 +6,74 @@ export default {
   theme: {
     extend: {
       colors: {
-        // §01 surfaces — Mission Control cool-carbon ramp (5 deliberate steps) +
-        // legacy DEFAULT/raised/overlay aliases so unmigrated pages keep working.
+        // Every color below resolves a CSS custom property defined in index.css
+        // (default = Operation Kit brand, light + dark via [data-theme]). A
+        // fresh install re-brands by changing those custom properties
+        // (OK_BRAND_ACCENT / config/branding.json / Settings > Branding) —
+        // never by editing this file. See docs/branding.md.
         surface: {
-          0: '#0c0f14',
-          1: '#12161d',
-          2: '#161b22',
-          3: '#1e242d',
-          4: '#28303b',
-          DEFAULT: '#0c0f14',
-          raised: '#12161d',
-          overlay: '#161b22',
+          0: 'var(--surface-0)',
+          1: 'var(--surface-1)',
+          2: 'var(--surface-2)',
+          3: 'var(--surface-3)',
+          4: 'var(--surface-4)',
+          DEFAULT: 'var(--surface-0)',
+          raised: 'var(--surface-1)',
+          overlay: 'var(--surface-2)',
         },
-        // §01 text scale
         fg: {
-          0: '#f3f5f7',
-          1: '#c2c8d2',
-          2: '#8a93a3',
-          3: '#5b6472',
+          0: 'var(--fg-0)',
+          1: 'var(--fg-1)',
+          2: 'var(--fg-2)',
+          3: 'var(--fg-3)',
         },
-        // §01 hairlines — Vercel-style ladder
         line: {
-          DEFAULT: '#222936',
-          soft: '#1b212b',
-          strong: '#2c3543',
+          DEFAULT: 'var(--line)',
+          soft: 'var(--line-soft)',
+          strong: 'var(--line-strong)',
         },
         // legacy alias: `border-border`, `border-border-hover` still resolve.
         border: {
-          DEFAULT: '#222936',
-          hover: '#2c3543',
+          DEFAULT: 'var(--line)',
+          hover: 'var(--line-strong)',
         },
-        // §01 accent — Signal Orange (the one accent); supersedes the retired warm accent.
+        // the one accent — default Ultramarine, configurable per install.
         accent: {
-          DEFAULT: '#ff5a1f',
-          hover: '#ff6f3c',
-          press: '#d9430d',
-          fg: '#ffffff',
+          DEFAULT: 'var(--accent)',
+          hover: 'var(--accent-hover)',
+          press: 'var(--accent-press)',
+          fg: 'var(--accent-fg)',
         },
         // §04 status pipeline — collapsed to one accent + status green/amber.
         // human = accent (needs-you), done = verify-green; machine states stay cool.
         status: {
-          planning: '#9b8cf0',
-          queue: '#8b8a84',
-          working: '#5b9df0',
-          ai: '#46c2b6',
-          review: '#e0a458',
-          human: '#ff5a1f',
-          done: '#1fb877',
-          // obj 700595 — soft-retire. Muted, desaturated slate: reads as
-          // inactive/retired, deliberately distinct from `done` green and the
-          // warmer `queue` gray (cancelled ≠ completed). Light enough to clear
-          // WCAG AA (6.7:1 on surface-0) since it also renders as label text.
-          cancelled: '#9a97a6',
+          planning: 'var(--st-planning)',
+          queue: 'var(--st-queue)',
+          working: 'var(--st-working)',
+          ai: 'var(--st-ai)',
+          review: 'var(--st-review)',
+          human: 'var(--st-human)',
+          done: 'var(--st-done)',
+          cancelled: 'var(--st-cancelled)',
         },
-        // §04 orthogonal flags — red is reserved for `blocked` only.
+        // §04 orthogonal flags — red/caution is reserved for `blocked` only.
         flag: {
-          blocked: '#e5564b',
-          live: '#1fb877',
+          blocked: 'var(--ok-alarm)',
+          live: 'var(--ok-verify)',
         },
         // semantic status triad (color carries meaning)
         signal: {
-          verify: '#1fb877',
-          amber: '#e6a700',
-          alarm: '#e5564b',
+          verify: 'var(--ok-verify)',
+          amber: 'var(--ok-amber)',
+          alarm: 'var(--ok-alarm)',
         },
         // §05 agent identity — desaturated on purpose; routes don't compete with status.
         agent: {
-          cto: '#6F9AD8',
-          cmo: '#D389B0',
-          coo: '#6FB58C',
-          cfo: '#D6A24E',
-          general: '#8C8A92',
+          cto: 'var(--agent-cto)',
+          cmo: 'var(--agent-cmo)',
+          coo: 'var(--agent-coo)',
+          cfo: 'var(--agent-cfo)',
+          general: 'var(--agent-general)',
         },
       },
       fontFamily: {

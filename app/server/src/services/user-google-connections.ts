@@ -88,6 +88,19 @@ export interface OAuthClientConfig {
 }
 
 /**
+ * The redirect URI this install's own callback route answers at — computed
+ * from `APP_BASE_URL` (this install's own domain) rather than a shared Example
+ * value, so the guided-OAuth wizard (obj 900506) can show it BEFORE a client
+ * id/secret exists. `GOOGLE_OAUTH_REDIRECT_URI` still wins when explicitly
+ * set, for an install that fronts this route differently.
+ */
+export function redirectUriFor(): string {
+  if (process.env.GOOGLE_OAUTH_REDIRECT_URI) return process.env.GOOGLE_OAUTH_REDIRECT_URI
+  const base = process.env.APP_BASE_URL
+  return base ? `${base}/api/user/google/callback` : 'https://cc.example.com/api/user/google/callback'
+}
+
+/**
  * Resolve the PRIMARY OAuth client from env (Doppler) — the one new consent
  * flows are granted to. Returns null when unconfigured so callers can render an
  * explicit "not configured" state instead of throwing.
@@ -96,9 +109,7 @@ export function getOAuthClient(): OAuthClientConfig | null {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID || ''
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET || ''
   if (!clientId || !clientSecret) return null
-  const redirectUri =
-    process.env.GOOGLE_OAUTH_REDIRECT_URI || 'https://cc.example.com/api/user/google/callback'
-  return { clientId, clientSecret, redirectUri }
+  return { clientId, clientSecret, redirectUri: redirectUriFor() }
 }
 
 /**

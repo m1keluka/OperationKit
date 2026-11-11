@@ -114,8 +114,14 @@ export interface ConnectorDefinition {
   auth_path: ConnectorAuthPath
   /** Path to a setup walkthrough, e.g. `docs/connectors/guides/github.md`. Omit until a guide exists. */
   setup_guide?: string
-  /** Remote MCP endpoint, for `auth_path: 'dcr_mcp'`. */
+  /**
+   * Remote MCP endpoint, for `auth_path: 'dcr_mcp'`. Doubles as the OAuth
+   * issuer base: connectors/dcr-client.ts discovers
+   * `${mcp_url}/.well-known/oauth-authorization-server` against it.
+   */
   mcp_url?: string
+  /** OAuth scope string requested during the DCR/CIMD authorization-code flow, for `auth_path: 'dcr_mcp'`. */
+  dcr_scope?: string
   /** OAuth endpoints/scopes, for `auth_path: 'oauth_guided'`. */
   oauth?: ConnectorOAuthEndpoints
   /** Extra key fields a wizard would prompt for, for `auth_path: 'api_key'`. */

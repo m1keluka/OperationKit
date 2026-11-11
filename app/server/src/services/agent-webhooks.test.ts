@@ -440,6 +440,45 @@ describe('settings routes', () => {
     expect(r.json.error).toMatch(/sender key/)
   })
 
+  it('generate_secret has the server pick the sender key, returns it once, and never returns it again', async () => {
+    await call('DELETE', `/api/auth/agent-keys/${keyB.id}/webhook`)
+    const r = await call('PUT', `/api/auth/agent-keys/${keyB.id}/webhook`, {
+      body: { url: 'https://b.example.com/hook', generate_secret: true },
+    })
+    expect(r.status).toBe(200)
+    const generated = r.json.webhook.generated_secret
+    expect(typeof generated).toBe('string')
+    expect(generated.length).toBeGreaterThanOrEqual(32)
+    expect(r.json.webhook.has_secret).toBe(true)
+
+    // The webhook actually signs with the generated key.
+    setStatus(seedCard(keyB.id), 'review')
+    await tick()
+    expect(wh.verifySignature(generated, sent.at(-1)!.body, sent.at(-1)!.headers[wh.SIGNATURE_HEADER])).toBe(true)
+
+    // A later GET never carries it again.
+    const g = await call('GET', `/api/auth/agent-keys/${keyB.id}/webhook`)
+    expect(g.json.webhook.generated_secret).toBeUndefined()
+    expect(g.text).not.toContain(generated)
+
+    // A save that supplies no secret and doesn't ask to generate one just keeps it.
+    const kept = await call('PUT', `/api/auth/agent-keys/${keyB.id}/webhook`, { body: { url: 'https://b2.example.com/hook' } })
+    expect(kept.json.webhook.generated_secret).toBeUndefined()
+  })
+
+  it('an explicit secret wins over generate_secret if both are somehow sent', async () => {
+    await call('DELETE', `/api/auth/agent-keys/${keyB.id}/webhook`)
+    const typed = 'typed-sender-key-0123456789'
+    const r = await call('PUT', `/api/auth/agent-keys/${keyB.id}/webhook`, {
+      body: { url: 'https://b.example.com/hook', secret: typed, generate_secret: true },
+    })
+    expect(r.status).toBe(200)
+    expect(r.json.webhook.generated_secret).toBeUndefined()
+    setStatus(seedCard(keyB.id), 'review')
+    await tick()
+    expect(wh.verifySignature(typed, sent.at(-1)!.body, sent.at(-1)!.headers[wh.SIGNATURE_HEADER])).toBe(true)
+  })
+
   it('an agent key cannot read or change any webhook (not even its own)', async () => {
     for (const [m, p] of [['GET', 'webhook'], ['PUT', 'webhook'], ['DELETE', 'webhook'], ['POST', 'webhook/test'], ['GET', 'webhook/deliveries']] as const) {
       const r = await call(m, `/api/auth/agent-keys/${keyA.id}/${p}`, { bearer: keyA.token, body: m === 'PUT' ? { url: 'https://evil.example.com' } : undefined })

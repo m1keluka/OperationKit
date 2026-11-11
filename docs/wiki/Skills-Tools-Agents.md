@@ -12,7 +12,7 @@ These are plain markdown with a defined frontmatter schema — not a database ro
 
 The Agents admin tab (Settings → Agents, global-admin only) shows the agent roster, their assignments, and a **skill graph** — a visual map of which agents load which skills. In code: `app/client/src/components/SkillGraph.tsx` (the graph UI) and `app/server/src/services/skill-graph.ts` (the server-side graph builder).
 
-An example skill pair ships in the repo at `examples/workspace/skills/` (`draft-update/SKILL.md`, `summarize-notes/SKILL.md`) so a fresh install has something concrete to look at before writing your own.
+An example skill pair ships in the repo at `examples/workspace/skills/` (`draft-update/SKILL.md`, `summarize-notes/SKILL.md`) so a fresh install has something concrete to look at before writing your own. Two example Tool definitions ship at `examples/workspace/tools/` (`github/TOOL.md`, `google-workspace/TOOL.md`), each naming the real session env var(s) its connector contributes (`auth.secrets[].env`) — see [Tools-layer wiring](../connectors/TOOLS-LAYER-WIRING.md) for how a Tool's declared env var reaches a session through the existing connector credential path.
 
 ## Why it's a graph, not a flat list
 

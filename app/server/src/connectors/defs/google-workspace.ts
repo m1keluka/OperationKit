@@ -9,6 +9,7 @@ import {
   getOAuthClient,
   buildAuthUrl,
   disconnect,
+  GOOGLE_SCOPES,
 } from '../../services/user-google-connections.js'
 import type { ConnectorStatus, UserGoogleConnectionSummary } from '@operationkit/shared'
 import { NOT_CONNECTED, type ConnectorDefinition } from '../types.js'
@@ -46,6 +47,12 @@ const googleWorkspace: ConnectorDefinition = {
   order: 20,
   auth_path: 'oauth_guided',
   setup_guide: 'docs/connectors/guides/google-workspace.md',
+  /** Informational only (the real flow goes through user-google-connections.js) — feeds the guided-OAuth wizard (obj 900506). */
+  oauth: {
+    authorize_url: 'https://accounts.google.com/o/oauth2/v2/auth',
+    token_url: 'https://oauth2.googleapis.com/token',
+    scopes: [...GOOGLE_SCOPES],
+  },
   description:
     'Lets agents read and draft email, manage your calendar and work with your Drive files, as your Google account.',
   products: [

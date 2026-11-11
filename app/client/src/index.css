@@ -18,66 +18,82 @@
 @font-face{font-family:Inter;src:url(./fonts/inter-600.woff2) format("woff2");font-weight:600;font-display:swap}
 
 /* ─────────────────────────────────────────────────────────
-   OperationKit — MISSION CONTROL design tokens (LOCKED, canonical)
-   Signal Orange #ff5a1f accent · cool-carbon dark surfaces ·
-   Geist / Inter / Geist Mono. Supersedes the retired warm accent.
-   Exposes the surface, fg, line, accent and ok-signal CSS custom
-   properties that StatusGlyph + future board components consume. Tailwind
-   theme tokens (surface/fg/line/accent/status/agent) are the same
-   values, in tailwind.config.ts.
+   Operation Kit brand tokens v1.0 (default install branding —
+   see docs/branding.md). Ultramarine primary · Cadmium (model)
+   accent · Shell/Paper light ground, Ink dark ground. Light is
+   the DEFAULT theme; dark is a variant via [data-theme="dark"].
+   A fresh install with no OK_BRAND_* env/config overrides renders
+   these exact values — every consumer in this app reads the
+   semantic layer below (surface/fg/line/accent/status/agent),
+   never these raw --ok-* swatches directly, so one block here
+   restyles the whole app. Tailwind's theme (tailwind.config.ts)
+   points every color utility at these same CSS custom properties,
+   so `bg-surface-0`, `text-fg-1`, `text-accent`, etc. stay in sync
+   automatically — no consumer file needs literal hex.
    ───────────────────────────────────────────────────────── */
 :root {
-  /* brand constants */
-  --ok-signal: #ff5a1f;   /* PRIMARY accent — Signal Orange */
-  --ok-ember:  #d9430d;   /* accent pressed */
-  --ok-carbon: #0e1116;   /* brand ink */
+  /* raw OK v1.0 palette (brand 1.0 "circle O", from operationkit-site tokens.css) */
+  --ok-ultramarine-50: #F2F2FE; --ok-ultramarine-100: #E6E6FC; --ok-ultramarine-200: #C8C8F9;
+  --ok-ultramarine-300: #A0A0F5; --ok-ultramarine-400: #6F6FEF; --ok-ultramarine: #2B2BE8;
+  --ok-ultramarine-600: #2727C9; --ok-ultramarine-700: #2323A9;
+  --ok-ink: #16163A; --ok-ink-800: #202148; --ok-ink-700: #292B53; --ok-ink-600: #393C62; --ok-ink-300: #B2B6CE;
+  --ok-cadmium-50: #FFF9E6; --ok-cadmium-100: #FFF0BF; --ok-cadmium: #FFC400;
+  --ok-cadmium-600: #ECAA0B; --ok-cadmium-700: #B47806; --ok-cadmium-800: #895709;
+  --ok-paper: #FBF9F4; --ok-shell: #F3F0E8; --ok-putty: #DCD6C8;
+  --ok-warm-grey: #6E6A60; --ok-warm-grey-600: #615D54;
+  --ok-verify: #0B7643; --ok-verify-on-dark: #63D18F;
+  --ok-caution: #BD321B; --ok-caution-on-dark: #F47D67;
 
-  /* surfaces — cool-carbon ramp (5 steps) */
-  --surface-0: #0c0f14;
-  --surface-1: #12161d;
-  --surface-2: #161b22;
-  --surface-3: #1e242d;
-  --surface-4: #28303b;
+  /* brand constants (legacy names kept; now alias the OK primary) */
+  --ok-signal: var(--ok-ultramarine);
+  --ok-ember:  var(--ok-ultramarine-700);
+  --ok-carbon: var(--ok-ink);
 
-  /* text */
-  --fg-0: #f3f5f7;
-  --fg-1: #c2c8d2;
-  --fg-2: #8a93a3;
-  --fg-3: #5b6472;
+  /* surfaces — light (default): Shell ground, Paper cards, derived raised/sunken steps */
+  --surface-0: var(--ok-shell);
+  --surface-1: var(--ok-paper);
+  --surface-2: color-mix(in srgb, var(--ok-paper) 92%, var(--ok-ink) 8%);
+  --surface-3: color-mix(in srgb, var(--ok-paper) 84%, var(--ok-ink) 16%);
+  --surface-4: color-mix(in srgb, var(--ok-paper) 72%, var(--ok-ink) 28%);
 
-  /* hairlines (Vercel ladder) */
-  --line:        #222936;
-  --line-soft:   #1b212b;
-  --line-strong: #2c3543;
+  /* text — light */
+  --fg-0: var(--ok-ink);
+  --fg-1: var(--ok-warm-grey-600);
+  --fg-2: var(--ok-warm-grey);
+  --fg-3: color-mix(in srgb, var(--ok-warm-grey) 60%, var(--ok-putty) 40%);
 
-  /* the one accent */
-  --accent:       var(--ok-signal);
-  --accent-hover: #ff6f3c;                  /* use for accent TEXT (WCAG) */
-  --accent-press: var(--ok-ember);
-  --accent-fg:    #ffffff;
-  --accent-tint:  rgba(255,90,31,.12);
-  --accent-line:  rgba(255,90,31,.32);
+  /* hairlines — light */
+  --line:        var(--ok-putty);
+  --line-soft:   color-mix(in srgb, var(--ok-putty) 55%, var(--ok-paper) 45%);
+  --line-strong: color-mix(in srgb, var(--ok-putty) 70%, var(--ok-ink) 30%);
 
-  /* semantic status triad */
-  --ok-verify: #1fb877;
-  --ok-amber:  #e6a700;
-  --ok-alarm:  #e5564b;
+  /* the one accent — Ultramarine (configurable: OK_BRAND_ACCENT / Branding panel) */
+  --accent:       var(--ok-ultramarine);
+  --accent-hover: var(--ok-ultramarine-600);
+  --accent-press: var(--ok-ultramarine-700);
+  --accent-fg:    var(--ok-shell);
+  --accent-tint:  color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-line:  color-mix(in srgb, var(--accent) 32%, transparent);
 
-  /* 7-status pipeline (cool=machine, orange=needs-you, green=shipped) */
-  --st-planning: #9b8cf0;
-  --st-queue:    #8b8a84;
-  --st-working:  #5b9df0;
-  --st-ai:       #46c2b6;
-  --st-review:   #e0a458;
+  /* semantic status triad (--ok-verify is the raw OK token itself here; dark overrides it below) */
+  --ok-amber: var(--ok-cadmium-600);
+  --ok-alarm: var(--ok-caution);
+
+  /* 7-status pipeline (cool=machine, ultramarine=needs-you, green=shipped) */
+  --st-planning: var(--ok-ultramarine-400);
+  --st-queue:    var(--ok-warm-grey);
+  --st-working:  var(--ok-ultramarine-300);
+  --st-ai:       #2E8B87;
+  --st-review:   var(--ok-cadmium-700);
   --st-human:    var(--accent);
   --st-done:     var(--ok-verify);
-  --st-cancelled: #9a97a6; /* obj 700595 — soft-retire, muted cool slate (AA on surface-0) */
+  --st-cancelled: color-mix(in srgb, var(--ok-warm-grey) 55%, var(--ok-putty) 45%);
   /* legacy alias used by JobsBoard inline style */
   --status-human: var(--st-human);
 
   /* agent identity (desaturated; never competes with status) */
-  --agent-cto: #6f9ad8; --agent-cmo: #d389b0; --agent-coo: #6fb58c;
-  --agent-cfo: #d6a24e; --agent-general: #8c8a92;
+  --agent-cto: #4C6FB0; --agent-cmo: #A5567E; --agent-coo: #3F8862;
+  --agent-cfo: #9C6B1E; --agent-general: var(--ok-warm-grey-600);
 
   /* type */
   --font-display: Geist, "Inter Tight", system-ui, sans-serif;
@@ -92,9 +108,97 @@
   --ease-inout: cubic-bezier(.45,0,.25,1);
 }
 
-/* Backup accents (preview via <html data-accent="amber"|"cyan">). Default = Signal Orange. */
-:root[data-accent="amber"]{ --accent:#e6a700; --accent-hover:#f0b81f; --accent-press:#b88600; --accent-tint:rgba(230,167,0,.12); --accent-line:rgba(230,167,0,.32); --st-human:#e6a700; }
-:root[data-accent="cyan"]{  --accent:#22d3ee; --accent-hover:#4fdcf2; --accent-press:#0fa9c4; --accent-tint:rgba(34,211,238,.12); --accent-line:rgba(34,211,238,.32); --st-human:#22d3ee; --accent-fg:#04222a; }
+/* Dark variant — toggled via <html data-theme="dark">. */
+:root[data-theme="dark"] {
+  --surface-0: var(--ok-ink);
+  --surface-1: var(--ok-ink-800);
+  --surface-2: var(--ok-ink-700);
+  --surface-3: color-mix(in srgb, var(--ok-ink-700) 80%, white 20%);
+  --surface-4: color-mix(in srgb, var(--ok-ink-700) 62%, white 38%);
+
+  --fg-0: var(--ok-shell);
+  --fg-1: var(--ok-ink-300);
+  --fg-2: color-mix(in srgb, var(--ok-ink-300) 70%, var(--ok-ink) 30%);
+  --fg-3: color-mix(in srgb, var(--ok-ink-300) 45%, var(--ok-ink) 55%);
+
+  --line:        var(--ok-ink-600);
+  --line-soft:   color-mix(in srgb, var(--ok-ink-600) 55%, var(--ok-ink-800) 45%);
+  --line-strong: color-mix(in srgb, var(--ok-ink-600) 70%, var(--ok-shell) 30%);
+
+  --accent:       var(--ok-ultramarine);
+  --accent-hover: var(--ok-ultramarine-600);
+  --accent-press: var(--ok-ultramarine-700);
+  --accent-fg:    var(--ok-shell);
+  --accent-tint:  color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-line:  color-mix(in srgb, var(--accent) 38%, transparent);
+
+  --ok-verify: var(--ok-verify-on-dark);
+  --ok-amber:  var(--ok-cadmium);
+  --ok-alarm:  var(--ok-caution-on-dark);
+
+  --st-planning: var(--ok-ultramarine-400);
+  --st-queue:    var(--ok-ink-300);
+  --st-working:  var(--ok-ultramarine-300);
+  --st-ai:       #4FB3AD;
+  --st-review:   var(--ok-cadmium);
+  --st-human:    var(--accent);
+  --st-done:     var(--ok-verify-on-dark);
+  --st-cancelled: color-mix(in srgb, var(--ok-ink-300) 55%, var(--ok-ink-600) 45%);
+  --status-human: var(--st-human);
+
+  --agent-cto: #7FA3E0; --agent-cmo: #D389B0; --agent-coo: #6FB58C;
+  --agent-cfo: #D6A24E; --agent-general: var(--ok-ink-300);
+}
+
+/* System preference, when the install hasn't set an explicit theme yet
+   (data-theme="auto", the default — main.tsx only writes an explicit
+   light/dark once the user picks one in the topbar toggle). Mirrors the
+   [data-theme="dark"] block above exactly. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    color-scheme: dark;
+    --surface-0: var(--ok-ink);
+    --surface-1: var(--ok-ink-800);
+    --surface-2: var(--ok-ink-700);
+    --surface-3: color-mix(in srgb, var(--ok-ink-700) 80%, white 20%);
+    --surface-4: color-mix(in srgb, var(--ok-ink-700) 62%, white 38%);
+
+    --fg-0: var(--ok-shell);
+    --fg-1: var(--ok-ink-300);
+    --fg-2: color-mix(in srgb, var(--ok-ink-300) 70%, var(--ok-ink) 30%);
+    --fg-3: color-mix(in srgb, var(--ok-ink-300) 45%, var(--ok-ink) 55%);
+
+    --line:        var(--ok-ink-600);
+    --line-soft:   color-mix(in srgb, var(--ok-ink-600) 55%, var(--ok-ink-800) 45%);
+    --line-strong: color-mix(in srgb, var(--ok-ink-600) 70%, var(--ok-shell) 30%);
+
+    --accent:       var(--ok-ultramarine);
+    --accent-hover: var(--ok-ultramarine-600);
+    --accent-press: var(--ok-ultramarine-700);
+    --accent-fg:    var(--ok-shell);
+    --accent-tint:  color-mix(in srgb, var(--accent) 16%, transparent);
+    --accent-line:  color-mix(in srgb, var(--accent) 38%, transparent);
+
+    --ok-verify: var(--ok-verify-on-dark);
+    --ok-amber:  var(--ok-cadmium);
+    --ok-alarm:  var(--ok-caution-on-dark);
+
+    --st-planning: var(--ok-ultramarine-400);
+    --st-queue:    var(--ok-ink-300);
+    --st-working:  var(--ok-ultramarine-300);
+    --st-ai:       #4FB3AD;
+    --st-review:   var(--ok-cadmium);
+    --st-human:    var(--accent);
+    --st-done:     var(--ok-verify-on-dark);
+    --st-cancelled: color-mix(in srgb, var(--ok-ink-300) 55%, var(--ok-ink-600) 45%);
+    --status-human: var(--st-human);
+
+    --agent-cto: #7FA3E0; --agent-cmo: #D389B0; --agent-coo: #6FB58C;
+    --agent-cfo: #D6A24E; --agent-general: var(--ok-ink-300);
+  }
+}
+:root[data-theme="dark"] { color-scheme: dark; }
+:root:not([data-theme="dark"]) { color-scheme: light; }
 
 html, body, #root {
   height: 100%;

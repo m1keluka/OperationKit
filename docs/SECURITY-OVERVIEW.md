@@ -22,7 +22,7 @@ sign in to a client's install. The client owns the server, the data and the AI a
 
 ### A connected account belongs to one person
 
-Someone can connect their own Google or GitHub account in **Settings → Connectors** so their AI
+Someone can connect their own Google or GitHub account in **Settings → Integrations** so their AI
 jobs can work in it. That connection is theirs alone:
 
 - **Another person cannot use or read it** — not through their own API key, not through a card,
@@ -32,7 +32,7 @@ jobs can work in it. That connection is theirs alone:
   connected accounts its owner is allowed to use — nothing to tick, which is the common case. It is
   not a copy of its owner: it still reaches only the owner's own accounts, and every single use is
   re-checked against what the owner is allowed AT THAT MOMENT. Disconnect the account, or narrow it
-  in Settings → Connectors, and the key loses it immediately, with no key to edit.
+  in Settings → Integrations, and the key loses it immediately, with no key to edit.
 - **You can narrow a key instead.** When you create one you may pick specific connected accounts, or
   none at all. A key already narrowed stays narrowed: nothing widens an existing key on its own, and
   moving one to "follows my access" is a deliberate save in Settings → You.
