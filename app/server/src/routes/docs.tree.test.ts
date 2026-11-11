@@ -56,7 +56,7 @@ beforeAll(async () => {
 
   const hash = bcrypt.hashSync('pw', 4)
   db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('owner', hash, 'admin')
-  const memberId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('ava', hash, 'member').lastInsertRowid)
+  const memberId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('casey', hash, 'member').lastInsertRowid)
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace, role) VALUES (?, 'acme', 'member')`).run(memberId)
 
   const app = express()
@@ -70,7 +70,7 @@ beforeAll(async () => {
   const sign = (id: number, username: string, role: string) =>
     `token=${jwt.sign({ id, username, role }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
   admin = sign(1, 'owner', 'admin')
-  member = sign(memberId, 'ava', 'member')
+  member = sign(memberId, 'casey', 'member')
 })
 
 afterAll(async () => {

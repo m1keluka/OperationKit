@@ -319,7 +319,7 @@ router.post('/:id/secret-requests/:requestId/upload-token', flagOn, requireAuth,
     expires_at: minted.expires_at,
     ttl_seconds: UPLOAD_TOKEN_TTL_MS / 1000,
     single_use: true,
-    // Alternative for a host that cannot run curl: send Mike the card; its popup takes the value.
+    // Alternative for a host that cannot run curl: send Operator the card; its popup takes the value.
     owner_link: `${base}/o/${objective.id}`,
     // Read the value from YOUR host's env var so it never enters a model context or a log.
     curl: `printf %s "$${parsed.name}" | curl -sS -X POST '${uploadUrl}' -H 'X-CC-Upload-Token: ${minted.token}' -H 'Content-Type: text/plain' --data-binary @-`,

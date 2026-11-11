@@ -32,7 +32,7 @@ async function flush() {
 // Control which user is returned from useAuth.
 let mockUser: User = {
   id: 2,
-  username: 'ava',
+  username: 'casey',
   role: 'member',
   workspaces: [{ workspace: 'example', role: 'member' }],
   created_at: '2026-01-01T00:00:00Z',
@@ -69,7 +69,7 @@ vi.mock('../hooks/useWorkspaces', () => ({
   useWorkspaces: () => ({
     workspaces: [
       { slug: 'example', name: 'Example', short_label: 'Example' },
-      { slug: 'example2', name: 'Grass Fed', short_label: 'GF' },
+      { slug: 'example2', name: 'Example3', short_label: 'GF' },
     ],
     slugs: ['example', 'example2'],
     loading: false,
@@ -153,7 +153,7 @@ describe('PreviewBoard — filter row visibility (obj 708893, obj 900197)', () =
     // workspaces=[] simulates the brief window after auth resolves but before
     // the App.tsx clamp effect fires (user has one org 'example').
     mockUser = {
-      id: 2, username: 'ava', role: 'member',
+      id: 2, username: 'casey', role: 'member',
       workspaces: [{ workspace: 'example', role: 'member' }],
       created_at: '2026-01-01T00:00:00Z',
     }
@@ -164,7 +164,7 @@ describe('PreviewBoard — filter row visibility (obj 708893, obj 900197)', () =
 
   it('PROJECT row renders when workspaces has the one org (normal path after clamp fires)', async () => {
     mockUser = {
-      id: 2, username: 'ava', role: 'member',
+      id: 2, username: 'casey', role: 'member',
       workspaces: [{ workspace: 'example', role: 'member' }],
       created_at: '2026-01-01T00:00:00Z',
     }
@@ -177,7 +177,7 @@ describe('PreviewBoard — filter row visibility (obj 708893, obj 900197)', () =
   // All-orgs view, and the project filter used to be omitted there entirely.
   it('PROJECT row ALSO renders for admin in the All-orgs view (workspaces=[])', async () => {
     mockUser = {
-      id: 1, username: 'mike', role: 'admin',
+      id: 1, username: 'operator', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }
@@ -188,7 +188,7 @@ describe('PreviewBoard — filter row visibility (obj 708893, obj 900197)', () =
 
   it('PROJECT row renders in a genuine multi-org view (workspaces has 2)', async () => {
     mockUser = {
-      id: 1, username: 'mike', role: 'admin',
+      id: 1, username: 'operator', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }
@@ -201,7 +201,7 @@ describe('PreviewBoard — filter row visibility (obj 708893, obj 900197)', () =
 
   it('ORG row renders on the board in every view', async () => {
     mockUser = {
-      id: 1, username: 'mike', role: 'admin',
+      id: 1, username: 'operator', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }
@@ -215,7 +215,7 @@ describe('PreviewBoard — filter row visibility (obj 708893, obj 900197)', () =
 
   it('an admin can pick an org straight from the board row', async () => {
     mockUser = {
-      id: 1, username: 'mike', role: 'admin',
+      id: 1, username: 'operator', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }
@@ -232,7 +232,7 @@ describe('PreviewBoard — filter row visibility (obj 708893, obj 900197)', () =
 
   it('a member only sees the orgs they belong to in the ORG row', async () => {
     mockUser = {
-      id: 2, username: 'ava', role: 'member',
+      id: 2, username: 'casey', role: 'member',
       workspaces: [{ workspace: 'example', role: 'member' }],
       created_at: '2026-01-01T00:00:00Z',
     }

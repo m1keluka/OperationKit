@@ -14,13 +14,14 @@ import { PreviewBoard } from './preview/PreviewBoard'
 import { PreviewArchive } from './preview/PreviewArchive'
 import { PreviewWorkspace } from './preview/PreviewWorkspace'
 import { HAS_CHAT_PAGE } from './lib/optional-pages'
+import { SYSTEM_ROUTE, AGENTS_ROUTE, LEGACY_REDIRECTS } from './lib/routes'
 import type { Workspace } from '@operationkit/shared'
 
 // Route-level code-splitting (obj 700585): the board is the landing surface
 // and stays eager. Every secondary route is lazy-loaded so its code — most
 // importantly the heavy BlockNote editor pulled in by DocsPage — no longer
 // weighs down the initial bundle that blocks first paint.
-const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })))
+const SystemPage = lazy(() => import('./components/SystemPage').then(m => ({ default: m.SystemPage })))
 const AgentChatPage = lazy(() => import('./components/agent-chat/AgentChatPage').then(m => ({ default: m.AgentChatPage })))
 const ProjectFeed = lazy(() => import('./components/ProjectFeed').then(m => ({ default: m.ProjectFeed })))
 const DocsPage = lazy(() => import('./components/DocsPage').then(m => ({ default: m.DocsPage })))
@@ -31,17 +32,13 @@ const SettingsSecrets = lazy(() => import('./components/settings/SettingsSecrets
 const SettingsConnectors = lazy(() => import('./components/settings/SettingsConnectors').then(m => ({ default: m.SettingsConnectors })))
 const SettingsSeats = lazy(() => import('./components/settings/SettingsSeats').then(m => ({ default: m.SettingsSeats })))
 const SettingsOrg = lazy(() => import('./components/settings/SettingsOrg').then(m => ({ default: m.SettingsOrg })))
-const SettingsAgents = lazy(() => import('./components/settings/SettingsAgents').then(m => ({ default: m.SettingsAgents })))
-const SettingsPlatform = lazy(() => import('./components/settings/SettingsPlatform').then(m => ({ default: m.SettingsPlatform })))
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })))
-const GranolaPage = lazy(() => import('./components/GranolaPage').then(m => ({ default: m.GranolaPage })))
 const LoopsPage = lazy(() => import('./components/LoopsPage').then(m => ({ default: m.LoopsPage })))
 const JobsBoard = lazy(() => import('./components/JobsBoard').then(m => ({ default: m.JobsBoard })))
 const StrategiesPage = lazy(() => import('./components/StrategiesPage').then(m => ({ default: m.StrategiesPage })))
 const StrategyDetailPage = lazy(() => import('./components/StrategyDetailPage').then(m => ({ default: m.StrategyDetailPage })))
 const DevelopmentPage = lazy(() => import('./components/DevelopmentPage').then(m => ({ default: m.DevelopmentPage })))
-const AgentsPage = lazy(() => import('./components/AgentsPage').then(m => ({ default: m.AgentsPage })))
-const AgentTemplatesPage = lazy(() => import('./components/AgentTemplatesPage').then(m => ({ default: m.AgentTemplatesPage })))
+const AgentsHub = lazy(() => import('./components/agents/AgentsHub').then(m => ({ default: m.AgentsHub })))
 /**
  * Extract /w/<workspace> from a pathname. Returns null when not a workspace path.
  * Slugs are validated lexically only — the server (via /api/workspaces and
@@ -211,7 +208,10 @@ function AppContent() {
           <Route path="/preview/o/:id" element={<PreviewObjectiveRedirect />} />
           <Route path="/preview" element={<Navigate to="/" replace />} />
           <Route path="/preview/*" element={<Navigate to="/" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          {/* Dashboard → System, Templates and Settings → Agents → the one Agents page,
+              Settings → Platform → Jobs (obj 900495). Old URLs redirect; table in lib/routes.ts. */}
+          <Route path={SYSTEM_ROUTE} element={<SystemPage />} />
+          {LEGACY_REDIRECTS.map(r => <Route key={r.from} path={r.from} element={<Navigate to={r.to} replace />} />)}
           <Route path="/config" element={<Navigate to="/settings/org" replace />} />
           {/* The built-in assistant was removed (obj 720115); its old URLs land on the bots page when present.
               /chat and /chat/:slug are deliberately UNCHANGED by the obj-900327 rename so existing
@@ -228,12 +228,11 @@ function AppContent() {
           <Route path="/docs" element={<Navigate to="/knowledge" replace />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/status" element={<StatusPage />} />
-          <Route path="/costs" element={<Navigate to="/dashboard" replace />} />
           <Route path="/loops" element={<LoopsPage />} />
-          <Route path="/granola" element={<GranolaPage />} />
+          <Route path="/granola" element={<Navigate to="/" replace />} />
           <Route path="/jobs" element={<JobsBoard workspace={workspace} />} />
-          <Route path="/agents" element={<AgentsPage workspace={workspace} />} />
-          <Route path="/agent-templates" element={<AgentTemplatesPage />} />
+          {/* One Agents page (obj 900495): registry, board layer and templates are tabs. */}
+          <Route path={AGENTS_ROUTE} element={<AgentsHub workspace={workspace} />} />
           <Route path="/strategies" element={<StrategiesPage workspace={workspace} />} />
           <Route path="/strategy/:id" element={<StrategyDetailPage workspace={workspace} />} />
           <Route path="/settings" element={<SettingsPage />}>
@@ -243,8 +242,6 @@ function AppContent() {
             <Route path="connectors" element={<SettingsConnectors />} />
             <Route path="seats" element={<SettingsSeats />} />
             <Route path="org" element={<SettingsOrg />} />
-            <Route path="agents" element={<SettingsAgents />} />
-            <Route path="platform" element={<SettingsPlatform />} />
             <Route path="account" element={<Navigate to="/settings/you" replace />} />
             <Route path="test-credentials" element={<Navigate to="/settings/secrets" replace />} />
           </Route>

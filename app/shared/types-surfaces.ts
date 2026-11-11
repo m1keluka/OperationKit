@@ -154,6 +154,12 @@ export interface SecretSummary {
   updatedBy: number | null
   createdAt: string
   updatedAt: string
+  /** Server-process only: never injected into a session. (Already on the wire; now typed.) */
+  serviceOnly?: boolean
+  /** obj 900498: operator note about what the secret is for. Never part of the value. */
+  description?: string | null
+  /** obj 900498: last time the server decrypted it for a real use (spawn, broker, server read). */
+  lastUsedAt?: string | null
 }
 
 /** One entry in a secret's version history (metadata only). */
@@ -175,6 +181,44 @@ export interface SetSecretRequest {
   userId?: number | null
   key: string
   value: string
+  /** obj 900498: optional. Omitted on an update = keep the existing description. */
+  description?: string | null
+}
+
+/** Body for POST /api/secrets/rotate (obj 900498) — replace the value of an
+ *  EXISTING secret. 404 if it does not exist: rotation never creates. */
+export type RotateSecretRequest = SetSecretRequest
+
+/** Body for PATCH /api/secrets/metadata (obj 900498) — description only; the value is untouched. */
+export interface SecretMetadataRequest {
+  scopeType: SecretScopeType
+  workspace?: string | null
+  userId?: number | null
+  key: string
+  /** null or '' clears it. */
+  description: string | null
+}
+
+/** One row of the append-only secrets audit log (obj 900498). There is no value field. */
+export interface SecretAuditEntry {
+  id: number
+  actorUserId: number | null
+  actorUsername: string | null
+  /** create | update | rotate | describe | delete | rollback | read | inject | use | reveal_attempt */
+  action: string
+  scope: string
+  key: string
+  at: string
+  secretId: number | null
+  /** ui | api | spawn | broker | server | … — how it reached the store. */
+  source: string | null
+  detail: string | null
+}
+
+/** GET /api/secrets/audit response. Pass `nextBeforeId` back as `beforeId` for the next page. */
+export interface SecretAuditPage {
+  entries: SecretAuditEntry[]
+  nextBeforeId: number | null
 }
 
 /** Body for POST /api/secrets/rollback — re-apply a prior version as a new one. */
@@ -541,13 +585,13 @@ export const AGENT_SCOPE_DESCRIPTIONS: Record<AgentScope, string> = {
   'board:write': 'Create, edit, message and stop cards',
   'board:start': 'Start a card (status → working, approve plan)',
   // obj 718417: cancel split out of done so a bot can retire a duplicate
-  // without holding Mike's signature.
+  // without holding Operator's signature.
   'board:cancel': 'Retire a card (status → cancelled), e.g. a duplicate',
   'board:done': 'Sign off a card (status → done)',
   'board:delete': 'Delete cards',
   'vault:read': 'Search and read the second-brain vault',
   'vault:write': 'Write vault markdown files',
-  // obj 719065: write-only. Never in the default set — Mike grants it per key.
+  // obj 719065: write-only. Never in the default set — Operator grants it per key.
   'board:secrets_request': 'Relay a card\'s secret request: mint a one-time, write-only upload link (never reads a value)',
 }
 
@@ -823,7 +867,7 @@ export const AGENT_WEBHOOK_EVENT_DESCRIPTIONS: Record<AgentWebhookEvent, string>
   merged: 'Its PR merged',
   pr_closed: 'Its PR closed without merging',
   status_changed: 'Any other status move (queue, planning, ai_review)',
-  needs_agent: 'The card needs its agent — blocked, failed review, waiting on a Mike decision, or (obj 900309) it COMPLETED: a card that went straight to done without passing through review, or its PR merged. Once per card need and at most once per completion, never per status move. Payload carries owner_bot',
+  needs_agent: 'The card needs its agent — blocked, failed review, waiting on a Operator decision, or (obj 900309) it COMPLETED: a card that went straight to done without passing through review, or its PR merged. Once per card need and at most once per completion, never per status move. Payload carries owner_bot',
 }
 
 /** Why a card needs its agent (most urgent first). Mirrors get_attention's kinds, minus the time-based `stuck`. */
@@ -842,12 +886,12 @@ export const AGENT_WEBHOOK_EVENT_DESCRIPTIONS: Record<AgentWebhookEvent, string>
  *   - `completed`  — the card reached `done` WITHOUT passing through `review`. That is the
  *     reviewer-PASS auto-route a child card takes (mustRouteToHumanReview() is false when
  *     parent_id is set), which is exactly the path that used to finish silently. A
- *     top-level card Mike signs off in `review` already woke its owner with the `review`
- *     need, so it never gets a second wake — Mike's human-done semantics are unchanged.
+ *     top-level card Operator signs off in `review` already woke its owner with the `review`
+ *     need, so it never gets a second wake — Operator's human-done semantics are unchanged.
  *   - `pr_merged`  — the card's PR merged, i.e. the deliverable actually shipped.
  */
 export type AgentNeedKind = 'needs_secret' | 'failed_review' | 'blocked' | 'review' | 'completed' | 'pr_merged'
-/** The pilot's three buckets: blocked · waiting on the agent · a Grok-only action (a Mike decision). */
+/** The pilot's three buckets: blocked · waiting on the agent · a Grok-only action (a Operator decision). */
 export type AgentNeedCategory = 'blocked' | 'waiting_on_agent' | 'mike_decision' | 'completed'
 
 export interface AgentNeed {

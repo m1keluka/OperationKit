@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import http from 'http'
 import express from 'express'
 import cookieParser from 'cookie-parser'
@@ -225,6 +226,71 @@ describe('internal (script) surface', () => {
     expect(r.status).toBe(200)
     const by = Object.fromEntries(r.body.results.map((x: any) => [x.slug, x.status]))
     expect(by).toEqual({ 'knowledge-librarian': 'created', operator: 'created', 'personal-assistant': 'already-installed' })
+  })
+})
+
+describe('install-local bot slugs (obj 900430)', () => {
+  const ROSTER = fileURLToPath(new URL('../../../../docs/bots/trial-roster/', import.meta.url))
+  const h = () => ({ 'x-internal-secret': getInternalApiSecret() })
+  const FILES: Array<[string, string, string]> = [
+    ['cos', 'cos', 'acme-co-general'],
+    ['cfo', 'cfo', 'acme-co-cfo'],
+    ['cto', 'cto', 'acme-co-cto'],
+  ]
+  const importLocalized = (file: string, localize: unknown) =>
+    call('POST', '/api/internal/agent-templates/import', {
+      content: fs.readFileSync(path.join(ROSTER, `${file}.agent.yaml`), 'utf8'),
+      filename: `${file}.agent.yaml`,
+      localize,
+    }, h())
+
+  it('requires the internal secret for bot-slugs', async () => {
+    expect((await call('GET', '/api/internal/agent-templates/bot-slugs')).status).toBe(401)
+    expect((await call('PUT', '/api/internal/agent-templates/bot-slugs', { bot: 'CFO', add: 'acme-co-cfo' })).status).toBe(401)
+  })
+
+  it('refuses to localize to a slug no bot owns, and changes nothing', async () => {
+    const r = await importLocalized('cfo', { slug: 'acme-co-cfo', knowledge_folder: 'workspaces/acme-co' })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toContain('bot-slugs add')
+    expect(getAgent('acme-co-cfo')).toBeUndefined()
+  })
+
+  it('rejects malformed localize options and localize-by-path', async () => {
+    expect((await importLocalized('cfo', { slug: 'Acme CFO', knowledge_folder: 'workspaces/acme-co' })).status).toBe(400)
+    expect((await importLocalized('cfo', { slug: 'acme-co-cfo' })).status).toBe(400)
+    const byPath = await call('POST', '/api/internal/agent-templates/import', { path: ROSTER, localize: { slug: 'acme-co-cfo', knowledge_folder: 'workspaces/acme-co' } }, h())
+    expect(byPath.status).toBe(400)
+  })
+
+  it('maps the slugs, then imports all three example bots at the install slugs with the install folder', async () => {
+    for (const [, bot, slug] of FILES) {
+      const put = await call('PUT', '/api/internal/agent-templates/bot-slugs', { bot, add: slug }, h())
+      expect(put.status, JSON.stringify(put.body)).toBe(200)
+    }
+    const list = await call('GET', '/api/internal/agent-templates/bot-slugs', undefined, h())
+    expect(list.body.configured).toEqual({
+      cos: ['acme-co-general'],
+      cfo: ['acme-co-cfo'],
+      cto: ['acme-co-cto'],
+    })
+
+    for (const [file, , slug] of FILES) {
+      const r = await importLocalized(file, { slug, knowledge_folder: 'workspaces/acme-co', display_name: 'Acme Co' })
+      expect(r.status, JSON.stringify(r.body)).toBe(201)
+      expect(r.body.slug).toBe(slug)
+      const written = fs.readFileSync(r.body.file_path, 'utf8')
+      expect(written).toContain('  - workspaces/acme-co')
+      expect(written).not.toContain('your-org')
+      expect(getAgent(slug)).toBeTruthy()
+    }
+    // the bare executive-roster row is untouched
+    expect(getAgent('cto')?.label).toBe('CTO')
+  })
+
+  it('a slug another bot owns is a 409, an unknown bot a 400', async () => {
+    expect((await call('PUT', '/api/internal/agent-templates/bot-slugs', { bot: 'CTO', add: 'acme-co-cfo' }, h())).status).toBe(409)
+    expect((await call('PUT', '/api/internal/agent-templates/bot-slugs', { bot: 'Nobody', add: 'zz-cfo' }, h())).status).toBe(400)
   })
 })
 

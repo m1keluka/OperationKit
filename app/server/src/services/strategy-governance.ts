@@ -7,7 +7,7 @@
 // the next step. Per the strategy-layer-autonomy decision + gating framework,
 // EVERY strategic decision (spawn-next / pivot / stop / re-scope) is gated at
 // Stage 0: the strategy parks in `review` with a structured Decision Request and
-// may not act until Mike confirms/denies. This module implements:
+// may not act until Operator confirms/denies. This module implements:
 //   1. Decision Requests — stored as objective_reviews rows (mode='decision'),
 //      reusing the existing review table + human gate rather than a new subsystem.
 //   2. A kill-switch — hard $ + project-count ceilings that halt a strategy,
@@ -473,7 +473,7 @@ export function getDecisionById(db: Database.Database, reviewId: number): Decisi
 }
 
 /**
- * Record Mike's confirm/deny on a pending decision. approve → verdict='pass',
+ * Record Operator's confirm/deny on a pending decision. approve → verdict='pass',
  * deny → verdict='fail'. Appends the resolution into the stored body. Returns
  * the structured `[decision …]` follow-up the caller feeds back to the strategy
  * session via sendFollowUp.
@@ -605,7 +605,7 @@ export interface TrustPromotionMetrics {
   shippedProjects: number
   /** Strategy-tier ai_review pass rate on auto-executed decisions. */
   strategyReviewPassRate: number
-  /** Explicit Mike opt-in — required for 2→3 (never automatic). */
+  /** Explicit Operator opt-in — required for 2→3 (never automatic). */
   mikeOptIn: boolean
   /** Any guardrail trip → forces instant demotion (wins over any promotion). */
   killSwitchTripped?: boolean
@@ -617,7 +617,7 @@ export interface TrustTransitionPolicy {
   promote23: { maxFalsePassRate: number; minStrategyReviewPassRate: number; requiresOptIn: boolean }
 }
 
-/** Thresholds from framework §2.2 — env-overridable so Mike can tighten/loosen
+/** Thresholds from framework §2.2 — env-overridable so Operator can tighten/loosen
  *  without a deploy (mirrors getStrategyPolicy). */
 export function getTrustTransitionPolicy(): TrustTransitionPolicy {
   return {

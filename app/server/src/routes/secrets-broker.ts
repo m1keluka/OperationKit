@@ -18,7 +18,7 @@ import { getDb } from '../db/index.js'
 import { isApiKey } from '../lib/api-keys.js'
 import { rateLimit } from '../services/file-access.js'
 import { executeHttp, listForCaller, type Caller } from '../services/secrets-broker.js'
-import { logAccess } from '../services/secrets-store.js'
+import { logAccess, touchLastUsed } from '../services/secrets-store.js'
 import {
   SESSION_SECRET_ACCESS_FLAG,
   readSettingFlag,
@@ -139,10 +139,16 @@ router.post('/http', async (req: BrokerRequest, res) => {
   }
   // Store-level audit too, so the secret's own access history shows each use.
   if (!outcome.audit.status.startsWith('rejected')) {
-    for (const s of outcome.audit.scopes) {
+    const ids = outcome.audit.secretIds ?? []
+    outcome.audit.scopes.forEach((s, i) => {
       const [name, scope] = s.split('@')
-      logAccess(caller.userId, 'use', `broker:${scope}→${outcome.audit.host}`, name)
-    }
+      logAccess(caller.userId, 'use', `broker:${scope}→${outcome.audit.host}`, name, {
+        secretId: ids[i] ?? null,
+        source: 'broker',
+        detail: `${outcome.audit.method} ${outcome.audit.host ?? '-'}`,
+      })
+    })
+    touchLastUsed(ids)
   }
   console.log(`[secrets-broker] use user=${caller.userId} auth=${id.auth} key=${id.key_last4 ?? '-'} secrets=${outcome.audit.secrets.join(',') || '-'} host=${outcome.audit.host ?? '-'} status=${outcome.audit.status}`)
   res.setHeader('Cache-Control', 'private, no-store')

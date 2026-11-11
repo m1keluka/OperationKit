@@ -41,7 +41,7 @@ let baseUrl: string
 type Loose = any
 
 const cookie = () =>
-  `token=${jwt.sign({ id: USER_ID, username: 'mike', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
+  `token=${jwt.sign({ id: USER_ID, username: 'operator', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
 
 async function call(method: string, p: string, opts: { bearer?: string; body?: unknown } = {}) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -119,7 +119,7 @@ let keyB: { id: number; token: string }
 beforeAll(async () => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
-  getDb().prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'mike', 'x', 'admin')`).run(USER_ID)
+  getDb().prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'operator', 'x', 'admin')`).run(USER_ID)
   const app = express()
   app.use(express.json())
   app.use(cookieParser())
@@ -531,7 +531,7 @@ describe('needs_agent on the General key', () => {
   const upd = (id: number, set: string) => getDb().prepare(`UPDATE objectives SET ${set} WHERE id = ?`).run(id)
   const wakes = () => bodies(sentTo(COS_HOST))
 
-  it('classifyNeed: blocked, waiting on the agent, or a Mike decision — nothing else', () => {
+  it('classifyNeed: blocked, waiting on the agent, or a Operator decision — nothing else', () => {
     const base = { status: 'working', has_blockers: 0, ai_review_verdict: null, needs_secret: null }
     expect(wh.classifyNeed(base)).toBeNull()
     expect(wh.classifyNeed({ ...base, status: 'queue' })).toBeNull()
@@ -577,7 +577,7 @@ describe('needs_agent on the General key', () => {
       status_summary: 'review · AI review pass',
       agent_key: { id: cos.id, label: 'Grok: General' },
     })
-    expect(b.need.why).toMatch(/needs Mike's accept/)
+    expect(b.need.why).toMatch(/needs Operator's accept/)
     // obj 900309: the card is UNOWNED (owner_bot null), so the summary must say so
     // rather than naming the agent key. The key is a shared connection — its label is
     // who SENT the card, not who owns it, and spelling it as the owner made a filed-by-X

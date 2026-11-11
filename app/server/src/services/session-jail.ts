@@ -47,7 +47,7 @@ export const JAIL_HOME_PATH = '/home/jailuser'
 
 /**
  * Default image. Deliberately a LOCAL tag, not a registry ref: pushing to
- * ghcr.io is a Mike-reserved open question (PRD §9), so prod code must not
+ * ghcr.io is a Operator-reserved open question (PRD §9), so prod code must not
  * imply a pull. Built from `app/jail/Dockerfile`. Override with
  * `SESSION_JAIL_IMAGE`; pin by digest in any real deployment.
  */
@@ -138,7 +138,7 @@ export type IsolationMode = 'tmux' | 'docker'
  * Resolve the spawn isolation mode from an env bag.
  *
  * Deliberately NOT a `config.ts` constant: a source-code default of `docker`
- * would silently change Mike's live droplet on the next deploy (PRD §6.6).
+ * would silently change Operator's live droplet on the next deploy (PRD §6.6).
  * Unset / empty / `tmux` / anything unrecognised → `tmux` (today's path).
  * OSS and client installs opt in via `.env.example`, a documentation default.
  */
@@ -425,7 +425,7 @@ export async function execInJail(id: string | number, command: string): Promise<
 /**
  * Idempotent `docker rm -f ok-jail-<id>`.
  *
- * NO-OP when SESSION_ISOLATION is unset/tmux: on Mike's live droplet no jail was
+ * NO-OP when SESSION_ISOLATION is unset/tmux: on Operator's live droplet no jail was
  * ever created, and shelling out to `docker rm` on every session stop would be
  * both pointless and noisy. Returns whether it actually ran.
  */

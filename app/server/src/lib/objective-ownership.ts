@@ -12,7 +12,7 @@
  * same limits.
  *   - `created_by` and `assigned_user_id` are copied as-is, so the delegated-card
  *     test (assigned ≠ creator) gives the child exactly the parent's answer — a
- *     card routed to Ava by Mike does not become Ava's own work one level down.
+ *     card routed to Casey by Operator does not become Casey's own work one level down.
  *   - `agent_key_id` / `agent_key_label` are copied too. Without them a key whose
  *     allow-list excludes GitHub could reach GitHub by filing a child.
  *   - Only within the parent's workspace. A child filed into a different

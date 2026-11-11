@@ -7,7 +7,7 @@
 > Set `USE_SCOPED_SECRETS=0` to stop injecting into new spawns (does not restore Doppler).
 > Historical runbook below.
 
-**Audience:** Mike (or an admin acting on his explicit go-ahead).
+**Audience:** Operator (or an admin acting on his explicit go-ahead).
 **Status of the code that ships with this doc:** the native scoped secrets store
 (W1) + admin UI (W2) + this injection seam (W3) are **live but DORMANT**. With the
 committed default `USE_SCOPED_SECRETS=0`, **every session's spawn env is
@@ -15,13 +15,13 @@ byte-for-byte identical to before** — proven by
 `app/server/src/services/session-spawn-env.test.ts` (the locked 8-key contract) and
 `app/server/src/services/session-spawn-env-secrets.test.ts` (the flag-OFF path adds
 zero keys even when the store is populated). Each step below is **irreversible and
-Mike-gated** — do them in order, verifying between each.
+Operator-gated** — do them in order, verifying between each.
 
 > **⚠️ STATUS UPDATE (2026-08-14, obj-706069).** The original text here read
 > *"Nothing in this runbook has been executed."* **That is no longer true** — Steps 1
 > and 2 were executed against prod on 2026-06-29. See
 > **[LIVE STATUS — verified 2026-08-14](#live-status--verified-2026-08-14)** at the
-> bottom for the measured state and the remaining Mike-gated checklist. Steps 3–6 are
+> bottom for the measured state and the remaining Operator-gated checklist. Steps 3–6 are
 > still outstanding and the flag is still **OFF**.
 
 > ⚠️ These workers (including the one that built this) run **inside** the platform
@@ -121,7 +121,7 @@ Open the secrets admin surface and confirm the imported keys appear as **masked
 summaries** at `global` scope, with sensible versions/timestamps and an audit trail.
 Values must never be visible. Spot-check the count against Step 2's dry-run total.
 
-## Step 4 — Flip `USE_SCOPED_SECRETS=1` (Mike-gated)
+## Step 4 — Flip `USE_SCOPED_SECRETS=1` (Operator-gated)
 
 In the server's environment (compose `environment:` or Doppler), set:
 ```
@@ -170,10 +170,10 @@ Each step is reversible **before Step 6's Doppler retirement / token rotation**:
 ## Affirmation (state of the obj-2353 / W3 PR that authored this runbook)
 
 None of Steps 1–6 had been executed **at the time W3 shipped**. That PR delivered
-**code + script + runbook only**; the live cutover was left as a Mike-gated step.
+**code + script + runbook only**; the live cutover was left as a Operator-gated step.
 
 Steps 1 and 2 were subsequently executed against prod on **2026-06-29** (by a later,
-Mike-gated action — not by W3). The **obj-706069** work that added the LIVE STATUS
+Operator-gated action — not by W3). The **obj-706069** work that added the LIVE STATUS
 section below likewise executed **none** of Steps 1–6: it took read-only measurements
 only. It did not flip `USE_SCOPED_SECRETS`, did not run the importer, did not write
 or decrypt a single secret row, and did not restart anything.
@@ -186,7 +186,7 @@ Measured against the **live prod DB** (`/app/data/command-center.db`, the same f
 the running server writes to) and the **live Doppler** account, by obj-706069.
 Everything below is READ-ONLY evidence. **The worker did NOT flip the flag, did NOT
 run the importer, and did NOT write a single secret row.** Steps 4–6 remain
-untouched and Mike-gated.
+untouched and Operator-gated.
 
 | Fact | Value | How it was established |
 |---|---|---|
@@ -269,10 +269,10 @@ real prerequisite, and it is exactly what the admin UI shipped in obj-706069 is 
 
 ---
 
-## MIKE-GATED CUTOVER CHECKLIST
+## OPERATOR-GATED CUTOVER CHECKLIST
 
 Steps 1–2 are **done**. Do the rest in order, one at a time, verifying between each.
-Nothing here should be run by an agent without Mike saying so explicitly.
+Nothing here should be run by an agent without Operator saying so explicitly.
 
 - [x] **1. Provision `SECRETS_MASTER_KEY`** — done 2026-06-29. File exists, mode 600.
       ⚠️ **Open action: confirm the off-box encrypted backup exists.** Loss of this key
@@ -302,7 +302,7 @@ Nothing here should be run by an agent without Mike saying so explicitly.
         **Organization** that actually uses them (example / example2 / example-project).
       - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_WEBHOOK_SECRET`,
         `INTERNAL_API_SECRET`, `MENTOR_SERVICE_TOKEN` → keep **Command Center**.
-      - Anything personal to Mike (`MERCURY_API_TOKEN`, `GMAIL_*`) → **User: mike**,
+      - Anything personal to Operator (`MERCURY_API_TOKEN`, `GMAIL_*`) → **User: operator**,
         which follows him into every organization.
       Do this BEFORE step 4 — the flag is what makes scoping load-bearing, and a
       mis-scoped key only becomes visible as a broken spawn after the flip.

@@ -131,7 +131,7 @@ describe('authorization is a content_owners row, not a role', () => {
 
   it('refuses an ADMIN who has no content workspace', async () => {
     // The old surface was requireAdmin — this case would have been a 200 with
-    // Mike's drafts. Admin is no longer a content grant.
+    // Operator's drafts. Admin is no longer a content grant.
     const res = await call('GET', '/me', root)
     expect(res.status).toBe(403)
     expect((await call('GET', '/drafts', root)).status).toBe(403)

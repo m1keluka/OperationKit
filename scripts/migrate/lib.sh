@@ -4,10 +4,10 @@
 # Sourced by preflight.sh, presync.sh, cutover.sh, verify.sh, restore-test.sh
 # and bootstrap-host.sh. Runbook: docs/migration/ovh-rise4.md.
 #
-# Execution model: every script runs ON THE NEW (OVH) HOST as user `mike`,
+# Execution model: every script runs ON THE NEW (OVH) HOST as user `operator`,
 # PULLING from the old DigitalOcean droplet over SSH. "local" = destination,
 # SRC_HOST = source. Reach the source with agent forwarding from your laptop
-# (`ssh -A mike@<ovh-ip>`), so no private key has to live on either server.
+# (`ssh -A operator@<ovh-ip>`), so no private key has to live on either server.
 #
 # Contract for every script that sources this file:
 #   * set -euo pipefail (set here, re-set by callers).
@@ -98,11 +98,11 @@ parse_common_args() {
 }
 
 require_src() {
-  [ -n "$SRC_HOST" ] || die "source host required: --src mike@<do-droplet-ip> (or SRC_HOST=...)"
+  [ -n "$SRC_HOST" ] || die "source host required: --src operator@<do-droplet-ip> (or SRC_HOST=...)"
 }
 
 require_user_mike() {
-  [ "$(id -un)" = mike ] || die "run as user 'mike' on the new host (got '$(id -un)')"
+  [ "$(id -un)" = operator ] || die "run as user 'operator' on the new host (got '$(id -un)')"
 }
 
 # ── Execution ──
@@ -167,10 +167,10 @@ confirm() {
 
 # ── Copy helpers ──
 # Ownership matters: account homes and worktrees are chowned to the container's
-# ccuser, the SQLite DB to root. So both ends run rsync under sudo (mike has
+# ccuser, the SQLite DB to root. So both ends run rsync under sudo (operator has
 # passwordless sudo on both hosts) and --numeric-ids keeps the UIDs. Local sudo
 # keeps SSH_AUTH_SOCK so the forwarded agent still reaches the source, and uses
-# mike's known_hosts so the source host key is pinned once.
+# operator's known_hosts so the source host key is pinned once.
 readonly RSYNC_SSH="ssh ${SSH_OPTS[*]} -o UserKnownHostsFile=$OPERATOR_HOME/.ssh/known_hosts"
 readonly RSYNC_BASE=(sudo --preserve-env=SSH_AUTH_SOCK rsync -aHAX --numeric-ids --partial
   --rsync-path="sudo -n rsync" -e "$RSYNC_SSH")

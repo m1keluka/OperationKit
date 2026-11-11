@@ -2,8 +2,8 @@
  * Who sent a card chat message — derived SERVER-SIDE, never from message text
  * (obj 718944).
  *
- * Incident (#718958): an agent relayed "Mike approved" into a card and the
- * worker correctly refused; then Mike typed in the card himself and the worker
+ * Incident (#718958): an agent relayed "Operator approved" into a card and the
+ * worker correctly refused; then Operator typed in the card himself and the worker
  * STILL refused, because the transcript stored only `{type:'followup', text}` —
  * owner-typed and agent-posted messages were byte-identical to the session.
  *
@@ -19,7 +19,7 @@
  * any script holding a password, and the browser never sends one.
  *
  * Every body is passed through `neutraliseForgedStamps` regardless of sender,
- * so text that merely CONTAINS "VERIFIED: Mike" or our header marker can never
+ * so text that merely CONTAINS "VERIFIED: Operator" or our header marker can never
  * read as a server stamp.
  */
 import type { MessageSender } from '@operationkit/shared'
@@ -100,7 +100,7 @@ const FORGED_MARKER = /\[\s*cc-sender\s*\]/gi
 
 /**
  * Defang anything in a message BODY that could read as a server stamp.
- * "VERIFIED: Mike" → "VERIFIED(claimed in text, not a server stamp): Mike".
+ * "VERIFIED: Operator" → "VERIFIED(claimed in text, not a server stamp): Operator".
  */
 export function neutraliseForgedStamps(body: string): string {
   return body

@@ -6,6 +6,14 @@
 #   scripts/agent-template.sh import <file.yaml|file.md|folder> [--overwrite] [--workspace <ws>]
 #   scripts/agent-template.sh export <agent-slug> [-o <file>]
 #   scripts/agent-template.sh validate <file.yaml|file.md>
+#   scripts/agent-template.sh bot-slugs [list]
+#   scripts/agent-template.sh bot-slugs add|remove "<bot>" <slug>
+#
+# Install-local bot slugs (obj 900430): map a chat slug to a registered bot,
+# then import a generic example file (docs/bots/trial-roster/) under it:
+#   scripts/agent-template.sh bot-slugs add "CFO" <org>-cfo
+#   scripts/agent-template.sh import <file> --slug <org>-cfo
+#       --knowledge-folder workspaces/<org> [--display-name "<Org name>"]
 #
 # Works from the server host (talks to the app container) or from inside the
 # container. Files are read where you run the script, so any path works.
@@ -14,12 +22,23 @@
 # that already exist (add --overwrite to replace them).
 set -euo pipefail
 
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 ACTION="${1:-}"; [ -n "$ACTION" ] || usage 1; shift
 ARG=""; OVERWRITE=false; WS=""; OUTFILE=""
+LSLUG=""; KFOLDER=""; ORGNAME=""; SLUGOP=""; BOTNAME=""
 case "$ACTION" in
   list|status) ;;
+  bot-slugs)
+    SLUGOP="${1:-list}"; [ $# -eq 0 ] || shift
+    case "$SLUGOP" in
+      list) ;;
+      add|remove)
+        BOTNAME="${1:-}"; ARG="${2:-}"
+        { [ -n "$BOTNAME" ] && [ -n "$ARG" ]; } || usage 1
+        shift 2 ;;
+      *) echo "Unknown bot-slugs action: $SLUGOP" >&2; usage 1 ;;
+    esac ;;
   install|import|export|validate) ARG="${1:-}"; [ -n "$ARG" ] || usage 1; shift ;;
   -h|--help) usage 0 ;;
   *) echo "Unknown action: $ACTION" >&2; usage 1 ;;
@@ -30,17 +49,38 @@ while [ $# -gt 0 ]; do
     --workspace) WS="${2:-}"; shift 2 ;;
     --workspace=*) WS="${1#*=}"; shift ;;
     -o|--out) OUTFILE="${2:-}"; shift 2 ;;
+    --slug) LSLUG="${2:-}"; shift 2 ;;
+    --slug=*) LSLUG="${1#*=}"; shift ;;
+    --knowledge-folder) KFOLDER="${2:-}"; shift 2 ;;
+    --knowledge-folder=*) KFOLDER="${1#*=}"; shift ;;
+    --display-name) ORGNAME="${2:-}"; shift 2 ;;
+    --display-name=*) ORGNAME="${1#*=}"; shift ;;
     -h|--help) usage 0 ;;
     *) echo "Unknown option: $1" >&2; usage 1 ;;
   esac
 done
 [ -z "$WS" ] || [[ "$WS" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "Bad workspace: $WS" >&2; exit 1; }
+# Slugs / bot names are validated again server-side; this keeps the JSON body trivial.
+SLUG_RE='^[a-z0-9][a-z0-9-]{1,40}$'
+BOT_RE='^[A-Za-z0-9][A-Za-z0-9 :_-]{0,59}$'
+if [ "$ACTION" = bot-slugs ] && [ "$SLUGOP" != list ]; then
+  [[ "$ARG" =~ $SLUG_RE ]] || { echo "Bad slug: $ARG" >&2; exit 1; }
+  [[ "$BOTNAME" =~ $BOT_RE ]] || { echo "Bad bot name: $BOTNAME" >&2; exit 1; }
+fi
+if [ -n "$LSLUG" ] || [ -n "$KFOLDER" ] || [ -n "$ORGNAME" ]; then
+  [ "$ACTION" = import ] || { echo "--slug / --knowledge-folder / --display-name only apply to import" >&2; exit 1; }
+  { [ -n "$LSLUG" ] && [ -n "$KFOLDER" ]; } || { echo "localizing needs both --slug and --knowledge-folder" >&2; exit 1; }
+  [[ "$LSLUG" =~ $SLUG_RE ]] || { echo "Bad slug: $LSLUG" >&2; exit 1; }
+fi
 
 PORT="${PORT:-3002}"
 WS_JSON="null"; [ -z "$WS" ] || WS_JSON="\"$WS\""
 CONTENT_FILE=""; FILENAME=""
 case "$ACTION" in
   list|status) METHOD=GET; URLPATH="/api/internal/agent-templates"; BODY="" ;;
+  bot-slugs)
+    URLPATH="/api/internal/agent-templates/bot-slugs"
+    if [ "$SLUGOP" = list ]; then METHOD=GET; BODY=""; else METHOD=PUT; BODY="{\"bot\":\"$BOTNAME\",\"$SLUGOP\":\"$ARG\"}"; fi ;;
   install)
     METHOD=POST
     if [ "$ARG" = all ]; then
@@ -78,22 +118,22 @@ if [ -z "$S" ]; then S="$(tsx /app/server/src/scripts/secrets-get.ts INTERNAL_AP
 [ -n "$S" ] || { echo "INTERNAL_API_SECRET is not available" >&2; exit 1; }
 TMP="$(mktemp)"; trap "rm -f \"$TMP\"" EXIT
 if [ -n "$5" ]; then
-  node -e "let s=\"\";process.stdin.setEncoding(\"utf8\").on(\"data\",d=>s+=d).on(\"end\",()=>process.stdout.write(JSON.stringify({content:s,filename:process.argv[1],overwrite:process.argv[2]===\"true\",workspace:process.argv[3]||null})))" "$5" "$6" "$7" > "$TMP"
+  node -e "let s=\"\";process.stdin.setEncoding(\"utf8\").on(\"data\",d=>s+=d).on(\"end\",()=>{const a=process.argv;const b={content:s,filename:a[1],overwrite:a[2]===\"true\",workspace:a[3]||null};if(a[4]){b.localize={slug:a[4],knowledge_folder:a[5]};if(a[6])b.localize.display_name=a[6]}process.stdout.write(JSON.stringify(b))})" "$5" "$6" "$7" "$8" "$9" "${10}" > "$TMP"
 else
   printf "%s" "$4" > "$TMP"
 fi
 if [ "$1" = GET ]; then
   printf "X-Internal-Secret: %s\n" "$S" | curl -s --fail-with-body -X GET -H @- "http://127.0.0.1:$2$3"
 else
-  printf "X-Internal-Secret: %s\n" "$S" | curl -s --fail-with-body -X POST -H @- -H "Content-Type: application/json" --data-binary "@$TMP" "http://127.0.0.1:$2$3"
+  printf "X-Internal-Secret: %s\n" "$S" | curl -s --fail-with-body -X "$1" -H @- -H "Content-Type: application/json" --data-binary "@$TMP" "http://127.0.0.1:$2$3"
 fi
 '
 
 run() {
   if [ -d /app/server/src ]; then
-    bash -c "$INNER" _ "$METHOD" "$PORT" "$URLPATH" "$BODY" "$FILENAME" "$OVERWRITE" "$WS"
+    bash -c "$INNER" _ "$METHOD" "$PORT" "$URLPATH" "$BODY" "$FILENAME" "$OVERWRITE" "$WS" "$LSLUG" "$KFOLDER" "$ORGNAME"
   else
-    docker exec -i -e PORT="$PORT" "${CC_CONTAINER:-command-center}" bash -c "$INNER" _ "$METHOD" "$PORT" "$URLPATH" "$BODY" "$FILENAME" "$OVERWRITE" "$WS"
+    docker exec -i -e PORT="$PORT" "${CC_CONTAINER:-command-center}" bash -c "$INNER" _ "$METHOD" "$PORT" "$URLPATH" "$BODY" "$FILENAME" "$OVERWRITE" "$WS" "$LSLUG" "$KFOLDER" "$ORGNAME"
   fi
 }
 
@@ -124,6 +164,11 @@ let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
     console.log("Agents on this install:")
     for (const a of r.installed) console.log(`  ${a.slug}${a.version ? "  v" + a.version : ""}${a.archived ? "  (archived)" : ""}`)
     for (const p of r.problems || []) { console.log(`Invalid template ${p.path}:`); probs(p.errors, "x") }
+  } else if (r.configured && r.bots) {
+    console.log("Chat slugs per bot on this install (built-in + configured here):")
+    for (const b of r.bots) console.log("  " + b.id + ": " + (b.agent_slugs.length ? b.agent_slugs.join(", ") : "(none)"))
+    const keys = Object.keys(r.configured)
+    console.log("Configured here (settings.bot_agent_slugs): " + (keys.length ? keys.map(k => k + " = " + r.configured[k].join(", ")).join("; ") : "(none)"))
   } else if (r.results) {
     for (const x of r.results) console.log(`  ${x.slug}: ${x.status}${x.error ? " — " + x.error : ""}`)
   } else if ("ok" in r) {

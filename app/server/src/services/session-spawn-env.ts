@@ -32,12 +32,11 @@ import {
 import { resolveSecrets } from './secrets-store.js'
 import {
   SESSION_SECRET_ACCESS_FLAG,
-  VERIFIED_SENDER_FLAG,
   mintSessionToken,
   readSettingFlag,
   stripServerSigningSecrets,
 } from '../lib/session-trust.js'
-import { sessionKbAccessEnabled } from '../lib/session-trust.js'
+import { sessionKbAccessEnabled, verifiedSenderStampsEnabled } from '../lib/session-trust.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Spawn-env construction (obj-2202 / onboarding gate B1–B4)
@@ -52,7 +51,7 @@ import { sessionKbAccessEnabled } from '../lib/session-trust.js'
 // default ADMIN tier, buildSpawnEnv returns a byte-for-byte identical env to the
 // old inline block — see session-spawn-env.test.ts (no-regression assertion).
 // The member tier and the scoped-token paths are additive/dormant until a
-// Mike-gated cutover (SPAWN-ENV-SCOPING-CUTOVER.md) provisions real scoped tokens
+// Operator-gated cutover (SPAWN-ENV-SCOPING-CUTOVER.md) provisions real scoped tokens
 // and flips the flags. This worker mints/rotates NOTHING.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -104,8 +103,8 @@ export function spawnSecurityPolicy(isAdminSpawn: boolean): SpawnSecurityPolicy 
 }
 
 /**
- * Who this session is acting as. Assigned user wins (Ava working a card Mike
- * filed must send as Ava). Fall back to the creator. Never a third person.
+ * Who this session is acting as. Assigned user wins (Casey working a card Operator
+ * filed must send as Casey). Fall back to the creator. Never a third person.
  */
 export function resolveActingUserId(
   objective: Pick<Objective, 'assigned_user_id' | 'created_by'> | null | undefined,
@@ -287,10 +286,10 @@ export function userGitIdentityEnv(
 
 /** Per-user Google Workspace credential for a spawn (obj-706070).
  *
- *  Command Center's Google access was ONE shared credential (Mike's), so a
- *  session doing Workspace work for Ava wrote Docs as Mike. This resolver makes
- *  the credential follow the ACTING USER: the objective's owner. Ava's session
- *  gets Ava's refresh token; Mike's gets Mike's. There is no cross-user path —
+ *  Command Center's Google access was ONE shared credential (Operator's), so a
+ *  session doing Workspace work for Casey wrote Docs as Operator. This resolver makes
+ *  the credential follow the ACTING USER: the objective's owner. Casey's session
+ *  gets Casey's refresh token; Operator's gets Operator's. There is no cross-user path —
  *  the lookup is keyed on `ownerId` and nothing else.
  *
  *  Connected ⇒ inject the owner's grant:
@@ -304,7 +303,7 @@ export function userGitIdentityEnv(
  *    GOOGLE_WORKSPACE_CONNECTION = 'absent'
  *  and ZERO token keys. A session that needs Workspace access reads that marker
  *  and tells the user to connect at Settings → Account, rather than silently
- *  acting as Mike. Mike is not special-cased: his credential was migrated to his
+ *  acting as Operator. Operator is not special-cased: his credential was migrated to his
  *  own user row (scripts/migrate-google-credential.ts), so he takes the
  *  connected branch like everyone else.
  *
@@ -385,8 +384,8 @@ export function buildSpawnEnv(opts: {
 
   const actingUserId = resolveActingUserId(objective)
 
-  // W4 per-user GitHub identity. Assigned user wins over creator so Ava's
-  // assigned card does not open PRs as Mike (and vice versa).
+  // W4 per-user GitHub identity. Assigned user wins over creator so Casey's
+  // assigned card does not open PRs as Operator (and vice versa).
   // Settings → Connectors access rules (obj 720115): no rule = allowed, so this
   // only withholds a credential the person has explicitly limited.
   const connectorUse = { agent: objective.agent_context, workspace: objective.workspace }
@@ -427,7 +426,7 @@ export function buildSpawnEnv(opts: {
   // obj-706070 per-user Google Workspace credential. ALWAYS adds at least
   // GOOGLE_WORKSPACE_CONNECTION ('user' | 'absent') so a session can always tell
   // "I have the acting user's Google account" from "there is none" — the explicit
-  // -absence contract that replaces the old silent fallback to Mike's shared
+  // -absence contract that replaces the old silent fallback to Operator's shared
   // credential. Token keys are added ONLY on the connected branch. This appends
   // after the git-identity block and BEFORE scoped secrets, so an explicit scoped
   // secret can still override a Google key if an operator ever needs to.
@@ -438,7 +437,7 @@ export function buildSpawnEnv(opts: {
 
   // Always isolate the Google MCP credential dir. The shared folder
   // `/home/operator/assistant/google-credentials` holds every user's JSON; workspace-mcp
-  // reads the whole directory, which is how Ava's session sent as Mike.
+  // reads the whole directory, which is how Casey's session sent as Operator.
   if (env.GOOGLE_WORKSPACE_CONNECTION === 'user' && actingUserId != null) {
     env.WORKSPACE_MCP_CREDENTIALS_DIR =
       writeIsolatedGoogleCredsDir(actingUserId, actor) || writeEmptyGoogleCredsDir(String(actingUserId))
@@ -468,7 +467,7 @@ export function buildSpawnEnv(opts: {
 
   // obj-716719: the store's GLOBAL GOOGLE_OAUTH_CLIENT_ID/SECRET (the primary
   // web client) clobbered the per-user grant's issuing client above. A refresh
-  // token only works against the client that minted it, so Ava's session got
+  // token only works against the client that minted it, so Casey's session got
   // her legacy-client refresh token paired with the primary client → 401
   // unauthorized_client. A connected user's grant must win as one unit.
   if (googleEnv.GOOGLE_WORKSPACE_CONNECTION === 'user') Object.assign(env, googleEnv)
@@ -561,7 +560,7 @@ export function applySessionTrustEnv(
   objective: Pick<Objective, 'id' | 'workspace'>,
   actingUserId: number | null,
 ): void {
-  const stamps = readSettingFlag(VERIFIED_SENDER_FLAG)
+  const stamps = verifiedSenderStampsEnabled()
   const secretAccess = readSettingFlag(SESSION_SECRET_ACCESS_FLAG)
   // obj 900204 — knowledge-base access needs the SAME objective-scoped token.
   // Unlike the obj-718944 flags this one defaults ON: a jailed card that cannot

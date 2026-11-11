@@ -244,7 +244,7 @@ workspace is about 1–4 KB, against tens to hundreds of KB for `/api/briefing/b
 
 An agent key can have one outbound webhook (Settings → You → Agent webhooks): Command Center POSTs a small JSON
 event to the bot when a card that key owns changes (signed, retried, deduped by `event_id`). The `needs_agent` event
-wakes the receiver once per **card need** (blocked, failed review, waiting on a Mike decision) instead of on every
+wakes the receiver once per **card need** (blocked, failed review, waiting on a Operator decision) instead of on every
 move. Any key may subscribe to it (the label pilot is gone, obj 900270): all bots share ONE connection, so ONE
 `needs_agent` webhook on that shared key covers every card the bots file, and the payload's `owner_bot` (null =
 unowned) tells the receiver which bot the card belongs to. Each card need fires once, whichever keys could see it;
@@ -355,7 +355,7 @@ When a worker needs a credential it emits `request_secret` (name, reason, sugges
 A managing agent that holds `board:secrets_request` (never in the default set) can relay it without the value
 entering any model context:
 
-1. Ask Mike in your own chat with your masked secret card; keep the value in a host env var named `NAME`.
+1. Ask Operator in your own chat with your masked secret card; keep the value in a host env var named `NAME`.
 2. `fulfill_secret_request(request_id)` returns a one-time, write-only upload (`upload_url`, `upload_token`,
    ~15 min, single use, only for that NAME) and a ready `curl` that reads `$NAME`:
    `printf %s "$NAME" | curl -sS -X POST '<upload_url>' -H 'X-CC-Upload-Token: <token>' -H 'Content-Type: text/plain' --data-binary @-`
@@ -363,7 +363,7 @@ entering any model context:
    shows `via agent <label> (key #id) relayed the request on card #N`; the card resumes on its own.
 
 A reused, expired or wrong-name token is refused (410 / 410 / 403). No tool ever returns a secret value. If your
-host cannot run curl, send Mike the returned `owner_link` — the card shows the same popup.
+host cannot run curl, send Operator the returned `owner_link` — the card shows the same popup.
 
 **One connector, one URL, knowledge + board.** `POST /api/mcp` is the remote MCP server for Grok Bots and any other
 MCP client. It is the same URL the read-only **command-center-knowledge** connector already uses (obj 716490). The
@@ -439,7 +439,7 @@ Every **write** answers with a short receipt: `{ confirmation: "Created #1234 \"
 url: "https://<your-install-host>/o/1234", title, status, workspace }`. The base URL follows `APP_BASE_URL` if the app
 moves hosts.
 
-Outputs are trimmed to save tokens: slim rows, long prose clipped, and tool payloads stripped from thread output. A REST error comes back as a tool result with `isError: true` and text `Error <status>: <message>`, so the model can see a `409` and react to it. A scope refusal adds ` (missing_scope: board:done)` to that text and `structuredContent: { error, status, missing_scope }`. The server `instructions` and tool descriptions carry the bot rules: **attention → changes, not the board**, **always an idempotency_key on create**, **read before you write**, and **`done` is a human signature (Mike's)**.
+Outputs are trimmed to save tokens: slim rows, long prose clipped, and tool payloads stripped from thread output. A REST error comes back as a tool result with `isError: true` and text `Error <status>: <message>`, so the model can see a `409` and react to it. A scope refusal adds ` (missing_scope: board:done)` to that text and `structuredContent: { error, status, missing_scope }`. The server `instructions` and tool descriptions carry the bot rules: **attention → changes, not the board**, **always an idempotency_key on create**, **read before you write**, and **`done` is a human signature (Operator's)**.
 
 ### xAI API (Grok) — remote MCP tool
 

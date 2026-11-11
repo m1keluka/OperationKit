@@ -118,3 +118,29 @@ describe('applySessionTrustEnv', () => {
     expect(env).toEqual({ JWT_SECRET: 'x', A: '1' })
   })
 })
+
+describe('verified_sender_stamps defaults ON (obj 900452)', () => {
+  it('no settings row → ON; only an explicit "0" row turns it off', () => {
+    getDb().prepare('DELETE FROM settings WHERE key = ?').run(trust.VERIFIED_SENDER_FLAG)
+    expect(trust.verifiedSenderStampsEnabled(undefined, {})).toBe(true)
+    setFlag(trust.VERIFIED_SENDER_FLAG, false)
+    expect(trust.verifiedSenderStampsEnabled(undefined, {})).toBe(false)
+    setFlag(trust.VERIFIED_SENDER_FLAG, true)
+    expect(trust.verifiedSenderStampsEnabled(undefined, {})).toBe(true)
+  })
+
+  it('env CC_VERIFIED_SENDER_STAMPS wins over the row', () => {
+    setFlag(trust.VERIFIED_SENDER_FLAG, false)
+    expect(trust.verifiedSenderStampsEnabled(undefined, { CC_VERIFIED_SENDER_STAMPS: '1' })).toBe(true)
+    setFlag(trust.VERIFIED_SENDER_FLAG, true)
+    expect(trust.verifiedSenderStampsEnabled(undefined, { CC_VERIFIED_SENDER_STAMPS: '0' })).toBe(false)
+  })
+
+  it('a default-ON spawn strips the signing key (no row written)', () => {
+    getDb().prepare('DELETE FROM settings WHERE key = ?').run(trust.VERIFIED_SENDER_FLAG)
+    const env: Record<string, string> = { JWT_SECRET: 'x', A: '1' }
+    applySessionTrustEnv(env, { id: 9, workspace: 'example' }, 1)
+    expect(env.JWT_SECRET).toBeUndefined()
+    expect(env.CC_STRIP_SIGNING_SECRETS).toBe('1')
+  })
+})

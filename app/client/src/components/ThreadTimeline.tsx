@@ -104,7 +104,7 @@ function Divider({ seg }: { seg: Extract<ThreadSegment, { type: 'divider' }> }) 
       </div>
     )
   }
-  // A user message Mike typed into the thread — render it visibly (right-aligned,
+  // A user message Operator typed into the thread — render it visibly (right-aligned,
   // matching the followup bubble in GroupedMessages). obj 718944: the
   // server-stamped sender rides on top; relays get the quiet surface bubble.
   const relayed = !!seg.sender && seg.sender.kind !== 'owner' && seg.sender.kind !== 'member'

@@ -32,7 +32,7 @@
  * Write tools need a NAMED agent key (or a browser-issued JWT). The legacy
  * per-user key is full-access on REST — including `done` — and is the key the
  * knowledge connector was first set up with, so letting it write here would
- * hand every bot on that connector Mike's signature the moment this ships.
+ * hand every bot on that connector Operator's signature the moment this ships.
  * Over MCP the legacy key stays read-only; minting a named key unlocks writes
  * under that key's scopes (`docs/api/bots/SETUP.md`).
  *
@@ -65,9 +65,9 @@ const SERVER_INSTRUCTIONS = [
   'READ BEFORE YOU WRITE. Each turn: get_attention (what needs a decision) → get_changes(since=<next_cursor you stored>) (what moved) → act on one card with get_objective / get_progress. Do not re-read the board with list_objectives every turn.',
   'Before creating: search_objectives — never duplicate a card, never create one just to ask for status. Follow-ups on existing work go through send_message.',
   'create_objective: workspace is REQUIRED (slug from list_workspaces / whoami); always pass a fresh idempotency_key and reuse it verbatim on retry. start=true creates and launches in one call.',
-  'done is a HUMAN SIGNATURE (Mike\'s). Never set done unless Mike explicitly told you to sign off; bot keys lack board:done and get missing_scope. Cancel duplicates with update_status(cancelled).',
-  'An error with missing_scope means this key may not do that — tell Mike what you wanted; do not retry or route around it. An error with workspace means the card belongs to another bot\'s workspace.',
-  'Every write returns a one-line confirmation plus id and card url — quote the url back to Mike.',
+  'done is a HUMAN SIGNATURE (Operator\'s). Never set done unless Operator explicitly told you to sign off; bot keys lack board:done and get missing_scope. Cancel duplicates with update_status(cancelled).',
+  'An error with missing_scope means this key may not do that — tell Operator what you wanted; do not retry or route around it. An error with workspace means the card belongs to another bot\'s workspace.',
+  'Every write returns a one-line confirmation plus id and card url — quote the url back to Operator.',
   'Knowledge: search (vault/docs full-text) → read_file; search_files for pptx/pdf/images; list_folders to browse. Vault entry point: workspaces/<slug>/active.md.',
 ].join('\n')
 
@@ -485,7 +485,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'get_attention',
     access: 'read',
     scope: 'board:read',
-    description: 'START HERE each turn. Compact brief of cards that need a human decision: secrets a worker is blocked on (kind needs_secret, with secret_requests[].request_id — ask Mike in your own masked secret card, then fulfill_secret_request; or he fills it in the card UI), failed AI reviews, blockers, cards awaiting review, workers that look stuck. Each item has id, kind, a one-line why and age_min.',
+    description: 'START HERE each turn. Compact brief of cards that need a human decision: secrets a worker is blocked on (kind needs_secret, with secret_requests[].request_id — ask Operator in your own masked secret card, then fulfill_secret_request; or he fills it in the card UI), failed AI reviews, blockers, cards awaiting review, workers that look stuck. Each item has id, kind, a one-line why and age_min.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -808,7 +808,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'update_status',
     access: 'write',
     scope: 'board:write',
-    description: 'Move a card. queue / planning park it; cancelled retires it (use for duplicates); working starts it (prefer start_objective); a done/cancelled card reopens by moving to queue. done is a HUMAN SIGNATURE (Mike\'s): only set done when Mike explicitly told you to sign off — never because the agent says it finished (a key without board:done gets missing_scope). Illegal transitions return an error; a 409 is the session cap, a branch lease, or the completion gate.',
+    description: 'Move a card. queue / planning park it; cancelled retires it (use for duplicates); working starts it (prefer start_objective); a done/cancelled card reopens by moving to queue. done is a HUMAN SIGNATURE (Operator\'s): only set done when Operator explicitly told you to sign off — never because the agent says it finished (a key without board:done gets missing_scope). Illegal transitions return an error; a 409 is the session cap, a branch lease, or the completion gate.',
     inputSchema: {
       type: 'object',
       required: ['id', 'status'],
@@ -825,7 +825,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'start_objective',
     access: 'write',
     scope: 'board:start',
-    description: 'Start (or restart) the coding session on a card in queue, planning, ai_review or review — the same as update_status(working), but retried once automatically on a transient server error and never double-started. A done/cancelled card must be reopened first (update_status queue) and only if Mike asked. 409 = session cap full, try later.',
+    description: 'Start (or restart) the coding session on a card in queue, planning, ai_review or review — the same as update_status(working), but retried once automatically on a transient server error and never double-started. A done/cancelled card must be reopened first (update_status queue) and only if Operator asked. 409 = session cap full, try later.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: ID_SCHEMA } },
     run: async (a, rest) => {
       const id = idArg(a)
@@ -867,7 +867,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'fulfill_secret_request',
     access: 'write',
     scope: 'board:secrets_request',
-    description: 'Relay one secret request. Returns a ONE-TIME, write-only upload (≈15 min, single use, only for that NAME). Ask Mike for the value in your own masked secret-request card, keep it in a host env var named NAME, then have your HOST run the returned `curl` (it reads $NAME, so the value never enters any model context or log). NEVER put the value in a tool argument or a chat message. The card resumes on its own once it lands. Alternative: send Mike owner_link — the card shows the same popup.',
+    description: 'Relay one secret request. Returns a ONE-TIME, write-only upload (≈15 min, single use, only for that NAME). Ask Operator for the value in your own masked secret-request card, keep it in a host env var named NAME, then have your HOST run the returned `curl` (it reads $NAME, so the value never enters any model context or log). NEVER put the value in a tool argument or a chat message. The card resumes on its own once it lands. Alternative: send Operator owner_link — the card shows the same popup.',
     inputSchema: {
       type: 'object',
       required: ['request_id'],
@@ -908,7 +908,7 @@ const TOOLS_BY_NAME = new Map(MCP_TOOLS.map(t => [t.name, t]))
  */
 export function authorizeTool(req: AuthRequest, tool: McpTool): string | null {
   if (tool.access === 'write' && req.authVia === 'legacy_api_key') {
-    return 'This connector uses the legacy full-access key, which is read-only over MCP. Ask Mike to mint a named agent key (Settings → You → Agent keys) and paste it into this connector to enable writes.'
+    return 'This connector uses the legacy full-access key, which is read-only over MCP. Ask Operator to mint a named agent key (Settings → You → Agent keys) and paste it into this connector to enable writes.'
   }
   return null
 }
@@ -975,7 +975,7 @@ async function handleMessage(msg: JsonRpcMessage, req: AuthRequest, rest: RestCa
       const asked = msg.params?.protocolVersion
       const protocolVersion = (MCP_PROTOCOL_VERSIONS as readonly string[]).includes(asked) ? asked : MCP_PROTOCOL_VERSIONS[0]
       const legacy = req.authVia === 'legacy_api_key'
-        ? '\nTHIS CONNECTOR USES THE LEGACY KEY: read tools work, write tools are refused. Ask Mike for a named agent key to enable writes.'
+        ? '\nTHIS CONNECTOR USES THE LEGACY KEY: read tools work, write tools are refused. Ask Operator for a named agent key to enable writes.'
         : ''
       return rpcResult(id, {
         protocolVersion,

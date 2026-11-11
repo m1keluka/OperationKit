@@ -2,11 +2,11 @@
 # bootstrap-host.sh — prepare a fresh OVH Rise-4 (Ubuntu 24.04) for Command Center.
 #
 # Run as ROOT on the NEW host, once, after OVH hands it over:
-#   sudo bash bootstrap-host.sh --timezone <same-as-DO> --mike-uid <same-as-DO> \
+#   sudo bash bootstrap-host.sh --timezone <same-as-DO> --operator-uid <same-as-DO> \
 #     [--swap-gb 16] [--dry-run]
 #
 # The timezone MUST match the DigitalOcean droplet (preflight.sh prints it):
-# every cron entry in scripts/install-*-cron.sh is wall-clock. mike's UID must
+# every cron entry in scripts/install-*-cron.sh is wall-clock. operator's UID must
 # match too: the copy uses rsync --numeric-ids, and OVH's Ubuntu image already
 # has an `ubuntu` user on 1000.
 #
@@ -34,8 +34,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --timezone) shift; TIMEZONE=${1:-} ;;
     --timezone=*) TIMEZONE=${1#--timezone=} ;;
-    --mike-uid) shift; MIKE_UID=${1:-} ;;
-    --mike-uid=*) MIKE_UID=${1#--mike-uid=} ;;
+    --operator-uid) shift; MIKE_UID=${1:-} ;;
+    --operator-uid=*) MIKE_UID=${1#--operator-uid=} ;;
     --swap-gb) shift; SWAP_GB=${1:-} ;;
     --swap-gb=*) SWAP_GB=${1#--swap-gb=} ;;
     *) die "unknown argument: $1" ;;
@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
 done
 [ "$(id -u)" -eq 0 ] || die "run as root"
 [ -n "$TIMEZONE" ] || die "--timezone is required (use the DO droplet's: preflight.sh prints it)"
-[[ "$MIKE_UID" =~ ^[0-9]+$ ]] || die "--mike-uid is required (DO droplet: id -u mike; preflight.sh prints it)"
+[[ "$MIKE_UID" =~ ^[0-9]+$ ]] || die "--operator-uid is required (DO droplet: id -u operator; preflight.sh prints it)"
 [[ "$SWAP_GB" =~ ^[0-9]+$ ]] || die "--swap-gb must be an integer"
 . /etc/os-release
 [ "${VERSION_ID:-}" = "24.04" ] || die "expected Ubuntu 24.04, got ${PRETTY_NAME:-unknown}"
@@ -101,39 +101,39 @@ else
   rm -rf "$tmp"
 fi
 
-step "4. User mike (sudo NOPASSWD + docker group — preview-spool + scripts rely on both)"
-if id mike >/dev/null 2>&1; then
-  [ "$(id -u mike)" = "$MIKE_UID" ] || die "mike exists with uid $(id -u mike), source uses $MIKE_UID — fix before copying data"
-  log "user mike exists (uid $MIKE_UID)"
+step "4. User operator (sudo NOPASSWD + docker group — preview-spool + scripts rely on both)"
+if id operator >/dev/null 2>&1; then
+  [ "$(id -u operator)" = "$MIKE_UID" ] || die "operator exists with uid $(id -u operator), source uses $MIKE_UID — fix before copying data"
+  log "user operator exists (uid $MIKE_UID)"
 else
   holder=$(getent passwd "$MIKE_UID" | cut -d: -f1 || true)
   [ -z "$holder" ] || die "uid $MIKE_UID is taken by '$holder' (OVH image user). Remove or renumber it first: usermod -u 2000 $holder && groupmod -g 2000 $holder"
-  run adduser --disabled-password --gecos "" --uid "$MIKE_UID" mike
+  run adduser --disabled-password --gecos "" --uid "$MIKE_UID" operator
 fi
-run usermod -aG sudo,docker mike
-if [ ! -f /etc/sudoers.d/mike ]; then
-  if [ "$DRY_RUN" -eq 1 ]; then log "[dry-run] would write /etc/sudoers.d/mike (NOPASSWD)"; else
-    printf 'mike ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/mike
-    chmod 440 /etc/sudoers.d/mike
-    visudo -cf /etc/sudoers.d/mike >/dev/null
+run usermod -aG sudo,docker operator
+if [ ! -f /etc/sudoers.d/operator ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then log "[dry-run] would write /etc/sudoers.d/operator (NOPASSWD)"; else
+    printf 'operator ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/operator
+    chmod 440 /etc/sudoers.d/operator
+    visudo -cf /etc/sudoers.d/operator >/dev/null
   fi
 fi
-# The OVH panel installs Mike's public key for root (or 'ubuntu'). Copy it once.
+# The OVH panel installs Operator's public key for root (or 'ubuntu'). Copy it once.
 if [ ! -s /home/operator/.ssh/authorized_keys ]; then
   key_src=
   for f in /root/.ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys; do
     [ -s "$f" ] && { key_src=$f; break; }
   done
   [ -n "$key_src" ] || die "no authorized_keys to copy — add your SSH key in the OVH panel first"
-  run install -d -m 700 -o mike -g mike /home/operator/.ssh
-  run install -m 600 -o mike -g mike "$key_src" /home/operator/.ssh/authorized_keys
+  run install -d -m 700 -o operator -g operator /home/operator/.ssh
+  run install -m 600 -o operator -g operator "$key_src" /home/operator/.ssh/authorized_keys
 fi
 
 step "5. Directory layout (must match docker-compose.yml bind mounts)"
 for d in data/command-center projects second-brain ai-workspace transcripts assistant \
          .config/command-center .config/gh .doppler .claude-auth .cc-migrate/logs; do
   if [ -d "/home/operator/$d" ]; then continue; fi
-  run install -d -o mike -g mike "/home/operator/$d"
+  run install -d -o operator -g operator "/home/operator/$d"
 done
 run install -d /etc/caddy/sites-enabled
 
@@ -157,7 +157,7 @@ if swapon --show=NAME --noheadings | grep -q .; then log "swap already active"; 
   fi
 fi
 
-step "8. Unattended security upgrades (no automatic reboot — reboots are Mike's call)"
+step "8. Unattended security upgrades (no automatic reboot — reboots are Operator's call)"
 if [ "$DRY_RUN" -eq 1 ]; then log "[dry-run] would write /etc/apt/apt.conf.d/20auto-upgrades + 52cc-unattended"; else
   printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' > /etc/apt/apt.conf.d/20auto-upgrades
   printf 'Unattended-Upgrade::Automatic-Reboot "false";\nUnattended-Upgrade::Remove-Unused-Kernel-Packages "true";\n' > /etc/apt/apt.conf.d/52cc-unattended
@@ -182,7 +182,7 @@ want_sshd=$'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRo
 if [ -f /etc/ssh/sshd_config.d/90-cc.conf ] && [ "$(cat /etc/ssh/sshd_config.d/90-cc.conf)" = "${want_sshd%$'\n'}" ]; then
   log "sshd already hardened"
 else
-  log "Before confirming: keep THIS session open and test 'ssh mike@<host>' from a second terminal afterwards."
+  log "Before confirming: keep THIS session open and test 'ssh operator@<host>' from a second terminal afterwards."
   confirm HARDEN-SSH "disable SSH password logins (key-only)"
   if [ "$DRY_RUN" -eq 0 ]; then
     printf '%s' "$want_sshd" > /etc/ssh/sshd_config.d/90-cc.conf
@@ -206,4 +206,4 @@ else
 fi
 
 step "Done"
-log "Next: as mike, run scripts/migrate/preflight.sh --src mike@<do-ip>"
+log "Next: as operator, run scripts/migrate/preflight.sh --src operator@<do-ip>"

@@ -12,7 +12,7 @@ lives in code, and how to check that a future card actually behaves.
 
 ## The incident this fixes
 
-Card **#900184** ("Hastings OK commercial cleaning") asked a session to source commercial
+Card **#900184** ("Springfield OK commercial cleaning") asked a session to source commercial
 cleaning companies from the Oklahoma Secretary of State's **public** business-entity
 search. The session hit a Cloudflare *"verify you are human"* interstitial, declared
 bot-check bypass off-limits, and — after the owner explicitly told it to continue —

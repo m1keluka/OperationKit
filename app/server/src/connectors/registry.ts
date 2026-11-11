@@ -6,7 +6,7 @@
 import { readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import type { ConnectorCredentialUse, ConnectorDefinition } from './types.js'
+import { CONNECTOR_AUTH_PATHS, type ConnectorCredentialUse, type ConnectorDefinition } from './types.js'
 import { checkConnectorCredential, type ConnectorActor } from '../services/connector-guard.js'
 
 const DEFS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'defs')
@@ -18,6 +18,7 @@ function isDefinition(v: unknown): v is ConnectorDefinition {
   const d = v as ConnectorDefinition | null
   return !!d && typeof d.id === 'string' && ID.test(d.id) && typeof d.name === 'string'
     && typeof d.status === 'function' && typeof d.disconnect === 'function' && !!d.connect
+    && (CONNECTOR_AUTH_PATHS as string[]).includes(d.auth_path as string)
 }
 
 async function load(dir: string): Promise<ConnectorDefinition[]> {

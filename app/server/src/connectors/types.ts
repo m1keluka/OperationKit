@@ -62,6 +62,42 @@ export type ConnectOutcome =
   | { ok: true; redirectUrl: string }
   | { ok: false; error: string }
 
+/**
+ * Which of the catalog's four UX flows this integration uses (Sprint 7
+ * integrations proposal, PR #681, §3). Tells Settings → Connectors which flow
+ * to render and lets a reviewer see, per connector, which of the proposal's
+ * options (a-d) was chosen without reading the implementation:
+ *   - 'dcr_mcp'                — remote MCP server, client registers itself via
+ *                                OAuth 2.1 Dynamic Client Registration / CIMD
+ *   - 'oauth_guided'           — a per-provider OAuth app this install owns
+ *                                (today's `connect: { kind: 'oauth' }` flow)
+ *   - 'api_key'                — paste a key/token (today's `connect: { kind: 'token' }` flow)
+ *   - 'self_hosted_aggregator' — deferred to a self-hosted aggregator (e.g. Nango)
+ */
+export type ConnectorAuthPath = 'dcr_mcp' | 'oauth_guided' | 'api_key' | 'self_hosted_aggregator'
+
+/** Every value `auth_path` may take. Exported so the registry can validate against one list. */
+export const CONNECTOR_AUTH_PATHS: readonly ConnectorAuthPath[] = [
+  'dcr_mcp',
+  'oauth_guided',
+  'api_key',
+  'self_hosted_aggregator',
+]
+
+/** OAuth endpoints for an `auth_path: 'oauth_guided'` connector. Informational today — the guided wizard that renders these is a later follow-up. */
+export interface ConnectorOAuthEndpoints {
+  authorize_url: string
+  token_url: string
+  scopes: string[]
+}
+
+/** One field an `auth_path: 'api_key'` connector asks for, beyond the existing `connect.fields`. */
+export interface ConnectorApiKeyField {
+  key: string
+  label: string
+  where_to_get_it_url?: string
+}
+
 export interface ConnectorDefinition {
   /** Stable id used in URLs and access rules, e.g. 'github'. Lower-case, dashes. */
   id: string
@@ -70,6 +106,20 @@ export interface ConnectorDefinition {
   description: string
   products?: ConnectorProduct[]
   connect: ConnectorConnectMethod
+  /**
+   * Which catalog UX flow this integration uses (see `ConnectorAuthPath`).
+   * Required so every connector states its path explicitly rather than
+   * leaving it to be inferred from `connect.kind`.
+   */
+  auth_path: ConnectorAuthPath
+  /** Path to a setup walkthrough, e.g. `docs/connectors/guides/github.md`. Omit until a guide exists. */
+  setup_guide?: string
+  /** Remote MCP endpoint, for `auth_path: 'dcr_mcp'`. */
+  mcp_url?: string
+  /** OAuth endpoints/scopes, for `auth_path: 'oauth_guided'`. */
+  oauth?: ConnectorOAuthEndpoints
+  /** Extra key fields a wizard would prompt for, for `auth_path: 'api_key'`. */
+  api_key_fields?: ConnectorApiKeyField[]
   /** Sort position in Settings (lower first). */
   order?: number
   /** Is the server set up for this connector? Omit when it always is. */

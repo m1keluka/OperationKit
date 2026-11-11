@@ -24,30 +24,30 @@ const defaults = [
 describe('mergeAccountRecords — operator names stick', () => {
   it('keeps customLabel across a reload that would otherwise reset label to Primary/Secondary', () => {
     const saved = [
-      slot({ id: 'a', label: 'Primary (personal)', customLabel: 'Mike Max' }),
-      slot({ id: 'b', label: 'Secondary', customLabel: 'Ava Team' }),
+      slot({ id: 'a', label: 'Primary (personal)', customLabel: 'Operator Max' }),
+      slot({ id: 'b', label: 'Secondary', customLabel: 'Casey Team' }),
     ]
     const merged = mergeAccountRecords(defaults, saved)
-    expect(merged.find(a => a.id === 'a')?.customLabel).toBe('Mike Max')
-    expect(merged.find(a => a.id === 'b')?.customLabel).toBe('Ava Team')
+    expect(merged.find(a => a.id === 'a')?.customLabel).toBe('Operator Max')
+    expect(merged.find(a => a.id === 'b')?.customLabel).toBe('Casey Team')
     // Built-in label is restored as the fallback, not the display name.
     expect(merged.find(a => a.id === 'a')?.label).toBe('Primary (personal)')
   })
 
   it('promotes a saved.label that drifted off the default into customLabel (pre-customLabel renames)', () => {
-    const saved = [slot({ id: 'a', label: 'Mike personal' })]
+    const saved = [slot({ id: 'a', label: 'Operator personal' })]
     const merged = mergeAccountRecords(defaults, saved)
-    expect(merged.find(a => a.id === 'a')?.customLabel).toBe('Mike personal')
+    expect(merged.find(a => a.id === 'a')?.customLabel).toBe('Operator personal')
   })
 
   it('keeps extra slots created via Add Account', () => {
     const saved = [
       slot({ id: 'a', label: 'Primary (personal)' }),
-      slot({ id: 'h', label: 'Ava Max', customLabel: 'Ava Max', homeDir: '/app/data/cc-accounts/h' }),
+      slot({ id: 'h', label: 'Casey Max', customLabel: 'Casey Max', homeDir: '/app/data/cc-accounts/h' }),
     ]
     const merged = mergeAccountRecords(defaults, saved)
     expect(merged.map(a => a.id)).toEqual(['a', 'b', 'h'])
-    expect(merged.find(a => a.id === 'h')?.customLabel).toBe('Ava Max')
+    expect(merged.find(a => a.id === 'h')?.customLabel).toBe('Casey Max')
     expect(merged.find(a => a.id === 'h')?.homeDir).toBe('/app/data/cc-accounts/h')
   })
 

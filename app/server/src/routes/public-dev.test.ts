@@ -133,7 +133,7 @@ const VALID_BODY = {
   area: 'checkout',
   route: '/checkout?token=secret#frag',
   submitter_platform_user_id: 'user-abc',
-  submitter_email: 'dana@weightsupply.com',
+  submitter_email: 'dana@exampleproject.com',
   route_history: [{ path: '/cart', ts: '2026-08-02T14:02:41Z' }],
   client_meta: { viewport: { w: 1512, h: 858 }, role: 'consultant' },
 }

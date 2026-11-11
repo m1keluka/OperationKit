@@ -261,7 +261,7 @@ describe('decideTrustTransition (pure) — asymmetric ladder', () => {
     expect(gov.decideTrustTransition(1, { ...HEALTHY, consecutiveApproved: 15, shippedProjects: 2 }).promoteTo).toBeNull()
   })
 
-  it('2→3 additionally requires explicit Mike opt-in (never automatic)', () => {
+  it('2→3 additionally requires explicit Operator opt-in (never automatic)', () => {
     expect(gov.decideTrustTransition(2, HEALTHY).promoteTo).toBe(3)
     expect(gov.decideTrustTransition(2, { ...HEALTHY, mikeOptIn: false }).promoteTo).toBeNull()
   })

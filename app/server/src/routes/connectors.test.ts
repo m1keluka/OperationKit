@@ -113,11 +113,15 @@ describe('connectors routes', () => {
     expect((await call('POST', '/github/connect', { fields: { token: RAW_PAT } }, null)).status).toBe(401)
   })
 
-  it('lists GitHub and Google Workspace (Gmail, Calendar, Drive), not connected', async () => {
+  it('lists every catalog connector (obj 900508 preload), not connected', async () => {
     const { status, json } = await call('GET', '/')
     expect(status).toBe(200)
     const list = json as ConnectorSummary[]
-    expect(list.map(c => c.id)).toEqual(['github', 'google-workspace'])
+    expect(list.map(c => c.id)).toEqual([
+      'github', 'google-workspace', 'slack', 'microsoft-365', 'hubspot', 'discord', 'intercom',
+      'cloudflare', 'airtable', 'clickup', 'calendly', 'cal-com', 'docuseal', 'n8n', 'supabase',
+      'notion', 'linear', 'atlassian', 'sentry', 'stripe',
+    ])
     const google = list.find(c => c.id === 'google-workspace')!
     expect(google.products.map(p => p.name)).toEqual(['Gmail', 'Calendar', 'Drive'])
     expect(google.available).toBe(false) // no OAuth client in this env
@@ -214,6 +218,7 @@ describe('connector registry', () => {
       path.join(dir, 'slack.mjs'),
       `export default {
         id: 'slack', name: 'Slack', description: 'Post to channels.',
+        auth_path: 'api_key',
         connect: { kind: 'token', fields: [{ key: 'token', label: 'Bot token', secret: true }] },
         status: () => ({ state: 'not_connected', account: null, details: [], connected_at: null, checked_at: null, error: null }),
         disconnect: async () => {},
@@ -228,6 +233,10 @@ describe('connector registry', () => {
       await __loadConnectorsFrom(null)
       fs.rmSync(dir, { recursive: true, force: true })
     }
-    expect((await listConnectors()).map(d => d.id)).toEqual(['github', 'google-workspace'])
+    expect((await listConnectors()).map(d => d.id)).toEqual([
+      'github', 'google-workspace', 'slack', 'microsoft-365', 'hubspot', 'discord', 'intercom',
+      'cloudflare', 'airtable', 'clickup', 'calendly', 'cal-com', 'docuseal', 'n8n', 'supabase',
+      'notion', 'linear', 'atlassian', 'sentry', 'stripe',
+    ])
   })
 })

@@ -118,7 +118,7 @@ beforeAll(async () => {
   initDb()
   const db = getDb()
   const hash = bcrypt.hashSync('pw', 4)
-  const adminId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('mike', hash, 'admin').lastInsertRowid)
+  const adminId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('operator', hash, 'admin').lastInsertRowid)
   const memberId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('bot', hash, 'member').lastInsertRowid)
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace, role) VALUES (?, 'example2', 'member')`).run(memberId)
   adminKey = issueApiKey(adminId).token

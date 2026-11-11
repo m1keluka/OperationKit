@@ -445,21 +445,21 @@ export function classifyNeed(c: NeedCardState): AgentNeed | null {
   if (c.status !== 'working' && c.status !== 'ai_review' && c.status !== 'review') return null
   const secrets = secretNames(c.needs_secret)
   if (secrets.length) {
-    return { kind: 'needs_secret', category: 'mike_decision', why: `Worker is waiting on a secret only Mike can supply: ${secrets.slice(0, 5).join(', ')}` }
+    return { kind: 'needs_secret', category: 'mike_decision', why: `Worker is waiting on a secret only Operator can supply: ${secrets.slice(0, 5).join(', ')}` }
   }
   if (c.status === 'review' && c.ai_review_verdict === 'fail') {
-    return { kind: 'failed_review', category: 'waiting_on_agent', why: 'AI review failed: reopen it with the fixes, or take it to Mike' }
+    return { kind: 'failed_review', category: 'waiting_on_agent', why: 'AI review failed: reopen it with the fixes, or take it to Operator' }
   }
   const reviewerBlocked = c.status === 'review' && c.ai_review_verdict === 'blocked'
   if (reviewerBlocked || ((c.status === 'working' || c.status === 'review') && Number(c.has_blockers) > 0)) {
     const why = reviewerBlocked
-      ? `Reviewer could not verify it${c.blocked_reason ? ` (${c.blocked_reason})` : ''}: route it or get a Mike decision`
-      : 'Worker raised a blocker: route it or get a Mike decision'
+      ? `Reviewer could not verify it${c.blocked_reason ? ` (${c.blocked_reason})` : ''}: route it or get a Operator decision`
+      : 'Worker raised a blocker: route it or get a Operator decision'
     return { kind: 'blocked', category: 'blocked', why }
   }
   if (c.status === 'review') {
     const lead = c.ai_review_verdict === 'pass' ? 'AI review passed' : 'Waiting in review'
-    return { kind: 'review', category: 'mike_decision', why: `${lead}: needs Mike's accept, or a reopen` }
+    return { kind: 'review', category: 'mike_decision', why: `${lead}: needs Operator's accept, or a reopen` }
   }
   return null
 }
@@ -549,7 +549,7 @@ export interface CompletionSource {
  *    the exact path card #900303 took on 2026-11-08 — it went `done` at 09:45 ET
  *    with its owner never told.
  *    A card that WAS in `review` is excluded by design: `review` already woke the
- *    owner (need kind `review`), and the move out of it is Mike signing off. Mike's
+ *    owner (need kind `review`), and the move out of it is Operator signing off. Operator's
  *    human-done semantics are untouched, and no card is routed through a fake
  *    `review` just to manufacture a notification.
  *

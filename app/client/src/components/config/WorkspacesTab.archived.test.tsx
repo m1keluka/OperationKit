@@ -48,7 +48,7 @@ vi.mock('../../hooks/useAgents', () => ({
 }))
 
 vi.mock('../../context/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, username: 'mike', role: 'admin' }, loading: false }),
+  useAuth: () => ({ user: { id: 1, username: 'operator', role: 'admin' }, loading: false }),
 }))
 
 const patch = vi.fn((_path: string, _body?: unknown) => Promise.resolve({ ...ARCHIVED, archived: false }))

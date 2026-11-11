@@ -2,6 +2,8 @@
   "name": "@operationkit/client",
   "version": "0.0.1",
   "private": true,
+  "author": "Axia Growth LLC and contributors",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

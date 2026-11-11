@@ -42,7 +42,7 @@ describe('detectPastedSecrets', () => {
     expect(detectPastedSecrets(`see commit ${sha}`, pending('APIFY_API_TOKEN')).found).toEqual([])
     expect(detectPastedSecrets('APIFY_API_TOKEN=$APIFY_API_TOKEN').found).toEqual([])
     expect(detectPastedSecrets('APIFY_API_TOKEN={{secret:APIFY_API_TOKEN}}').found).toEqual([])
-    expect(detectPastedSecrets('MAX_ROWS=12345678 PROJECT_NAME=long-trail-c3').found).toEqual([])
+    expect(detectPastedSecrets('MAX_ROWS=12345678 PROJECT_NAME=acme-c3').found).toEqual([])
   })
 
   it('the same value pasted twice is captured once and redacted everywhere', () => {

@@ -3,7 +3,7 @@ import { compileDesignFollowUp, extractPreviewUrls, isHttpUrl, type DesignPin } 
 
 describe('isHttpUrl', () => {
   it('accepts http(s) and rejects other schemes', () => {
-    expect(isHttpUrl('https://ws-landing-preview.vercel.app')).toBe(true)
+    expect(isHttpUrl('https://landing-preview-demo.vercel.app')).toBe(true)
     expect(isHttpUrl('javascript:alert(1)')).toBe(false)
   })
 })
@@ -11,9 +11,9 @@ describe('isHttpUrl', () => {
 describe('extractPreviewUrls', () => {
   it('pulls http(s) links and skips GitHub', () => {
     const urls = extractPreviewUrls(
-      'See https://site-2026-git-main.vercel.app/process and https://github.com/your-org/example/pull/19',
+      'See https://site-demo-git-main.vercel.app/process and https://github.com/your-org/example/pull/19',
     )
-    expect(urls).toEqual(['https://site-2026-git-main.vercel.app/process'])
+    expect(urls).toEqual(['https://site-demo-git-main.vercel.app/process'])
   })
   it('dedupes and strips trailing punctuation', () => {
     expect(extractPreviewUrls('https://a.example/x.', 'https://a.example/x')).toEqual(['https://a.example/x'])

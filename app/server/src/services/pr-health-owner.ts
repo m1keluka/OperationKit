@@ -126,7 +126,7 @@ export function resolveOwner(
   if (!row) return { objectiveId: null, status: null, owner: 'unowned', reason: 'no objective references this PR' }
 
   // Surface the weaker provenance: this owner was inferred from the branch name, not
-  // from an objective that actually records this PR. Mike should still see the link,
+  // from an objective that actually records this PR. Operator should still see the link,
   // but should know nothing wrote it down.
   const via = viaBranchId ? ' [linked via branch name, not pr_url]' : ''
 
@@ -186,7 +186,7 @@ export function isLiveObjectiveStatus(status: string | null | undefined): boolea
 }
 
 /** Why we did (or did not) treat the event path as engaged. Reported verbatim on the
- *  Mike-facing surface as `ownerReason`, so a skip is always self-explaining. */
+ *  Operator-facing surface as `ownerReason`, so a skip is always self-explaining. */
 export interface Engagement {
   engaged: boolean
   reason: string

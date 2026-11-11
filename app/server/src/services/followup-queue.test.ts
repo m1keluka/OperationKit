@@ -23,7 +23,7 @@ import {
   type QueueDecisionInput,
 } from './followup-queue.js'
 
-const ava: MessageSender = { kind: 'member', verified: true, label: 'Ava', username: 'ava' }
+const casey: MessageSender = { kind: 'member', verified: true, label: 'Casey', username: 'casey' }
 const bot: MessageSender = { kind: 'agent', verified: false, label: 'Ops bot', username: null }
 const SID = 'cc-900408-1794247226000'
 const NOW = Date.parse('2026-11-09T18:57:00Z')
@@ -100,13 +100,13 @@ describe('resolveFollowUpQueueConfig', () => {
 
 describe('queue storage', () => {
   it('takes pending messages once, oldest first; release puts them back; drop clears them', () => {
-    enqueueFollowUp(db, 900408, SID, 'first', ava)
-    enqueueFollowUp(db, 900408, SID, 'second', ava)
-    enqueueFollowUp(db, 1, 'cc-1-1', 'other card', ava)
+    enqueueFollowUp(db, 900408, SID, 'first', casey)
+    enqueueFollowUp(db, 900408, SID, 'second', casey)
+    enqueueFollowUp(db, 1, 'cc-1-1', 'other card', casey)
 
     const taken = takePendingFollowUps(db, 900408)
     expect(taken.map(t => t.message)).toEqual(['first', 'second'])
-    expect(taken[0].sender).toEqual(ava)
+    expect(taken[0].sender).toEqual(casey)
     expect(takePendingFollowUps(db, 900408)).toEqual([])
 
     releaseFollowUps(db, taken.map(t => t.id))
@@ -129,23 +129,23 @@ describe('combineQueuedFollowUps / batchSender', () => {
   const stamp = (m: string, s?: MessageSender) => `[${s?.label ?? 'SYSTEM'}] ${m}`
 
   it('passes a single message through with its own stamp', () => {
-    expect(combineQueuedFollowUps([{ message: 'hi', sender: ava }], stamp)).toBe('[Ava] hi')
+    expect(combineQueuedFollowUps([{ message: 'hi', sender: casey }], stamp)).toBe('[Casey] hi')
   })
 
   it('numbers several messages in order, each keeping its own stamp', () => {
     const text = combineQueuedFollowUps(
-      [{ message: 'does the site match what Mike said?', sender: ava }, { message: '????????', sender: ava }, { message: 'fyi', sender: bot }],
+      [{ message: 'does the site match what Operator said?', sender: casey }, { message: '????????', sender: casey }, { message: 'fyi', sender: bot }],
       stamp,
     )
     expect(text).toContain('3 messages arrived')
     expect(text.indexOf('Message 1 of 3')).toBeLessThan(text.indexOf('Message 2 of 3'))
-    expect(text).toContain('[Ava] does the site match what Mike said?')
+    expect(text).toContain('[Casey] does the site match what Operator said?')
     expect(text).toContain('[Ops bot] fyi')
   })
 
   it('records the least-trusted sender for a mixed batch', () => {
-    expect(batchSender([{ sender: ava }, { sender: bot }])).toEqual(bot)
-    expect(batchSender([{ sender: ava }, { sender: ava }])).toEqual(ava)
+    expect(batchSender([{ sender: casey }, { sender: bot }])).toEqual(bot)
+    expect(batchSender([{ sender: casey }, { sender: casey }])).toEqual(casey)
     expect(batchSender([{ sender: null }])).toBeUndefined()
   })
 })
@@ -175,7 +175,7 @@ describe('deliverQueuedFollowUps', () => {
 
   it('#900408 replay: four messages sent mid-turn reach the SAME session in ONE resume', () => {
     // Before obj 900412 each of these restarted the worker (four `resume` starts in 39s).
-    for (const m of ['can you check the deploy', '????????', 'answer?', 'hello ???']) enqueueFollowUp(db, 900408, SID, m, ava)
+    for (const m of ['can you check the deploy', '????????', 'answer?', 'hello ???']) enqueueFollowUp(db, 900408, SID, m, casey)
     const calls: Array<{ sid: string; text: string; skipJsonl: boolean }> = []
     const { deps, jsonl, started } = setup((sid, _msg, _obj, opts) => { calls.push({ sid, text: opts.sessionTextOverride, skipJsonl: opts.skipJsonl }); return sid })
     fs.writeFileSync(jsonl, JSON.stringify({ type: 'result', text: 'done with the turn' }) + '\n')
@@ -185,7 +185,7 @@ describe('deliverQueuedFollowUps', () => {
     expect(calls[0].sid).toBe(SID)
     expect(calls[0].skipJsonl).toBe(true) // bubbles were already written at enqueue time
     for (const m of ['can you check the deploy', '????????', 'answer?', 'hello ???']) expect(calls[0].text).toContain(m)
-    expect(started).toEqual([[900408, 'ava']])
+    expect(started).toEqual([[900408, 'casey']])
     expect(listPendingFollowUps(db, 900408)).toEqual([])
 
     // The last transcript event is no longer the old `result`, so the poller
@@ -195,7 +195,7 @@ describe('deliverQueuedFollowUps', () => {
   })
 
   it('a failed delivery keeps the messages for the next send and lets the card park', () => {
-    enqueueFollowUp(db, 900408, SID, 'hello?', ava)
+    enqueueFollowUp(db, 900408, SID, 'hello?', casey)
     const { deps } = setup(() => { throw new Error('no seat') })
     expect(deliverQueuedFollowUps(objective, deps)).toBe(false)
     expect(listPendingFollowUps(db, 900408).map(m => m.message)).toEqual(['hello?'])

@@ -199,9 +199,9 @@ describe('G4 — owner validation: explicit, registry-checked, never inferred', 
   })
 
   it('a key LABEL is not an identity — it resolves to nothing', () => {
-    // The exact failure this gate exists for: "mike's okit key (prod)" is a
+    // The exact failure this gate exists for: "operator's okit key (prod)" is a
     // nickname somebody typed, and it must never become an owner.
-    expect(resolveBot("mike's okit key (prod)").ok).toBe(false)
+    expect(resolveBot("operator's okit key (prod)").ok).toBe(false)
     expect(botForAgentSlug('some-unregistered-agent')).toBeNull()
   })
 

@@ -1,5 +1,5 @@
 // Single source of truth for "what calendar day is this instant" on the
-// dashboard. Eastern (Mike's TZ + the /api/costs default) via Intl so EST/EDT
+// dashboard. Eastern (Operator's TZ + the /api/costs default) via Intl so EST/EDT
 // transitions are handled correctly — a "day" is a real local day, not UTC.
 export const EASTERN_TZ = 'America/New_York'
 

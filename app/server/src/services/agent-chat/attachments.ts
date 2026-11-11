@@ -1,6 +1,6 @@
 // ── Images in the built-in agent chat (obj 900157) ──
 //
-// Ava pasted a screenshot into the chat and the agent answered that it could
+// Casey pasted a screenshot into the chat and the agent answered that it could
 // not open screenshots. Nothing was broken in an upload endpoint — the chat had
 // no image path at all: the composer was a bare textarea, the POST route read
 // only `text`, and the history the model saw was plain strings.

@@ -59,8 +59,8 @@ let plainKey: string
 
 const cookieFor = (id: number, username: string, role: string) =>
   `token=${jwt.sign({ id, username, role }, process.env.JWT_SECRET!, { expiresIn: '1h' })}`
-const ownerCookie = () => cookieFor(1, 'mike', 'admin')
-const ownerBearer = () => jwt.sign({ id: 1, username: 'mike', role: 'admin' }, process.env.JWT_SECRET!, { expiresIn: '1h' })
+const ownerCookie = () => cookieFor(1, 'operator', 'admin')
+const ownerBearer = () => jwt.sign({ id: 1, username: 'operator', role: 'admin' }, process.env.JWT_SECRET!, { expiresIn: '1h' })
 
 function setFlag(key: string, on: boolean) {
   getDb().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, on ? '1' : '0')
@@ -110,7 +110,7 @@ beforeAll(async () => {
   }
   initDb()
   const db = getDb()
-  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (1, 'mike', 'x', 'admin')`).run()
+  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (1, 'operator', 'x', 'admin')`).run()
   db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (2, 'sam', 'x', 'member')`).run()
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace) VALUES (2, ?)`).run(WS)
   objId = Number(db.prepare(

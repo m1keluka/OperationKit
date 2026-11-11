@@ -10,9 +10,9 @@ const SERVER_ACTOR = { kind: 'server' as const }
 // obj-706070 — the ACTING-USER resolution proof for per-user Google Workspace.
 //
 // Command Center used to hand every spawned session ONE shared Google credential
-// (Mike's). This suite is the payoff test for replacing it: the Google identity a
-// session receives is resolved from the OBJECTIVE'S OWNER, so Ava's objective
-// spawns with Ava's refresh token and Mike's with Mike's — and neither env can
+// (Operator's). This suite is the payoff test for replacing it: the Google identity a
+// session receives is resolved from the OBJECTIVE'S OWNER, so Casey's objective
+// spawns with Casey's refresh token and Operator's with Operator's — and neither env can
 // ever contain the other's. When the owner has no grant the resolver emits an
 // EXPLICIT absence marker rather than silently falling back to anyone.
 //
@@ -41,8 +41,8 @@ const google = await import('./user-google-connections.js')
 const { userGoogleCredentialEnv, buildSpawnEnv } = await import('./session-manager.js')
 const { setAccess } = await import('../connectors/access.js')
 
-const MIKE = { id: 1, username: 'mike', email: 'dev@example.com', refresh: '1//0gMIKE_refresh_secret_AAA111' }
-const AVA = { id: 2, username: 'ava', email: 'ava@example.com', refresh: '1//0gAVA_refresh_secret_BBB222' }
+const OPERATOR = { id: 1, username: 'operator', email: 'dev@example.com', refresh: '1//0gMIKE_refresh_secret_AAA111' }
+const CASEY = { id: 2, username: 'casey', email: 'casey@example.com', refresh: '1//0gAVA_refresh_secret_BBB222' }
 
 function seedUser(id: number, username: string): void {
   getDb()
@@ -78,8 +78,8 @@ beforeAll(() => {
 beforeEach(() => {
   getDb().exec('DELETE FROM user_google_connections; DELETE FROM users;')
   try { getDb().exec('DELETE FROM connector_access') } catch { /* created lazily */ }
-  seedUser(MIKE.id, MIKE.username)
-  seedUser(AVA.id, AVA.username)
+  seedUser(OPERATOR.id, OPERATOR.username)
+  seedUser(CASEY.id, CASEY.username)
 })
 
 afterAll(() => {
@@ -87,59 +87,59 @@ afterAll(() => {
 })
 
 describe('userGoogleCredentialEnv — resolves the ACTING USER, two distinct connected users', () => {
-  it('owner 1 (mike) gets mike’s token + email, marked as a user connection', () => {
-    connect(MIKE)
-    connect(AVA)
-    const env = userGoogleCredentialEnv(MIKE.id, SERVER_ACTOR)
+  it('owner 1 (operator) gets operator’s token + email, marked as a user connection', () => {
+    connect(OPERATOR)
+    connect(CASEY)
+    const env = userGoogleCredentialEnv(OPERATOR.id, SERVER_ACTOR)
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('user')
-    expect(env.GOOGLE_REFRESH_TOKEN).toBe(MIKE.refresh)
-    expect(env.USER_GOOGLE_EMAIL).toBe(MIKE.email)
+    expect(env.GOOGLE_REFRESH_TOKEN).toBe(OPERATOR.refresh)
+    expect(env.USER_GOOGLE_EMAIL).toBe(OPERATOR.email)
     expect(env.GOOGLE_OAUTH_CLIENT_ID).toBe(process.env.GOOGLE_OAUTH_CLIENT_ID)
     expect(env.GOOGLE_OAUTH_CLIENT_SECRET).toBe(process.env.GOOGLE_OAUTH_CLIENT_SECRET)
   })
 
-  it('owner 2 (ava) gets ava’s token + email from the same DB', () => {
-    connect(MIKE)
-    connect(AVA)
-    const env = userGoogleCredentialEnv(AVA.id, SERVER_ACTOR)
+  it('owner 2 (casey) gets casey’s token + email from the same DB', () => {
+    connect(OPERATOR)
+    connect(CASEY)
+    const env = userGoogleCredentialEnv(CASEY.id, SERVER_ACTOR)
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('user')
-    expect(env.GOOGLE_REFRESH_TOKEN).toBe(AVA.refresh)
-    expect(env.USER_GOOGLE_EMAIL).toBe(AVA.email)
+    expect(env.GOOGLE_REFRESH_TOKEN).toBe(CASEY.refresh)
+    expect(env.USER_GOOGLE_EMAIL).toBe(CASEY.email)
   })
 })
 
 describe('buildSpawnEnv — CROSS-USER ISOLATION PROOF (the whole point of obj-706070)', () => {
-  it('mike’s objective spawns with mike’s Google credential and NOT ava’s', () => {
-    connect(MIKE)
-    connect(AVA)
-    const env = envFor(MIKE.id)
+  it('operator’s objective spawns with operator’s Google credential and NOT casey’s', () => {
+    connect(OPERATOR)
+    connect(CASEY)
+    const env = envFor(OPERATOR.id)
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('user')
-    expect(env.GOOGLE_REFRESH_TOKEN).toBe(MIKE.refresh)
-    expect(env.USER_GOOGLE_EMAIL).toBe(MIKE.email)
-    // The isolation assertion: ava's material is nowhere in mike's env.
-    expect(env.GOOGLE_REFRESH_TOKEN).not.toBe(AVA.refresh)
-    expect(JSON.stringify(env)).not.toContain(AVA.refresh)
-    expect(JSON.stringify(env)).not.toContain(AVA.email)
+    expect(env.GOOGLE_REFRESH_TOKEN).toBe(OPERATOR.refresh)
+    expect(env.USER_GOOGLE_EMAIL).toBe(OPERATOR.email)
+    // The isolation assertion: casey's material is nowhere in operator's env.
+    expect(env.GOOGLE_REFRESH_TOKEN).not.toBe(CASEY.refresh)
+    expect(JSON.stringify(env)).not.toContain(CASEY.refresh)
+    expect(JSON.stringify(env)).not.toContain(CASEY.email)
   })
 
-  it('ava’s objective spawns with ava’s Google credential and NOT mike’s', () => {
-    connect(MIKE)
-    connect(AVA)
-    const env = envFor(AVA.id)
+  it('casey’s objective spawns with casey’s Google credential and NOT operator’s', () => {
+    connect(OPERATOR)
+    connect(CASEY)
+    const env = envFor(CASEY.id)
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('user')
-    expect(env.GOOGLE_REFRESH_TOKEN).toBe(AVA.refresh)
-    expect(env.USER_GOOGLE_EMAIL).toBe(AVA.email)
-    // …and mike's (the OLD shared credential) is nowhere in ava's env.
-    expect(env.GOOGLE_REFRESH_TOKEN).not.toBe(MIKE.refresh)
-    expect(JSON.stringify(env)).not.toContain(MIKE.refresh)
-    expect(JSON.stringify(env)).not.toContain(MIKE.email)
+    expect(env.GOOGLE_REFRESH_TOKEN).toBe(CASEY.refresh)
+    expect(env.USER_GOOGLE_EMAIL).toBe(CASEY.email)
+    // …and operator's (the OLD shared credential) is nowhere in casey's env.
+    expect(env.GOOGLE_REFRESH_TOKEN).not.toBe(OPERATOR.refresh)
+    expect(JSON.stringify(env)).not.toContain(OPERATOR.refresh)
+    expect(JSON.stringify(env)).not.toContain(OPERATOR.email)
   })
 
   it('the two envs differ ONLY in the per-user Google keys (same base spawn env)', () => {
-    connect(MIKE)
-    connect(AVA)
-    const a = envFor(MIKE.id)
-    const b = envFor(AVA.id)
+    connect(OPERATOR)
+    connect(CASEY)
+    const a = envFor(OPERATOR.id)
+    const b = envFor(CASEY.id)
     const perUser = ['GOOGLE_REFRESH_TOKEN', 'USER_GOOGLE_EMAIL', 'WORKSPACE_MCP_CREDENTIALS_DIR', 'CC_ACTING_USER_ID', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET']
     const strip = (e: Record<string, string>) => {
       const c = { ...e }
@@ -156,63 +156,63 @@ describe('buildSpawnEnv — CROSS-USER ISOLATION PROOF (the whole point of obj-7
   // who chose the assignee would then be acting as them. The assignee opts in
   // per connector; until they do, the session sees plain absence.
   it('a card assigned by someone else runs as the assignee WITHOUT their Google credential', () => {
-    connect(MIKE)
-    connect(AVA)
+    connect(OPERATOR)
+    connect(CASEY)
     const env = buildSpawnEnv({
-      objective: { ...objectiveOwnedBy(MIKE.id), assigned_user_id: AVA.id } as Objective,
+      objective: { ...objectiveOwnedBy(OPERATOR.id), assigned_user_id: CASEY.id } as Objective,
       homeDir: '/home/ccuser-a',
       sessionKind: 'worker',
     })
-    expect(env.CC_ACTING_USER_ID).toBe(String(AVA.id))
+    expect(env.CC_ACTING_USER_ID).toBe(String(CASEY.id))
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('absent')
     expect(env.GOOGLE_REFRESH_TOKEN).toBeUndefined()
     // Emphatically not a fallback to the person who filed the card, either.
     expect(env.USER_GOOGLE_EMAIL).toBeUndefined()
-    expect(Object.values(env)).not.toContain(MIKE.refresh)
+    expect(Object.values(env)).not.toContain(OPERATOR.refresh)
   })
 
   it('the same card DOES get the credential once the assignee allows delegated work', () => {
-    connect(MIKE)
-    connect(AVA)
-    setAccess('google-workspace', AVA.id, { agents: null, workspaces: null, allow_delegated: true })
+    connect(OPERATOR)
+    connect(CASEY)
+    setAccess('google-workspace', CASEY.id, { agents: null, workspaces: null, allow_delegated: true })
     const env = buildSpawnEnv({
-      objective: { ...objectiveOwnedBy(MIKE.id), assigned_user_id: AVA.id } as Objective,
+      objective: { ...objectiveOwnedBy(OPERATOR.id), assigned_user_id: CASEY.id } as Objective,
       homeDir: '/home/ccuser-a',
       sessionKind: 'worker',
     })
-    expect(env.USER_GOOGLE_EMAIL).toBe(AVA.email)
-    expect(env.GOOGLE_REFRESH_TOKEN).toBe(AVA.refresh)
-    expect(env.GOOGLE_REFRESH_TOKEN).not.toBe(MIKE.refresh)
-    expect(env.WORKSPACE_MCP_CREDENTIALS_DIR).toContain(`/google-creds/${AVA.id}`)
+    expect(env.USER_GOOGLE_EMAIL).toBe(CASEY.email)
+    expect(env.GOOGLE_REFRESH_TOKEN).toBe(CASEY.refresh)
+    expect(env.GOOGLE_REFRESH_TOKEN).not.toBe(OPERATOR.refresh)
+    expect(env.WORKSPACE_MCP_CREDENTIALS_DIR).toContain(`/google-creds/${CASEY.id}`)
   })
 
   it('attribution follows the OWNER across all 5 spawn kinds', () => {
-    connect(AVA)
+    connect(CASEY)
     for (const k of ['worker', 'arena', 'followup', 'planner', 'reviewer'] as const) {
-      const env = buildSpawnEnv({ objective: objectiveOwnedBy(AVA.id), homeDir: '/home/ccuser-a', sessionKind: k })
-      expect(env.GOOGLE_REFRESH_TOKEN).toBe(AVA.refresh)
-      expect(env.USER_GOOGLE_EMAIL).toBe(AVA.email)
+      const env = buildSpawnEnv({ objective: objectiveOwnedBy(CASEY.id), homeDir: '/home/ccuser-a', sessionKind: k })
+      expect(env.GOOGLE_REFRESH_TOKEN).toBe(CASEY.refresh)
+      expect(env.USER_GOOGLE_EMAIL).toBe(CASEY.email)
     }
   })
 })
 
-describe('EXPLICIT ABSENCE — no silent fallback to the old shared (Mike) credential', () => {
+describe('EXPLICIT ABSENCE — no silent fallback to the old shared (Operator) credential', () => {
   it('an owner with NO connection row gets ‘absent’ and NO Google token/email keys at all', () => {
-    connect(MIKE) // mike IS connected — ava must still not inherit him
-    const env = envFor(AVA.id)
+    connect(OPERATOR) // operator IS connected — casey must still not inherit him
+    const env = envFor(CASEY.id)
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('absent')
     expect(env.GOOGLE_REFRESH_TOKEN).toBeUndefined()
     expect(env.USER_GOOGLE_EMAIL).toBeUndefined()
     expect('GOOGLE_REFRESH_TOKEN' in env).toBe(false)
     expect('USER_GOOGLE_EMAIL' in env).toBe(false)
-    // The regression this objective exists to kill: mike's credential leaking
+    // The regression this objective exists to kill: operator's credential leaking
     // into a session run for somebody else.
-    expect(JSON.stringify(env)).not.toContain(MIKE.refresh)
-    expect(JSON.stringify(env)).not.toContain(MIKE.email)
+    expect(JSON.stringify(env)).not.toContain(OPERATOR.refresh)
+    expect(JSON.stringify(env)).not.toContain(OPERATOR.email)
   })
 
   it('created_by null (automation / unowned) ⇒ ‘absent’', () => {
-    connect(MIKE)
+    connect(OPERATOR)
     const env = envFor(null)
     expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('absent')
     expect(env.GOOGLE_REFRESH_TOKEN).toBeUndefined()
@@ -225,15 +225,15 @@ describe('EXPLICIT ABSENCE — no silent fallback to the old shared (Mike) crede
   })
 
   it('NEVER THROWS when the OAuth client env vars are unset ⇒ ‘absent’ (spawn is never blocked)', () => {
-    connect(MIKE)
+    connect(OPERATOR)
     const savedId = process.env.GOOGLE_OAUTH_CLIENT_ID
     const savedSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET
     delete process.env.GOOGLE_OAUTH_CLIENT_ID
     delete process.env.GOOGLE_OAUTH_CLIENT_SECRET
     try {
-      expect(() => userGoogleCredentialEnv(MIKE.id, SERVER_ACTOR)).not.toThrow()
-      expect(userGoogleCredentialEnv(MIKE.id, SERVER_ACTOR)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
-      const env = envFor(MIKE.id)
+      expect(() => userGoogleCredentialEnv(OPERATOR.id, SERVER_ACTOR)).not.toThrow()
+      expect(userGoogleCredentialEnv(OPERATOR.id, SERVER_ACTOR)).toEqual({ GOOGLE_WORKSPACE_CONNECTION: 'absent' })
+      const env = envFor(OPERATOR.id)
       expect(env.GOOGLE_WORKSPACE_CONNECTION).toBe('absent')
       expect(env.GOOGLE_REFRESH_TOKEN).toBeUndefined()
       // A connected user still gets a working spawn env — just without Google.

@@ -35,9 +35,9 @@ export type ObjectiveType = 'project' | 'bug' | 'task'
 export type ObjectiveOrigin = 'manual' | 'strategy' | 'routine' | 'job_reply' | 'agent_api' | 'agent_chat'
 /**
  * Disposition of a job (routine-spawned objective) once its run is done.
- * - `complete`     — clean run, nothing for Mike to do. Default.
+ * - `complete`     — clean run, nothing for Operator to do. Default.
  * - `needs_review` — the run has a question, or surfaced a concrete
- *                    system-improvement opportunity worth Mike's attention.
+ *                    system-improvement opportunity worth Operator's attention.
  */
 export type JobDisposition = 'complete' | 'needs_review'
 /**

@@ -1,4 +1,4 @@
-// Assistant morning nudge — a daily Telegram push that acts like an EA keeping Mike on
+// Assistant morning nudge — a daily Telegram push that acts like an EA keeping Operator on
 // his open loops. Fires once per day at 07:00 America/New_York (DST-aware) and sends a
 // terse, prioritized "close these today" digest.
 //
@@ -87,7 +87,7 @@ function buildNudgePrompt(loops: Loop[], todayET: string): string {
     .map(l => `- [${l.status}] ${l.title}${l.due ? ` (due ${l.due}${l.due < todayET ? ' — OVERDUE' : ''})` : ''}${l.project ? ` {${l.project}}` : ''}`)
     .join('\n')
   return [
-    "You are Assistant, Mike's general. Write a SHORT Telegram message (max ~8 lines) that pushes him to close his open loops today.",
+    "You are Assistant, Operator's general. Write a SHORT Telegram message (max ~8 lines) that pushes him to close his open loops today.",
     'Be terse, motivating, and specific. Lead with anything OVERDUE. Name the top 2-3 he should close today. End with a one-line kick.',
     'No preamble, no markdown headers — plain text with a few emoji is fine.',
     `Today (ET) is ${todayET}. His open loops:`,

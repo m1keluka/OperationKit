@@ -28,7 +28,7 @@ const ADMIN_ID = 1
 let server: http.Server
 let baseUrl: string
 const cookie = () =>
-  `token=${jwt.sign({ id: ADMIN_ID, username: 'mike', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
+  `token=${jwt.sign({ id: ADMIN_ID, username: 'operator', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
 
 type Json = Record<string, unknown>
 // Response bodies are asserted field-by-field; keep the fetch helper loosely typed.
@@ -66,7 +66,7 @@ function seed(workspace: string, status = 'review', title = 'seeded'): number {
 beforeAll(async () => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
-  getDb().prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'mike', 'x', 'admin')`).run(ADMIN_ID)
+  getDb().prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'operator', 'x', 'admin')`).run(ADMIN_ID)
   const app = express()
   app.use(express.json())
   app.use(cookieParser())
@@ -105,7 +105,7 @@ describe('[legacy-key-backcompat] users.api_token_hash key is unchanged', () => 
 
     const me = await call('GET', '/api/auth/me', { bearer: legacy })
     expect(me.status).toBe(200)
-    expect(me.json.username).toBe('mike')
+    expect(me.json.username).toBe('operator')
     expect(me.json.api_key).toMatchObject({ kind: 'legacy', workspaces: null })
     expect((me.json.api_key as Json).scopes).toContain('board:done')
 
@@ -370,7 +370,7 @@ describe('[attribution] agent-key calls are attributed to the key label', () => 
     const key = await mintAgentKey({ label: 'Grok: Example Project', scopes: ['board:read', 'vault:read'], workspaces: ['example-project'] })
     const me = await call('GET', '/api/auth/me', { bearer: key.token })
     expect(me.status).toBe(200)
-    expect(me.json.username).toBe('mike')
+    expect(me.json.username).toBe('operator')
     expect(me.json.api_key).toEqual({
       kind: 'agent',
       id: key.id,

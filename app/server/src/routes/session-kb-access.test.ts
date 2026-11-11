@@ -137,9 +137,9 @@ beforeAll(async () => {
   })
 
   const hash = bcrypt.hashSync('pw', 4)
-  // Mike is an ADMIN. A card of his must still NOT inherit admin-wide file access.
-  mikeId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('mike', hash, 'admin').lastInsertRowid)
-  avaId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('ava', hash, 'member').lastInsertRowid)
+  // Operator is an ADMIN. A card of his must still NOT inherit admin-wide file access.
+  mikeId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('operator', hash, 'admin').lastInsertRowid)
+  avaId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('casey', hash, 'member').lastInsertRowid)
   bobId = Number(db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('bob', hash, 'member').lastInsertRowid)
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace, role) VALUES (?, 'example', 'member')`).run(avaId)
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace, role) VALUES (?, 'example2', 'member')`).run(bobId)
@@ -148,12 +148,12 @@ beforeAll(async () => {
   exampleObj = Number(ins.run('example card', 'example').lastInsertRowid)
   childObj = Number(ins.run('child of example card', 'example').lastInsertRowid)
   example2Obj = Number(ins.run('example2 card', 'example2').lastInsertRowid)
-  strangerObj = Number(ins.run('example2 card run by ava', 'example2').lastInsertRowid)
+  strangerObj = Number(ins.run('example2 card run by casey', 'example2').lastInsertRowid)
 
   exampleToken = tok(exampleObj, 'example', mikeId)
   childToken = tok(childObj, 'example', avaId)
   example2Token = tok(example2Obj, 'example2', bobId)
-  strangerToken = tok(strangerObj, 'example2', avaId) // ava is not in example2
+  strangerToken = tok(strangerObj, 'example2', avaId) // casey is not in example2
 
   const app = express()
   app.use(express.json())
@@ -272,7 +272,7 @@ describe('denial for unauthorized workspaces and users', () => {
   })
 
   it('an admin acting user grants NO admin-wide access — only the card workspace', async () => {
-    // exampleToken's acting user is `mike`, role admin.
+    // exampleToken's acting user is `operator`, role admin.
     const body = await (await get('/api/files/search?ext=csv', hdr(exampleToken))).json() as SearchBody
     expect(body.results.map(r => r.path)).toEqual([F.exampleCsv])
     expect((await get(`/api/files/stat?path=${encodeURIComponent(F.example2Csv)}`, hdr(exampleToken))).status).toBe(403)

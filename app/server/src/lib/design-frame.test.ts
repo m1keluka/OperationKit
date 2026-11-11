@@ -9,7 +9,7 @@ import {
 
 describe('parsePreviewUrl', () => {
   it('accepts https public hosts', () => {
-    expect(parsePreviewUrl('https://site-2026.vercel.app/process')?.hostname).toBe('site-2026.vercel.app')
+    expect(parsePreviewUrl('https://site-demo.vercel.app/process')?.hostname).toBe('site-demo.vercel.app')
   })
   it('rejects private and local hosts', () => {
     expect(parsePreviewUrl('https://127.0.0.1/')).toBeNull()
@@ -57,7 +57,7 @@ describe('rewriteDesignHtml', () => {
       <script>self.__next_f.push([1,"boom"])</script>
       </head><body><h1>Skip the middleman</h1></body></html>`
     const out = rewriteDesignHtml(html, {
-      sourceUrl: 'https://ws-landing-preview.vercel.app/',
+      sourceUrl: 'https://landing-preview-demo.vercel.app/',
       parentOrigin: 'https://cc.example.com',
     })
     expect(out).toContain('/_next/static/css/app.css')

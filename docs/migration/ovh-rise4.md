@@ -20,16 +20,16 @@ Scripts: `scripts/migrate/`. Every script uses `set -euo pipefail` and supports 
 
 | Script | Where / as whom | What it does |
 |---|---|---|
-| `bootstrap-host.sh` | new host, root | packages, mike user, Docker, Caddy, Node 22, gh, gitleaks, ufw, fail2ban, unattended-upgrades, timezone, swap |
-| `preflight.sh` | new host, mike | read-only checks on **both** hosts |
-| `presync.sh` | new host, mike | phase 1: live bulk copy, repeatable, no downtime |
-| `cutover.sh` | new host, mike, in tmux | phase 2: drain, stop, dump, final delta, accounts, restore, start, DNS |
-| `verify.sh` | new host, mike | phase 3: acceptance checks |
+| `bootstrap-host.sh` | new host, root | packages, operator user, Docker, Caddy, Node 22, gh, gitleaks, ufw, fail2ban, unattended-upgrades, timezone, swap |
+| `preflight.sh` | new host, operator | read-only checks on **both** hosts |
+| `presync.sh` | new host, operator | phase 1: live bulk copy, repeatable, no downtime |
+| `cutover.sh` | new host, operator, in tmux | phase 2: drain, stop, dump, final delta, accounts, restore, start, DNS |
+| `verify.sh` | new host, operator | phase 3: acceptance checks |
 | `cc-backup.sh` + `config/systemd/cc-backup.{service,timer}` | new host, root (timer) | nightly restic backup to off-site storage |
 | `install-backup-timer.sh` | new host, root | installs the units, runs `restic init` once, enables the timer |
 | `restore-test.sh` | new host, root | restores a snapshot to scratch space and checks it |
 
-**How the scripts run.** Everything runs on the **new** host and *pulls* from the old one over SSH. Connect from your laptop with agent forwarding (`ssh -A mike@<ovh-ip>`). Your laptop key then reaches the droplet, and no private key has to be copied onto either server. Hosts are passed as arguments (`--src mike@<do-ip>`, `--new-ip <ovh-ip>`). No IP is hard-coded.
+**How the scripts run.** Everything runs on the **new** host and *pulls* from the old one over SSH. Connect from your laptop with agent forwarding (`ssh -A operator@<ovh-ip>`). Your laptop key then reaches the droplet, and no private key has to be copied onto either server. Hosts are passed as arguments (`--src operator@<do-ip>`, `--new-ip <ovh-ip>`). No IP is hard-coded.
 
 ---
 
@@ -43,7 +43,7 @@ Nothing here can be scripted or delegated. They involve money, DNS, or identity.
   - RAID1 across 4 disks (4-way mirror) survives 3 failures, but only **~960 GB is usable**. That is barely above today's 800 GB, on a host that has already filled its disk several times (§J). Not worth it.
   - RAID5/6: skip. Slow writes, long rebuilds, and OVH's installer handles it less well.
   - Tradeoff: RAID10 gives up redundancy you will not need (3-disk survival) for headroom you will need. Backups (§I) cover the "whole box lost" case, which no RAID level does.
-- [ ] **Add your SSH public key** in the OVH panel at install time (it lands in `root`'s or `ubuntu`'s `authorized_keys`; `bootstrap-host.sh` copies it to `mike`).
+- [ ] **Add your SSH public key** in the OVH panel at install time (it lands in `root`'s or `ubuntu`'s `authorized_keys`; `bootstrap-host.sh` copies it to `operator`).
 - [ ] **Lower the DNS TTL** for `cc.example.com` to **300 s at least 24 h before cutover**. Do the same for `llm.<your-domain>`, `n8n.example.com` if it moves (§B.6), and any `*.cc.example.com` wildcard.
 - [ ] **Approve the cutover window**: 2–3 h, ideally a weekday evening ET when no cards are running (§H).
 - [ ] **Create and pay for backup storage**: a private Backblaze B2 bucket plus an application key limited to that bucket (§I). Expect under $1/mo at current sizes.
@@ -62,27 +62,27 @@ Nothing here can be scripted or delegated. They involve money, DNS, or identity.
 ssh -A root@<ovh-ip>              # or ubuntu@, whichever the OVH image uses
 # on the DO droplet (read-only), note two values:
 #   timedatectl show -p Timezone --value      -> TZ
-#   id -u mike                                -> UID
+#   id -u operator                                -> UID
 git clone https://github.com/your-org/operationkit.git /root/cc-migrate   # after this PR merges; or check out the PR branch
-sudo bash /root/cc-migrate/scripts/migrate/bootstrap-host.sh --timezone <TZ> --mike-uid <UID> --dry-run
-sudo bash /root/cc-migrate/scripts/migrate/bootstrap-host.sh --timezone <TZ> --mike-uid <UID>
+sudo bash /root/cc-migrate/scripts/migrate/bootstrap-host.sh --timezone <TZ> --operator-uid <UID> --dry-run
+sudo bash /root/cc-migrate/scripts/migrate/bootstrap-host.sh --timezone <TZ> --operator-uid <UID>
 ```
 
-The **timezone must match** the droplet. Every cron in `scripts/install-*-cron.sh` is wall-clock (for example `0 8 * * *` campaign-audit and `30 2 * * *` dream-cycle). **mike's UID must match** too, because the copy uses `rsync --numeric-ids`. OVH's Ubuntu image ships an `ubuntu` user on UID 1000, and if that is mike's UID on DO the script stops and tells you how to renumber it.
+The **timezone must match** the droplet. Every cron in `scripts/install-*-cron.sh` is wall-clock (for example `0 8 * * *` campaign-audit and `30 2 * * *` dream-cycle). **operator's UID must match** too, because the copy uses `rsync --numeric-ids`. OVH's Ubuntu image ships an `ubuntu` user on UID 1000, and if that is operator's UID on DO the script stops and tells you how to renumber it.
 
 ### B.2 What `bootstrap-host.sh` sets up
 
 | Area | Setting | Source of truth in repo |
 |---|---|---|
 | Packages | curl git jq rsync sqlite3 restic tmux mdadm smartmontools nvme-cli acl | `scripts/bootstrap.sh` + migration needs |
-| Docker | docker-ce + **compose plugin** + buildx, `mike` in `docker` group | `scripts/bootstrap.sh` §3; `cc-preview-spool.service` builds as mike |
+| Docker | docker-ce + **compose plugin** + buildx, `operator` in `docker` group | `scripts/bootstrap.sh` §3; `cc-preview-spool.service` builds as operator |
 | Reverse proxy + TLS | **Caddy** (cloudsmith apt repo), auto-TLS via Let's Encrypt | `config/caddy/Caddyfile` |
 | Node | **22.x** (NodeSource). Host scripts like `cc-live.mjs` and `loop-closer-nudge.mjs` need it | `app/Dockerfile` `FROM node:22`, CI `node-version: 22` |
 | Claude / Codex CLIs | **not on the host**. They are baked into the image (`npm i -g @anthropic-ai/claude-code`, `@openai/codex`) and run via `docker exec` | `app/Dockerfile`, `scripts/run-claude-host.sh` |
 | bun | **not used**: no script, Dockerfile or package.json references it | `grep -r bun scripts app/package.json` |
 | gh CLI | GitHub apt repo | sessions' `/etc/gh` mount |
 | gitleaks | 8.21.2 (same pin as CI) | `.github/workflows/oss-sync.yml` |
-| User | `mike`, same UID as DO, sudo NOPASSWD (preview-deploy uses `sudo caddy reload`), docker group | `config/systemd/cc-preview-spool.service` comments |
+| User | `operator`, same UID as DO, sudo NOPASSWD (preview-deploy uses `sudo caddy reload`), docker group | `config/systemd/cc-preview-spool.service` comments |
 | Paths | `/home/operator/{data/command-center,projects,second-brain,ai-workspace,transcripts,assistant}`, `~/.config/command-center`, `~/.doppler`, `~/.claude-auth`, `/etc/caddy/sites-enabled` | `docker-compose.yml` volumes, `app/server/src/config.ts` |
 | Firewall | ufw deny-in; allow **22, 80, 443 only**. 3002 (CC) and 4000 (LiteLLM) bind to 127.0.0.1 in compose, so they need no rule | `scripts/bootstrap.sh` §1, compose `ports:` |
 | fail2ban | sshd jail, 5 tries / 1 h ban | `scripts/bootstrap.sh` |
@@ -94,9 +94,9 @@ The **timezone must match** the droplet. Every cron in `scripts/install-*-cron.s
 ### B.3 Preflight
 
 ```bash
-ssh -A mike@<ovh-ip>
+ssh -A operator@<ovh-ip>
 git clone git@github.com:your-org/operationkit.git ~/cc-migrate   # temporary; the real checkout arrives with presync
-bash ~/cc-migrate/scripts/migrate/preflight.sh --src mike@<do-ip> --sizes
+bash ~/cc-migrate/scripts/migrate/preflight.sh --src operator@<do-ip> --sizes
 ```
 
 It checks both hosts: SSH and sudo, versions, disk, RAID sync, free-space headroom, matching UID and timezone, ufw rules, ports, toolchain, containers, Docker volume, and that every required file exists. **Existence only. Secret contents are never read.** It also counts leftover worktrees and lists containers that are not in compose.
@@ -145,9 +145,9 @@ The `.doppler-admin-token` is still inside the projects bind mount (obj-2202 gat
 ### D.1 Pre-sync (live, no downtime): `presync.sh`
 
 ```bash
-bash ~/cc-migrate/scripts/migrate/presync.sh --src mike@<do-ip> --dry-run
-bash ~/cc-migrate/scripts/migrate/presync.sh --src mike@<do-ip>          # first run: hours
-bash ~/cc-migrate/scripts/migrate/presync.sh --src mike@<do-ip>          # again the day before: minutes
+bash ~/cc-migrate/scripts/migrate/presync.sh --src operator@<do-ip> --dry-run
+bash ~/cc-migrate/scripts/migrate/presync.sh --src operator@<do-ip>          # first run: hours
+bash ~/cc-migrate/scripts/migrate/presync.sh --src operator@<do-ip>          # again the day before: minutes
 ```
 
 Order: `projects`, `second-brain`, `ai-workspace`, `transcripts`, `assistant`, `data`, `ssh`, `gh`, `secrets`, then a snapshot of `/etc/caddy` and the crontab into `~/.cc-migrate/src-etc/` for review. `--only NAME` reruns one tree.
@@ -166,8 +166,8 @@ All copies run `sudo rsync -aHAX --numeric-ids` on both ends, so ccuser- and roo
 
 ```bash
 tmux new -s cutover
-bash ~/projects/operationkit/scripts/migrate/cutover.sh --src mike@<do-ip> --new-ip <ovh-ip> --dry-run
-bash ~/projects/operationkit/scripts/migrate/cutover.sh --src mike@<do-ip> --new-ip <ovh-ip>
+bash ~/projects/operationkit/scripts/migrate/cutover.sh --src operator@<do-ip> --new-ip <ovh-ip> --dry-run
+bash ~/projects/operationkit/scripts/migrate/cutover.sh --src operator@<do-ip> --new-ip <ovh-ip>
 ```
 
 Each step writes `~/.cc-migrate/cutover.<step>.done`. Re-running resumes after the last finished step, and `--redo <step>` repeats one.
@@ -339,7 +339,7 @@ If the restic password is lost, every snapshot is unreadable. Keep it in the pas
 ### I.3 What, when, how long
 
 - `cc-backup.timer`: daily 03:15 host time (±15 min), `Persistent=true` (runs at boot if missed). Runs `cc-backup.sh --scheduled` as root at idle I/O priority.
-- Each snapshot: SQLite `.backup` (+ `integrity_check` before it is accepted), LiteLLM `pg_dump -Fc`, `second-brain/`, `ai-workspace/` (minus node_modules/.cache/.next), `/etc/caddy`, mike's crontab, and every secret path from §C. Restic encrypts client-side, so B2 only ever sees ciphertext.
+- Each snapshot: SQLite `.backup` (+ `integrity_check` before it is accepted), LiteLLM `pg_dump -Fc`, `second-brain/`, `ai-workspace/` (minus node_modules/.cache/.next), `/etc/caddy`, operator's crontab, and every secret path from §C. Restic encrypts client-side, so B2 only ever sees ciphertext.
 - Not backed up: account OAuth homes (recovery is re-login, §D.3), `projects/` (lives on GitHub), transcripts (logs).
 - Retention: **14 daily, 8 weekly, 12 monthly** (`forget --prune`). An interactive run asks before pruning (`PRUNE`); the timer's `--scheduled` flag is the standing approval. Every Sunday: `restic check --read-data-subset=5%`.
 

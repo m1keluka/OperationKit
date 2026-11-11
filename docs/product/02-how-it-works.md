@@ -59,7 +59,7 @@ flowchart LR
 | Engine | When | Auth |
 | --- | --- | --- |
 | Claude | Default coding / most cards | Claude subscription seats (rotation A–G). Connect on Dashboard. |
-| Grok | Model `grok-4.6` | SuperGrok subscription. Dashboard → Grok → Connect (device code). Not an API key. |
+| Grok | Model `grok-4.6` | SuperGrok subscription. Settings → Seats → Grok → Connect (device code). Not an API key. |
 | Codex | GPT-5.x models | ChatGPT subscription in the Codex home. |
 
 Spawn unsets provider API keys so a session cannot silently fall through to pay-as-you-go.
@@ -78,7 +78,7 @@ no objective, no card, no tmux session.
 - **Auth** is a single static bearer key, `TWENTY_LLM_GATEWAY_KEY` (Settings → Secrets) — not
   a `cc_live_` key and not OperationKit login. No key configured → 503 (fails closed).
 - **Guardrails:** a seat allowlist (`LLM_GATEWAY_SLOTS`; default every seat except `a`,
-  Mike's personal one), a global concurrency cap (`LLM_GATEWAY_MAX_CONCURRENCY`, default 3 →
+  Operator's personal one), a global concurrency cap (`LLM_GATEWAY_MAX_CONCURRENCY`, default 3 →
   429 when full; an exhausted seat pool is also 429), and a kill switch
   (`LLM_GATEWAY_ENABLED=false` → 503) that an admin can flip without touching the seats.
 - **Logging:** one line per request (model, seat, tokens, latency) to stdout and

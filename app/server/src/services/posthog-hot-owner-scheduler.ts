@@ -11,7 +11,7 @@
 //   every minute instead.
 // - Gated by settings key `posthog_hot_owner_sync_enabled` (default ON), independent of
 //   the routines-table kill switch and every other schedule in this repo.
-// - Silent on success. Alerts Mike (notify(), high severity) only when a run makes the
+// - Silent on success. Alerts Operator (notify(), high severity) only when a run makes the
 //   consecutive-failure streak hit exactly 3 (shouldAlert()), so an ongoing outage pages
 //   once, not every 30 minutes.
 import { getDb } from '../db/index.js'

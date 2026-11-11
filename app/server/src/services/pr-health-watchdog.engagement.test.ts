@@ -281,7 +281,7 @@ describe('runWatchdogOnce — convergence on a PR stuck at skip-owner-engaged', 
     expect(p.action).not.toBe('skip-owner-engaged')
     expect(p.action).toBe('rerun-cancelled')
     expect(p.wouldOnly).toBe(false)
-    // WHY it stopped counting stays on the surface for Mike.
+    // WHY it stopped counting stays on the surface for Operator.
     expect(p.ownerReason).toContain('owner finished')
     expect(p.ownerReason).toContain('objective is done')
     // It really acted: one `gh run rerun` for the cancelled job's run.

@@ -160,17 +160,21 @@ users, user_workspaces, objectives, schema_meta, objective_audit, external_check
 | `/assistant`, `/mentor`, `/assistant` | redirect → `/chat` (or `/`) | |
 | `/strategies`, `/strategy/:id` | `StrategiesPage` / `StrategyDetailPage` | Work → Strategies (admin) |
 | `/development`, `/feedback` | `DevelopmentPage` | Work → Development (admin) |
-| `/jobs` | `JobsBoard` | Automation |
+| `/jobs` | `JobsBoard` (+ host cron section, `#host-cron`) | Work → Jobs (admin) |
 | `/loops` | `LoopsPage` | Automation (label Notes) |
 | `/granola` | redirect → `/` (Content section removed) | |
 | `/contacts` | `ContactsPage` | Directory |
 | `/knowledge` | `DocsPage` | Work → Knowledge base |
 | `/docs` | redirect → `/knowledge` | |
 | `/status` | `StatusPage` | System |
-| `/dashboard` | `Dashboard` | System |
+| `/system` | `SystemPage` (was Dashboard) | Avatar → Admin → System |
+| `/dashboard`, `/costs` | redirect → `/system` | |
+| `/agents` | `AgentsHub` — tabs Registry / Board layer / Templates | Avatar → Admin → Agents |
+| `/agent-templates` | redirect → `/agents?tab=templates` | |
+| `/settings/agents` | redirect → `/agents?tab=registry` | |
+| `/settings/platform` | redirect → `/jobs#host-cron` | |
 | `/feed` | `ProjectFeed` | System |
 | `/config` | `ConfigPage` | System |
-| `/costs` | `CostsPage` | check Layout System group |
 | `/settings/you` | `AccountSettings` | |
 | `/settings/connectors` | `SettingsConnectors` | |
 | `/settings/test-credentials` | `TestCredentialsPage` | |

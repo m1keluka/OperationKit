@@ -33,6 +33,21 @@
  * `settings.bot_registry` may hold a JSON array of `{id, name, aliases}` which
  * REPLACES the built-in list. Malformed JSON falls back to the built-in list and
  * logs — a broken settings row must not make every card unownable.
+ *
+ * ## Install-local chat slugs (obj 900430)
+ *
+ * `settings.bot_agent_slugs` may hold a JSON object `{ "<bot>": ["slug", ...] }`
+ * which ADDS chat-agent slugs to an existing bot (the key resolves like an
+ * `owner_bot` value: id, name or alias). It never removes a slug, never
+ * creates a bot, and never moves a slug another bot already owns.
+ *
+ * This is how an install registers chat bots under its OWN org-specific slugs
+ * (e.g. `<org>-cfo`). Those slugs must not live in this file: the OSS public
+ * sync name-scrubs business identity out of source, so an org's slugs written
+ * here ship to a public install as placeholders that no real install can use.
+ * As install DATA they are never scrubbed, and the public source stays generic.
+ * The `your-org-*` slugs below are the shipped example files'
+ * (`docs/bots/trial-roster/`) placeholders, generic in both trees.
  */
 import type { Database } from 'better-sqlite3'
 import { validateOwnerBot } from '@operationkit/shared'
@@ -64,8 +79,9 @@ export const BUILT_IN_BOTS: BotDefinition[] = [
     id: 'Grok: General',
     name: 'General',
     aliases: ['General', 'general', 'cos'],
-    // 'your-org-general' is the trial chat bot's slug (obj 900371) —
-    // same identity, a second chat surface, scoped to the your-org workspace.
+    // 'your-org-general' is the trial example chat bot's slug (obj
+    // 900371) — same identity, a second chat surface, scoped to one workspace.
+    // An install adds its real slug via settings.bot_agent_slugs (obj 900430).
     agent_slugs: ['general', 'your-org-general'],
   },
   {
@@ -75,7 +91,7 @@ export const BUILT_IN_BOTS: BotDefinition[] = [
     agent_slugs: ['general'],
   },
   {
-    // New bots (obj 900371, Mike-approved trial). Namespaced agent_slugs
+    // New bots (obj 900371, Operator-approved trial). Namespaced agent_slugs
     // deliberately avoid the bare 'cfo'/'cto' slugs: those already belong to
     // the session-worker executive roster in the `agents` registry table
     // (DEFAULT_AGENT_SEED / an operator's seed.agents.json) and reusing them
@@ -126,8 +142,115 @@ function parseOverride(raw: string | null | undefined): BotDefinition[] | null {
   }
 }
 
-/** Every bot this install knows about. Built-ins unless an operator overrode them. */
+/** The settings key holding install-local chat slugs per bot. */
+export const BOT_AGENT_SLUGS_SETTING = 'bot_agent_slugs'
+
+/** Same shape rule as an agent file's slug (`AGENT_SLUG_RE` in agent-file.ts). */
+const CHAT_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,40}$/
+export function isValidChatSlug(raw: unknown): raw is string {
+  return typeof raw === 'string' && CHAT_SLUG_RE.test(raw)
+}
+
+/**
+ * Parse `settings.bot_agent_slugs`. Returns null when the row is not a JSON
+ * object; otherwise each key with its valid, de-duplicated slugs (invalid
+ * slugs are dropped with a warning — never coerced).
+ */
+export function parseInstallSlugMap(raw: string | null | undefined): Record<string, string[]> | null {
+  if (!raw || !raw.trim()) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const out: Record<string, string[]> = {}
+  for (const [key, val] of Object.entries(parsed as Record<string, unknown>)) {
+    const list = Array.isArray(val) ? val : [val]
+    const slugs: string[] = []
+    for (const s of list) {
+      if (!isValidChatSlug(s)) {
+        console.warn(`[bots] settings.${BOT_AGENT_SLUGS_SETTING}: ignoring invalid slug ${JSON.stringify(s)} for "${key}"`)
+        continue
+      }
+      if (!slugs.includes(s)) slugs.push(s)
+    }
+    out[key] = slugs
+  }
+  return out
+}
+
+/** The raw install slug map (`{}` when unset or unreadable). */
+export function readInstallSlugMap(db?: Database): Record<string, string[]> {
+  if (!db) return {}
+  let raw: string | null = null
+  try {
+    raw = (db.prepare('SELECT value FROM settings WHERE key = ?').get(BOT_AGENT_SLUGS_SETTING) as { value: string } | undefined)?.value ?? null
+  } catch {
+    return {}
+  }
+  const map = parseInstallSlugMap(raw)
+  if (!map) {
+    console.warn(`[bots] settings.${BOT_AGENT_SLUGS_SETTING} is not a JSON object — ignoring it`)
+    return {}
+  }
+  return map
+}
+
+/** First bot whose id, name or alias matches `raw` — the same order `resolveBot` uses. */
+export function findBotIndex(bots: BotDefinition[], raw: string): number {
+  const key = registryKey(raw)
+  return bots.findIndex(b => registryKey(b.id) === key || registryKey(b.name) === key || b.aliases.some(a => registryKey(a) === key))
+}
+
+function findBot(bots: BotDefinition[], raw: string): BotDefinition | undefined {
+  const key = registryKey(raw)
+  return bots.find(b => registryKey(b.id) === key || registryKey(b.name) === key || b.aliases.some(a => registryKey(a) === key))
+}
+
+/**
+ * Fold the install slug map into a bot list. Additive only: an unknown bot key
+ * is skipped, and a slug that already belongs to a DIFFERENT bot stays with
+ * that bot (first owner wins), so a settings row can never reroute an
+ * existing thread.
+ */
+export function applyInstallSlugs(bots: BotDefinition[], map: Record<string, string[]>): BotDefinition[] {
+  const out = bots.map(b => ({ ...b, agent_slugs: [...b.agent_slugs] }))
+  const owner = new Map<string, string>()
+  for (const b of out) for (const s of b.agent_slugs) if (!owner.has(registryKey(s))) owner.set(registryKey(s), b.id)
+  for (const [botKey, slugs] of Object.entries(map)) {
+    const bot = findBot(out, botKey)
+    if (!bot) {
+      console.warn(`[bots] settings.${BOT_AGENT_SLUGS_SETTING}: "${botKey}" is not a bot in this registry — ignoring its slugs`)
+      continue
+    }
+    for (const slug of slugs) {
+      const held = owner.get(registryKey(slug))
+      if (held && held !== bot.id) {
+        console.warn(`[bots] settings.${BOT_AGENT_SLUGS_SETTING}: "${slug}" already belongs to ${held} — not adding it to ${bot.id}`)
+        continue
+      }
+      if (!held) {
+        bot.agent_slugs.push(slug)
+        owner.set(registryKey(slug), bot.id)
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Every bot this install knows about: built-ins unless an operator overrode
+ * them, plus the install-local chat slugs from `settings.bot_agent_slugs`.
+ */
 export function listBots(db?: Database): BotDefinition[] {
+  const base = baseBots(db)
+  const map = readInstallSlugMap(db)
+  return Object.keys(map).length ? applyInstallSlugs(base, map) : base
+}
+
+function baseBots(db?: Database): BotDefinition[] {
   if (!db) return BUILT_IN_BOTS
   let raw: string | null = null
   try {

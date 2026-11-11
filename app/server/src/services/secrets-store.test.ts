@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
+import { clearSecretAuditLogForTests } from '../__fixtures__/secret-audit-log.js'
 import os from 'os'
 import path from 'path'
 
@@ -22,9 +23,8 @@ beforeAll(() => {
 })
 
 beforeEach(() => {
-  getDb().exec(
-    'DELETE FROM secret_access_log; DELETE FROM secret_versions; DELETE FROM secrets; DELETE FROM users;',
-  )
+  clearSecretAuditLogForTests(getDb())
+  getDb().exec('DELETE FROM secret_versions; DELETE FROM secrets; DELETE FROM users;')
   seedUser(1, 'admin')
   seedUser(7, 'eva')
 })
@@ -243,7 +243,7 @@ describe('secrets-store scope changes (moveSecret)', () => {
 
   it('writes paired move-from / move-to audit rows', () => {
     store.setSecret({ scope: EXAMPLE, key: 'AUDITED', value: 'audited-plaintext', actorUserId: 1 })
-    getDb().exec('DELETE FROM secret_access_log;')
+    clearSecretAuditLogForTests(getDb())
 
     store.moveSecret(EXAMPLE, 'AUDITED', USER7, 1)
 
@@ -277,7 +277,7 @@ describe('secrets-store audit log', () => {
   it('resolveSecrets writes one inject row per key only when audit:true', () => {
     store.setSecret({ scope: { scopeType: 'global' }, key: 'A', value: 'a' })
     store.setSecret({ scope: { scopeType: 'global' }, key: 'B', value: 'b' })
-    getDb().exec('DELETE FROM secret_access_log;')
+    clearSecretAuditLogForTests(getDb())
 
     store.resolveSecrets({ workspace: 'example', userId: 7 }) // audit off (default)
     expect(store.recentAccessLog().length).toBe(0)

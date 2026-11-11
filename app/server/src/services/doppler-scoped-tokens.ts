@@ -20,7 +20,7 @@
  *    mirroring userGitIdentityEnv's contract).
  *  - Rows are populated out-of-band by
  *    `scripts/provision-scoped-doppler-tokens.ts` (DRY-RUN by default; minting live
- *    tokens + writing live rows is an explicit, Mike-gated step). This module does
+ *    tokens + writing live rows is an explicit, Operator-gated step). This module does
  *    not mint anything; it only stores/reads what the provisioning step supplies.
  */
 

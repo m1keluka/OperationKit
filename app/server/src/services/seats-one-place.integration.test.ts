@@ -127,7 +127,7 @@ afterEach(() => {
 
 describe('a Claude CLI-login seat while sessions run sandboxed', () => {
   it('is reported as needing "Sign in with Claude", not healthy-but-unavailable', async () => {
-    const seat = cliLoginClaudeSeat('Mike biz')
+    const seat = cliLoginClaudeSeat('Operator biz')
     process.env.SESSION_ISOLATION = 'docker'
     const s = await seatSummary(seat.id)
     expect(s.available).toBe(false)

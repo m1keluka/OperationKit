@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, type ReactNode } from 'react'
+import { agentsTabRoute } from '../lib/routes'
 import { useSearchParams } from 'react-router-dom'
 import { AlertTriangle, Check, Copy, FileWarning, Network, List, Users } from 'lucide-react'
 import type { Workspace } from '@operationkit/shared'
@@ -57,6 +58,8 @@ interface AgentsPageProps {
   fixture?: BoardLayerPayload
   /** Test seam: resolve layer-file reads without the API. */
   loadFile?: (kind: LayerFileKind, slug: string, workspace?: string) => Promise<LayerFile>
+  /** Rendered as a tab inside the one Agents page (obj 900495): no page chrome of its own. */
+  embedded?: boolean
 }
 
 type NodeKind = LayerFileKind
@@ -81,7 +84,7 @@ const VIEW_TABS: TabItem[] = [
   { key: 'graph', label: 'Graph' },
 ]
 
-export function AgentsPage({ workspace, fixture, loadFile }: AgentsPageProps) {
+export function AgentsPage({ workspace, fixture, loadFile, embedded = false }: AgentsPageProps) {
   const [params, setParams] = useSearchParams()
   const { projects } = useProjects(workspace)
 
@@ -166,18 +169,27 @@ export function AgentsPage({ workspace, fixture, loadFile }: AgentsPageProps) {
     ? `All of ${workspace}`
     : data?.scope.project_name ?? projects.find(p => String(p.id) === projectParam)?.name ?? `Project ${projectParam}`
 
+  // Inside the one Agents page the hub owns the title and the Registry tab;
+  // standalone (tests, old embeds) it keeps its own page chrome.
+  const Shell = embedded ? EmbeddedShell : WideContainer
   return (
-    <PageContainer width="wide">
-      <PageHeader
-        title="Agents"
-        breadcrumbs={[{ label: workspace }, { label: 'Agents' }]}
-        description="The agent, skill and tool markdown a project's sessions actually run on. Read-only — the roster and assignments live in Settings."
-        actions={
-          <Button variant="ghost" size="sm" onClick={() => { window.location.assign('/settings/agents') }}>
-            Agent registry ›
-          </Button>
-        }
-      />
+    <Shell>
+      {embedded ? (
+        <p className="mb-4 max-w-3xl text-[13px] leading-relaxed text-fg-2">
+          The agent, skill and tool markdown a project's sessions actually run on. Read-only — edit the roster in the Registry tab.
+        </p>
+      ) : (
+        <PageHeader
+          title="Agents"
+          breadcrumbs={[{ label: workspace }, { label: 'Agents' }]}
+          description="The agent, skill and tool markdown a project's sessions actually run on. Read-only — the roster and assignments live in the Registry tab."
+          actions={
+            <Button variant="ghost" size="sm" onClick={() => { window.location.assign(agentsTabRoute('registry')) }}>
+              Agent registry ›
+            </Button>
+          }
+        />
+      )}
 
       <Toolbar
         className="mb-4"
@@ -281,8 +293,16 @@ export function AgentsPage({ workspace, fixture, loadFile }: AgentsPageProps) {
           </div>
         </>
       )}
-    </PageContainer>
+    </Shell>
   )
+}
+
+function WideContainer({ children }: { children: ReactNode }) {
+  return <PageContainer width="wide">{children}</PageContainer>
+}
+
+function EmbeddedShell({ children }: { children: ReactNode }) {
+  return <>{children}</>
 }
 
 // ── Loading ────────────────────────────────────────────────────────────────

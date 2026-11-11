@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, Fragment, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
+import { useState, useRef, useEffect, useMemo, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
 import { Check, Moon, Sun } from 'lucide-react'
 import { useBoardTheme } from '../preview/BoardShell'
 import { useAuth } from '../context/AuthContext'
@@ -9,6 +9,7 @@ import { CommandPalette } from './CommandPalette'
 import { AlertBell } from './AlertBell'
 import { NavIcon, type NavIconName } from './nav-icons'
 import { HAS_CHAT_PAGE } from '../lib/optional-pages'
+import { SYSTEM_ROUTE, LEGACY_SYSTEM_ROUTES, AGENTS_ROUTE, JOBS_ROUTE, agentsTabRoute } from '../lib/routes'
 
 interface LayoutProps {
   children: ReactNode
@@ -18,42 +19,32 @@ interface LayoutProps {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Navigation IA (W17)
+   Navigation IA (Sprint 4a, obj 900495)
    ----------------------------------------------------------------------------
-   ONE source of truth: NAV_GROUPS. Sections are grouped by *kind* so the
-   structure stays coherent as sections are added:
+   Two places, one model each:
 
-     • primary — Bots (when the bot chat page is in the build), Board,
-                 Knowledge base, Content (content owners only), Jobs
-     • more    — Archive, Agents, Dashboard. Settings lives in the user menu.
-       Unfinished surfaces (Contacts, Strategies, Development, Notes, Status,
-       Feed) stay routed + ⌘K-able but are not in the chrome.
+     • NAV_GROUPS — the primary bar: Bots (when the chat page is in the build),
+       Board, Knowledge base, Jobs. The desktop top bar and the 390px bottom
+       bar render the same ≤4 items. There is no "More" group any more.
+     • ACCOUNT_MENU — the avatar dropdown, the same menu on desktop and mobile:
+       Settings and Archive for everyone, then an Admin section (System,
+       Agents) for global admins. Everything that used to sit under "More"
+       lives here; the old → new table is docs/navigation/sprint-4a-navigation.md.
 
-   Each item declares its permission `gate` (preserved exactly from the prior
-   nav) and a `mobile` placement. Both viewports render from this same model:
-
-     • Mobile bottom bar — at most 5 hits: the first four visible
-       `mobile:'tab'` items (Bots, Board, Knowledge base, then Content or Jobs)
-       + a grouped "More" overflow holding every `mobile:'more'` item and any
-       tab past the fourth. ≤5 tabs is a hard constraint (390px).
-     • Desktop top bar — has more room, so the Work / Automation / Directory
-       groups render inline (hairline-separated) and the System group collapses
-       into a single "System ▾" overflow — the desktop counterpart of "More".
-
-   Same grouping, different overflow threshold per viewport = responsive IA.
+   Unfinished surfaces (Contacts, Strategies, Development, Notes, Status, Feed)
+   stay routed + ⌘K-able but are not in the chrome.
    ───────────────────────────────────────────────────────────────────────── */
 
-type NavGate = 'admin' | 'chat' | 'content'
+type NavGate = 'admin' | 'chat'
 
 interface NavItem {
   href: string
   label: string
-  /** Shorter label for the 390px bottom bar, where five tabs share the width. */
+  /** Shorter label for the 390px bottom bar, where the tabs share the width. */
   shortLabel?: string
   icon: NavIconName
   aliases: string[]
   gate?: NavGate
-  mobile: 'tab' | 'more'
 }
 
 interface NavGroup {
@@ -69,38 +60,31 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       // Talking to a bot is how most people use the product, so it leads. Gated on the page being in
       // the build. The href stays /chat (obj 900327): the label was renamed, the URL is a bookmark.
-      { href: '/chat',      label: 'Bots',           icon: 'chat',  aliases: [],        gate: 'chat',  mobile: 'tab' },
-      { href: '/',          label: 'Board',          icon: 'board', aliases: [],                       mobile: 'tab' },
-      { href: '/knowledge', label: 'Knowledge base', shortLabel: 'Knowledge', icon: 'docs', aliases: ['/docs'], mobile: 'tab' },
-      // Content is per-person provisioning (a `content_owners` row), not a role: Ava is a
-      // member and still gets it; nobody without a row ever sees it. It sits before Jobs so
-      // owners keep it as a bottom-bar tab. Worst case (admin + content owner) is Bots, Board,
-      // Knowledge base, Content + More = 5: Jobs spills into More (MOBILE_TAB_CAP below).
-      { href: '/granola',   label: 'Content',        icon: 'content', aliases: [],      gate: 'content', mobile: 'tab' },
-      { href: '/jobs',      label: 'Jobs',           icon: 'jobs',  aliases: [],        gate: 'admin', mobile: 'tab' },
-    ],
-  },
-  {
-    id: 'more',
-    label: 'More',
-    items: [
-      { href: '/archive',   label: 'Archive',   icon: 'archive',   aliases: [],                        mobile: 'more' },
-      { href: '/agents',    label: 'Agents',    icon: 'system',    aliases: [],       gate: 'admin',   mobile: 'more' },
-      { href: '/agent-templates', label: 'Templates', icon: 'config', aliases: [], gate: 'admin', mobile: 'more' },
-      { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', aliases: ['/costs'], gate: 'admin', mobile: 'more' },
+      { href: '/chat',      label: 'Bots',           icon: 'chat',  aliases: [],        gate: 'chat' },
+      { href: '/',          label: 'Board',          icon: 'board', aliases: [] },
+      { href: '/knowledge', label: 'Knowledge base', shortLabel: 'Knowledge', icon: 'docs', aliases: ['/docs'] },
+      // Worst case (admin) is Bots, Board, Knowledge base, Jobs = 4 tabs at 390px.
+      { href: JOBS_ROUTE,   label: 'Jobs',           icon: 'jobs',  aliases: [],        gate: 'admin' },
     ],
   },
 ]
 
-// Mobile bottom bar: this many tabs + "More" = the 5-hit cap at 390px.
-const MOBILE_TAB_CAP = 4
+/** One row of the avatar dropdown. */
+export interface AccountMenuItem {
+  href: string
+  label: string
+  icon: NavIconName
+  /** Other paths that should light this row up (old URLs that redirect here). */
+  aliases: string[]
+  /** 'admin' rows render under an "Admin" label, for global admins only. */
+  section: 'account' | 'admin'
+}
 
-// Desktop overflow (the counterpart of mobile "More").
-const DESKTOP_MENU_GROUP = 'more'
-
-// One Settings entry in the user menu. Tabs inside /settings cover You / Secrets / Org.
-const SETTINGS_NAV: { href: string; label: string; always?: boolean }[] = [
-  { href: '/settings', label: 'Settings', always: true },
+export const ACCOUNT_MENU: AccountMenuItem[] = [
+  { href: '/settings',   label: 'Settings', icon: 'config',    aliases: [],                          section: 'account' },
+  { href: '/archive',    label: 'Archive',  icon: 'archive',   aliases: [],                          section: 'account' },
+  { href: SYSTEM_ROUTE,  label: 'System',   icon: 'dashboard', aliases: [...LEGACY_SYSTEM_ROUTES],    section: 'admin' },
+  { href: AGENTS_ROUTE,  label: 'Agents',   icon: 'system',    aliases: ['/agent-templates'],         section: 'admin' },
 ]
 
 // Parked surfaces: still in the app, not in the chrome. ⌘K is the back door.
@@ -122,19 +106,15 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   // Intercept plain left-clicks on nav anchors → in-app navigation (no reload).
   // Modified clicks (cmd/ctrl/shift/alt) and non-primary buttons fall through to
   // the real <a href> so middle/cmd-click still opens a new tab and URLs stay
-  // shareable. Closes any open overflow menus on a successful in-app nav.
+  // shareable. Closes any open menus on a successful in-app nav.
   const onNavClick = (href: string) => (e: ReactMouseEvent<HTMLAnchorElement>) => {
     if (e.defaultPrevented) return
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
     e.preventDefault()
     navigate(href)
-    setSystemMenuOpen(false)
-    setMobileMoreOpen(false)
     setUserMenuOpen(false)
   }
   const isAdmin = user?.role === 'admin'
-  // Content surface access — set by GET /api/auth/me from the `content_owners` table.
-  const hasContent = user?.has_content === true
   const { theme, toggleTheme } = useBoardTheme()
   const showWorkspace =
     currentPath === '/' || currentPath === '/feed' || currentPath === '/archive'
@@ -146,58 +126,30 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     return user?.workspaces?.some(w => w.role === 'admin') ?? false
   }, [isAdmin, user?.workspaces])
 
-  // Settings entries the caller may actually see: always-on (e.g. Account) for
-  // everyone, admin-gated ones only when canSeeSettings. The "Settings" section
-  // renders whenever this is non-empty.
-  const visibleSettingsNav = useMemo(
-    () => SETTINGS_NAV.filter(item => item.always || canSeeSettings),
-    [canSeeSettings],
-  )
-
   // Apply permission gating once, against the single nav model.
   const gatePass = (item: NavItem) => {
     if (item.gate === 'admin') return isAdmin
     if (item.gate === 'chat') return HAS_CHAT_PAGE
-    if (item.gate === 'content') return hasContent
     return true
   }
 
-  // Gate-filtered groups (drop empty groups). Everything below derives from this.
-  const groups = useMemo(
-    () =>
-      NAV_GROUPS
-        .map(g => ({ ...g, items: g.items.filter(gatePass) }))
-        .filter(g => g.items.length > 0),
-    [isAdmin, hasContent]
+  const navItems = useMemo(
+    () => NAV_GROUPS.flatMap(g => g.items.filter(gatePass)),
+    [isAdmin]
   )
 
-  const allItems = useMemo(() => groups.flatMap(g => g.items), [groups])
-
-  // Desktop: inline groups vs. the System overflow menu.
-  const inlineGroups = useMemo(() => groups.filter(g => g.id !== DESKTOP_MENU_GROUP), [groups])
-  const systemGroup = useMemo(() => groups.find(g => g.id === DESKTOP_MENU_GROUP) ?? null, [groups])
-
-  // Mobile: ≤4 fixed tabs + a grouped "More" overflow with the rest (incl. any
-  // `mobile:'tab'` item past the fourth, so the bar never exceeds 5 hits).
-  const mobileTabs = useMemo(
-    () => allItems.filter(i => i.mobile === 'tab').slice(0, MOBILE_TAB_CAP),
-    [allItems]
-  )
-  const mobileMoreGroups = useMemo(
-    () =>
-      groups
-        .map(g => ({ ...g, items: g.items.filter(i => !mobileTabs.includes(i)) }))
-        .filter(g => g.items.length > 0),
-    [groups, mobileTabs]
-  )
+  // Avatar dropdown rows the caller may see: account rows for everyone, the
+  // Admin section for global admins only (same gate the items had under "More").
+  const accountRows = useMemo(() => ACCOUNT_MENU.filter(i => i.section === 'account'), [])
+  const adminRows = useMemo(() => (isAdmin ? ACCOUNT_MENU.filter(i => i.section === 'admin') : []), [isAdmin])
 
   const isActive = (item: NavItem) => {
     if (item.href === '/') return currentPath === '/' || /^\/w\//.test(currentPath) || /^\/o\//.test(currentPath)
-    if (item.href === '/settings') return currentPath.startsWith('/settings')
-    if (item.href === '/development') return currentPath.startsWith('/development')
-    if (item.href === '/strategies') return currentPath === '/strategies' || currentPath.startsWith('/strategy/')
     return currentPath === item.href || item.aliases.includes(currentPath)
   }
+  const isMenuActive = (item: AccountMenuItem) =>
+    currentPath === item.href || currentPath.startsWith(item.href + '/') || item.aliases.includes(currentPath)
+  const menuActive = [...accountRows, ...adminRows].some(isMenuActive)
 
   const availableWorkspaces = useMemo(() => {
     if (isAdmin) return ['all', ...wsSlugs] as Workspace[]
@@ -233,28 +185,29 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   }
 
   const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
-  const [systemMenuOpen, setSystemMenuOpen] = useState(false)
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const userMenuMobileRef = useRef<HTMLDivElement>(null)
-  const mobileMoreRef = useRef<HTMLDivElement>(null)
-  const systemMenuRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<HTMLDivElement>(null)
   const wsMobileRef = useRef<HTMLDivElement>(null)
 
-  // Outside-click handler
+  // Outside-click + Escape close the open menus.
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       const t = e.target as Node
       if (userMenuRef.current && !userMenuRef.current.contains(t) && userMenuMobileRef.current && !userMenuMobileRef.current.contains(t)) setUserMenuOpen(false)
-      if (mobileMoreRef.current && !mobileMoreRef.current.contains(t)) setMobileMoreOpen(false)
-      if (systemMenuRef.current && !systemMenuRef.current.contains(t)) setSystemMenuOpen(false)
       if (wsRef.current && !wsRef.current.contains(t) && wsMobileRef.current && !wsMobileRef.current.contains(t)) setWsDropdownOpen(false)
     }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { setUserMenuOpen(false); setWsDropdownOpen(false) }
+    }
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
   }, [])
 
   // ⌘K / Ctrl+K — desktop only via media-query gate; we still listen everywhere
@@ -270,15 +223,13 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
-  // ⌘K palette lists the FULL gated nav set (every group, incl. items that live
-  // under the System / More overflows) plus account settings.
+  // ⌘K palette lists the full gated nav set: primary bar, avatar menu, settings, parked pages.
   const paletteItems = useMemo(() => {
-    const items = allItems.map(n => ({
+    const items = [...navItems, ...accountRows, ...adminRows].map(n => ({
       label: n.label,
       hint: n.href,
       onSelect: () => { navigate(n.href) },
     }))
-    items.push({ label: 'Settings', hint: '/settings', onSelect: () => { navigate('/settings') } })
     items.push({ label: 'Connectors', hint: '/settings/connectors', onSelect: () => { navigate('/settings/connectors') } })
     if (canSeeSettings) {
       items.push({ label: 'Secrets', hint: '/settings/secrets', onSelect: () => { navigate('/settings/secrets') } })
@@ -286,7 +237,8 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     if (isAdmin) {
       items.push(
         { label: 'Org settings', hint: '/settings/org', onSelect: () => { navigate('/settings/org') } },
-        { label: 'Agent registry', hint: '/settings/agents', onSelect: () => { navigate('/settings/agents') } },
+        { label: 'Agent registry', hint: agentsTabRoute('registry'), onSelect: () => { navigate(agentsTabRoute('registry')) } },
+        { label: 'Agent templates', hint: agentsTabRoute('templates'), onSelect: () => { navigate(agentsTabRoute('templates')) } },
       )
     }
     for (const extra of PALETTE_ONLY) {
@@ -294,9 +246,33 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       items.push({ label: extra.label, hint: extra.href, onSelect: () => { navigate(extra.href) } })
     }
     return items
-  }, [allItems, canSeeSettings, isAdmin, navigate])
+  }, [navItems, accountRows, adminRows, canSeeSettings, isAdmin, navigate])
 
-  const systemActive = systemGroup?.items.some(isActive) ?? false
+  // The avatar dropdown body — identical on desktop and mobile (rowClass sets the touch height).
+  const renderAccountMenu = (rowClass: string) => (
+    <>
+      {accountRows.map(item => (
+        <AccountMenuRow key={item.href} item={item} active={isMenuActive(item)} rowClass={rowClass} onClick={onNavClick(item.href)} />
+      ))}
+      {adminRows.length > 0 && (
+        <>
+          <div className="my-1 border-t border-line-soft" />
+          <div className="px-3 pb-0.5 pt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-fg-3">Admin</div>
+          {adminRows.map(item => (
+            <AccountMenuRow key={item.href} item={item} active={isMenuActive(item)} rowClass={rowClass} onClick={onNavClick(item.href)} />
+          ))}
+        </>
+      )}
+      <div className="my-1 border-t border-line-soft" />
+      <button
+        role="menuitem"
+        onClick={() => { logout(); setUserMenuOpen(false) }}
+        className={`w-full px-3 text-left text-sm text-fg-1 outline-none transition-colors duration-fast ease-out hover:bg-surface-2 hover:text-fg-0 focus-visible:bg-surface-2 ${rowClass}`}
+      >
+        Log out
+      </button>
+    </>
+  )
 
   return (
     // overflow-x-hidden: platform-wide guarantee that no route can introduce a
@@ -304,75 +280,27 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     <div className="flex h-full flex-col overflow-x-hidden bg-surface-0">
       {/* ── Desktop top bar ── */}
       <header className="hidden items-center justify-between border-b border-line bg-surface-1 px-5 py-2 sm:flex">
-        {/* Left: brand + grouped primary nav */}
-        <div className="flex items-center gap-0.5">
+        {/* Left: brand + primary nav */}
+        <nav aria-label="Primary" className="flex items-center gap-0.5">
           <a href="/" aria-label="OperationKit" onClick={onNavClick('/')} className="mr-2 text-[20px] font-bold leading-none tracking-tight text-accent">›</a>
-          {inlineGroups.map((group, gi) => (
-            <Fragment key={group.id}>
-              {gi > 0 && <span aria-hidden className="mx-1.5 h-4 w-px bg-line" />}
-              {group.items.map(item => {
-                const active = isActive(item)
-                return (
-                  <a
-                    key={item.href}
-                    href={item.href}
-                    onClick={onNavClick(item.href)}
-                    aria-current={active ? 'page' : undefined}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium outline-none transition-colors duration-fast ease-out focus-visible:ring-2 focus-visible:ring-accent/60 ${
-                      active ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
-                    }`}
-                  >
-                    <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-3.5 w-3.5" />
-                    {item.label}
-                  </a>
-                )
-              })}
-            </Fragment>
-          ))}
-
-          {/* System overflow — desktop counterpart of mobile "More" */}
-          {systemGroup && (
-            <>
-              <span aria-hidden className="mx-1.5 h-4 w-px bg-line" />
-              <div ref={systemMenuRef} className="relative">
-                <button
-                  onClick={() => setSystemMenuOpen(o => !o)}
-                  aria-haspopup="menu"
-                  aria-expanded={systemMenuOpen}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium outline-none transition-colors duration-fast ease-out focus-visible:ring-2 focus-visible:ring-accent/60 ${
-                    systemActive || systemMenuOpen ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
-                  }`}
-                >
-                  <NavIcon name="system" variant={systemActive ? 'solid' : 'outline'} className="h-3.5 w-3.5" />
-                  {systemGroup.label}
-                  <NavIcon name="chevron" className="h-3 w-3 text-fg-3" />
-                </button>
-                {systemMenuOpen && (
-                  <div role="menu" className="absolute left-0 top-full z-50 mt-1.5 w-48 rounded-md border border-line bg-surface-1 py-1 shadow-pop">
-                    {systemGroup.items.map(item => {
-                      const active = isActive(item)
-                      return (
-                        <a
-                          key={item.href}
-                          href={item.href}
-                          onClick={onNavClick(item.href)}
-                          role="menuitem"
-                          aria-current={active ? 'page' : undefined}
-                          className={`flex items-center gap-2 px-3 py-1.5 text-sm outline-none transition-colors duration-fast ease-out focus-visible:bg-surface-3 ${
-                            active ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
-                          }`}
-                        >
-                          <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-4 w-4 text-fg-3" />
-                          {item.label}
-                        </a>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
+          {navItems.map(item => {
+            const active = isActive(item)
+            return (
+              <a
+                key={item.href}
+                href={item.href}
+                onClick={onNavClick(item.href)}
+                aria-current={active ? 'page' : undefined}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium outline-none transition-colors duration-fast ease-out focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                  active ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
+                }`}
+              >
+                <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-3.5 w-3.5" />
+                {item.label}
+              </a>
+            )
+          })}
+        </nav>
 
         {/* Center: ⌘K trigger + workspace dropdown */}
         <div className="flex items-center gap-2">
@@ -428,7 +356,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
           )}
         </div>
 
-        {/* Right: alerts + user menu (account only — navigation lives in the bar) */}
+        {/* Right: notifications, theme, avatar menu (Settings, Archive, Admin → System / Agents) */}
         {user && (
           <div className="flex items-center gap-1">
             <AlertBell />
@@ -443,7 +371,12 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
           <div ref={userMenuRef} className="relative">
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-2 outline-none transition-colors duration-fast ease-out hover:bg-surface-2 hover:text-fg-0 focus-visible:ring-2 focus-visible:ring-accent/60"
+              aria-haspopup="menu"
+              aria-expanded={userMenuOpen}
+              aria-label="Account menu"
+              className={`inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors duration-fast ease-out focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                menuActive || userMenuOpen ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
+              }`}
             >
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/15 text-[11px] font-medium text-accent">
                 {user.username[0].toUpperCase()}
@@ -452,32 +385,14 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
               <NavIcon name="chevron" className="h-3 w-3 text-fg-3" />
             </button>
             {userMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1.5 w-48 rounded-md border border-line bg-surface-1 py-1 shadow-pop">
+              <div role="menu" className="absolute right-0 top-full z-50 mt-1.5 w-56 rounded-md border border-line bg-surface-1 py-1 shadow-pop">
                 <div className="border-b border-line-soft px-3 py-2">
                   <div className="text-sm font-medium text-fg-0">{user.username}</div>
                   {isAdmin && (
                     <span className="mt-0.5 inline-block rounded-sm bg-status-review/20 px-1.5 py-0.5 text-[10px] text-status-review">admin</span>
                   )}
                 </div>
-                {visibleSettingsNav.map(item => (
-                      <a
-                        key={item.href}
-                        href={item.href}
-                        onClick={onNavClick(item.href)}
-                        className={`block px-3 py-1.5 text-sm transition-colors duration-fast ease-out ${
-                          currentPath.startsWith(item.href) ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
-                        }`}
-                      >
-                        {item.label}
-                      </a>
-                    ))}
-                    {visibleSettingsNav.length > 0 && <div className="my-1 border-t border-line-soft" />}
-                <button
-                  onClick={() => { logout(); setUserMenuOpen(false) }}
-                  className="w-full px-3 py-1.5 text-left text-sm text-fg-1 transition-colors duration-fast ease-out hover:bg-surface-2 hover:text-fg-0"
-                >
-                  Logout
-                </button>
+                <div className="pt-1">{renderAccountMenu('py-1.5')}</div>
               </div>
             )}
           </div>
@@ -547,34 +462,24 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
           <div ref={userMenuMobileRef} className="relative">
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/15 text-[11px] font-medium text-accent"
+              aria-haspopup="menu"
+              aria-expanded={userMenuOpen}
+              aria-label="Account menu"
+              className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-medium text-accent ${
+                menuActive || userMenuOpen ? 'bg-accent/25 ring-1 ring-accent/50' : 'bg-accent/15'
+              }`}
             >
               {user.username[0].toUpperCase()}
             </button>
             {userMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1.5 w-44 rounded-md border border-line bg-surface-1 py-1 shadow-pop">
+              <div role="menu" className="absolute right-0 top-full z-50 mt-1.5 w-56 rounded-md border border-line bg-surface-1 py-1 shadow-pop">
                 <div className="border-b border-line-soft px-3 py-2">
                   <div className="text-sm font-medium text-fg-0">{user.username}</div>
+                  {isAdmin && (
+                    <span className="mt-0.5 inline-block rounded-sm bg-status-review/20 px-1.5 py-0.5 text-[10px] text-status-review">admin</span>
+                  )}
                 </div>
-                {visibleSettingsNav.map(item => (
-                      <a
-                        key={item.href}
-                        href={item.href}
-                        onClick={onNavClick(item.href)}
-                        className={`block px-3 py-2 text-sm ${
-                          currentPath.startsWith(item.href) ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
-                        }`}
-                      >
-                        {item.label}
-                      </a>
-                    ))}
-                    {visibleSettingsNav.length > 0 && <div className="my-1 border-t border-line-soft" />}
-                <button
-                  onClick={() => { logout(); setUserMenuOpen(false) }}
-                  className="w-full px-3 py-2 text-left text-sm text-fg-1 hover:bg-surface-2 hover:text-fg-0"
-                >
-                  Logout
-                </button>
+                <div className="pt-1">{renderAccountMenu('min-h-[44px]')}</div>
               </div>
             )}
           </div>
@@ -585,13 +490,14 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       {/* ── Main content ── */}
       <main className="flex-1 overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-0">{children}</main>
 
-      {/* ── Mobile bottom tab bar (≤5 hits: ≤4 tabs + More) ── */}
+      {/* ── Mobile bottom tab bar (≤4 tabs; the rest lives in the avatar menu) ── */}
       <nav
+        aria-label="Primary"
         className="fixed bottom-0 left-0 right-0 z-40 border-t border-line bg-surface-1 sm:hidden"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="flex items-stretch">
-          {mobileTabs.map(item => {
+          {navItems.map(item => {
             const active = isActive(item)
             return (
               <a
@@ -610,51 +516,6 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
               </a>
             )
           })}
-          {mobileMoreGroups.length > 0 && (
-            <div ref={mobileMoreRef} className="relative flex-1">
-              <button
-                onClick={() => setMobileMoreOpen(!mobileMoreOpen)}
-                aria-haspopup="menu"
-                aria-expanded={mobileMoreOpen}
-                className={`flex w-full flex-col items-center justify-center gap-0.5 py-2 transition-colors duration-fast ease-out ${
-                  mobileMoreGroups.some(g => g.items.some(isActive)) || mobileMoreOpen ? 'text-accent' : 'text-fg-2'
-                }`}
-                style={{ minHeight: 44 }}
-              >
-                <NavIcon name="more" className="h-5 w-5" />
-                <span className="text-[11px] font-medium">More</span>
-              </button>
-              {mobileMoreOpen && (
-                <div role="menu" className="absolute bottom-full right-1 z-50 mb-2 w-52 overflow-hidden rounded-md border border-line bg-surface-1 py-1 shadow-float">
-                  {mobileMoreGroups.map((group, gi) => (
-                    <Fragment key={group.id}>
-                      {gi > 0 && <div className="my-1 border-t border-line-soft" />}
-                      <div className="px-3 pb-0.5 pt-1 text-[10px] uppercase tracking-wider text-fg-3">{group.label}</div>
-                      {group.items.map(item => {
-                        const active = isActive(item)
-                        return (
-                          <a
-                            key={item.href}
-                            href={item.href}
-                            onClick={onNavClick(item.href)}
-                            role="menuitem"
-                            aria-current={active ? 'page' : undefined}
-                            className={`flex items-center gap-2.5 px-3 text-sm transition-colors duration-fast ease-out ${
-                              active ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
-                            }`}
-                            style={{ minHeight: 44 }}
-                          >
-                            <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-4 w-4 text-fg-3" />
-                            {item.label}
-                          </a>
-                        )
-                      })}
-                    </Fragment>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </nav>
 
@@ -668,3 +529,31 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     </div>
   )
 }
+
+function AccountMenuRow({
+  item,
+  active,
+  rowClass,
+  onClick,
+}: {
+  item: AccountMenuItem
+  active: boolean
+  rowClass: string
+  onClick: (e: ReactMouseEvent<HTMLAnchorElement>) => void
+}) {
+  return (
+    <a
+      href={item.href}
+      onClick={onClick}
+      role="menuitem"
+      aria-current={active ? 'page' : undefined}
+      className={`flex items-center gap-2.5 px-3 text-sm outline-none transition-colors duration-fast ease-out focus-visible:bg-surface-2 ${rowClass} ${
+        active ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
+      }`}
+    >
+      <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-4 w-4 text-fg-3" />
+      {item.label}
+    </a>
+  )
+}
+

@@ -97,7 +97,7 @@ export const EXAMPLE2_INSTANCE: DevFeedbackInstance = {
   statusPushIncludesId: false,
 }
 
-export const WEIGHT_SUPPLY_INSTANCE: DevFeedbackInstance = {
+export const EXAMPLE_PROJECT_INSTANCE: DevFeedbackInstance = {
   workspace: 'example-project',
   project: 'example-project-platform',
   agentContext: 'cto',
@@ -109,7 +109,7 @@ export const WEIGHT_SUPPLY_INSTANCE: DevFeedbackInstance = {
   statusPushIncludesId: true,
 }
 
-export const DEV_FEEDBACK_INSTANCES: readonly DevFeedbackInstance[] = [EXAMPLE2_INSTANCE, WEIGHT_SUPPLY_INSTANCE]
+export const DEV_FEEDBACK_INSTANCES: readonly DevFeedbackInstance[] = [EXAMPLE2_INSTANCE, EXAMPLE_PROJECT_INSTANCE]
 
 /** An instance with its env resolved — what the passes actually run against. */
 export interface ResolvedInstance {

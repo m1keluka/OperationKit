@@ -35,7 +35,7 @@ sufficient on its own:
 | 09:42:28 | Reviewer session `cc-review-900303-1794148948586` starts | session id epoch |
 | 09:44:47 | Last worker activity | `last_activity_at` |
 | **09:45:02** | **`ai_review_verdict=pass`, `status=done`** (one update, no `review` stop) | `updated_at` |
-| 09:58:20 | **Mike merges PR #651** (`merged_by: m1keluka`) | GitHub API |
+| 09:58:20 | **Operator merges PR #651** (`merged_by: m1keluka`) | GitHub API |
 | 09:58:22 | GitHub `pull_request.closed` (merged) delivered to CC → **200**, body `{"ok":true,"entryId":4756,"status":"draft"}` | hook delivery record |
 | 10:06 | CC PR log for #651 still `state=open`; same for #649 and #643 | internal rows |
 

@@ -11,6 +11,7 @@ import type {
   RollbackSecretRequest,
 } from '@operationkit/shared'
 import { SCOPE_LABELS, scopeQuery, type Scope } from './scope'
+import { AuditLogPanel } from './AuditLogPanel'
 
 interface VersionHistoryProps {
   /** The ROW's scope — history and rollback always address the row itself. */
@@ -57,7 +58,7 @@ export function VersionHistoryModal({ scope, secretKey, onClose, onRolledBack }:
   }
 
   return (
-    <Modal open onClose={onClose} variant="center" labelledBy="secret-history-title" panelClassName="max-w-lg bg-surface-raised">
+    <Modal open onClose={onClose} variant="center" labelledBy="secret-history-title" panelClassName="max-w-2xl bg-surface-raised">
       <div className="p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 id="secret-history-title" className="text-lg font-semibold text-fg-0">
@@ -114,6 +115,10 @@ export function VersionHistoryModal({ scope, secretKey, onClose, onRolledBack }:
             </tbody>
           </table>
         )}
+
+        {/* obj 900498 — this secret's own audit trail (who rotated / used / tried to reveal it). */}
+        <h3 className="mb-2 mt-5 text-xs font-medium uppercase tracking-wider text-fg-3">Activity</h3>
+        <AuditLogPanel scopeQuery={q} secretKey={secretKey} pageSize={20} />
       </div>
       {confirmDialog}
     </Modal>

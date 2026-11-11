@@ -47,6 +47,8 @@ const github: ConnectorDefinition = {
   id: 'github',
   name: 'GitHub',
   order: 10,
+  auth_path: 'api_key',
+  setup_guide: 'docs/connectors/guides/github.md',
   description:
     'Lets agents — in chat and on coding cards — open pull requests and push code as you, so the work is credited to your GitHub account. No separate GH_TOKEN secret is needed.',
   products: [

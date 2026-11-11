@@ -331,7 +331,7 @@ export function spawnInTmux(opts: {
   seatMount?: SeatMount | null        // seat pool v2: sandboxed Codex/Grok seat login dir to bind into the jail
 }): string {
   const { sessionId, homeDir, workdir, prompt, jsonlPath, logPath, env, effort, model, resumeSessionId, mcpConfigPath, settingsPath, worktreeRoot, objectiveId, seatEnv, seatMount } = opts
-  // SESSION_ISOLATION=docker → sibling-container jail. Unset/`tmux` (Mike's live
+  // SESSION_ISOLATION=docker → sibling-container jail. Unset/`tmux` (Operator's live
   // droplet default) keeps every line below byte-identical to the pre-flag path.
   const useJail = jailEnabled()
   const tmuxName = sessionId // use session ID as tmux session name

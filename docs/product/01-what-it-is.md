@@ -7,7 +7,7 @@ If you think in pictures, start with the chart. If you think in words, skip to *
 ```mermaid
 flowchart TB
   subgraph people["People"]
-    You["You / Ava"]
+    You["You / Casey"]
     Settings["Settings → You\nGitHub + Google"]
     You --> Settings
   end
@@ -58,15 +58,16 @@ Someone captures work (you, Assistant, a Job, a meeting). It becomes an **object
 
 ## Who it is for
 
-Mike and teammates (Ava, …). Everyone has their own login. Work is organized by **organization** (workspace): Example, Example Project, Example3, and others. A card is assigned to a person; that person is who the agent acts as for mail and git.
+Operator and teammates (Casey, …). Everyone has their own login. Work is organized by **organization** (workspace): Example, Example Project, Example3, and others. A card is assigned to a person; that person is who the agent acts as for mail and git.
 
 ## What you see every day
 
 - **Board** — create and run work
 - **Assistant** — talk to the system
 - **Jobs** — recurring work
-- **More → Content, Docs, Dashboard** — publish, vault, seats/spend/host
-- **Avatar → Settings** — You (GitHub, Google, assistant, personal secrets), Secrets, Org, Agents, Platform
+- **Knowledge base** — the vault
+- **Avatar menu** — Settings, Archive, and for admins **System** (AI usage, estimated spend, host health) and **Agents** (registry, board layer, templates). There is no "More" menu.
+- **Notifications (bell)** — unread / all, grouped by day
 
 Unfinished surfaces (Contacts, Strategies, Development, Notes, Status, Feed) still exist at their URLs and in ⌘K. They are not the product yet.
 

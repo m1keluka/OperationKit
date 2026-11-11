@@ -53,7 +53,7 @@ function db(): Database.Database {
     CREATE TABLE token_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, workspace TEXT NOT NULL, tokens INTEGER);
     CREATE TABLE no_workspace_here (id INTEGER PRIMARY KEY, note TEXT);
     INSERT INTO workspaces (slug, name) VALUES ('example','Example'), ('your-org','Example Growth'), ('operationkit','Operation Kit');
-    INSERT INTO users (id, username) VALUES (1,'mike'), (2,'jess'), (3,'sam');
+    INSERT INTO users (id, username) VALUES (1,'operator'), (2,'jess'), (3,'sam');
   `)
   return d
 }
@@ -112,7 +112,7 @@ describe('conflicts: the target always wins and is never modified', () => {
     s.run('workspace', 'your-org', 0, 'SHARED_KEY', 'enc:growth-newer')
     s.run('workspace', 'example', 0, 'ONLY_ON_EXAMPLE', 'enc:example-only')
     // Per-user connector scope: same key, two different users — must stay apart.
-    s.run('workspace_user', 'example', 1, 'GOOGLE_REFRESH_TOKEN', 'enc:mike')
+    s.run('workspace_user', 'example', 1, 'GOOGLE_REFRESH_TOKEN', 'enc:operator')
     s.run('workspace_user', 'example', 2, 'GOOGLE_REFRESH_TOKEN', 'enc:jess')
     d.prepare("INSERT INTO objectives (title, workspace) VALUES ('c','example')").run()
   })
@@ -133,7 +133,7 @@ describe('conflicts: the target always wins and is never modified', () => {
         | undefined
     // The target's newer value is untouched...
     expect(get('your-org', 'SHARED_KEY')?.v).toBe('enc:growth-newer')
-    // ...and the source's loser is still there, in place, for Mike to inspect.
+    // ...and the source's loser is still there, in place, for Operator to inspect.
     expect(get('example', 'SHARED_KEY')?.v).toBe('enc:example-old')
     // The one with no counterpart simply moves.
     expect(get('your-org', 'ONLY_ON_EXAMPLE')?.v).toBe('enc:example-only')
@@ -146,7 +146,7 @@ describe('conflicts: the target always wins and is never modified', () => {
       .prepare("SELECT user_id, value_encrypted v FROM secrets WHERE workspace='your-org' AND key='GOOGLE_REFRESH_TOKEN' ORDER BY user_id")
       .all()
     expect(rows).toEqual([
-      { user_id: 1, v: 'enc:mike' },
+      { user_id: 1, v: 'enc:operator' },
       { user_id: 2, v: 'enc:jess' },
     ])
   })

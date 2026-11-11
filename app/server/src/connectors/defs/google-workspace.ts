@@ -44,6 +44,8 @@ const googleWorkspace: ConnectorDefinition = {
   id: 'google-workspace',
   name: 'Google Workspace',
   order: 20,
+  auth_path: 'oauth_guided',
+  setup_guide: 'docs/connectors/guides/google-workspace.md',
   description:
     'Lets agents read and draft email, manage your calendar and work with your Drive files, as your Google account.',
   products: [

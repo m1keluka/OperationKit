@@ -31,6 +31,8 @@ import type {
   SecretSummary,
   SecretPrincipals,
   SetSecretRequest,
+  RotateSecretRequest,
+  SecretMetadataRequest,
   MoveSecretRequest,
 } from '@operationkit/shared'
 import {
@@ -63,6 +65,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
 
   const [key, setKey] = useState(editing?.key || '')
   const [value, setValue] = useState('')
+  const [description, setDescription] = useState(editing?.description ?? '')
   const [scopeType, setScopeType] = useState<SecretScopeType>(initialScope.scopeType)
   // Organizations are a SET even on the single-scope (edit/move) path, so the
   // target-scope derivation below never has to branch on mode.
@@ -95,6 +98,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
     userId: needsUser && userId ? Number(userId) : null,
   }
   const scopeChanged = isEdit && !sameScope(initialScope, target)
+  const descriptionChanged = isEdit && description.trim() !== (editing?.description ?? '').trim()
 
   function toggleOrg(slug: string) {
     setFanout(null)
@@ -115,6 +119,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
           userId: needsUser && userId ? Number(userId) : undefined,
           key: key.trim(),
           value,
+          ...(description.trim() ? { description: description.trim() } : {}),
         }
         try {
           await api.post<SecretSummary>('/secrets', body)
@@ -140,10 +145,11 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
     if (needsUser && ((multiOrg && !userId) || (!multiOrg && target.userId == null))) {
       setError('Pick a user for this scope.'); return
     }
-    // Value is optional ONLY when an edit is moving the secret to a new scope.
-    if (!value && !scopeChanged) {
+    // An edit may rotate the value, re-scope it, or change its description —
+    // any one is enough. A create always needs a value.
+    if (!value && !scopeChanged && !descriptionChanged) {
       setError(isEdit
-        ? 'Value is required (re-enter it — values are never fetched back), or change the scope instead.'
+        ? 'Nothing to save. Type a new value to rotate it (the current value is never shown), change the scope, or edit the description.'
         : 'Value is required.')
       return
     }
@@ -186,16 +192,31 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
         }
         await api.post<SecretSummary>('/secrets/move', move)
       }
-      // Then set a new version, but only if the operator actually typed one.
-      if (value) {
+      const addr = {
+        scopeType: target.scopeType,
+        workspace: target.workspace ?? undefined,
+        userId: target.userId ?? undefined,
+        key: key.trim(),
+      }
+      if (!isEdit) {
         const body: SetSecretRequest = {
-          scopeType: target.scopeType,
-          workspace: target.workspace ?? undefined,
-          userId: target.userId ?? undefined,
-          key: key.trim(),
+          ...addr,
           value,
+          ...(description.trim() ? { description: description.trim() } : {}),
         }
         await api.post<SecretSummary>('/secrets', body)
+      } else if (value) {
+        // Rotate: replace the value of THIS secret. The endpoint refuses to
+        // create, so a stale row can never turn into a new secret here.
+        const body: RotateSecretRequest = {
+          ...addr,
+          value,
+          ...(descriptionChanged ? { description: description.trim() || null } : {}),
+        }
+        await api.post<SecretSummary>('/secrets/rotate', body)
+      } else if (descriptionChanged) {
+        const body: SecretMetadataRequest = { ...addr, description: description.trim() || null }
+        await api.patch<SecretSummary>('/secrets/metadata', body)
       }
       await onSaved()
     } catch (err) {
@@ -215,7 +236,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
       <div className="p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 id="secret-title" className="text-lg font-semibold text-fg-0">
-            {isEdit ? 'Edit Secret' : 'New Secret'}
+            {isEdit ? 'Edit secret' : 'New secret'}
           </h2>
           <button onClick={onClose} className="text-fg-3 hover:text-fg-1" type="button">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -390,18 +411,50 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
           </div>
 
           <div>
-            <label className="mb-1 block text-xs text-fg-2">Value</label>
+            <label htmlFor="secret-description" className="mb-1 block text-xs text-fg-2">
+              Description <span className="text-fg-3">(optional)</span>
+            </label>
             <input
+              id="secret-description"
+              type="text"
+              value={description}
+              maxLength={500}
+              onChange={e => setDescription(e.target.value)}
+              data-testid="modal-description"
+              placeholder="What is this for? e.g. Stripe live key — billing worker"
+              className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
+            />
+            <p className="mt-1 text-[11px] text-fg-3">Visible to anyone who can see this secret. Never put the value here.</p>
+          </div>
+
+          <div>
+            <label htmlFor="secret-value" className="mb-1 block text-xs text-fg-2">
+              {isEdit ? 'New value (rotate)' : 'Value'}
+            </label>
+            {isEdit && (
+              <div
+                data-testid="modal-current-value"
+                className="mb-1.5 flex items-center justify-between rounded border border-dashed border-border bg-surface px-2 py-1.5 text-xs text-fg-3"
+              >
+                <span>Current value: <span className="font-mono">{'••••••••'}</span> (v{editing?.version})</span>
+                <span className="text-[11px]">write-only — never shown</span>
+              </div>
+            )}
+            <input
+              id="secret-value"
               type="password"
-              autoComplete="off"
+              autoComplete="new-password"
+              spellCheck={false}
               value={value}
               onChange={e => setValue(e.target.value)}
-              placeholder={isEdit ? 're-enter the value to set a new version' : 'secret value'}
+              data-testid="modal-value"
+              placeholder={isEdit ? 'type a new value to rotate' : 'secret value'}
               className="w-full rounded border border-border bg-surface px-2 py-1.5 font-mono text-sm text-fg-0 outline-none focus:border-accent"
             />
             <p className="mt-1 text-[11px] text-fg-3">
-              Stored encrypted. The value is never returned by the API — to change it, type a new one.
-              {isEdit && ' Leave the value blank to change only the scope.'}
+              Stored encrypted. The value is never returned by the API or shown again.
+              {isEdit && ' Rotating saves a new version; the old one stays in History (encrypted) so you can roll back.'}
+              {isEdit && ' Leave it blank to change only the scope or description.'}
             </p>
           </div>
 
@@ -416,7 +469,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               {saving
                 ? 'Saving...'
                 : isEdit
-                  ? (scopeChanged && !value ? 'Move' : 'Update')
+                  ? (value ? 'Rotate value' : scopeChanged ? 'Move' : 'Save')
                   : multiOrg && workspaces.length > 1
                     ? `Create in ${workspaces.length} organizations`
                     : 'Create'}

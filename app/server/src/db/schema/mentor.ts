@@ -96,7 +96,7 @@ export function initMentorSchema(db: Database.Database): void {
 
   // ── Personal Assistant configs (obj 701700, Phase 1) ──────────────────────
   // Per-(user, workspace) assistant config that replaces the hardcoded
-  // single-user ("Mike"/Assistant) path in services/mentor-session.ts. Grain
+  // single-user ("Operator"/Assistant) path in services/mentor-session.ts. Grain
   // mirrors user_workspaces (PK user_id, workspace). Nested persona/autonomy/
   // arrays are stored as JSON-in-TEXT, matching mentor_threads.tags. Defaults
   // are fail-closed (read_only, no capabilities/connectors) at the column level;

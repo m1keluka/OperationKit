@@ -28,7 +28,7 @@ export function matchesAssigneeFilter(obj: AssigneeLike, selected: ReadonlySet<s
 }
 
 /** Distinct assignee usernames present across `objectives`, alpha-sorted.
- *  Derived from the data itself so arbitrary future users (Ava, …) appear
+ *  Derived from the data itself so arbitrary future users (Casey, …) appear
  *  automatically — nothing is hardcoded. */
 export function assigneeRoster(objectives: ReadonlyArray<AssigneeLike>): string[] {
   const set = new Set<string>()

@@ -153,7 +153,7 @@ export async function runDreamCycle(phase: string = 'all'): Promise<DreamCycleRe
  * Daily Session Retrospective phase (obj 705052).
  *
  * Gated on `dsr_enabled` (OFF by default) so this is a byte-for-byte no-op in
- * prod until Mike arms it. Wrapped in try/catch — a retro failure must NEVER
+ * prod until Operator arms it. Wrapped in try/catch — a retro failure must NEVER
  * abort `cleanup`/`index`/`health`, which are the phases that keep the DB from
  * growing unbounded. Objective creation is separately gated on `dsr_live`
  * inside runDailyRetro; with `dsr_enabled=1, dsr_live=0` the full detector +

@@ -6,7 +6,7 @@
 // sources: AUTO (the granola-intake session skill proposes candidate loops per meeting)
 // and MANUAL (the "New loop" button in the CC UI).
 //
-// Storage is Mike-only second-brain markdown — one file per loop under
+// Storage is Operator-only second-brain markdown — one file per loop under
 // workspaces/operator/loops/<slug>.md. This module READS those files for the
 // admin UI and WRITES them on manual-add / edit / status-move. It is a SEPARATE
 // stream from the granola-content engine: it never touches the drafts/hooks files

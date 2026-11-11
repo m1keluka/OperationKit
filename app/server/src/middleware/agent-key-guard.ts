@@ -18,7 +18,7 @@
  *      access is governed by vault:read / vault:write only.)
  *   3. Records every successful mutation under /api/objectives in
  *      objective_audit with the key label as actor, so the board can tell a
- *      Grok Bot's move from Mike's.
+ *      Grok Bot's move from Operator's.
  */
 import type { Response, NextFunction } from 'express'
 import type { AgentScope } from '@operationkit/shared'

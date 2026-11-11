@@ -24,9 +24,9 @@ afterEach(() => {
 
 describe('session start reasons', () => {
   it('a noted reason is recorded on spawn with its actor/detail and consumed', () => {
-    noteStartReason(1, 'board', 'mike', 'clicked Start')
+    noteStartReason(1, 'board', 'operator', 'clicked Start')
     const row = logSessionStart(db, { objectiveId: 1, sessionId: 'cc-1-a', kind: 'spawn' })!
-    expect(row).toMatchObject({ objective_id: 1, session_id: 'cc-1-a', kind: 'spawn', reason: 'board', actor: 'mike', detail: 'clicked Start' })
+    expect(row).toMatchObject({ objective_id: 1, session_id: 'cc-1-a', kind: 'spawn', reason: 'board', actor: 'operator', detail: 'clicked Start' })
     const next = logSessionStart(db, { objectiveId: 1, sessionId: 'cc-1-b', kind: 'spawn' })!
     expect(next.reason).toBe('unattributed')
     expect(next.actor).toBeNull()
@@ -65,7 +65,7 @@ describe('session start reasons', () => {
   it('a note older than the TTL expires to unattributed', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-10-12T10:00:00Z'))
-    noteStartReason(7, 'board', 'mike')
+    noteStartReason(7, 'board', 'operator')
     vi.setSystemTime(new Date('2026-10-12T10:01:59Z'))
     expect(takeStartReason(7, false).reason).toBe('board') // still inside 2 minutes
     vi.setSystemTime(new Date('2026-10-12T10:02:01Z'))

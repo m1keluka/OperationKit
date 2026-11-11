@@ -2,9 +2,9 @@
 
 Paste this into a Claude Project, a Grok custom bot, a ChatGPT custom GPT, or any assistant that can call HTTP. Fill the three variables at the top. The assistant becomes a **project-management layer** on OperationKit: it reads the board, creates cards, follows up, and only bothers the human for decisions.
 
-Never put a password in this prompt. Give the assistant **its own agent key**: Settings → You → **Agent keys** → *New agent key*, with a label naming the assistant, only the scopes it needs, and a workspace pin if it serves one company. Put the key in the host's secrets box, not in the prompt text. Step-by-step for Mike's Grok Bots: [bots/SETUP.md](./bots/SETUP.md).
+Never put a password in this prompt. Give the assistant **its own agent key**: Settings → You → **Agent keys** → *New agent key*, with a label naming the assistant, only the scopes it needs, and a workspace pin if it serves one company. Put the key in the host's secrets box, not in the prompt text. Step-by-step for Operator's Grok Bots: [bots/SETUP.md](./bots/SETUP.md).
 
-Mike’s standing Grok Bots. Names must match, and **each Bot has its own key**:
+Operator’s standing Grok Bots. Names must match, and **each Bot has its own key**:
 
 | Bot | Key label | Scopes | Workspaces |
 | --- | --- | --- | --- |
@@ -15,13 +15,13 @@ Mike’s standing Grok Bots. Names must match, and **each Bot has its own key**:
 | [Example Five](./bots/example5.md) | `Grok: Example Five` | board:read/write/start, vault:read/write | `example5` |
 | [Inbox](./bots/inbox.md) (optional) | `Grok: Inbox` | board:read/write | `example`, `operator` |
 
-No Bot has `board:done` or `board:delete`. Done is Mike's signature.
+No Bot has `board:done` or `board:delete`. Done is Operator's signature.
 
 Roles:
 
 - [General](./bots/general.md) — starred intake, routes, personal/`operator`
 - [Example](./bots/example.md) · [Example Project](./bots/example-project.md) · [example3](./bots/example2.md) · [Example Five](./bots/example5.md) — one company each
-- [Inbox](./bots/inbox.md) — two Gmails; Mike may DM it directly
+- [Inbox](./bots/inbox.md) — two Gmails; Operator may DM it directly
 
 ---
 
@@ -38,10 +38,10 @@ CC_TOKEN    = <your own agent key from Settings → You → Agent keys; starts w
 
 `<your-install-host>` is the address you open the app at in a browser. To confirm it, `curl -s https://<your-install-host>/api/health` answers `{"status":"ok",…,"commit":…}`.
 
-If `CC_TOKEN` is empty, Mike mints one for you in Command Center (Settings → You → Agent keys) and puts it in your secrets. Never ask him for his password.
+If `CC_TOKEN` is empty, Operator mints one for you in Command Center (Settings → You → Agent keys) and puts it in your secrets. Never ask him for his password.
 
-- **401** → your key was revoked. Ask Mike to mint a new one with the same label.
-- **403 with `missing_scope`** → your key isn't allowed to do that, e.g. `board:done`. Tell Mike what you wanted to do. Do not retry, and do not look for another route.
+- **401** → your key was revoked. Ask Operator to mint a new one with the same label.
+- **403 with `missing_scope`** → your key isn't allowed to do that, e.g. `board:done`. Tell Operator what you wanted to do. Do not retry, and do not look for another route.
 - **403 with `workspace`** → your key is pinned to other workspaces. Hand the work to the assistant that owns that workspace.
 - **First call in a chat:** `GET /api/auth/me`. `api_key` shows your `label`, `scopes` and `workspaces`, so you know what you may do before you try.
 

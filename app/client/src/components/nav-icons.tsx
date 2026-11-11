@@ -3,7 +3,7 @@ import type { SVGProps } from 'react'
 /* ─────────────────────────────────────────────────────────────────────────
    Nav-bar icons — Heroicons v2 (24px), reused verbatim (W19)
    ----------------------------------------------------------------------------
-   The navigation icon family was swapped from Lucide → Heroicons (Mike's pick
+   The navigation icon family was swapped from Lucide → Heroicons (Operator's pick
    from the small-things showcase). The glyph path data below is copied byte-for-
    byte from the APPROVED showcase rendering
    (operationkit-showcase/shared/icons-data.js → the `hero-outline` / `hero-solid`
@@ -12,7 +12,7 @@ import type { SVGProps } from 'react'
    Why a local component instead of the `@heroicons/react` package:
      • zero new dependency → a live deploy stays a zero-impact `frontend` build
        (no `rebuild`, no container churn, no risk to running tmux sessions);
-     • guaranteed parity with the exact glyphs Mike approved.
+     • guaranteed parity with the exact glyphs Operator approved.
 
    Active-state treatment mirrors the showcase's "Heroicons · outline→solid":
    idle tabs render the OUTLINE glyph, the active tab flips to the SOLID glyph —

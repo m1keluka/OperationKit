@@ -81,7 +81,7 @@ export function isContentOwner(userId: number): boolean {
 
 /**
  * The owner's Granola key, or null. Reads the user-scoped secret first and only
- * falls back to the process env for the LEGACY single-tenant owner — Mike's key
+ * falls back to the process env for the LEGACY single-tenant owner — Operator's key
  * predates this table and lives in Doppler as a global. A second owner never
  * inherits someone else's credential from the environment.
  */
@@ -192,7 +192,7 @@ export function routineTemplate(owner: ContentOwner): string {
     // `own`-visibility workspace only list objectives where they are the assignee or
     // the creator (objectives-crud), and routine-spawned rows carry neither — so
     // without this the content engine files a nightly objective its owner cannot
-    // open. Ava's first run (obj 710933) had to be reassigned by hand.
+    // open. Casey's first run (obj 710933) had to be reassigned by hand.
     assigned_user_id: owner.user_id,
   })
 }
