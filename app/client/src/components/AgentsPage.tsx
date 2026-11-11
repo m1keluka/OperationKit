@@ -195,7 +195,7 @@ export function AgentsPage({ workspace, fixture, loadFile, embedded = false }: A
         className="mb-4"
         left={
           <>
-            <label className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-fg-3">
+            <label className="flex items-center gap-2 text-[12px] font-medium uppercase tracking-[0.08em] text-fg-3">
               Project
               <select
                 aria-label="Project scope"
@@ -217,7 +217,7 @@ export function AgentsPage({ workspace, fixture, loadFile, embedded = false }: A
         }
         right={
           data ? (
-            <span className="font-mono text-[11px] text-fg-2">
+            <span className="font-mono text-[12px] text-fg-2">
               {data.agents.length} agents · {data.skills.length} skills · {data.tools.length} tools
             </span>
           ) : undefined
@@ -350,7 +350,7 @@ function MissingChip({ what = 'file missing' }: { what?: string }) {
 
 function PathLine({ path, exists }: { path: string; exists: boolean }) {
   return (
-    <div className="mt-1 flex items-center gap-1.5 break-all font-mono text-[10.5px] text-fg-3">
+    <div className="mt-1 flex items-center gap-1.5 break-all font-mono text-[12px] text-fg-3">
       {exists ? null : <FileWarning className="h-3 w-3 shrink-0 text-signal-alarm" aria-hidden="true" />}
       {path || <span className="italic">no path declared</span>}
     </div>
@@ -385,7 +385,7 @@ function NodeButton({
         <Badge tone={KIND_TONE[kind]}>{kind}</Badge>
         <span className="font-mono text-[12px] font-medium text-fg-0">{label}</span>
         {!exists && <MissingChip />}
-        {meta && <span className="text-[11px] text-fg-3">{meta}</span>}
+        {meta && <span className="text-[12px] text-fg-3">{meta}</span>}
       </div>
       <PathLine path={path} exists={exists} />
     </button>
@@ -450,7 +450,7 @@ function LayerList({
               </div>
 
               <div>
-                <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-fg-3">
+                <div className="mb-1.5 text-[12px] font-medium uppercase tracking-[0.08em] text-fg-3">
                   Skills ({declared.length})
                 </div>
                 <div className="space-y-1.5">
@@ -573,7 +573,7 @@ function FileViewer({
         <div className="mt-2 flex items-start gap-2">
           <code
             data-testid="viewer-path"
-            className="min-w-0 flex-1 break-all rounded-md bg-surface-2 px-2 py-1.5 font-mono text-[11px] text-fg-2"
+            className="min-w-0 flex-1 break-all rounded-md bg-surface-2 px-2 py-1.5 font-mono text-[12px] text-fg-2"
           >
             {path || 'no path declared'}
           </code>
@@ -592,7 +592,7 @@ function FileViewer({
           </IconButton>
         </div>
         {file && (
-          <div className="mt-1.5 font-mono text-[10.5px] text-fg-3">{file.bytes} bytes</div>
+          <div className="mt-1.5 font-mono text-[12px] text-fg-3">{file.bytes} bytes</div>
         )}
       </div>
 
@@ -605,7 +605,7 @@ function FileViewer({
           <EmptyState
             icon={<FileWarning className="h-5 w-5" />}
             title="File missing on disk"
-            description={`${selection.slug} is declared in the layer graph but ${path || 'its path'} does not exist. This is a real defect in the OperationKit layer, not a display problem.`}
+            description={`${selection.slug} is declared in the layer graph but ${path || 'its path'} does not exist. This is a real defect in the agent layer, not a display problem.`}
           />
         )}
         {!loading && !error && !missing && file && (

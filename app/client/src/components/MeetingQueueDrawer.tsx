@@ -62,7 +62,7 @@ export function MeetingBell() {
       >
         <BellIcon className="h-5 w-5" />
         {count > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-signal-alarm px-1 text-[10px] font-medium text-fg-0 leading-none">
+          <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-signal-alarm px-1 text-[12px] font-medium text-fg-0 leading-none">
             {count > 99 ? '99+' : count}
           </span>
         )}
@@ -192,10 +192,10 @@ function MeetingQueueDrawer({ onClose, onItemResolved }: DrawerProps) {
 
                     {/* Workspace + priority badges */}
                     <div className="flex items-center gap-1.5 mb-2">
-                      <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${wsBadge}`}>
+                      <span className={`inline-block rounded px-1.5 py-0.5 text-[12px] font-medium ${wsBadge}`}>
                         {wsLabel}
                       </span>
-                      <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${priority.className}`}>
+                      <span className={`inline-block rounded px-1.5 py-0.5 text-[12px] font-medium ${priority.className}`}>
                         {priority.label}
                       </span>
                     </div>
@@ -209,7 +209,7 @@ function MeetingQueueDrawer({ onClose, onItemResolved }: DrawerProps) {
 
                     {/* Owner / deadline */}
                     {(item.owner || item.deadline) && (
-                      <div className="flex items-center gap-3 text-[11px] text-fg-3 mb-2">
+                      <div className="flex items-center gap-3 text-[12px] text-fg-3 mb-2">
                         {item.owner && <span>Owner: <span className="text-fg-2">{item.owner}</span></span>}
                         {item.deadline && <span>Due: <span className="text-fg-2">{item.deadline}</span></span>}
                       </div>
@@ -219,7 +219,7 @@ function MeetingQueueDrawer({ onClose, onItemResolved }: DrawerProps) {
                     <div className="flex items-center gap-2 mt-3">
                       <button
                         onClick={() => handleApprove(item.id)}
-                        className="flex-1 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-fg-0 hover:bg-accent/80 transition-colors duration-fast ease-out"
+                        className="flex-1 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg hover:bg-accent/80 transition-colors duration-fast ease-out"
                       >
                         Add to Board
                       </button>

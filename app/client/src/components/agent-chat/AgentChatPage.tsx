@@ -84,7 +84,7 @@ function AgentList({
   return (
     <nav aria-label="Bots" className="flex h-full flex-col">
       <div className="px-4 pb-2 pt-4">
-        <h1 className="font-display text-[18px] font-semibold tracking-[-0.02em] text-fg-0">Bots</h1>
+        <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-fg-0">Bots</h1>
         <p className="mt-0.5 text-[12.5px] text-fg-2">One ongoing conversation with each bot.</p>
       </div>
       <ul className="flex-1 space-y-1 overflow-y-auto px-2 pb-3">
@@ -397,7 +397,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
         <AgentAvatar agent={agent} />
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">{agent.name}</h2>
-          <p className="truncate text-[11.5px] text-fg-2">
+          <p className="truncate text-[12px] text-fg-2">
             Answers with <span className="text-fg-1">{answeredBy}</span>
             {agent.version && <span> · v{agent.version}</span>}
             {/* Named only in a side thread: the main conversation is the unlabelled default. */}
@@ -548,7 +548,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
                     type="button"
                     aria-label={`Remove ${i.name}`}
                     onClick={() => setImages(cur => cur.filter(x => x.key !== i.key))}
-                    className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-line bg-surface-0 text-[11px] leading-none text-fg-1 transition-colors duration-fast hover:border-line-strong hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                    className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-line bg-surface-0 text-[12px] leading-none text-fg-1 transition-colors duration-fast hover:border-line-strong hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                   >
                     ×
                   </button>
@@ -592,7 +592,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
               Send
             </Button>
           </div>
-          <p className="mt-1.5 hidden text-[11px] text-fg-2 sm:block">Enter to send · Shift+Enter for a new line · paste, drop or attach a screenshot · Email and calendar are always drafts until you press Send.</p>
+          <p className="mt-1.5 hidden text-[12px] text-fg-2 sm:block">Enter to send · Shift+Enter for a new line · paste, drop or attach a screenshot · Email and calendar are always drafts until you press Send.</p>
         </div>
       </form>
       {confirmDialog}

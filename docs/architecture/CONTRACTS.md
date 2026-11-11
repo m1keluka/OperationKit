@@ -17,7 +17,6 @@ A **refactor PR** may not change anything in this file. If a change is required,
 | `/api/mentor` | JWT + Assistant flag |
 | `/api/briefing` | JWT |
 | `/api/assistant` | JWT |
-| `/api/status` | JWT |
 | `/api/webhooks` | UptimeRobot (no JWT) |
 | `/api/webhooks/github` | HMAC raw body |
 | `/api/admin` | admin |
@@ -36,8 +35,6 @@ A **refactor PR** may not change anything in this file. If a change is required,
 | `/api/models` | JWT / admin patch |
 | `/api/contacts` | admin |
 | `/api/meeting-queue` | JWT |
-| `/api/loops` | admin |
-| `/api/scratchpad` | JWT, per-user |
 | `/api/granola-content` | admin |
 | `/api/test-credentials` | workspace-admin |
 | `/api/user/github-token` | JWT |
@@ -46,7 +43,6 @@ A **refactor PR** may not change anything in this file. If a change is required,
 | `/api/resource-assignments` | JWT |
 | `/changelog` | token-gated public |
 | `/api/public` | per-workspace ingest token + CORS |
-| `/api/dev-items` | admin |
 | `/api/dev-changelog` | admin |
 | `/shell` | admin |
 | `GET /api/objectives/:id/intel` | JWT + ownership |

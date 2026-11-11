@@ -23,7 +23,7 @@ export function SecretScopePicker({ id, value, onChange, workspace, disabled }: 
 }) {
   return (
     <fieldset className="space-y-1.5" disabled={disabled}>
-      <legend className="mb-1 text-[11px] font-medium uppercase tracking-wider text-fg-2">Save to</legend>
+      <legend className="mb-1 text-[12px] font-medium uppercase tracking-wider text-fg-2">Save to</legend>
       <div role="radiogroup" aria-describedby={`${id}-hint`} className="grid grid-cols-3 gap-1 rounded-md border border-line bg-surface-1 p-1">
         {SECRET_REQUEST_SCOPES.map(s => {
           const on = s === value
@@ -43,7 +43,7 @@ export function SecretScopePicker({ id, value, onChange, workspace, disabled }: 
           )
         })}
       </div>
-      <p id={`${id}-hint`} className="text-[11.5px] leading-snug text-fg-2">
+      <p id={`${id}-hint`} className="text-[12px] leading-snug text-fg-2">
         {value === 'workspace' ? (
           <>Only the <span className="font-medium text-fg-1">{workspace}</span> organization. {SCOPE_HINTS.workspace}</>
         ) : value === 'workspace_user' ? (
@@ -82,7 +82,7 @@ export function MaskedSecretInput({ id, value, onChange, autoFocus, disabled }: 
 /** One line of reassurance under every secret form. */
 export function SecretPrivacyNote() {
   return (
-    <p className="text-[11.5px] leading-snug text-fg-2">
+    <p className="text-[12px] leading-snug text-fg-2">
       Goes straight to the encrypted secrets store. It never enters this chat, the transcript, logs or the model — the session is only told the name.
     </p>
   )

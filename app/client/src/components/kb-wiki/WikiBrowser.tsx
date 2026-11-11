@@ -113,7 +113,7 @@ export function WikiBrowser({
             <section key={g.kind} aria-labelledby={`wiki-group-${g.kind}`} className="flex flex-col gap-1.5">
               <h4 id={`wiki-group-${g.kind}`} className="flex items-baseline gap-2 font-display text-[13.5px] font-semibold tracking-[-0.01em] text-fg-0">
                 {g.label}
-                <span className="font-mono text-[11px] font-normal text-fg-3">{g.pages.length}</span>
+                <span className="font-mono text-[12px] font-normal text-fg-3">{g.pages.length}</span>
               </h4>
               <ul className="flex flex-col divide-y divide-line-soft rounded-md border border-line-soft bg-surface-1">
                 {list.map(p => (

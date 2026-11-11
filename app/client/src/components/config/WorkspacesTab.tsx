@@ -309,7 +309,7 @@ export function WorkspacesTab() {
             <form onSubmit={createWorkspace} className="space-y-3 p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="space-y-1">
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-fg-3">Name</span>
+                  <span className="text-[12px] font-medium uppercase tracking-wider text-fg-3">Name</span>
                   <input
                     className={inputCls}
                     placeholder="Acme Co"
@@ -323,7 +323,7 @@ export function WorkspacesTab() {
                   />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-fg-3">Slug</span>
+                  <span className="text-[12px] font-medium uppercase tracking-wider text-fg-3">Slug</span>
                   <input
                     className={cn(inputCls, 'font-mono')}
                     placeholder="acme"
@@ -432,7 +432,7 @@ export function WorkspacesTab() {
                   <section>
                     <div className="mb-2 flex items-center justify-between">
                       <SectionLabel icon={<KeyRound className="h-3.5 w-3.5" />} className="mb-0">Agent pool</SectionLabel>
-                      {poolSaving === key && <span className="text-[11px] text-fg-3">saving…</span>}
+                      {poolSaving === key && <span className="text-[12px] text-fg-3">saving…</span>}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {agentsLoading && <Skeleton className="h-7 w-56" />}
@@ -455,12 +455,12 @@ export function WorkspacesTab() {
                         )
                       })}
                     </div>
-                    <p className="mt-1.5 text-[11px] text-fg-3">
+                    <p className="mt-1.5 text-[12px] text-fg-3">
                       {adminRecords[key].default_agent_pool.length === 0
                         ? 'Empty pool — every agent is allowed (legacy default).'
                         : 'Only agents above can be assigned to objectives in this organization.'}
                     </p>
-                    {poolError && poolSaving !== key && <p className="mt-1 text-[11px] text-signal-alarm">{poolError}</p>}
+                    {poolError && poolSaving !== key && <p className="mt-1 text-[12px] text-signal-alarm">{poolError}</p>}
                   </section>
                 )}
 
@@ -476,14 +476,14 @@ export function WorkspacesTab() {
                             <span className="text-[13px] font-medium text-fg-0">{repo.name}</span>
                             {repo.github && (
                               <a href={`https://github.com/${repo.github}`} target="_blank" rel="noopener noreferrer"
-                                 className="font-mono text-[11px] text-status-working hover:underline">{repo.github}</a>
+                                 className="font-mono text-[12px] text-status-working hover:underline">{repo.github}</a>
                             )}
                             {repo.stack.map(s => <Badge key={s} tone="neutral">{s}</Badge>)}
                             {repo.docs_enabled && <Badge tone="verify">living docs</Badge>}
                           </div>
-                          {repo.description && <p className="mt-0.5 text-[11px] text-fg-3">{repo.description}</p>}
+                          {repo.description && <p className="mt-0.5 text-[12px] text-fg-3">{repo.description}</p>}
                           {repo.repo_path && (
-                            <p className="mt-0.5 font-mono text-[11px] text-fg-3">{repo.repo_path} · {repo.docs_path || 'docs/product'}</p>
+                            <p className="mt-0.5 font-mono text-[12px] text-fg-3">{repo.repo_path} · {repo.docs_path || 'docs/product'}</p>
                           )}
                         </div>
                         {isAdmin && (
@@ -510,11 +510,11 @@ export function WorkspacesTab() {
                             <span className="text-[13px] font-medium text-fg-1">{proj.name}</span>
                             {proj.github && (
                               <a href={`https://github.com/${proj.github}`} target="_blank" rel="noopener noreferrer"
-                                 className="font-mono text-[11px] text-status-working hover:underline">{proj.github}</a>
+                                 className="font-mono text-[12px] text-status-working hover:underline">{proj.github}</a>
                             )}
                             {proj.stack.map(s => <Badge key={s} tone="neutral">{s}</Badge>)}
                           </div>
-                          {proj.description && <p className="mt-0.5 text-[11px] text-fg-3">{proj.description}</p>}
+                          {proj.description && <p className="mt-0.5 text-[12px] text-fg-3">{proj.description}</p>}
                         </div>
                         <Badge tone="neutral">config</Badge>
                       </div>
@@ -539,7 +539,7 @@ export function WorkspacesTab() {
                       </Button>
                     </form>
                   )}
-                  {repoError[key] && <p className="mt-1.5 text-[11px] text-signal-alarm">{repoError[key]}</p>}
+                  {repoError[key] && <p className="mt-1.5 text-[12px] text-signal-alarm">{repoError[key]}</p>}
                 </section>
 
                 {/* Connections (admin) — GitHub org + PostHog per workspace */}
@@ -551,7 +551,7 @@ export function WorkspacesTab() {
                 {contextContent[key] && (
                   <section>
                     <SectionLabel icon={<FileText className="h-3.5 w-3.5" />}>Context file</SectionLabel>
-                    <pre className="max-h-64 overflow-auto rounded-md border border-line bg-surface-1 p-3 font-mono text-[11px] leading-relaxed text-fg-2 whitespace-pre-wrap">
+                    <pre className="max-h-64 overflow-auto rounded-md border border-line bg-surface-1 p-3 font-mono text-[12px] leading-relaxed text-fg-2 whitespace-pre-wrap">
                       {contextContent[key]}
                     </pre>
                   </section>
@@ -703,7 +703,7 @@ function GithubConnect({ slug, integration, onChange, onRepoAdded }: {
                         {r.private && <Badge tone="amber">private</Badge>}
                         {r.language && <Badge tone="neutral">{r.language}</Badge>}
                       </div>
-                      <div className="truncate font-mono text-[11px] text-fg-3">{r.full_name}</div>
+                      <div className="truncate font-mono text-[12px] text-fg-3">{r.full_name}</div>
                     </div>
                     <Button size="sm" variant="secondary" disabled={picking === r.full_name}
                             onClick={() => pickRepo(r)} className="shrink-0">
@@ -712,7 +712,7 @@ function GithubConnect({ slug, integration, onChange, onRepoAdded }: {
                   </div>
                 ))}
               </div>
-              {pickerError && <p className="mt-1 px-1 text-[11px] text-signal-alarm">{pickerError}</p>}
+              {pickerError && <p className="mt-1 px-1 text-[12px] text-signal-alarm">{pickerError}</p>}
             </div>
           )}
         </div>

@@ -145,7 +145,7 @@ export function CostModule() {
             <div className="flex flex-wrap items-end gap-x-6 gap-y-1">
               <div>
                 <div className="font-mono text-3xl font-semibold tabular-nums text-fg-0">${data.totals.cost_usd.toFixed(2)}</div>
-                <div className="mt-1 font-mono text-[11px] text-fg-3">
+                <div className="mt-1 font-mono text-[12px] text-fg-3">
                   {data.start === data.end ? data.start : `${data.start} → ${data.end}`} · Eastern
                 </div>
               </div>
@@ -156,7 +156,7 @@ export function CostModule() {
 
             {data.by_account.length > 0 && (
               <div className="mt-4 border-t border-line-soft pt-3">
-                <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.1em] text-fg-3">By account</div>
+                <div className="mb-2 text-[12px] uppercase tracking-[0.1em] text-fg-3 font-semibold tracking-[0.06em]">By account</div>
                 <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-[13px]">
                   {data.by_account.map(a => (
                     <div key={a.account_id} className="text-fg-2">

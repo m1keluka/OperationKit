@@ -89,7 +89,7 @@ export function InputComposer({
               <button
                 key={label}
                 onClick={onClick}
-                className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-400 transition-colors hover:border-gray-500 hover:text-gray-200"
+                className="rounded-full border border-line px-3 py-1 text-xs text-fg-2 transition-colors hover:border-line-strong hover:text-fg-0"
               >
                 {label}
               </button>
@@ -107,7 +107,7 @@ export function InputComposer({
                 onRemove={onRemoveAttachment ? () => onRemoveAttachment(a.path) : undefined}
               />
             ))}
-            {attachmentError && <span className="text-xs text-red-400">{attachmentError}</span>}
+            {attachmentError && <span className="text-xs text-signal-alarm">{attachmentError}</span>}
           </div>
         )}
         <div
@@ -134,7 +134,7 @@ export function InputComposer({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="mb-1 shrink-0 rounded p-1 text-gray-500 hover:text-accent disabled:opacity-40 transition-colors"
+                className="mb-1 shrink-0 rounded p-1 text-fg-2 hover:text-accent disabled:opacity-40 transition-colors"
                 aria-label="Attach files"
               >
                 {uploading ? (
@@ -157,15 +157,15 @@ export function InputComposer({
             placeholder={isDragging ? 'Drop files to attach…' : (placeholder ?? 'Send a message...')}
             disabled={disabled || sending}
             rows={1}
-            className="flex-1 resize-none bg-transparent py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none disabled:opacity-50"
+            className="flex-1 resize-none bg-transparent py-1.5 text-sm text-fg-0 placeholder-fg-3 focus:outline-none disabled:opacity-50"
           />
           <div className="mb-1 flex shrink-0 items-center gap-2">
             {sending && <span className="text-xs text-accent">Sending…</span>}
-            {showCount && !sending && <span className="text-xs text-gray-500">{value.length.toLocaleString()}</span>}
+            {showCount && !sending && <span className="text-xs text-fg-2">{value.length.toLocaleString()}</span>}
             <button
               onClick={onSubmit}
               disabled={!canSend}
-              className="rounded-md bg-accent px-3 py-1 text-sm font-medium text-white transition hover:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md bg-accent px-3 py-1 text-sm font-medium text-accent-fg transition hover:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Send
             </button>

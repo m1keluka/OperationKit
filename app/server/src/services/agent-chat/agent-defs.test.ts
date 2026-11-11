@@ -3,7 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { parseMiniYaml, splitFrontMatter } from './mini-yaml.js'
-import { loadChatAgents, parseAgentText, normaliseKnowledgeFolder, DEMO_AGENT_SLUG } from './agent-defs.js'
+import { loadChatAgents, parseAgentText, normaliseKnowledgeFolder, DEMO_AGENT_SLUG, builtinsEnabled } from './agent-defs.js'
 
 describe('mini YAML reader', () => {
   it('reads the agent-file subset: scalars, flow + block lists, block strings, list of maps', () => {
@@ -98,6 +98,28 @@ describe('agent files', () => {
       expect(demo.source).toBe('demo')
       expect(demo.tools).toEqual(expect.arrayContaining(['email', 'calendar', 'create_objective']))
       expect(demo.knowledge_folders).toEqual(['demo/personal-assistant'])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('lists the built-in Knowledge Base Setup agent on every install; a file agent with the same slug replaces it (obj 900556)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-defs-builtin-'))
+    try {
+      const env = { AGENT_FILES_DIR: dir }
+      expect(loadChatAgents({ env }).agents).toEqual([])
+      const on = loadChatAgents({ env, includeBuiltins: true })
+      expect(on.problems).toEqual([])
+      const kb = on.agents.find(a => a.slug === 'kb-setup')!
+      expect(kb).toMatchObject({ name: 'Knowledge Base Setup', source: 'builtin', tools: [], knowledge_folders: [] })
+      expect(kb.system_prompt).toContain('/knowledge/setup')
+      fs.mkdirSync(path.join(dir, 'kb-setup'))
+      fs.writeFileSync(path.join(dir, 'kb-setup', 'agent.yaml'), 'name: Our KB setup\nsystem_prompt: Custom.\nknowledge_folders: [workspaces/acme]\ntools: [search]\n')
+      const custom = loadChatAgents({ env, includeBuiltins: true }).agents.filter(a => a.slug === 'kb-setup')
+      expect(custom).toHaveLength(1)
+      expect(custom[0]).toMatchObject({ name: 'Our KB setup', source: 'file' })
+      expect(builtinsEnabled({})).toBe(true)
+      expect(builtinsEnabled({ AGENT_CHAT_BUILTINS: '0' })).toBe(false)
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }

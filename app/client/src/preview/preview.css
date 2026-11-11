@@ -1,42 +1,13 @@
-/* Workspace preview — scoped tokens. This surface keeps its own neutral
-   "paper-desk" grey ramp (Docs/Drive feel) independent of the app shell's
-   brand surfaces, but brand/status colors always resolve to the global
-   Operation Kit tokens (index.css) — never a literal hex — so a re-brand
-   (env/config/Branding panel) still reaches this preview. */
+/* Workspace board / objective canvas. Reads the global semantic tokens
+   (index.css) for BOTH themes — it used to carry its own cool-grey light
+   ramp and its own data-theme, which is why the board and the header never
+   matched (obj 900543). The theme comes from <html data-theme> only. */
 
 .cc-ws {
   min-height: 100%;
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   background: var(--surface-0);
   color: var(--fg-0);
-}
-
-.cc-ws[data-theme='light'] {
-  color-scheme: light;
-  --surface-0: #f3f4f6;
-  --surface-1: #ffffff;
-  --surface-2: #ffffff;
-  --surface-3: #eef0f3;
-  --surface-4: #e5e8ee;
-  --fg-0: #1c1f26;
-  --fg-1: #3e4553;
-  --fg-2: #667085;
-  --fg-3: #98a2b3;
-  --line: #e4e7ec;
-  --line-soft: #eef0f3;
-  --line-strong: #d0d5dd;
-  /* accent / ok-signal / ok-verify / ok-amber / ok-alarm / st-* intentionally NOT
-     redeclared here — they inherit the global :root values (index.css), which is
-     how a re-brand (env/config/Branding panel) reaches this preview surface too. */
-  --st-planning: #6d5bd0;
-  --st-queue: #667085;
-  --st-working: #2563eb;
-  --st-ai: #0f9d8e;
-  --st-cancelled: #667085;
-}
-
-.cc-ws[data-theme='dark'] {
-  color-scheme: dark;
 }
 
 /* Tailwind still ships hardcoded dark hex. Remap the utilities we actually
@@ -56,17 +27,17 @@
 .cc-ws .border-line-soft { border-color: var(--line-soft) !important; }
 .cc-ws .border-line-strong { border-color: var(--line-strong) !important; }
 .cc-ws .bg-accent { background-color: var(--accent) !important; }
-.cc-ws .text-accent { color: var(--accent) !important; }
+.cc-ws .text-accent { color: var(--accent-text) !important; }
 .cc-ws .text-accent-fg { color: var(--accent-fg) !important; }
 .cc-ws .hover\:bg-accent-hover:hover { background-color: var(--accent-hover) !important; }
 .cc-ws .hover\:bg-accent:hover { background-color: var(--accent-hover) !important; }
-.cc-ws .text-status-planning { color: var(--st-planning) !important; }
-.cc-ws .text-status-queue { color: var(--st-queue) !important; }
-.cc-ws .text-status-working { color: var(--st-working) !important; }
-.cc-ws .text-status-ai { color: var(--st-ai) !important; }
-.cc-ws .text-status-review { color: var(--st-review) !important; }
-.cc-ws .text-status-human { color: var(--st-human) !important; }
-.cc-ws .text-status-done { color: var(--st-done) !important; }
+.cc-ws .text-status-planning { color: var(--t-planning) !important; }
+.cc-ws .text-status-queue { color: var(--t-queue) !important; }
+.cc-ws .text-status-working { color: var(--t-working) !important; }
+.cc-ws .text-status-ai { color: var(--t-ai) !important; }
+.cc-ws .text-status-review { color: var(--t-review) !important; }
+.cc-ws .text-status-human { color: var(--t-human) !important; }
+.cc-ws .text-status-done { color: var(--t-done) !important; }
 .cc-ws .bg-status-planning { background-color: var(--st-planning) !important; }
 .cc-ws .bg-status-queue { background-color: var(--st-queue) !important; }
 .cc-ws .bg-status-working { background-color: var(--st-working) !important; }
@@ -77,7 +48,7 @@
 .cc-ws .hover\:bg-surface-3:hover { background-color: var(--surface-3) !important; }
 .cc-ws .hover\:bg-surface-4:hover { background-color: var(--surface-4) !important; }
 .cc-ws .hover\:text-fg-0:hover { color: var(--fg-0) !important; }
-.cc-ws .hover\:text-accent:hover { color: var(--accent) !important; }
+.cc-ws .hover\:text-accent:hover { color: var(--accent-text) !important; }
 
 .cc-ws-topbar {
   height: 56px;
@@ -95,7 +66,7 @@
   border-radius: 8px;
   background: var(--accent);
   color: var(--accent-fg);
-  font: 700 16px/28px Geist, system-ui, sans-serif;
+  font: 700 15px/28px var(--font-brand);
   text-align: center;
   flex: 0 0 auto;
 }
@@ -104,9 +75,11 @@
   min-width: min(280px, 100%);
   display: flex;
   flex-direction: column;
-  background: var(--surface-3);
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  /* A quiet lane, one step off the ground — not a lighter slab (dark mode
+     used to paint lanes lavender-grey, which made the board look muddy). */
+  background: var(--surface-lane);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
 }
 
 .cc-ws-card {
@@ -121,7 +94,7 @@
   box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px rgb(16 24 40 / 0.06);
 }
 
-.cc-ws[data-theme='dark'] .cc-ws-card:hover {
+:root[data-theme='dark'] .cc-ws-card:hover {
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
 }
 
@@ -141,7 +114,7 @@
   gap: 6px;
   width: 100%;
   padding: 0 0 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.02em;
   color: var(--fg-2);
@@ -152,12 +125,12 @@
 }
 .cc-ws-workers-head:hover { color: var(--fg-0); }
 .cc-ws-workers-count {
-  font-family: "Geist Mono", ui-monospace, monospace;
-  font-size: 10.5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   color: var(--fg-3);
 }
 .cc-ws-workers-flag {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 500;
 }
 .cc-ws-workers-flag.ready { color: var(--st-review); }
@@ -195,8 +168,8 @@
 }
 .cc-ws-workers-state {
   flex: 0 0 auto;
-  font-family: "Geist Mono", ui-monospace, monospace;
-  font-size: 10.5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   color: var(--fg-3);
 }
 
@@ -359,7 +332,7 @@
   margin-bottom: 6px;
 }
 .cc-design-pin-kind {
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--fg-3);
@@ -370,7 +343,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--fg-2);
 }
 .cc-design-pin-meta button {

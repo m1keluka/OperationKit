@@ -68,7 +68,7 @@ export function MySecretsSection() {
         </div>
         <button
           onClick={() => { setEditingKey(null); setModalOpen(true) }}
-          className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-fg-0 transition-colors duration-fast ease-out hover:bg-accent-hover"
+          className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition-colors duration-fast ease-out hover:bg-accent-hover"
         >
           + New
         </button>
@@ -189,7 +189,7 @@ function MySecretModal({ userId, editingKey, onClose, onSaved }: {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-sm text-fg-2 hover:bg-surface-overlay">Cancel</button>
-            <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-fg-0 hover:bg-accent-hover disabled:opacity-50">
+            <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg hover:bg-accent-hover disabled:opacity-50">
               {saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}
             </button>
           </div>

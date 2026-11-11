@@ -1,0 +1,189 @@
+{
+  "_about": "Canned AI replies for the Knowledge Base Setup e2e test (obj 900556), keyed by the FILE: path in the prompt. They are what a sensible model returns for each sample file; some tags are deliberately synonyms (customer, sop, vendor) or missing so the taxonomy normalizer is exercised.",
+
+  "Company/About Lumen & Lark Studio.md": {
+    "title": "About Lumen & Lark Studio",
+    "summary": "Who the studio is, what it does and who works there.",
+    "entities": [
+      { "type": "organization", "name": "Lumen & Lark Studio", "summary": "A four-person brand and web design studio founded in 2019.", "facts": [{ "fact": "Designs brands and builds websites for local independent businesses.", "where": "paragraph 2" }, { "fact": "Founded in 2019 by Maya Lindqvist.", "where": "paragraph 1" }], "related": [{ "type": "person", "name": "Maya Lindqvist", "label": "founded by" }] },
+      { "type": "person", "name": "Maya Lindqvist", "tags": ["founder"], "summary": "Founder and creative director.", "facts": [{ "fact": "Founder & creative director.", "where": "team list" }], "related": [{ "type": "organization", "name": "Lumen & Lark Studio", "label": "works for" }] },
+      { "type": "person", "name": "Theo Okonkwo", "tags": ["staff"], "facts": [{ "fact": "Designer at the studio.", "where": "team list" }], "related": [{ "type": "organization", "name": "Lumen & Lark Studio", "label": "works for" }] },
+      { "type": "person", "name": "Priya Raman", "tags": ["team"], "facts": [{ "fact": "Project manager.", "where": "team list" }], "related": [{ "type": "organization", "name": "Lumen & Lark Studio", "label": "works for" }] },
+      { "type": "organization", "name": "Copperline Print", "tags": ["vendor"], "facts": [{ "fact": "The studio's printing partner.", "where": "team list" }], "related": [{ "type": "organization", "name": "Lumen & Lark Studio", "label": "supplier of" }] }
+    ],
+    "questions": []
+  },
+
+  "Company/Team directory.csv": {
+    "title": "Team directory",
+    "summary": "Four people with roles, emails, start dates and managers.",
+    "entities": [
+      { "type": "person", "name": "Maya Lindqvist", "tags": ["team", "owner"], "facts": [{ "fact": "Started 2019-02-01.", "where": "row 2" }, { "fact": "Email maya@lumenlark.example.", "where": "row 2" }] },
+      { "type": "person", "name": "Theo Okonkwo", "tags": ["team"], "facts": [{ "fact": "Senior designer since 2021-06-14; reports to Maya Lindqvist.", "where": "row 3" }], "related": [{ "type": "person", "name": "Maya Lindqvist", "label": "reports to" }] },
+      { "type": "person", "name": "Priya Raman", "tags": ["team"], "facts": [{ "fact": "Project manager since 2023-01-09; reports to Maya Lindqvist.", "where": "row 4" }], "related": [{ "type": "person", "name": "Maya Lindqvist", "label": "reports to" }] },
+      { "type": "person", "name": "Jonas Feld", "tags": ["contractor"], "facts": [{ "fact": "Contract web developer since 2024-03-01; reports to Priya Raman.", "where": "row 5" }], "related": [{ "type": "person", "name": "Priya Raman", "label": "reports to" }] }
+    ],
+    "questions": []
+  },
+
+  "Company/Glossary.txt": {
+    "title": "Studio glossary",
+    "summary": "Five internal terms and what they mean.",
+    "entities": [
+      { "type": "topic", "name": "Discovery", "tags": ["term"], "summary": "The first paid week of a project: interviews, audit, moodboard.", "facts": [{ "fact": "The first paid week of a project: interviews, audit, moodboard.", "where": "line 5" }] },
+      { "type": "topic", "name": "Handoff pack", "tags": ["glossary"], "summary": "The zip of final files given to a client at the end.", "facts": [{ "fact": "The zip of final files given to a client at the end.", "where": "line 6" }] },
+      { "type": "topic", "name": "PM", "tags": ["acronym"], "summary": "Project manager (Priya).", "facts": [{ "fact": "Project manager (Priya).", "where": "line 7" }], "related": [{ "type": "person", "name": "Priya Raman" }] },
+      { "type": "product", "name": "Care Plan", "tags": ["service"], "summary": "Monthly website maintenance and small edits.", "facts": [{ "fact": "Monthly website maintenance and small edits.", "where": "line 4" }] },
+      { "type": "product", "name": "Brand Starter", "tags": ["service"], "summary": "Entry brand package.", "facts": [{ "fact": "Logo, palette, type, one-page guide.", "where": "line 3" }] }
+    ]
+  },
+
+  "Clients/Client list.xlsx": {
+    "title": "Client list",
+    "summary": "Active and past clients with their contact, start date and services.",
+    "entities": [
+      { "type": "organization", "name": "Harbor Bakery", "tags": ["customer"], "facts": [{ "fact": "Client since 2025-11; buys Website Build and Care Plan; active.", "where": "tab \"Active\", row 2" }], "related": [{ "type": "person", "name": "Sam Whitaker", "label": "contact" }, { "type": "product", "name": "Care Plan" }] },
+      { "type": "person", "name": "Sam Whitaker", "tags": ["contact"], "facts": [{ "fact": "Contact at Harbor Bakery.", "where": "tab \"Active\", row 2" }], "related": [{ "type": "organization", "name": "Harbor Bakery", "label": "client contact at" }] },
+      { "type": "organization", "name": "Pinecrest Dental", "tags": ["client"], "facts": [{ "fact": "Since 2026-02; Brand Starter; proposal sent.", "where": "tab \"Active\", row 3" }], "related": [{ "type": "person", "name": "Lena Ortiz", "label": "contact" }] },
+      { "type": "person", "name": "Lena Ortiz", "aliases": ["Dr. Lena Ortiz"], "tags": ["contact"], "facts": [{ "fact": "Contact at Pinecrest Dental.", "where": "tab \"Active\", row 3" }], "related": [{ "type": "organization", "name": "Pinecrest Dental", "label": "client contact at" }] },
+      { "type": "organization", "name": "Oak & Ember Cafe", "tags": ["client"], "facts": [{ "fact": "Past client; Brand Starter finished 2024-08; contact Rui Costa.", "where": "tab \"Past\", row 2" }] }
+    ],
+    "questions": []
+  },
+
+  "Clients/Harbor Bakery/Statement of work - Harbor Bakery website.docx": {
+    "title": "Statement of work — Harbor Bakery website",
+    "summary": "Scope, fee and timeline for the Harbor Bakery website.",
+    "entities": [
+      { "type": "project", "name": "Harbor Bakery website", "tags": ["active"], "summary": "A 6-page website with online cake pre-orders.", "facts": [{ "fact": "Fee $7,800 fixed, invoiced 50% on signing and 50% at launch.", "where": "paragraph 4" }, { "fact": "Kickoff 2 March 2026; launch target 17 April 2026.", "where": "paragraph 5" }], "related": [{ "type": "organization", "name": "Harbor Bakery", "label": "for" }, { "type": "person", "name": "Jonas Feld", "label": "built by" }, { "type": "person", "name": "Theo Okonkwo", "label": "designed by" }] },
+      { "type": "organization", "name": "Harbor Bakery", "facts": [{ "fact": "Owner is Sam Whitaker.", "where": "paragraph 2" }, { "fact": "Moves to the Care Plan after launch.", "where": "paragraph 6" }], "related": [{ "type": "project", "name": "Harbor Bakery website" }] }
+    ],
+    "questions": []
+  },
+
+  "Clients/Harbor Bakery/Kickoff call 2026-03-02.vtt": {
+    "title": "Harbor Bakery kickoff call",
+    "summary": "Kickoff for the Harbor Bakery website: pre-orders first, launch April 17.",
+    "entities": [
+      { "type": "topic", "name": "Launch Harbor Bakery pre-orders before the blog", "tags": ["decision"], "facts": [{ "fact": "Pre-orders launch first, the blog later; launch target stays April 17.", "where": "~00:21, Priya Raman" }], "related": [{ "type": "project", "name": "Harbor Bakery website", "label": "affects" }] },
+      { "type": "person", "name": "Sam", "facts": [{ "fact": "Says half of weekend orders come by phone; wants online cake orders two days ahead.", "where": "~00:12, Sam" }], "related": [{ "type": "organization", "name": "Harbor Bakery" }] }
+    ],
+    "questions": [{ "kind": "ambiguous", "ask": "Is the \"Sam\" on the Harbor Bakery kickoff call Sam Whitaker?", "about": [{ "type": "person", "name": "Sam" }, { "type": "person", "name": "Sam Whitaker" }] }]
+  },
+
+  "Clients/Pinecrest Dental/Proposal - Pinecrest Dental rebrand.pptx": {
+    "title": "Pinecrest Dental rebrand proposal",
+    "summary": "Brand Starter plus signage for Pinecrest Dental.",
+    "entities": [
+      { "type": "project", "name": "Pinecrest Dental rebrand", "tags": ["planned"], "facts": [{ "fact": "Brand Starter ($3,200) plus signage add-on ($600); six weeks from deposit.", "where": "slide 3" }, { "fact": "The sign must be ready before the June reopening.", "where": "slide 2 notes" }], "related": [{ "type": "organization", "name": "Pinecrest Dental", "label": "for" }, { "type": "product", "name": "Brand Starter" }] },
+      { "type": "product", "name": "Signage add-on", "tags": ["add-on"], "facts": [{ "fact": "$600 for print-ready sign files.", "where": "slide 3" }] }
+    ]
+  },
+
+  "Clients/Pinecrest Dental/Email thread - scope change.txt": {
+    "title": "Pinecrest scope change",
+    "summary": "Lena asks to add appointment cards; Priya quotes $250.",
+    "entities": [
+      { "type": "project", "name": "Pinecrest Dental rebrand", "facts": [{ "fact": "Appointment cards added at $250 for design; printing via Copperline Print at cost.", "where": "email 2026-02-25" }], "related": [{ "type": "organization", "name": "Copperline Print", "label": "prints for" }] },
+      { "type": "person", "name": "Dr. Lena Ortiz", "facts": [{ "fact": "Asked to add appointment cards on 2026-02-24.", "where": "email 2026-02-24" }] }
+    ]
+  },
+
+  "Processes/SOP - Client onboarding.md": {
+    "title": "SOP - Client onboarding",
+    "summary": "Six steps from signed proposal to discovery.",
+    "entities": [
+      { "type": "topic", "name": "Client onboarding", "tags": ["sop"], "summary": "How a new client is onboarded.", "facts": [{ "fact": "1. Welcome email and intake form within 1 business day of a signed proposal.", "where": "step 1" }, { "fact": "2. Book a 60-minute kickoff with the decision-maker and Maya.", "where": "step 2" }, { "fact": "5. Send the 50% deposit invoice.", "where": "step 5" }, { "fact": "No work starts before the deposit is paid.", "where": "Rules" }], "related": [{ "type": "person", "name": "Priya Raman", "label": "owned by" }, { "type": "topic", "name": "Invoicing" }] }
+    ]
+  },
+
+  "Processes/How we invoice.md": {
+    "title": "How we invoice",
+    "summary": "Deposit and launch invoices, monthly Care Plans, 14-day terms.",
+    "entities": [
+      { "type": "topic", "name": "Invoicing", "tags": ["process"], "facts": [{ "fact": "Projects: 50% deposit on signing, 50% at launch.", "where": "line 3" }, { "fact": "Payment terms 14 days; reminders on day 15 and day 30 by Priya Raman.", "where": "line 6" }], "related": [{ "type": "topic", "name": "Move invoicing to monthly", "label": "changed by" }] }
+    ]
+  },
+
+  "Processes/Project checklist.html": {
+    "title": "Project checklist",
+    "summary": "What to check before and after a website launch.",
+    "entities": [
+      { "type": "topic", "name": "Website launch checklist", "facts": [{ "fact": "Before launch: client sign-off on every page, forms tested, analytics installed.", "where": "section \"Before launch\"" }, { "fact": "After launch: handoff pack, Care Plan offered, case study request after 30 days.", "where": "section \"After launch\"" }] }
+    ]
+  },
+
+  "Decisions/Decisions log 2026.md": {
+    "title": "Decisions log 2026",
+    "summary": "Two studio decisions from 2026.",
+    "entities": [
+      { "type": "topic", "name": "Stop fixed-price retainers", "tags": ["decision"], "facts": [{ "fact": "Decided 2026-01-12 by Maya Lindqvist: new retainers replaced by the Care Plan.", "where": "entry 2026-01-12" }], "related": [{ "type": "product", "name": "Care Plan", "label": "replaced by" }] },
+      { "type": "topic", "name": "Move invoicing to monthly", "tags": ["decisions"], "facts": [{ "fact": "From April 2026 all invoices go out on the 1st of the month in one batch.", "where": "entry 2026-03-30" }, { "fact": "Why: fewer reminders, easier cash forecasting.", "where": "entry 2026-03-30" }], "related": [{ "type": "topic", "name": "Invoicing", "label": "changes" }] }
+    ]
+  },
+
+  "Meetings/Weekly team meeting 2026-03-09.txt": {
+    "title": "Weekly team meeting 9 March 2026",
+    "summary": "Status on Harbor Bakery and Pinecrest; Care Plan price discussed.",
+    "entities": [
+      { "type": "project", "name": "Harbor Bakery website", "facts": [{ "fact": "Design concepts approved; build starts the week of 16 March.", "where": "bullet 1" }] },
+      { "type": "product", "name": "Care Plan", "facts": [{ "fact": "Maya wants to keep it at $150/month for existing clients.", "where": "bullet 3" }] }
+    ],
+    "questions": [{ "kind": "conflict", "ask": "Is the Care Plan $180/month (price list) or $150/month (9 March meeting) — or $150 only for existing clients?", "about": [{ "type": "product", "name": "Care Plan" }] }]
+  },
+
+  "Meetings/Weekly team meeting 2026-03-16.srt": {
+    "title": "Weekly team meeting 16 March 2026",
+    "summary": "Photos arrived; Copperline quote; case study idea.",
+    "entities": [
+      { "type": "organization", "name": "Copperline Print", "facts": [{ "fact": "Quoted $340 to print the Pinecrest sign.", "where": "~00:06, Theo Okonkwo" }] },
+      { "type": "project", "name": "Harbor Bakery website", "facts": [{ "fact": "Photos arrived 16 March; on track for April 17.", "where": "~00:01, Priya Raman" }] }
+    ]
+  },
+
+  "Products/Price list 2026.csv": {
+    "title": "Price list 2026",
+    "summary": "Four packages with prices and billing.",
+    "entities": [
+      { "type": "product", "name": "Brand Starter", "tags": ["service"], "facts": [{ "fact": "$3,200 one-off: logo, palette, type, one-page brand guide.", "where": "row 2" }] },
+      { "type": "product", "name": "Website Build", "tags": ["service"], "facts": [{ "fact": "$7,800 one-off: up to 6 pages, CMS, contact form.", "where": "row 3" }] },
+      { "type": "product", "name": "Care Plan", "tags": ["service"], "facts": [{ "fact": "$180 monthly: hosting, updates, 2 hours of edits.", "where": "row 4" }] },
+      { "type": "product", "name": "Signage add-on", "tags": ["add-on"], "facts": [{ "fact": "$600 one-off: print-ready sign files.", "where": "row 5" }] }
+    ]
+  },
+
+  "Products/Service packages.pdf": {
+    "title": "Service packages 2026",
+    "summary": "Brochure for the three main packages.",
+    "entities": [
+      { "type": "product", "name": "Brand Starter", "facts": [{ "fact": "Takes about six weeks.", "where": "page 1" }] },
+      { "type": "product", "name": "Website Build", "facts": [{ "fact": "From $7,800, up to six pages on a CMS the client can edit.", "where": "page 1" }] },
+      { "type": "product", "name": "Care Plan", "facts": [{ "fact": "$180 per month incl. backups; replaces the old fixed-price retainers.", "where": "page 2" }] }
+    ]
+  },
+
+  "Exports/slack-export-general.json": {
+    "title": "Slack #general export",
+    "summary": "Three messages: launch reminder, Copperline lead time, small talk.",
+    "entities": [
+      { "type": "organization", "name": "Copperline Print", "facts": [{ "fact": "Can print the Pinecrest sign in 5 working days.", "where": "message 2, Theo Okonkwo" }] }
+    ]
+  },
+
+  "Notes/Ideas.md": {
+    "title": "Ideas",
+    "summary": "A bundle idea and a testimonial request.",
+    "entities": [
+      { "type": "product", "name": "Brand Starter + Website Build bundle", "tags": ["idea"], "facts": [{ "fact": "Proposed bundle price $10,500.", "where": "bullet 1" }] },
+      { "type": "person", "name": "Sam", "facts": [{ "fact": "To be asked for a testimonial after launch.", "where": "bullet 2" }] }
+    ]
+  },
+
+  "Notes/Server setup notes.md": {
+    "title": "Server setup notes",
+    "summary": "How the studio's website server is set up.",
+    "entities": [
+      { "type": "topic", "name": "Website hosting setup", "tags": ["process"], "facts": [{ "fact": "Client sites are hosted on one shared server, backed up nightly.", "where": "line 3" }, { "fact": "The database password is [REDACTED:credential].", "where": "line 5" }] }
+    ]
+  }
+}

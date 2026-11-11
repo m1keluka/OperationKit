@@ -91,18 +91,18 @@ export function ObjectiveProposalCard({ raw }: { raw: string }) {
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="font-display text-sm font-semibold text-fg-0 leading-tight">{title}</div>
         <span
-          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] shrink-0 ${priorityCls}`}
+          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[12px] shrink-0 ${priorityCls}`}
         >
           {priority}
         </span>
       </div>
 
       <div className="flex flex-wrap gap-1.5 mb-3">
-        <span className="inline-flex items-center rounded-full border border-[color:var(--accent-line)] bg-[var(--accent-tint)] px-2 py-0.5 text-[11px] font-medium text-accent-hover">
+        <span className="inline-flex items-center rounded-full border border-[color:var(--accent-line)] bg-[var(--accent-tint)] px-2 py-0.5 text-[12px] font-medium text-accent-hover">
           {workspace}
         </span>
         {project && (
-          <span className="inline-flex items-center rounded-full border border-line bg-surface-3 px-2 py-0.5 font-mono text-[11px] text-fg-2">
+          <span className="inline-flex items-center rounded-full border border-line bg-surface-3 px-2 py-0.5 font-mono text-[12px] text-fg-2">
             {project}
           </span>
         )}

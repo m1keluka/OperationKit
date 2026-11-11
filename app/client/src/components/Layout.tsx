@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useMemo, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
 import { Check, Moon, Sun } from 'lucide-react'
 import { useBoardTheme } from '../preview/BoardShell'
+import { useBranding } from '../hooks/useBranding'
+import { BrandLogo } from './BrandLogo'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from '../context/nav'
 import { useWorkspaces } from '../hooks/useWorkspaces'
@@ -31,8 +33,9 @@ interface LayoutProps {
        Agents) for global admins. Everything that used to sit under "More"
        lives here; the old → new table is docs/navigation/sprint-4a-navigation.md.
 
-   Unfinished surfaces (Contacts, Strategies, Development, Notes, Status, Feed)
-   stay routed + ⌘K-able but are not in the chrome.
+   The unfinished surfaces (Contacts, Strategies, Development, Notes, Status,
+   Feed) were removed in obj 900543; their old URLs redirect to the board
+   (REMOVED_ROUTES in lib/routes.ts).
    ───────────────────────────────────────────────────────────────────────── */
 
 type NavGate = 'admin' | 'chat'
@@ -87,15 +90,6 @@ export const ACCOUNT_MENU: AccountMenuItem[] = [
   { href: AGENTS_ROUTE,  label: 'Agents',   icon: 'system',    aliases: ['/agent-templates'],         section: 'admin' },
 ]
 
-// Parked surfaces: still in the app, not in the chrome. ⌘K is the back door.
-const PALETTE_ONLY: { href: string; label: string; gate?: NavGate }[] = [
-  { href: '/contacts',    label: 'Contacts' },
-  { href: '/strategies',  label: 'Strategies',  gate: 'admin' },
-  { href: '/development', label: 'Development', gate: 'admin' },
-  { href: '/loops',       label: 'Notes',       gate: 'admin' },
-  { href: '/status',      label: 'Status' },
-  { href: '/feed',        label: 'Feed',        gate: 'admin' },
-]
 
 export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: LayoutProps) {
   const { user, logout } = useAuth()
@@ -116,8 +110,9 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   }
   const isAdmin = user?.role === 'admin'
   const { theme, toggleTheme } = useBoardTheme()
+  const brandName = useBranding().name
   const showWorkspace =
-    currentPath === '/' || currentPath === '/feed' || currentPath === '/archive'
+    currentPath === '/' || currentPath === '/archive'
     || /^\/w\/[\w-]+\/?$/.test(currentPath)
     || /^\/o\/\d+\/?$/.test(currentPath)
 
@@ -242,10 +237,6 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
         { label: 'Agent templates', hint: agentsTabRoute('templates'), onSelect: () => { navigate(agentsTabRoute('templates')) } },
       )
     }
-    for (const extra of PALETTE_ONLY) {
-      if (extra.gate === 'admin' && !isAdmin) continue
-      items.push({ label: extra.label, hint: extra.href, onSelect: () => { navigate(extra.href) } })
-    }
     return items
   }, [navItems, accountRows, adminRows, canSeeSettings, isAdmin, navigate])
 
@@ -258,7 +249,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       {adminRows.length > 0 && (
         <>
           <div className="my-1 border-t border-line-soft" />
-          <div className="px-3 pb-0.5 pt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-fg-3">Admin</div>
+          <div className="px-3 pb-0.5 pt-1 text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">Admin</div>
           {adminRows.map(item => (
             <AccountMenuRow key={item.href} item={item} active={isMenuActive(item)} rowClass={rowClass} onClick={onNavClick(item.href)} />
           ))}
@@ -280,10 +271,12 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     // horizontal scrollbar at 390px (the W8 mobile-clean shell constraint).
     <div className="flex h-full flex-col overflow-x-hidden bg-surface-0">
       {/* ── Desktop top bar ── */}
-      <header className="hidden items-center justify-between border-b border-line bg-surface-1 px-5 py-2 sm:flex">
+      <header className="hidden items-center justify-between border-b border-line bg-surface-0 px-5 py-2 sm:flex">
         {/* Left: brand + primary nav */}
         <nav aria-label="Primary" className="flex items-center gap-0.5">
-          <a href="/" aria-label="OperationKit" onClick={onNavClick('/')} className="mr-2 text-[20px] font-bold leading-none tracking-tight text-accent">›</a>
+          <a href="/" aria-label={`${brandName} home`} onClick={onNavClick('/')} className="mr-3 flex min-w-0 items-center rounded-md">
+            <BrandLogo theme={theme} size="sm" />
+          </a>
           {navItems.map(item => {
             const active = isActive(item)
             return (
@@ -312,7 +305,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
           >
             <NavIcon name="search" className="h-3.5 w-3.5" />
             <span>Jump to…</span>
-            <span className="font-mono text-[10.5px] text-fg-3">⌘K</span>
+            <span className="font-mono text-[12px] text-fg-3">⌘K</span>
           </button>
           {showWorkspace && !hideWorkspaceSelector && (
             <div ref={wsRef} className="relative">
@@ -379,7 +372,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
                 menuActive || userMenuOpen ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
               }`}
             >
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/15 text-[11px] font-medium text-accent">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-[12px] font-medium text-accent">
                 {user.username[0].toUpperCase()}
               </div>
               <span className="hidden lg:inline">{user.username}</span>
@@ -390,7 +383,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
                 <div className="border-b border-line-soft px-3 py-2">
                   <div className="text-sm font-medium text-fg-0">{user.username}</div>
                   {isAdmin && (
-                    <span className="mt-0.5 inline-block rounded-sm bg-status-review/20 px-1.5 py-0.5 text-[10px] text-status-review">admin</span>
+                    <span className="mt-0.5 inline-block rounded-sm bg-status-review/20 px-1.5 py-0.5 text-[12px] text-status-review">admin</span>
                   )}
                 </div>
                 <div className="pt-1">{renderAccountMenu('py-1.5')}</div>
@@ -402,10 +395,12 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       </header>
 
       {/* ── Mobile top bar (minimal) ── */}
-      <header className="flex items-center justify-between border-b border-line bg-surface-1 px-3 py-2 sm:hidden"
+      <header className="flex items-center justify-between border-b border-line bg-surface-0 px-3 py-2 sm:hidden"
         style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top))' }}
       >
-        <a href="/" aria-label="OperationKit" onClick={onNavClick('/')} className="text-[20px] font-bold leading-none tracking-tight text-accent">›</a>
+        <a href="/" aria-label={`${brandName} home`} onClick={onNavClick('/')} className="flex min-w-0 items-center rounded-md">
+          <BrandLogo theme={theme} size="sm" showName={false} allowWordmark={false} />
+        </a>
 
         {showWorkspace && !hideWorkspaceSelector && (
           <div ref={wsMobileRef} className="relative">
@@ -466,7 +461,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
               aria-haspopup="menu"
               aria-expanded={userMenuOpen}
               aria-label="Account menu"
-              className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-medium text-accent ${
+              className={`flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-medium text-accent ${
                 menuActive || userMenuOpen ? 'bg-accent/25 ring-1 ring-accent/50' : 'bg-accent/15'
               }`}
             >
@@ -477,7 +472,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
                 <div className="border-b border-line-soft px-3 py-2">
                   <div className="text-sm font-medium text-fg-0">{user.username}</div>
                   {isAdmin && (
-                    <span className="mt-0.5 inline-block rounded-sm bg-status-review/20 px-1.5 py-0.5 text-[10px] text-status-review">admin</span>
+                    <span className="mt-0.5 inline-block rounded-sm bg-status-review/20 px-1.5 py-0.5 text-[12px] text-status-review">admin</span>
                   )}
                 </div>
                 <div className="pt-1">{renderAccountMenu('min-h-[44px]')}</div>
@@ -513,7 +508,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
                 style={{ minHeight: 44 }}
               >
                 <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-5 w-5" />
-                <span className="text-[11px] font-medium">{item.shortLabel ?? item.label}</span>
+                <span className="text-[12px] font-medium">{item.shortLabel ?? item.label}</span>
               </a>
             )
           })}

@@ -18,16 +18,10 @@ import {
 import { api } from '../../lib/api'
 import { inputCls, selectCls, SectionLabel } from './config-form'
 import type { EmailOutcome } from '../../lib/email'
+import { generateTempPassword } from '../../lib/tempPassword'
 
 interface AdminUser extends User {
   workspaces: WorkspaceMembership[]
-}
-
-function generateTempPassword(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
-  let out = ''
-  for (let i = 0; i < 12; i++) out += chars[Math.floor(Math.random() * chars.length)]
-  return out
 }
 
 export function UsersTab() {
@@ -281,7 +275,7 @@ export function UsersTab() {
               <span className="text-[13px] font-medium text-fg-0">{user.username}</span>
               <Badge tone={user.role === 'admin' ? 'accent' : 'neutral'}>{user.role}</Badge>
               {user.email && <span className="hidden truncate text-[12px] text-fg-2 sm:inline">{user.email}</span>}
-              <span className="ml-auto text-[11px] text-fg-3">
+              <span className="ml-auto text-[12px] text-fg-3">
                 {memberships.length} organization{memberships.length === 1 ? '' : 's'}
               </span>
             </button>
@@ -317,7 +311,7 @@ export function UsersTab() {
                   >
                     Save email
                   </Button>
-                  <p className="w-full text-[11px] text-fg-3">
+                  <p className="w-full text-[12px] text-fg-3">
                     Behind Cloudflare Access, signing in at the Cloudflare door with this email opens the app as this user.
                   </p>
                 </div>
@@ -359,7 +353,7 @@ export function UsersTab() {
                 {/* Grant */}
                 {ungranted.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] uppercase tracking-wider text-fg-3">Grant:</span>
+                    <span className="text-[12px] uppercase tracking-wider text-fg-3">Grant:</span>
                     {ungranted.map(ws => (
                       <Button key={ws} size="sm" variant="secondary" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => grantWorkspace(user, ws)}>
                         {ws}

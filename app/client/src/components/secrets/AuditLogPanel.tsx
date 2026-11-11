@@ -99,7 +99,7 @@ export function AuditLogPanel({ scopeQuery, secretKey, refreshToken, pageSize = 
       {!perSecret && (
         <div className="mb-3 flex flex-wrap items-end gap-3">
           <div>
-            <label htmlFor="audit-action" className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Action</label>
+            <label htmlFor="audit-action" className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Action</label>
             <select
               id="audit-action"
               value={action}
@@ -117,7 +117,7 @@ export function AuditLogPanel({ scopeQuery, secretKey, refreshToken, pageSize = 
             className="flex items-end gap-2"
           >
             <div>
-              <label htmlFor="audit-key" className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Key</label>
+              <label htmlFor="audit-key" className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Key</label>
               <input
                 id="audit-key"
                 value={keyFilter}
@@ -128,7 +128,7 @@ export function AuditLogPanel({ scopeQuery, secretKey, refreshToken, pageSize = 
             </div>
             <button type="submit" className="rounded px-2 py-1.5 text-xs text-accent hover:bg-surface-overlay">Filter</button>
           </form>
-          <p className="ml-auto max-w-sm text-[11px] text-fg-3">
+          <p className="ml-auto max-w-sm text-[12px] text-fg-3">
             Append-only: rows cannot be edited or deleted. Values are never logged.
           </p>
         </div>
@@ -162,7 +162,7 @@ export function AuditLogPanel({ scopeQuery, secretKey, refreshToken, pageSize = 
                 <td className="px-2 py-1.5 text-fg-2">{actorLabel(e)}</td>
                 <td className="px-2 py-1.5 text-fg-3">
                   {e.source ?? '—'}
-                  {e.detail && <span className="ml-1 text-fg-3/80">· {e.detail}</span>}
+                  {e.detail && <span className="ml-1 text-fg-3">· {e.detail}</span>}
                 </td>
               </tr>
             ))}
@@ -170,7 +170,7 @@ export function AuditLogPanel({ scopeQuery, secretKey, refreshToken, pageSize = 
         </table>
       </div>
       <div className="mt-2 flex items-center gap-3">
-        {loading && <span className="text-[11px] text-fg-3">Loading…</span>}
+        {loading && <span className="text-[12px] text-fg-3">Loading…</span>}
         {next != null && !loading && (
           <button type="button" onClick={() => void load(next)} className="text-xs text-accent hover:underline" data-testid="audit-load-more">
             Load more

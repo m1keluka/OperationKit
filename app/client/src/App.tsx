@@ -14,7 +14,7 @@ import { PreviewBoard } from './preview/PreviewBoard'
 import { PreviewArchive } from './preview/PreviewArchive'
 import { PreviewWorkspace } from './preview/PreviewWorkspace'
 import { HAS_CHAT_PAGE } from './lib/optional-pages'
-import { SYSTEM_ROUTE, AGENTS_ROUTE, LEGACY_REDIRECTS } from './lib/routes'
+import { SYSTEM_ROUTE, AGENTS_ROUTE, LEGACY_REDIRECTS, REMOVED_ROUTES } from './lib/routes'
 import type { Workspace } from '@operationkit/shared'
 
 // Route-level code-splitting (obj 700585): the board is the landing surface
@@ -23,10 +23,8 @@ import type { Workspace } from '@operationkit/shared'
 // weighs down the initial bundle that blocks first paint.
 const SystemPage = lazy(() => import('./components/SystemPage').then(m => ({ default: m.SystemPage })))
 const AgentChatPage = lazy(() => import('./components/agent-chat/AgentChatPage').then(m => ({ default: m.AgentChatPage })))
-const ProjectFeed = lazy(() => import('./components/ProjectFeed').then(m => ({ default: m.ProjectFeed })))
 const DocsPage = lazy(() => import('./components/DocsPage').then(m => ({ default: m.DocsPage })))
-const ContactsPage = lazy(() => import('./components/ContactsPage').then(m => ({ default: m.ContactsPage })))
-const StatusPage = lazy(() => import('./components/StatusPage').then(m => ({ default: m.StatusPage })))
+const KbSetupPage = lazy(() => import('./components/kb-setup/KbSetupPage').then(m => ({ default: m.KbSetupPage })))
 const SettingsPage = lazy(() => import('./components/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const SettingsSecrets = lazy(() => import('./components/settings/SettingsSecrets').then(m => ({ default: m.SettingsSecrets })))
 const SettingsConnectors = lazy(() => import('./components/settings/SettingsConnectors').then(m => ({ default: m.SettingsConnectors })))
@@ -39,11 +37,7 @@ const SetupPage = lazy(() => import('./components/setup/SetupPage').then(m => ({
 const SettingsBranding = lazy(() => import('./components/settings/SettingsBranding').then(m => ({ default: m.SettingsBranding })))
 const SettingsEmail = lazy(() => import('./components/settings/SettingsEmail').then(m => ({ default: m.SettingsEmail })))
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })))
-const LoopsPage = lazy(() => import('./components/LoopsPage').then(m => ({ default: m.LoopsPage })))
 const JobsBoard = lazy(() => import('./components/JobsBoard').then(m => ({ default: m.JobsBoard })))
-const StrategiesPage = lazy(() => import('./components/StrategiesPage').then(m => ({ default: m.StrategiesPage })))
-const StrategyDetailPage = lazy(() => import('./components/StrategyDetailPage').then(m => ({ default: m.StrategyDetailPage })))
-const DevelopmentPage = lazy(() => import('./components/DevelopmentPage').then(m => ({ default: m.DevelopmentPage })))
 const AgentsHub = lazy(() => import('./components/agents/AgentsHub').then(m => ({ default: m.AgentsHub })))
 /**
  * Extract /w/<workspace> from a pathname. Returns null when not a workspace path.
@@ -188,17 +182,13 @@ function AppContent() {
   // Route key for the page transition. All board paths (/, /w/<ws>) share one
   // key so switching workspace re-renders the board in place (prop change, not
   // remount) — preserving its WebSocket — while distinct routes animate.
-  // All /development paths share one route key so opening the drawer (which
-  // pushes /development/DEV-<id>) does not remount the board mid-interaction.
   const routeKey = pathname === '/archive'
     ? 'archive'
     : isBoardPath
     ? 'board'
-    : pathname.startsWith('/development')
-      ? 'development'
-      : pathname.startsWith('/settings')
-        ? 'settings'
-        : pathname
+    : pathname.startsWith('/settings')
+      ? 'settings'
+      : pathname
 
   return (
     <NavContext.Provider value={navigate}>
@@ -218,6 +208,8 @@ function AppContent() {
               Settings → Platform → Jobs (obj 900495). Old URLs redirect; table in lib/routes.ts. */}
           <Route path={SYSTEM_ROUTE} element={<SystemPage />} />
           {LEGACY_REDIRECTS.map(r => <Route key={r.from} path={r.from} element={<Navigate to={r.to} replace />} />)}
+          {/* Unfinished surfaces removed (obj 900543): their old URLs go to the board. */}
+          {REMOVED_ROUTES.map(p => <Route key={p} path={p} element={<Navigate to="/" replace />} />)}
           <Route path="/config" element={<Navigate to="/settings/org" replace />} />
           {/* The built-in assistant was removed (obj 720115); its old URLs land on the bots page when present.
               /chat and /chat/:slug are deliberately UNCHANGED by the obj-900327 rename so existing
@@ -227,20 +219,13 @@ function AppContent() {
           <Route path="/assistant" element={<Navigate to={HAS_CHAT_PAGE ? '/chat' : '/'} replace />} />
           <Route path="/chat" element={<AgentChatPage />} />
           <Route path="/chat/:slug" element={<AgentChatPage />} />
-          <Route path="/feed" element={<ProjectFeed workspace={workspace} />} />
-          <Route path="/development/*" element={<DevelopmentPage workspace={workspace} />} />
-          <Route path="/feedback" element={<Navigate to="/development" replace />} />
           <Route path="/knowledge" element={<DocsPage workspace={workspace} />} />
+          <Route path="/knowledge/setup" element={<KbSetupPage workspace={workspace} />} />
           <Route path="/docs" element={<Navigate to="/knowledge" replace />} />
-          <Route path="/contacts" element={<ContactsPage />} />
-          <Route path="/status" element={<StatusPage />} />
-          <Route path="/loops" element={<LoopsPage />} />
           <Route path="/granola" element={<Navigate to="/" replace />} />
           <Route path="/jobs" element={<JobsBoard workspace={workspace} />} />
           {/* One Agents page (obj 900495): registry, board layer and templates are tabs. */}
           <Route path={AGENTS_ROUTE} element={<AgentsHub workspace={workspace} />} />
-          <Route path="/strategies" element={<StrategiesPage workspace={workspace} />} />
-          <Route path="/strategy/:id" element={<StrategyDetailPage workspace={workspace} />} />
           {/* Emailed links point at /login (obj 900497); once signed in it is just home. */}
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="/setup" element={<SetupPage />} />

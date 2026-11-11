@@ -26,7 +26,7 @@ export function SecretRow({ secret: s, groupHeader, orgName, userName, onHistory
     <>
       {groupHeader && (
         <tr className="border-b border-border bg-surface-overlay/60">
-          <td colSpan={7} className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-fg-3">
+          <td colSpan={7} className="px-3 py-1.5 text-[12px] uppercase tracking-wider text-fg-3">
             {groupHeader}
           </td>
         </tr>
@@ -45,7 +45,7 @@ export function SecretRow({ secret: s, groupHeader, orgName, userName, onHistory
         <td className="px-3 py-2">
           <div className="font-mono text-xs text-fg-1">{s.key}</div>
           {s.description && (
-            <div data-testid="secret-description" className="mt-0.5 max-w-xs truncate text-[11px] text-fg-3" title={s.description}>
+            <div data-testid="secret-description" className="mt-0.5 max-w-xs truncate text-[12px] text-fg-3" title={s.description}>
               {s.description}
             </div>
           )}
@@ -54,7 +54,7 @@ export function SecretRow({ secret: s, groupHeader, orgName, userName, onHistory
         <td className="px-3 py-2 text-fg-2">v{s.version}</td>
         <td className="px-3 py-2 text-fg-3 text-xs">{fmtTime(s.updatedAt)}</td>
         <td className="px-3 py-2 text-fg-3 text-xs" data-testid="secret-last-used">
-          {s.lastUsedAt ? fmtTime(s.lastUsedAt) : <span className="text-fg-3/70">never</span>}
+          {s.lastUsedAt ? fmtTime(s.lastUsedAt) : <span className="text-fg-3">never</span>}
         </td>
         <td className="px-3 py-2 text-right space-x-2">
           <button onClick={onHistory} className="text-xs text-fg-2 hover:underline">History</button>

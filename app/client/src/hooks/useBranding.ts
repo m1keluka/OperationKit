@@ -22,10 +22,18 @@ export interface Branding {
   env_locked_fields: string[]
   is_customized: boolean
   default_name: string
+  /** Install has its own name or uploaded marks — default marks are never shown. */
+  white_label: boolean
+  /** Optional small "Powered by" credit; off by default. */
+  powered_by: boolean
 }
 
-const DEFAULT_BRANDING: Branding = {
-  name: 'Operation Kit',
+/** Shipped default brand — used only until /api/branding answers, and when it
+ * can't be reached. Exported so the brand-string guard test can whitelist it. */
+export const DEFAULT_BRAND_NAME = 'Operation Kit'
+
+export const DEFAULT_BRANDING: Branding = {
+  name: DEFAULT_BRAND_NAME,
   logo_url: null,
   wordmark_url: null,
   wordmark_dark_url: null,
@@ -37,67 +45,104 @@ const DEFAULT_BRANDING: Branding = {
   },
   env_locked_fields: [],
   is_customized: false,
-  default_name: 'Operation Kit',
+  default_name: DEFAULT_BRAND_NAME,
+  white_label: false,
+  powered_by: false,
 }
 
 let cached: Promise<Branding> | null = null
+let current: Branding | null = null
+const listeners = new Set<(b: Branding) => void>()
+
+function normalize(b: Partial<Branding>): Branding {
+  return {
+    ...DEFAULT_BRANDING,
+    ...b,
+    tokens: { ...DEFAULT_BRANDING.tokens, ...b.tokens },
+    logo_url: b.logo_url ?? b.wordmark_url ?? null,
+    white_label: b.white_label ?? false,
+    powered_by: b.powered_by ?? false,
+  }
+}
 
 /** Product name, accent/palette tokens and logos set by the install (env var,
  * config/branding.json, or the Settings > Branding panel) — GET /api/branding. */
 export function loadBranding(): Promise<Branding> {
   if (!cached) {
-    cached = fetch('/api/branding', { credentials: 'include' })
+    cached = fetch('/api/branding', { credentials: 'include', cache: 'no-store' })
       .then(r => (r.ok ? r.json() : DEFAULT_BRANDING))
-      .then((b: Partial<Branding>) => ({
-        ...DEFAULT_BRANDING,
-        ...b,
-        tokens: { ...DEFAULT_BRANDING.tokens, ...b.tokens },
-        logo_url: b.logo_url ?? b.wordmark_url ?? null,
-      }))
+      .then((b: Partial<Branding>) => normalize(b))
       .catch(() => DEFAULT_BRANDING)
+      .then(b => { publish(b); return b })
   }
   return cached
 }
 
-/** Re-fetches on next call — used after the Branding panel saves a change. */
-export function invalidateBranding(): void {
+/** Applies a branding object everywhere at once: every mounted useBranding()
+ * (header, login, mobile nav…), CSS tokens, tab title and favicon. */
+export function publish(b: Branding): void {
+  current = b
+  document.title = b.name
+  applyBrandTokens(b.tokens)
+  applyFavicon(b.favicon_url)
+  for (const fn of listeners) fn(b)
+}
+
+/** Re-fetches and pushes the result to every mounted consumer — used after the
+ * Branding panel saves/uploads, so the new logo/name shows without a reload. */
+export function invalidateBranding(next?: Partial<Branding>): Promise<Branding> {
   cached = null
+  if (next) {
+    const b = normalize(next)
+    cached = Promise.resolve(b)
+    publish(b)
+    return cached
+  }
+  return loadBranding()
 }
 
 /** Applies accent/status tokens as CSS custom-property overrides on <html>,
  * so a re-brand reaches every Tailwind class that resolves `var(--accent)`
- * etc. (tailwind.config.ts) without a rebuild. Called once at boot (main.tsx)
- * and again whenever the Branding panel saves. */
+ * etc. (tailwind.config.ts) without a rebuild. */
 export function applyBrandTokens(tokens: BrandTokens): void {
   const root = document.documentElement.style
   root.setProperty('--accent', tokens.accent)
   root.setProperty('--accent-hover', tokens.accentHover)
   root.setProperty('--accent-press', tokens.accentPress)
   root.setProperty('--accent-fg', tokens.accentFg)
-  root.setProperty('--ok-verify', tokens.verify)
-  root.setProperty('--ok-alarm', tokens.caution)
+  root.setProperty('--brand-verify', tokens.verify)
+  root.setProperty('--brand-verify-on-dark', tokens.verifyOnDark)
+  root.setProperty('--brand-caution', tokens.caution)
+  root.setProperty('--brand-caution-on-dark', tokens.cautionOnDark)
+}
+
+export function applyFavicon(url: string | null): void {
+  if (!url) return
+  let link = document.querySelector<HTMLLinkElement>("link[rel='icon']")
+  if (!link) {
+    link = document.createElement('link')
+    link.rel = 'icon'
+    document.head.appendChild(link)
+  }
+  link.removeAttribute('type')
+  link.href = url
+}
+
+/** Branding plus whether /api/branding has answered yet — brand marks render
+ * a neutral placeholder until then, so a white-labeled install never flashes
+ * the default name or mark. */
+export function useBrandingState(): { branding: Branding; loaded: boolean } {
+  const [state, setState] = useState(() => ({ branding: current ?? DEFAULT_BRANDING, loaded: current !== null }))
+  useEffect(() => {
+    let alive = true
+    const onChange = (b: Branding) => { if (alive) setState({ branding: b, loaded: true }) }
+    listeners.add(onChange)
+    loadBranding().then(onChange)
+    return () => { alive = false; listeners.delete(onChange) }
+  }, [])
+  return state
 }
 
 export function useBranding(): Branding {
-  const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING)
-  useEffect(() => {
-    let alive = true
-    loadBranding().then(b => {
-      if (!alive) return
-      setBranding(b)
-      document.title = b.name
-      applyBrandTokens(b.tokens)
-      if (b.favicon_url) {
-        let link = document.querySelector<HTMLLinkElement>("link[rel='icon']")
-        if (!link) {
-          link = document.createElement('link')
-          link.rel = 'icon'
-          document.head.appendChild(link)
-        }
-        link.href = b.favicon_url
-      }
-    })
-    return () => { alive = false }
-  }, [])
-  return branding
+  return useBrandingState().branding
 }

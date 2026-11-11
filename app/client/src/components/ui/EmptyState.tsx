@@ -33,8 +33,8 @@ export function EmptyState({
         </div>
       )}
       <div className="space-y-1">
-        <p className="font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-1">{title}</p>
-        {description && <p className="mx-auto max-w-[44ch] text-[13px] leading-relaxed text-fg-3">{description}</p>}
+        <p className="font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">{title}</p>
+        {description && <p className="mx-auto max-w-[44ch] text-[13px] leading-relaxed text-fg-2">{description}</p>}
       </div>
       {action && <div className="mt-1">{action}</div>}
     </div>

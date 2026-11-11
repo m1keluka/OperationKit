@@ -71,7 +71,7 @@ export function PreviewCard({
             {objective.last_session_summary || objective.description}
           </p>
         )}
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-7 text-[11.5px] text-fg-2">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-7 text-[12px] text-fg-2">
           <span className={meta.tone}>{meta.label}</span>
           {isLive && <LiveBadge />}
           {objective.project && <span>{objective.project}</span>}
@@ -96,7 +96,7 @@ export function PreviewCard({
         </div>
         {/* Board-Project chip + org chip — only rendered when data is present (obj 710597) */}
         {(objective.project_name || (objective.workspace && showOrgChip)) && (
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-7 text-[11px] text-fg-2">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-7 text-[12px] text-fg-2">
             {objective.project_name && (
               <span
                 className="inline-flex items-center gap-1 rounded-full border border-line px-1.5 py-px"

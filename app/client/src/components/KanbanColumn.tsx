@@ -42,11 +42,11 @@ export function KanbanColumn({ status, objectives, onOpenTerminal, onCardEdit, o
       <div className="ok-colhead">
         <span
           id={`col-${status}`}
-          className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-2"
+          className="text-[13px] uppercase text-fg-1 font-semibold tracking-[0.06em]"
         >
           {meta.label}
         </span>
-        <span className="ml-auto font-mono text-[11px] text-fg-3">
+        <span className="ml-auto font-mono text-[12px] text-fg-2">
           {objectives.length}{isLazy && lazyHasMore ? '+' : ''}
         </span>
       </div>
@@ -85,20 +85,20 @@ export function KanbanColumn({ status, objectives, onOpenTerminal, onCardEdit, o
             {!lazyLoading && (lazyHasMore || !lazyLoaded) && (
               <button
                 onClick={onLoadMore}
-                className="min-h-[44px] w-full rounded-md border border-dashed border-line bg-surface-1 px-3 py-2.5 text-center font-mono text-[11px] text-fg-2 transition-colors duration-fast ease-out hover:border-line-strong hover:bg-surface-2 hover:text-fg-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                className="min-h-[44px] w-full rounded-md border border-dashed border-line bg-surface-1 px-3 py-2.5 text-center font-mono text-[12px] text-fg-2 transition-colors duration-fast ease-out hover:border-line-strong hover:bg-surface-2 hover:text-fg-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               >
                 {lazyLoaded ? 'Load more done' : 'Load done objectives'}
               </button>
             )}
             {!lazyLoading && lazyLoaded && !lazyHasMore && objectives.length === 0 && (
-              <div className="rounded-md border border-dashed border-line/60 px-3 py-3 text-center font-mono text-[11px] text-fg-3">
+              <div className="rounded-md border border-dashed border-line/60 px-3 py-3 text-center font-mono text-[12px] text-fg-3">
                 empty
               </div>
             )}
           </>
         ) : (
           objectives.length === 0 && (
-            <div className="rounded-md border border-dashed border-line/60 px-3 py-3 text-center font-mono text-[11px] text-fg-3">
+            <div className="rounded-md border border-dashed border-line/60 px-3 py-3 text-center font-mono text-[12px] text-fg-3">
               empty
             </div>
           )

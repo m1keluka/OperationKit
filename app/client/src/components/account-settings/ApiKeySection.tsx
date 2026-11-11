@@ -103,7 +103,7 @@ export function ApiKeySection() {
           </p>
         </div>
         {configured && (
-          <span className="shrink-0 rounded-sm bg-status-review/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-status-review">
+          <span className="shrink-0 rounded-sm bg-status-review/20 px-1.5 py-0.5 text-[12px] uppercase tracking-wider text-status-review">
             active
           </span>
         )}
@@ -137,7 +137,7 @@ export function ApiKeySection() {
             <p className="font-mono text-sm text-fg-1">cc_live_••••••••{summary!.last4}</p>
           )}
           {configured && summary?.created_at && (
-            <p className="text-[11px] text-fg-3">Created {fmtDate(summary.created_at)}</p>
+            <p className="text-[12px] text-fg-3">Created {fmtDate(summary.created_at)}</p>
           )}
           {!configured && !plaintext && (
             <p className="text-sm text-fg-2">No key yet. Generate one, copy it, paste it into Grok Bot.</p>

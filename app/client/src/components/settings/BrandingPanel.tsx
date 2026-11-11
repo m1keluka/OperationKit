@@ -3,13 +3,14 @@ import type { CSSProperties } from 'react'
 import { Card, CardHeader, CardBody } from '../ui/Card'
 import { Button } from '../ui/Button'
 import type { Branding, BrandTokens } from '../../hooks/useBranding'
-import { invalidateBranding, applyBrandTokens } from '../../hooks/useBranding'
+import { invalidateBranding } from '../../hooks/useBranding'
+import { BrandLogo } from '../BrandLogo'
 import { useAuth } from '../../context/AuthContext'
 
 /** Copy-paste prompt for "have your coding agent set this up" (goal #5, docs/branding.md). */
 export function brandingAgentPrompt(websiteUrl: string): string {
   const url = websiteUrl.trim() || '<your company website URL>'
-  return `Here is my company website: ${url}. Read the brand colors and logo from it and configure Operation Kit branding (env/config file + logo files) per docs/branding.md.`
+  return `Here is my company website: ${url}. Read the brand colors and logo from it and configure this install's branding (name, colors, logo files) via the env/config file per docs/branding.md.`
 }
 
 const TOKEN_FIELDS: Array<{ key: keyof BrandTokens; label: string; help?: string }> = [
@@ -32,21 +33,21 @@ const LOGO_SLOTS: Array<{ slot: 'wordmark' | 'wordmark-dark' | 'icon' | 'favicon
 
 function HexInput({ value, onChange, disabled, label }: { value: string; onChange: (v: string) => void; disabled?: boolean; label: string }) {
   return (
-    <label className="flex items-center gap-2 text-[13px] text-fg-1">
+    <label className="flex flex-wrap items-center gap-2 text-[13px] text-fg-1">
       <span className="w-36 shrink-0">{label}</span>
       <input
         type="color"
         value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000'}
         onChange={e => onChange(e.target.value)}
         disabled={disabled}
-        className="h-8 w-10 shrink-0 cursor-pointer rounded border border-line bg-surface-1 disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-9 w-10 shrink-0 cursor-pointer rounded-md border border-line bg-surface-1 disabled:cursor-not-allowed disabled:opacity-50"
       />
       <input
         type="text"
         value={value}
         onChange={e => onChange(e.target.value)}
         disabled={disabled}
-        className="h-8 w-28 rounded border border-line bg-surface-1 px-2 font-mono text-[12px] text-fg-0 disabled:opacity-50"
+        className="h-9 w-28 rounded-md border border-line bg-surface-1 px-2 font-mono text-[13px] text-fg-0 disabled:opacity-50"
       />
     </label>
   )
@@ -66,6 +67,7 @@ export function BrandingPanel() {
   const [branding, setBranding] = useState<Branding | null>(null)
   const [name, setName] = useState('')
   const [tokens, setTokens] = useState<BrandTokens | null>(null)
+  const [poweredBy, setPoweredBy] = useState(false)
   const [websiteUrl, setWebsiteUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -81,6 +83,7 @@ export function BrandingPanel() {
         setBranding(b)
         setName(b.name)
         setTokens(b.tokens)
+        setPoweredBy(!!b.powered_by)
       })
       .catch(err => !cancelled && setError(err instanceof Error ? err.message : 'Could not load branding'))
     return () => { cancelled = true }
@@ -112,14 +115,13 @@ export function BrandingPanel() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, tokens }),
+        body: JSON.stringify({ name, tokens, powered_by: poweredBy }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Save failed')
       const b: Branding = await res.json()
       setBranding(b)
       setTokens(b.tokens)
-      invalidateBranding()
-      applyBrandTokens(b.tokens) // live-apply to the whole app immediately, no restart needed
+      void invalidateBranding(b) // live-apply name, logo, tokens and favicon everywhere — no reload
       setNotice('Saved.')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
@@ -138,9 +140,9 @@ export function BrandingPanel() {
       setBranding(b)
       setName(b.name)
       setTokens(b.tokens)
-      invalidateBranding()
-      applyBrandTokens(b.tokens)
-      setNotice('Reset to Operation Kit defaults.')
+      setPoweredBy(!!b.powered_by)
+      void invalidateBranding(b)
+      setNotice('Reset to the default brand.')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reset failed')
     } finally {
@@ -158,7 +160,7 @@ export function BrandingPanel() {
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Upload failed')
       const b: Branding = await res.json()
       setBranding(b)
-      invalidateBranding()
+      void invalidateBranding(b) // header, sign-in, favicon pick the new file up immediately
       setNotice(`${slot} updated.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
@@ -174,7 +176,7 @@ export function BrandingPanel() {
       if (res.ok) {
         const b: Branding = await res.json()
         setBranding(b)
-        invalidateBranding()
+        void invalidateBranding(b)
       }
     } finally {
       setUploading(null)
@@ -213,7 +215,7 @@ export function BrandingPanel() {
           }
         />
         <CardBody className="flex flex-col gap-4">
-          <label className="flex items-center gap-2 text-[13px] text-fg-1">
+          <label className="flex flex-wrap items-center gap-2 text-[13px] text-fg-1">
             <span className="w-36 shrink-0">Product name</span>
             <input
               type="text"
@@ -221,9 +223,23 @@ export function BrandingPanel() {
               onChange={e => setName(e.target.value)}
               disabled={locked.has('name')}
               maxLength={60}
-              className="h-8 w-64 rounded border border-line bg-surface-1 px-2 text-[13px] text-fg-0 disabled:opacity-50"
+              className="h-9 w-full min-w-0 rounded-md border border-line bg-surface-1 px-2.5 text-[14px] text-fg-0 disabled:opacity-50 sm:w-64"
             />
             {locked.has('name') && <span className="text-fg-3">set via OK_BRAND_NAME env var</span>}
+          </label>
+
+          <label className="flex items-start gap-2 text-[13px] text-fg-1">
+            <input
+              type="checkbox"
+              checked={poweredBy}
+              onChange={e => setPoweredBy(e.target.checked)}
+              disabled={locked.has('powered_by')}
+              className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+            />
+            <span>
+              Show a small “Powered by” credit for the underlying platform on the sign-in page
+              <span className="block text-[12px] text-fg-3">Off by default — leave it off for a fully white-labeled install.</span>
+            </span>
           </label>
 
           {tokens && (
@@ -237,7 +253,7 @@ export function BrandingPanel() {
                     disabled={locked.has(f.key)}
                   />
                   {locked.has(f.key) && (
-                    <span className="text-[11px] text-fg-3">env-locked</span>
+                    <span className="text-[12px] text-fg-3">env-locked</span>
                   )}
                 </div>
               ))}
@@ -246,21 +262,24 @@ export function BrandingPanel() {
         </CardBody>
       </Card>
 
-      {tokens && <LivePreview tokens={tokens} name={name} iconUrl={branding?.icon_url ?? null} />}
+      {tokens && branding && <LivePreview tokens={tokens} name={name} branding={branding} />}
 
       <Card>
         <CardHeader title="Logos & favicon" eyebrow="SVG, PNG or ICO · 2MB max" />
         <CardBody className="flex flex-col gap-4">
           {LOGO_SLOTS.map(({ slot, label, help }) => (
-            <div key={slot} className="flex items-center gap-3">
-              <div className="flex h-12 w-24 shrink-0 items-center justify-center rounded border border-line bg-surface-1">
+            <div key={slot} className="flex flex-wrap items-center gap-3">
+              <div
+                className="flex h-12 w-24 shrink-0 items-center justify-center rounded-md border border-line"
+                style={{ background: slot === 'wordmark-dark' ? 'var(--ok-ink)' : 'var(--ok-paper)' }}
+              >
                 {assetUrl[slot]
                   ? <img src={assetUrl[slot]!} alt="" className="max-h-10 max-w-20 object-contain" />
-                  : <span className="text-[11px] text-fg-3">default</span>}
+                  : <span className="text-[12px] text-fg-3">not set</span>}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] text-fg-0">{label}</div>
-                <div className="text-[11px] text-fg-3">{help}</div>
+                <div className="text-[12px] text-fg-3">{help}</div>
               </div>
               <label className="shrink-0">
                 <input
@@ -287,14 +306,14 @@ export function BrandingPanel() {
       <Card>
         <CardHeader title="Set this up with your coding agent" eyebrow="Copy-paste prompt" />
         <CardBody className="flex flex-col gap-3">
-          <label className="flex items-center gap-2 text-[13px] text-fg-1">
+          <label className="flex flex-wrap items-center gap-2 text-[13px] text-fg-1">
             <span className="shrink-0">Company website</span>
             <input
               type="url"
               placeholder="https://acme.com"
               value={websiteUrl}
               onChange={e => setWebsiteUrl(e.target.value)}
-              className="h-8 w-72 rounded border border-line bg-surface-1 px-2 text-[13px] text-fg-0"
+              className="h-9 w-full min-w-0 rounded-md border border-line bg-surface-1 px-2.5 text-[14px] text-fg-0 sm:w-72"
             />
           </label>
           <div className="flex items-start gap-2">
@@ -322,30 +341,26 @@ export function BrandingPanel() {
 /** Scoped live preview — applies the DRAFT tokens only to this subtree via
  * inline CSS custom properties, so editing doesn't repaint the whole app
  * until Save. */
-function LivePreview({ tokens, name, iconUrl }: { tokens: BrandTokens; name: string; iconUrl: string | null }) {
+function LivePreview({ tokens, name, branding }: { tokens: BrandTokens; name: string; branding: Branding }) {
   const style = {
     '--accent': tokens.accent,
     '--accent-hover': tokens.accentHover,
     '--accent-press': tokens.accentPress,
     '--accent-fg': tokens.accentFg,
-    '--ok-verify': tokens.verify,
-    '--ok-alarm': tokens.caution,
+    '--brand-verify': tokens.verify,
+    '--brand-caution': tokens.caution,
   } as CSSProperties
+  const draft: Branding = { ...branding, name: name || branding.name, tokens }
   return (
     <Card>
       <CardHeader title="Live preview" eyebrow="Updates as you edit, before you Save" />
       <CardBody>
-        <div style={style} className="flex flex-wrap items-center gap-4 rounded-md border border-line bg-surface-1 p-4">
-          <div className="flex items-center gap-2 font-display text-lg font-bold text-fg-0">
-            {iconUrl
-              ? <img src={iconUrl} alt="" className="h-6 w-6 rounded object-contain" />
-              : <span className="text-accent" aria-hidden="true">›</span>}
-            {name}
-          </div>
+        <div style={style} className="flex flex-wrap items-center gap-4 rounded-md border border-line bg-surface-0 p-4">
+          <BrandLogo branding={draft} size="md" />
           <Button variant="primary" size="sm">Primary action</Button>
           <Button variant="secondary" size="sm">Secondary</Button>
-          <span className="rounded-full bg-signal-verify/15 px-2 py-0.5 text-[11px] font-medium text-signal-verify">Done</span>
-          <span className="rounded-full bg-signal-alarm/15 px-2 py-0.5 text-[11px] font-medium text-signal-alarm">Blocked</span>
+          <span className="rounded-full border border-signal-verify px-2 py-0.5 text-[12px] font-medium text-signal-verify">Done</span>
+          <span className="rounded-full border border-signal-alarm px-2 py-0.5 text-[12px] font-medium text-signal-alarm">Blocked</span>
         </div>
       </CardBody>
     </Card>

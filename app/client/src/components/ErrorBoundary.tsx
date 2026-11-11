@@ -28,13 +28,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return (
         <div className="flex h-full items-center justify-center bg-surface p-6">
           <div className="w-full max-w-md rounded-lg border border-border bg-surface-raised p-6 text-center">
-            <div className="mb-4 text-lg font-semibold text-white">Something went wrong</div>
-            <p className="mb-4 text-sm text-gray-400">
+            <div className="mb-4 text-lg font-semibold text-fg-0">Something went wrong</div>
+            <p className="mb-4 text-sm text-fg-2">
               {this.state.error?.message || 'An unexpected error occurred while rendering this page.'}
             </p>
             <button
               onClick={() => window.location.reload()}
-              className="rounded bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent-hover"
+              className="rounded bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition hover:bg-accent-hover"
             >
               Reload
             </button>

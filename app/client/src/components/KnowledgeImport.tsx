@@ -334,7 +334,7 @@ export function KnowledgeImportPanel({ workspace, onClose }: { workspace: string
 
               {hasKnowledge && !answer && !asking && !askError && (
                 <div className="mt-4 flex flex-col gap-2">
-                  <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">Try</span>
+                  <span className="text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">Try</span>
                   {EXAMPLE_QUESTIONS.map(t => (
                     <button
                       key={t}
@@ -371,7 +371,7 @@ export function KnowledgeImportPanel({ workspace, onClose }: { workspace: string
                           onClick={() => { void viewNote(s.rel) }}
                           className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-line bg-surface-1 px-3 text-[12.5px] text-fg-1 transition-all duration-fast hover:border-line-strong hover:bg-surface-2 hover:text-fg-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-[32px]"
                         >
-                          <span className="font-mono text-[10.5px] uppercase text-fg-3">{folderOf(s.rel)}</span>
+                          <span className="text-[12px] uppercase text-fg-3 font-semibold tracking-[0.06em]">{folderOf(s.rel)}</span>
                           {s.title}
                         </button>
                       ))}
@@ -414,7 +414,7 @@ export function KnowledgeImportPanel({ workspace, onClose }: { workspace: string
                 <Button variant="primary" loading={uploading} onClick={() => fileInput.current?.click()} disabled={!ws}>
                   Choose files
                 </Button>
-                <div className="text-[11.5px] text-fg-3">
+                <div className="text-[12px] text-fg-3">
                   Excel, CSV, PDF, Word, transcripts (.txt, .vtt) · up to {status?.max_upload_mb ?? 50} MB each · files stay on this server
                 </div>
               </div>
@@ -448,7 +448,7 @@ export function KnowledgeImportPanel({ workspace, onClose }: { workspace: string
                         <FileIcon kind={f.kind} />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[13.5px] font-medium text-fg-0" title={f.file_name}>{f.file_name}</div>
-                          <div className="text-[11.5px] text-fg-3">{new Date(f.uploaded_at).toLocaleString()}</div>
+                          <div className="text-[12px] text-fg-3">{new Date(f.uploaded_at).toLocaleString()}</div>
                         </div>
                         <Badge tone={STATUS_LABEL[f.status].tone}>{STATUS_LABEL[f.status].label}</Badge>
                       </div>
@@ -480,7 +480,7 @@ export function KnowledgeImportPanel({ workspace, onClose }: { workspace: string
                               onClick={() => { void viewNote(n) }}
                               className="inline-flex min-h-[44px] items-center gap-1 rounded-md border border-line-soft bg-surface-2 px-2.5 text-[12px] capitalize text-fg-1 transition-all duration-fast hover:border-line-strong hover:bg-surface-3 hover:text-fg-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-[28px]"
                             >
-                              <span className="font-mono text-[10px] uppercase text-fg-3">{folderOf(n)}</span>
+                              <span className="text-[12px] uppercase text-fg-3 font-semibold tracking-[0.06em]">{folderOf(n)}</span>
                               {noteLabel(n)}
                             </button>
                           ))}

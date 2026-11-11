@@ -42,3 +42,22 @@ export const LEGACY_REDIRECTS: ReadonlyArray<{ from: string; to: string }> = [
   { from: '/settings/agents', to: agentsTabRoute('registry') },
   { from: '/settings/platform', to: HOST_CRON_ROUTE },
 ]
+
+/**
+ * Unfinished surfaces removed in obj 900543: Notes (/loops), Feed, Strategies,
+ * Development, Status and Contacts. Their pages are gone; old URLs (bookmarks,
+ * links in old messages) redirect to the board ('/') instead of 404-ing, so a
+ * stale link always lands somewhere useful. `/*` entries cover sub-paths such as
+ * /strategy/12 and /development/DEV-4. routes.redirects.test.tsx drives every
+ * entry through a real router.
+ */
+export const REMOVED_ROUTES: ReadonlyArray<string> = [
+  '/loops',
+  '/feed',
+  '/strategies',
+  '/strategy/*',
+  '/development/*',
+  '/feedback',
+  '/status',
+  '/contacts',
+]

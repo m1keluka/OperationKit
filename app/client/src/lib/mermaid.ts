@@ -7,31 +7,44 @@
  */
 
 let mermaidPromise: Promise<typeof import('mermaid').default> | null = null
+let configuredFor = ''
 
-/** Lazy-load + initialize mermaid once. Subsequent calls reuse the same instance. */
+/** Theme tokens resolved from <html data-theme>, so diagrams follow light/dark
+ * and the install's accent instead of a hardcoded dark palette (obj 900543). */
+function themeVariables(): Record<string, string> {
+  const cs = getComputedStyle(document.documentElement)
+  const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+  return {
+    darkMode: String(isDark),
+    background: 'transparent',
+    primaryColor: v('--surface-2', isDark ? '#292B53' : '#EFEBE2'),
+    primaryTextColor: v('--fg-0', isDark ? '#F3F0E8' : '#16163A'),
+    primaryBorderColor: v('--line-strong', isDark ? '#555983' : '#BDB6A6'),
+    lineColor: v('--fg-2', isDark ? '#B2B6CE' : '#615D54'),
+    secondaryColor: v('--surface-3', isDark ? '#313461' : '#E5E1D5'),
+    tertiaryColor: v('--surface-1', isDark ? '#202148' : '#FBF9F4'),
+    textColor: v('--fg-0', isDark ? '#F3F0E8' : '#16163A'),
+  }
+}
+
+/** Lazy-load mermaid once; (re)initialize whenever the theme changed. */
 async function getMermaid() {
-  if (!mermaidPromise) {
-    mermaidPromise = import('mermaid').then(mod => {
-      const mermaid = mod.default
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: 'dark',
-        securityLevel: 'strict',
-        fontFamily: 'inherit',
-        themeVariables: {
-          background: 'transparent',
-          primaryColor: '#1f2937',
-          primaryTextColor: '#e5e7eb',
-          primaryBorderColor: '#374151',
-          lineColor: '#6b7280',
-          secondaryColor: '#111827',
-          tertiaryColor: '#0f172a',
-        },
-      })
-      return mermaid
+  if (!mermaidPromise) mermaidPromise = import('mermaid').then(mod => mod.default)
+  const mermaid = await mermaidPromise
+  const vars = themeVariables()
+  const key = JSON.stringify(vars)
+  if (key !== configuredFor) {
+    configuredFor = key
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'base',
+      securityLevel: 'strict',
+      fontFamily: 'inherit',
+      themeVariables: vars,
     })
   }
-  return mermaidPromise
+  return mermaid
 }
 
 let renderCounter = 0
@@ -114,11 +127,11 @@ export function cleanupOrphanMermaid() {
 
 function errorBlockHtml(message: string, source: string): string {
   return (
-    `<div class="rounded border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">` +
+    `<div class="rounded border border-signal-alarm/30 bg-signal-alarm/10 p-3 text-xs text-signal-alarm">` +
     `<div class="font-medium mb-1">Mermaid render failed</div>` +
-    `<div class="font-mono text-[11px] text-red-400/80 whitespace-pre-wrap">${escapeHtml(message)}</div>` +
-    `<details class="mt-2"><summary class="cursor-pointer text-red-300/80">Source</summary>` +
-    `<pre class="mt-1 overflow-x-auto bg-black/30 p-2 text-[11px]"><code>${escapeHtml(source)}</code></pre>` +
+    `<div class="font-mono text-[12px] text-fg-1 whitespace-pre-wrap">${escapeHtml(message)}</div>` +
+    `<details class="mt-2"><summary class="cursor-pointer text-signal-alarm">Source</summary>` +
+    `<pre class="mt-1 overflow-x-auto bg-surface-2 p-2 text-[12px] text-fg-0"><code>${escapeHtml(source)}</code></pre>` +
     `</details></div>`
   )
 }
@@ -138,8 +151,8 @@ export function mermaidPlaceholderHtml(source: string): string {
   const escapedAttr = source.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
   const escapedFallback = escapeHtml(source)
   return (
-    `<div class="mermaid-block my-3 flex justify-center rounded-lg border border-white/5 bg-black/20 p-3 overflow-x-auto" data-mermaid-source="${escapedAttr}">` +
-    `<pre class="text-xs text-gray-500"><code>${escapedFallback}</code></pre>` +
+    `<div class="mermaid-block my-3 flex justify-center rounded-lg border border-line bg-surface-1 p-3 overflow-x-auto" data-mermaid-source="${escapedAttr}">` +
+    `<pre class="text-xs text-fg-2"><code>${escapedFallback}</code></pre>` +
     `</div>`
   )
 }

@@ -151,7 +151,7 @@ export function ViewerHeader({
               {time && <span className="font-mono text-fg-3">{time}</span>}
             </div>
             {objective.session_id && (
-              <div className="mt-0.5 truncate font-mono text-[10.5px] text-fg-3">{objective.session_id}</div>
+              <div className="mt-0.5 truncate font-mono text-[12px] text-fg-3">{objective.session_id}</div>
             )}
             {/* Session activity (obj-2387): skills + sub-agent personas this
                 objective's sessions actually invoked, beside the agent badge. */}
@@ -159,7 +159,7 @@ export function ViewerHeader({
               <div className="mt-1.5 flex flex-col gap-1">
                 {skillsInvoked.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-fg-3">Skills</span>
+                    <span className="text-[12px] font-medium uppercase tracking-wide text-fg-3">Skills</span>
                     {skillsInvoked.map(s => (
                       <Badge key={`sk-${s}`} tone="accent" mono>{s}</Badge>
                     ))}
@@ -167,7 +167,7 @@ export function ViewerHeader({
                 )}
                 {subagentPersonas.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-fg-3">Agents</span>
+                    <span className="text-[12px] font-medium uppercase tracking-wide text-fg-3">Agents</span>
                     {subagentPersonas.map(a => (
                       <span key={`ag-${a}`} className="inline-flex items-center gap-1">
                         <AgentMonogram agent={a} size="sm" />
@@ -178,7 +178,7 @@ export function ViewerHeader({
                 )}
                 {subagentWorkers.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-fg-3">Sub-agents</span>
+                    <span className="text-[12px] font-medium uppercase tracking-wide text-fg-3">Sub-agents</span>
                     {subagentWorkers.map(w => (
                       <Badge key={`sa-${w}`} tone="neutral" mono>{w}</Badge>
                     ))}

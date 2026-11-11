@@ -22,7 +22,7 @@ export function ToolsTab() {
         {tools.map(tool => (
           <div key={tool} className="rounded-md border border-line bg-surface-1 px-3 py-2 text-center">
             <div className="text-[12px] font-medium text-fg-2">{tool}</div>
-            <div className="mt-0.5 font-mono text-[10px] text-fg-3">Local only</div>
+            <div className="mt-0.5 font-mono text-[12px] text-fg-3">Local only</div>
           </div>
         ))}
       </div>

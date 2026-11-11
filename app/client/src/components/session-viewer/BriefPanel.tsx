@@ -41,7 +41,7 @@ export function BriefPanel({
         </div>
 
         {/* Stats row */}
-        <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-fg-3">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[12px] text-fg-3">
           {Number(objective.session_count) > 0 && (
             <span>{objective.session_count} session{objective.session_count !== 1 ? 's' : ''}</span>
           )}
@@ -56,7 +56,7 @@ export function BriefPanel({
         {/* Last session summary */}
         {objective.last_session_summary && (
           <Card inset className="px-3 py-2">
-            <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-fg-3">Last Session Summary</div>
+            <div className="mb-1 text-[12px] uppercase text-fg-3 font-semibold tracking-[0.06em]">Last Session Summary</div>
             <div className="text-xs leading-relaxed text-fg-1">{objective.last_session_summary}</div>
           </Card>
         )}
@@ -64,7 +64,7 @@ export function BriefPanel({
         {/* Approved plan from the planning stage */}
         {objective.approved_plan && (
           <Card inset className="border-status-planning/30 bg-status-planning/[0.06] px-3 py-2">
-            <div className="mb-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-status-planning">
+            <div className="mb-1 flex items-center gap-2 text-[12px] uppercase text-status-planning font-semibold tracking-[0.06em]">
               <span>Approved Plan</span>
               {objective.plan_approved_at && (
                 <span className="font-normal text-fg-3">approved {objective.plan_approved_at.slice(0, 16).replace('T', ' ')}</span>
@@ -86,7 +86,7 @@ export function BriefPanel({
             : 'border-signal-amber/30 bg-signal-amber/[0.07]'
           return (
             <Card inset className={cn('px-3 py-2', ring)}>
-              <div className="mb-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-fg-2">
+              <div className="mb-1 flex items-center gap-2 text-[12px] uppercase text-fg-2 font-semibold tracking-[0.06em]">
                 <span>AI Review Findings</span>
                 <Badge tone={tone} className="uppercase">{verdict || '—'}</Badge>
               </div>
@@ -108,10 +108,10 @@ export function BriefPanel({
             Hidden entirely when there are none. */}
         {prs.length > 0 && (
           <Card inset className="px-3 py-2">
-            <div className="mb-1.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-fg-3">
+            <div className="mb-1.5 flex items-center gap-2 text-[12px] uppercase text-fg-3 font-semibold tracking-[0.06em]">
               <GitPullRequest className="h-3 w-3" />
               <span>Pull Requests</span>
-              <span className="text-fg-3/70">{prs.length}</span>
+              <span className="text-fg-3">{prs.length}</span>
             </div>
             <ul className="space-y-1">
               {prs.map(pr => {
@@ -142,7 +142,7 @@ export function BriefPanel({
         {/* Description */}
         {objective.description ? (
           <div>
-            <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-fg-3">Description</div>
+            <div className="mb-1 text-[12px] uppercase text-fg-3 font-semibold tracking-[0.06em]">Description</div>
             <div
               className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface-0/50 px-3 py-2 font-mono text-sm leading-relaxed text-fg-1"
               dangerouslySetInnerHTML={{ __html: renderMarkdown(objective.description) }}

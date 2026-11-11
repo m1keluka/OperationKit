@@ -137,7 +137,7 @@ export function ProviderKeysSection() {
               <li key={r.secretKey} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
                 <div>
                   <p className="text-[13px] font-medium text-fg-0">{label}</p>
-                  <p className="text-[11.5px] text-fg-3">v{r.version} · updated {fmtDate(r.updatedAt)}</p>
+                  <p className="text-[12px] text-fg-3">v{r.version} · updated {fmtDate(r.updatedAt)}</p>
                 </div>
                 <Button variant="danger" size="sm" onClick={() => void handleRemove(r.secretKey, label)}>Remove</Button>
               </li>

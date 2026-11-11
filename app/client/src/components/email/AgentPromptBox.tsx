@@ -37,7 +37,7 @@ export function AgentPromptBox({ title, prompt, className }: { title: string; pr
         <span className="text-[12px] font-medium text-fg-1">{title}</span>
         <CopyButton text={prompt} label="Copy prompt" />
       </div>
-      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11.5px] leading-relaxed text-fg-2">{prompt}</pre>
+      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[12px] leading-relaxed text-fg-2">{prompt}</pre>
     </div>
   )
 }

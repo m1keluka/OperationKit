@@ -71,7 +71,7 @@ export function VersionHistoryModal({ scope, secretKey, onClose, onRolledBack }:
           </button>
         </div>
 
-        <p className="mb-3 text-[11px] text-fg-3">
+        <p className="mb-3 text-[12px] text-fg-3">
           Scope: <span className="text-fg-2">{SCOPE_LABELS[scope.scopeType]}</span>
           {scope.workspace && <span className="text-fg-2"> · {scope.workspace}</span>}
           {scope.userId != null && <span className="text-fg-2"> · user #{scope.userId}</span>}
@@ -98,11 +98,11 @@ export function VersionHistoryModal({ scope, secretKey, onClose, onRolledBack }:
             <tbody>
               {versions.map((v, i) => (
                 <tr key={v.version} className="border-b border-border last:border-b-0">
-                  <td className="py-2 text-fg-1">v{v.version}{i === 0 && <span className="ml-1 text-[10px] uppercase text-accent">current</span>}</td>
+                  <td className="py-2 text-fg-1">v{v.version}{i === 0 && <span className="ml-1 text-[12px] uppercase text-accent">current</span>}</td>
                   <td className="py-2 text-fg-2">
                     {v.changedBy ?? '—'}
                     {/* obj 719065: an agent-relayed value names the relaying agent */}
-                    {v.via && <div className="mt-0.5 text-[11px] leading-snug text-fg-3">via {v.via}</div>}
+                    {v.via && <div className="mt-0.5 text-[12px] leading-snug text-fg-3">via {v.via}</div>}
                   </td>
                   <td className="py-2 text-fg-3 text-xs">{v.changedAt?.slice(0, 16).replace('T', ' ')}</td>
                   <td className="py-2 text-right">

@@ -20,7 +20,7 @@ export function SetupPage() {
 
   return (
     <PageContainer width="default">
-      <PageHeader title="Setup" description="Three steps to get this workspace ready." />
+      <PageHeader title="Setup" description="Four steps to get this workspace ready." />
       <SetupChecklist />
     </PageContainer>
   )

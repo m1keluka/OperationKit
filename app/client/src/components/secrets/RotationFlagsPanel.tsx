@@ -28,7 +28,7 @@ export function RotationFlagsList({ flags, onResolve, resolving }: {
       aria-label="Secrets to rotate later"
       className="mb-4 rounded-lg border border-status-review/30 bg-status-review/5 p-4"
     >
-      <div className="text-[11px] font-medium uppercase tracking-wider text-status-review">
+      <div className="text-[12px] font-medium uppercase tracking-wider text-status-review">
         Rotate later · {flags.length}
       </div>
       <p className="mt-1 text-xs text-fg-2">

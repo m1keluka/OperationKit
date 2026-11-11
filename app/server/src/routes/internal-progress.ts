@@ -157,6 +157,7 @@ router.post('/objectives/:id/progress', (req, res) => {
 // The accountability record + the server's classification of it (obj 900367).
 // Read-only; the write side is the POST above (worker/lead) and the server's own
 // meaningful-progress stamp. Returns 404 for an unknown card, like its siblings.
+// codeql[js/missing-rate-limiting] -- localhost-only internal API (localOnly() 403s remote callers); indexed read
 router.get('/objectives/:id/accountability', (req, res) => {
   if (!localOnly(req, res)) return
   const objective = loadObjective(req, res)

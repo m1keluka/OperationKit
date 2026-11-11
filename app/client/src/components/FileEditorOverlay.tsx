@@ -126,7 +126,7 @@ export function FileEditorOverlay({ filePath, onClose }: FileEditorOverlayProps)
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-6">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-surface-0/70 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal — full-sheet on mobile, centered card on desktop */}
       <div className="cc-drawer-in relative z-10 flex flex-col w-full h-full sm:h-[85vh] sm:w-[min(960px,92vw)] sm:rounded-lg border border-line bg-surface-0 shadow-float overflow-hidden">
@@ -137,15 +137,15 @@ export function FileEditorOverlay({ filePath, onClose }: FileEditorOverlayProps)
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {file && !file.writable && (
-              <span className="rounded-xs bg-status-review/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-status-review">
+              <span className="rounded-xs bg-status-review/15 px-2 py-0.5 text-[12px] font-medium uppercase tracking-wider text-status-review">
                 Read-only
               </span>
             )}
-            {saveState === 'saving' && <span className="text-[10px] text-fg-3">Saving…</span>}
-            {saveState === 'saved' && <span className="text-[10px] text-status-done">Saved</span>}
-            {saveState === 'error' && <span className="text-[10px] text-flag-blocked" title={saveError ?? ''}>Save failed</span>}
+            {saveState === 'saving' && <span className="text-[12px] text-fg-3">Saving…</span>}
+            {saveState === 'saved' && <span className="text-[12px] text-status-done">Saved</span>}
+            {saveState === 'error' && <span className="text-[12px] text-flag-blocked" title={saveError ?? ''}>Save failed</span>}
             {pendingMarkdown !== null && saveState === 'idle' && file?.writable && (
-              <span className="text-[10px] text-fg-3">Unsaved</span>
+              <span className="text-[12px] text-fg-3">Unsaved</span>
             )}
             <button
               onClick={handleManualSave}

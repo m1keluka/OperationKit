@@ -135,7 +135,7 @@ export function PreviewArchive({ workspaces }: { workspaces: Workspace[] }) {
             >
               {t.label}
               {t.count != null && (
-                <span className="ml-1.5 font-mono text-[11px] text-fg-3">{t.count}</span>
+                <span className="ml-1.5 font-mono text-[12px] text-fg-3">{t.count}</span>
               )}
             </button>
           ))}
@@ -157,7 +157,7 @@ export function PreviewArchive({ workspaces }: { workspaces: Workspace[] }) {
         >
           <Search className="h-4 w-4" />
           <span className="hidden md:inline">Search</span>
-          <span className="hidden font-mono text-[10.5px] text-fg-3 md:inline">/</span>
+          <span className="hidden font-mono text-[12px] text-fg-3 md:inline">/</span>
         </button>
         <button
           type="button"
@@ -194,11 +194,11 @@ export function PreviewArchive({ workspaces }: { workspaces: Workspace[] }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
                           <span className="truncate text-[14px] font-medium text-fg-0">{obj.title || 'Untitled'}</span>
-                          <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-wide text-fg-3">
+                          <span className="shrink-0 text-[12px] uppercase text-fg-3 font-semibold tracking-[0.06em]">
                             {shortOf(obj.workspace as Workspace)}
                           </span>
                         </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-fg-2">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-fg-2">
                           <span className={meta.tone}>{meta.label}</span>
                           {obj.project && <span>{obj.project}</span>}
                           {obj.assigned_usernames && obj.assigned_usernames.length > 0 ? (
@@ -210,7 +210,7 @@ export function PreviewArchive({ workspaces }: { workspaces: Workspace[] }) {
                           {obj.pr_url && <span>#{obj.pr_number ?? 'PR'}</span>}
                         </div>
                       </div>
-                      <span className="shrink-0 font-mono text-[11px] text-fg-3">{relativeTime(obj.updated_at)}</span>
+                      <span className="shrink-0 font-mono text-[12px] text-fg-3">{relativeTime(obj.updated_at)}</span>
                     </button>
                     <div className="mt-1.5 flex shrink-0 items-center gap-1">
                       {(obj.status === 'cancelled' || obj.status === 'done') && (

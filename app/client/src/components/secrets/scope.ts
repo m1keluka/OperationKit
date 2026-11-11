@@ -2,7 +2,7 @@
  * Secrets scope helpers — extracted from SecretsPage.tsx (behavior frozen).
  *
  * TERMINOLOGY: Operator thinks of workspaces as ORGANIZATIONS, so this UI *labels*
- * the scopes "Command Center" (global — applies everywhere), "Organization"
+ * the scopes "Everywhere" (global — applies everywhere), "Organization"
  * (workspace), "User" (follows the user into any organization) and
  * "Organization + User" (workspace_user). This is a DISPLAY-LABEL decision only:
  * the wire, the query params, the shared types and the DB columns still say
@@ -12,7 +12,7 @@ import type { SecretScopeType, SecretSummary } from '@operationkit/shared'
 
 /** Display labels. The wire values stay `global`/`workspace`/`user`/`workspace_user`. */
 export const SCOPE_LABELS: Record<SecretScopeType, string> = {
-  global: 'Command Center',
+  global: 'Everywhere',
   workspace: 'Organization',
   user: 'User',
   workspace_user: 'Organization + User',
@@ -25,7 +25,7 @@ export const SCOPE_LABELS: Record<SecretScopeType, string> = {
  * exactly the confusion this copy has to kill on sight.
  */
 export const SCOPE_HINTS: Record<SecretScopeType, string> = {
-  global: 'Command-Center-wide — applies everywhere, in every organization.',
+  global: 'Platform-wide — applies everywhere, in every organization.',
   workspace: 'Applies to everyone working inside this organization.',
   user: 'Follows this user into ANY organization they work in.',
   workspace_user: 'Applies to this user, but only inside this organization.',
@@ -39,20 +39,21 @@ export const SCOPE_HINTS: Record<SecretScopeType, string> = {
 export const SCOPE_HINTS_CREATE: Record<SecretScopeType, string> = {
   ...SCOPE_HINTS,
   workspace:
-    'Applies only to everyone working inside the selected organization(s) — not everywhere. Pick "Command Center" for a secret that applies everywhere.',
+    'Applies only to everyone working inside the selected organization(s) — not everywhere. Pick "Everywhere" for a secret that applies in every organization.',
   workspace_user:
     'Applies to the selected user, but only inside the selected organization(s) — not everywhere.',
 }
 
 /** Badge chrome, lifted verbatim from ui/Badge so the chip reads identically. */
 export const BADGE_BASE =
-  'inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px] font-medium leading-none whitespace-nowrap'
+  'inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[12px] font-medium leading-none whitespace-nowrap'
 
 /** Distinct tone per scope type, straight off the shared ui/Badge tone table —
- *  status/accent tokens only, never a hardcoded hex. */
+ *  status/accent tokens only, never a hardcoded hex. The accent/info scopes are
+ *  outlines on the card surface (same as ui/Badge), not a lavender fill (QA r3 #1). */
 export const SCOPE_TONES: Record<SecretScopeType, string> = {
-  global: 'border-[color:var(--accent-line)] bg-[var(--accent-tint)] text-accent-hover',
-  workspace: 'border-status-working/30 bg-status-working/10 text-status-working',
+  global: 'border-[color:var(--accent-line)] bg-surface-2 text-accent-hover',
+  workspace: 'border-status-working/40 bg-surface-2 text-status-working',
   user: 'border-signal-verify/30 bg-signal-verify/10 text-signal-verify',
   workspace_user: 'border-signal-amber/30 bg-signal-amber/10 text-signal-amber',
 }
@@ -101,7 +102,7 @@ export function scopeDescription(
   userName: (id: number | null) => string,
 ): string {
   switch (s.scopeType) {
-    case 'global': return 'the Command Center (applies everywhere)'
+    case 'global': return 'everywhere (every organization)'
     case 'workspace': return `the ${orgName(s.workspace)} organization`
     case 'user': return `the user ${userName(s.userId)}`
     case 'workspace_user': return `${userName(s.userId)} inside ${orgName(s.workspace)}`

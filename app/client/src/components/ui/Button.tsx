@@ -21,6 +21,15 @@ const VARIANT: Record<Variant, string> = {
   danger:
     'bg-transparent text-signal-alarm border border-signal-alarm/30 hover:bg-signal-alarm/10',
 }
+/* Standard disabled token (QA r3 #2): a disabled control of ANY variant reads as
+   a muted neutral — surface-3 + hairline + fg-3 — never a faded accent (a 45%
+   accent fill reads as a lavender block). Ghost stays transparent (no box
+   appears on a disabled toolbar icon). A loading button keeps its variant. */
+export const DISABLED =
+  'disabled:cursor-not-allowed disabled:border-line disabled:bg-surface-3 disabled:text-fg-3 disabled:shadow-none'
+const DISABLED_GHOST = 'disabled:cursor-not-allowed disabled:text-fg-3'
+const disabledFor = (v: Variant) => (v === 'ghost' ? DISABLED_GHOST : DISABLED)
+
 const SIZE: Record<Size, string> = {
   sm: 'h-8 px-3 text-[12.5px] gap-1.5',
   md: 'min-h-[44px] sm:min-h-[36px] px-4 text-[13px] gap-2',
@@ -58,10 +67,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        'inline-flex select-none items-center justify-center rounded-md font-medium tracking-[-0.01em]',
+        'inline-flex select-none items-center whitespace-nowrap justify-center rounded-md font-medium tracking-[-0.01em]',
         'transition-colors duration-fast ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
-        'disabled:cursor-not-allowed disabled:opacity-45',
         VARIANT[variant],
+        loading ? 'disabled:cursor-wait' : disabledFor(variant),
         SIZE[size],
         className,
       )}
@@ -92,6 +101,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
         'inline-grid min-h-[44px] min-w-[44px] place-items-center rounded-md sm:min-h-[34px] sm:min-w-[34px]',
         'transition-colors duration-fast ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
         VARIANT[variant],
+        disabledFor(variant),
         className,
       )}
       {...rest}

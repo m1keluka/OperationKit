@@ -131,7 +131,7 @@ export function MarkdownEditor({
           placeholder={placeholder}
           className="w-full resize-y rounded-md border border-line bg-surface-0 px-3 py-2 font-mono text-sm leading-relaxed text-fg-0 outline-none focus:border-accent"
         />
-        <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px]">
+        <div className="mt-1.5 flex items-center gap-2 font-mono text-[12px]">
           <span className={b.tone}>{b.text}</span>
         </div>
       </div>
@@ -183,7 +183,7 @@ export function MarkdownEditor({
         >
           Cancel
         </button>
-        {dirty && <span className="text-[10px] text-fg-3">unsaved changes</span>}
+        {dirty && <span className="text-[12px] text-fg-3">unsaved changes</span>}
       </div>
     </div>
   )

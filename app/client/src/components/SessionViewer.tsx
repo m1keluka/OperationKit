@@ -44,7 +44,7 @@ export function SessionViewer({
   // secret in; the server re-checks (cookie only — never an agent key).
   const canAddSecret = !!authUser && (authUser.role === 'admin' || objective.created_by === authUser.id)
   const composerSecrets = canAddSecret
-    ? { objectiveId: objective.id, workspace: objective.workspace || 'example', pendingNames: (objective.needs_secret ?? []).map(n => n.name) }
+    ? { objectiveId: objective.id, workspace: objective.workspace || '', pendingNames: (objective.needs_secret ?? []).map(n => n.name) }
     : undefined
   // Sync if parent updates the objective (e.g. via WebSocket). MERGE rather than
   // replace: the board LIST is now slim (obj 700512) and omits heavy text fields
@@ -512,7 +512,7 @@ export function SessionViewer({
       {/* obj 718944 — secrets the worker is blocked on; owner fills inline */}
       <NeedsSecretPanel
         objectiveId={objective.id}
-        workspace={objective.workspace || 'example'}
+        workspace={objective.workspace || ''}
         items={objective.needs_secret ?? []}
         canFill={canAddSecret}
       />

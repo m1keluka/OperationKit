@@ -31,7 +31,6 @@ Boot also calls `startContactbookSibling` after listen (no-ops unless Telegram e
 | `/api/docs` | `routes/docs.ts` | yes | vault tree + file R/W + search |
 | `/api/briefing` | `routes/briefing.ts` | yes | board briefing (Agent API / MCP); the assistant chat was removed |
 | `/api/connectors` | `routes/connectors.ts` | yes | Settings → Integrations; one file per connector in `connectors/defs/` |
-| `/api/status` | `routes/status.ts` | yes | UptimeRobot |
 | `/api/webhooks` | `routes/webhooks.ts` | yes | UptimeRobot ingest |
 | `/api/webhooks/github` | `routes/github-webhook.ts` | yes | PR-merged HMAC |
 | `/api/admin` | `routes/admin.ts` | yes | accounts, system, agents, dream-cycle, skill-graph, cron, assistant ingest |
@@ -49,8 +48,6 @@ Boot also calls `startContactbookSibling` after listen (no-ops unless Telegram e
 | `/api/models` | `routes/models.ts` | yes | model registry |
 | `/api/contacts` | `routes/contacts.ts` | yes | vault CRM |
 | `/api/meeting-queue` | `routes/meeting-queue.ts` | yes | Granola action items → objectives |
-| `/api/loops` | `routes/loops.ts` | yes | operator loops markdown kanban |
-| `/api/scratchpad` | `routes/scratchpad.ts` | yes | per-user markdown |
 | `/api/granola-content` | `routes/granola-content.ts` | yes | drafts/hooks/ideas. No UI since the Content section was removed; left mounted until #598 merges (its hunk touches this line), then delete |
 | `/api/test-credentials` | `routes/test-credentials.ts` | yes | encrypted CRUD |
 | `/api/user/github-token` | `routes/user-github-token.ts` | yes | per-user PAT |
@@ -59,7 +56,6 @@ Boot also calls `startContactbookSibling` after listen (no-ops unless Telegram e
 | `/api/resource-assignments` | `routes/resource-assignments.ts` | yes | agent/skill assignment |
 | `/changelog` | `routes/changelog.ts` | yes | public shipping page |
 | `/api/public` | `routes/public-dev.ts` | yes | widget ingest |
-| `/api/dev-items` | `routes/dev-items.ts` | yes | development board |
 | `/api/dev-changelog` | `routes/dev-changelog.ts` | yes | internal changelog admin |
 | `/shell` | `routes/shell.ts` | yes | admin shell.html |
 | `/api/alerts` | `routes/alerts.ts` | yes | ingest (bearer) + list/ack (JWT) — AlertBell + notify-failure.sh |
@@ -158,22 +154,16 @@ users, user_workspaces, objectives, schema_meta, objective_audit, external_check
 | `/`, `/w/:slug` | `KanbanBoard` (eager) | Work → Board |
 | `/chat` | bot chat page (when installed) — URL unchanged by the obj-900327 rename | Work → Bots |
 | `/assistant`, `/mentor`, `/assistant` | redirect → `/chat` (or `/`) | |
-| `/strategies`, `/strategy/:id` | `StrategiesPage` / `StrategyDetailPage` | Work → Strategies (admin) |
-| `/development`, `/feedback` | `DevelopmentPage` | Work → Development (admin) |
 | `/jobs` | `JobsBoard` (+ host cron section, `#host-cron`) | Work → Jobs (admin) |
-| `/loops` | `LoopsPage` | Automation (label Notes) |
 | `/granola` | redirect → `/` (Content section removed) | |
-| `/contacts` | `ContactsPage` | Directory |
 | `/knowledge` | `DocsPage` | Work → Knowledge base |
 | `/docs` | redirect → `/knowledge` | |
-| `/status` | `StatusPage` | System |
 | `/system` | `SystemPage` (was Dashboard) | Avatar → Admin → System |
 | `/dashboard`, `/costs` | redirect → `/system` | |
 | `/agents` | `AgentsHub` — tabs Registry / Board layer / Templates | Avatar → Admin → Agents |
 | `/agent-templates` | redirect → `/agents?tab=templates` | |
 | `/settings/agents` | redirect → `/agents?tab=registry` | |
 | `/settings/platform` | redirect → `/jobs#host-cron` | |
-| `/feed` | `ProjectFeed` | System |
 | `/config` | `ConfigPage` | System |
 | `/settings/api-mcp` | `AccountSettings` | renamed from `/settings/you` (sprint 4b, obj 900496); old path redirects |
 | `/settings/integrations` | `SettingsConnectors` | renamed from `/settings/connectors`; old path redirects |
@@ -189,3 +179,5 @@ Unknown paths fall through to `KanbanBoard` (no 404).
 ## Host cron (not in-process)
 
 Installed by `scripts/fix-vps-cron.sh`: hourly `update-active-state.sh`, 23:00 ET `generate-daily-digest.sh`, 08:00 `campaign-audit.sh`, 02:30 ET `dream-cycle.sh` (overlaps in-process dream-cycle), 09:30 `cron-health-check.sh`. Granola/gmail wrappers exist; confirm crontab separately.
+
+> **Removed in obj 900543:** the Notes (`/loops`), Feed, Strategies (`/strategies`, `/strategy/:id`), Development (`/development`, `/feedback`), Status and Contacts pages, plus the `/api/loops`, `/api/scratchpad`, `/api/dev-items` and `/api/status` routes. Old page URLs redirect to the board (`REMOVED_ROUTES` in `app/client/src/lib/routes.ts`). Services and DB tables behind them were kept — see `tests/smoke/ui-white-label/REMOVED-SURFACES.md`.

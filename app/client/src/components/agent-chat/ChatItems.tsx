@@ -21,11 +21,11 @@ import {
    conversation written before the rename renders identically after it. */
 
 export function AgentAvatar({ agent, size = 'md' }: { agent: Pick<ChatAgentInfo, 'avatar' | 'colour' | 'name'>; size?: 'sm' | 'md' | 'lg' }) {
-  const dim = size === 'lg' ? 'h-12 w-12 text-[17px]' : size === 'sm' ? 'h-7 w-7 text-[11px]' : 'h-9 w-9 text-[13px]'
+  const dim = size === 'lg' ? 'h-12 w-12 text-[17px]' : size === 'sm' ? 'h-7 w-7 text-[12px]' : 'h-9 w-9 text-[13px]'
   return (
     <span
       aria-hidden="true"
-      className={cn('grid shrink-0 place-items-center rounded-lg border font-display font-semibold tracking-[-0.02em]', dim, COLOUR_CLASSES[agent.colour].tile)}
+      className={cn('grid shrink-0 place-items-center rounded-lg border font-display font-semibold tracking-normal', dim, COLOUR_CLASSES[agent.colour].tile)}
     >
       {agent.avatar}
     </span>
@@ -52,7 +52,7 @@ export function UserBubble({ m }: { m: ChatMessage }) {
           </div>
         )}
         {m.content && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
-        <p className="mt-1 text-right text-[11px] text-fg-2">{time(m.created_at)}</p>
+        <p className="mt-1 text-right text-[12px] text-fg-2">{time(m.created_at)}</p>
       </div>
     </div>
   )
@@ -67,7 +67,7 @@ export function AssistantBubble({ m, agent }: { m: ChatMessage; agent: ChatAgent
         <div className="rounded-lg rounded-tl-sm border border-line-soft bg-surface-1 px-3.5 py-2.5">
           <div className="cc-prose break-words text-[14px]" dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
         </div>
-        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 px-1 text-[11px] text-fg-2" data-testid="answered-by">
+        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 px-1 text-[12px] text-fg-2" data-testid="answered-by">
           <span>Answered by <span className="font-medium text-fg-1">{by}</span></span>
           {m.model && <span className="font-mono text-fg-2">· {m.model}</span>}
           <span>· {time(m.created_at)}</span>
@@ -194,7 +194,7 @@ export function DraftCard({
             {(p as EventDraftPayload).note && <p className="text-fg-2">{(p as EventDraftPayload).note}</p>}
           </>
         )}
-        {draft.connector === 'demo' && <p className="pt-1 text-[11.5px] text-fg-2">Demo account — sample data, nothing leaves the server.</p>}
+        {draft.connector === 'demo' && <p className="pt-1 text-[12px] text-fg-2">Demo account — sample data, nothing leaves the server.</p>}
       </div>
       {open && (
         <footer className="flex flex-wrap items-center gap-2 border-t border-line-soft px-3.5 py-2.5">

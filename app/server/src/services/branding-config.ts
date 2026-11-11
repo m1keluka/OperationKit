@@ -45,6 +45,8 @@ export interface BrandTokens {
 export interface BrandingConfigFile {
   name?: string
   tokens?: Partial<BrandTokens>
+  /** Show a small "Powered by <default product>" line. OFF unless set (obj 900543). */
+  powered_by?: boolean
 }
 
 /** Where the per-install data (uploaded logos, the gitignored config file lives
@@ -98,6 +100,16 @@ export function resolveBrandTokens(env: NodeJS.ProcessEnv = process.env): BrandT
   }
 }
 
+/** Optional small "Powered by" credit — OFF by default so a white-labeled
+ * install shows only its own brand (obj 900543). Env OK_BRAND_POWERED_BY
+ * (1/true/0/false) wins over the config file. */
+export function resolvePoweredBy(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = (env.OK_BRAND_POWERED_BY || '').trim().toLowerCase()
+  if (raw === '1' || raw === 'true' || raw === 'yes') return true
+  if (raw === '0' || raw === 'false' || raw === 'no') return false
+  return readConfigFile().powered_by === true
+}
+
 /** True once any brand value has been customized away from the OK defaults —
  * used by the admin panel to show a "reset to default" affordance. */
 export function isCustomized(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -114,6 +126,7 @@ export function envLockedFields(env: NodeJS.ProcessEnv = process.env): string[] 
   if (hexOrUndefined(env.OK_BRAND_ACCENT)) locked.push('accent')
   if (hexOrUndefined(env.OK_BRAND_ACCENT_HOVER)) locked.push('accentHover')
   if (hexOrUndefined(env.OK_BRAND_ACCENT_PRESS)) locked.push('accentPress')
+  if ((env.OK_BRAND_POWERED_BY || '').trim()) locked.push('powered_by')
   return locked
 }
 
@@ -124,7 +137,9 @@ export function writeBrandingConfig(patch: BrandingConfigFile, env: NodeJS.Proce
   const locked = new Set(envLockedFields(env))
   const current = readConfigFile()
   const next: BrandingConfigFile = { name: current.name, tokens: { ...current.tokens } }
+  if (current.powered_by !== undefined) next.powered_by = current.powered_by
   if (patch.name !== undefined && !locked.has('name')) next.name = patch.name
+  if (typeof patch.powered_by === 'boolean' && !locked.has('powered_by')) next.powered_by = patch.powered_by
   if (patch.tokens) {
     for (const [key, value] of Object.entries(patch.tokens)) {
       if (locked.has(key)) continue

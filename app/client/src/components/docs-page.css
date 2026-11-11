@@ -15,7 +15,7 @@
   --bn-colors-selected-text: var(--accent-fg);
   --bn-colors-disabled-background: var(--surface-2);
   --bn-colors-disabled-text: var(--fg-3);
-  --bn-colors-shadow: rgba(0, 0, 0, 0.55);
+  --bn-colors-shadow: color-mix(in srgb, var(--ok-ink) 30%, transparent);
   --bn-colors-border: var(--line);
   --bn-colors-side-menu: var(--fg-3);
   --bn-colors-highlights-gray-background: var(--surface-3);
@@ -29,19 +29,19 @@
 
 .docs-editor .bn-editor {
   padding: 24px 32px 80px;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body);
   line-height: 1.62;
   /* §02 comfortable reading measure */
   max-width: 78ch;
   margin: 0 auto;
 }
 
-/* §02 prose hierarchy — headings render in Geist (display), body in Inter */
+/* §02 prose hierarchy — headings + body render in the brand text face (--font-display / --font-body) */
 .docs-editor h1,
 .docs-editor h2,
 .docs-editor h3,
 .docs-editor h4 {
-  font-family: 'Geist', 'Inter Tight', system-ui, sans-serif;
+  font-family: var(--font-display);
   letter-spacing: -0.01em;
 }
 .docs-editor h1 { color: var(--fg-0); font-weight: 600; }
@@ -53,7 +53,7 @@
 /* §05 mono is signal — only render mono for actual code/inline-code blocks */
 .docs-editor code,
 .docs-editor pre {
-  font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 .docs-editor code {
   background: var(--surface-3);
@@ -78,4 +78,12 @@
   .docs-editor .bn-editor {
     padding: 16px 12px 60px;
   }
+}
+
+/* BlockNote ships a fixed grey (#7d797a) for quotes — 3.8:1 on light and not
+   themed. Use the secondary text token instead (obj 900543). */
+.bn-container [data-content-type="quote"] blockquote,
+.bn-container blockquote {
+  color: var(--fg-1);
+  border-left-color: var(--line-strong);
 }

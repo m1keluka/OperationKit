@@ -1,0 +1,83 @@
+# ---------------------------------------------------------------------------
+# codeql.yml — CodeQL "advanced setup" for the PUBLIC repo.
+#
+# Why advanced and not GitHub's default setup: default setup cannot take a
+# config file, so it scanned *.test.ts harnesses (false "missing CSRF
+# middleware") and could not honour justified suppression comments. This
+# workflow adds:
+#   * .github/codeql/codeql-config.yml — paths-ignore for test files only.
+#   * The AlertSuppression query for JS/TS, so a
+#       // codeql[<rule-id>] -- <justification>
+#     comment on the line above a finding marks it suppressed in the SARIF, and
+#     advanced-security/dismiss-alerts dismisses it on main ("won't fix",
+#     "Suppressed via SARIF"). Removing the comment re-opens the alert. Every
+#     suppression must state WHY (see app/server/src/routes/auth-email-link.ts).
+#
+# OPT-IN: runs only when the repo variable CODEQL_ADVANCED_SETUP == 'true'.
+# GitHub refuses advanced-setup uploads while default setup is enabled, so the
+# switch on the public repo is ONE step: Settings > Code security > CodeQL >
+# switch to Advanced (disable default setup) AND set the variable. The private
+# upstream never sets it, so this is a no-op there.
+# ---------------------------------------------------------------------------
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    if: vars.CODEQL_ADVANCED_SETUP == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            packs: ''
+          - language: javascript-typescript
+            packs: codeql/javascript-queries:AlertSuppression.ql
+          - language: python
+            packs: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
+          packs: ${{ matrix.packs }}
+
+      - name: Perform CodeQL Analysis
+        id: analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+          output: sarif-results
+
+      # Only on the default branch: PR runs report, main runs dismiss/re-open.
+      - name: Dismiss alerts suppressed with a justified codeql[...] comment
+        if: matrix.language == 'javascript-typescript' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: advanced-security/dismiss-alerts@v2
+        with:
+          sarif-id: ${{ steps.analyze.outputs.sarif-id }}
+          sarif-file: sarif-results
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

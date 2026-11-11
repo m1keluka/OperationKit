@@ -19,7 +19,8 @@ function sameList(a: string[] | null, b: string[] | null): boolean {
 const chip =
   'inline-flex min-h-[44px] items-center rounded-md border px-3 text-[12.5px] font-medium transition-colors duration-fast ease-out ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px] disabled:cursor-not-allowed disabled:opacity-45'
-const chipOn = 'border-[color:var(--accent-line)] bg-[var(--accent-tint)] text-fg-0 hover:border-accent'
+// selected = accent outline on the card surface, no lavender fill (QA r3 #1)
+const chipOn = 'border-accent bg-surface-2 text-accent-hover hover:bg-surface-3'
 const chipOff = 'border-line bg-surface-1 text-fg-2 hover:border-line-strong hover:bg-surface-3 hover:text-fg-0'
 
 function ListPicker({
@@ -142,7 +143,7 @@ export function AccessEditor({
           />
           <span>
             Let cards someone else assigned to me use this connection.
-            <span className="block text-[11.5px] text-fg-3">
+            <span className="block text-[12px] text-fg-3">
               Off means those cards still run as me, but with this connection marked absent.
             </span>
           </span>

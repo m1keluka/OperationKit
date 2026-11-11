@@ -8,15 +8,15 @@ interface AttachmentChipProps {
 export function AttachmentChip({ name, size, mimetype, onRemove }: AttachmentChipProps) {
   const isImage = mimetype?.startsWith('image/')
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs text-gray-300">
-      {isImage ? <ImageIcon className="h-3 w-3 shrink-0 text-gray-500" /> : <PaperclipIcon className="h-3 w-3 shrink-0 text-gray-500" />}
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs text-fg-1">
+      {isImage ? <ImageIcon className="h-3 w-3 shrink-0 text-fg-2" /> : <PaperclipIcon className="h-3 w-3 shrink-0 text-fg-2" />}
       <span className="truncate max-w-[150px]" title={name}>{name}</span>
-      <span className="shrink-0 text-gray-500">{formatSize(size)}</span>
+      <span className="shrink-0 text-fg-2">{formatSize(size)}</span>
       {onRemove && (
         <button
           type="button"
           onClick={onRemove}
-          className="shrink-0 rounded text-gray-500 hover:text-red-400"
+          className="shrink-0 rounded text-fg-2 hover:text-signal-alarm"
           aria-label={`Remove ${name}`}
         >
           ×

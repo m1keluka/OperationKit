@@ -111,7 +111,7 @@ export function PageGraph({ workspace, rel, onOpenNote }: { workspace: string; r
       <h3 id="kb-graph-title" className="flex items-center gap-2 font-display text-[13.5px] font-semibold tracking-[-0.01em] text-fg-0">
         <Share2 className="h-4 w-4 text-fg-2" aria-hidden="true" />
         Connections
-        <span className="font-mono text-[11px] font-normal text-fg-3">{data.related.length}{data.truncated ? '+' : ''}</span>
+        <span className="font-mono text-[12px] font-normal text-fg-3">{data.related.length}{data.truncated ? '+' : ''}</span>
       </h3>
 
       {data.related.length === 0 ? (
@@ -135,7 +135,7 @@ export function PageGraph({ workspace, rel, onOpenNote }: { workspace: string; r
                       strokeDasharray={n.via.every(v => v.kind === 'cited_by') ? '3 3' : undefined}
                     />
                     {label && (
-                      <text x={(centre.x + p.x) / 2} y={(centre.y + p.y) / 2 + 3} textAnchor="middle" paintOrder="stroke" strokeWidth={4} strokeLinejoin="round" className="fill-fg-2 stroke-surface-1 text-[10px]">
+                      <text x={(centre.x + p.x) / 2} y={(centre.y + p.y) / 2 + 3} textAnchor="middle" paintOrder="stroke" strokeWidth={4} strokeLinejoin="round" className="fill-fg-2 stroke-surface-1 text-[12px]">
                         {shortTitle(label, 16)}
                       </text>
                     )}
@@ -171,7 +171,7 @@ export function PageGraph({ workspace, rel, onOpenNote }: { workspace: string; r
                     <circle cx={p.x} cy={p.y} r={12} className="fill-none stroke-transparent transition-colors duration-fast group-hover:stroke-accent group-focus-visible:stroke-accent" strokeWidth={2} />
                     <circle cx={p.x} cy={p.y} r={7} className={cn('origin-center transition-transform duration-fast [transform-box:fill-box] group-hover:scale-125 group-focus-visible:scale-125', toneOf(n.kind).fill)} />
                     {/* Name above nodes in the top half and at the sides, so neither a line nor the centre name crosses it. */}
-                    <text x={nameX(p.x)} y={p.y <= centre.y + 10 ? p.y - 14 : p.y + 22} textAnchor="middle" paintOrder="stroke" strokeWidth={4} strokeLinejoin="round" className="fill-fg-1 stroke-surface-1 text-[11px] transition-colors duration-fast group-hover:fill-fg-0">
+                    <text x={nameX(p.x)} y={p.y <= centre.y + 10 ? p.y - 14 : p.y + 22} textAnchor="middle" paintOrder="stroke" strokeWidth={4} strokeLinejoin="round" className="fill-fg-1 stroke-surface-1 text-[12px] transition-colors duration-fast group-hover:fill-fg-0">
                       {shortTitle(n.title)}
                     </text>
                   </g>

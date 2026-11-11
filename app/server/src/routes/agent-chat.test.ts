@@ -98,7 +98,7 @@ describe('agent chat', () => {
   it('lists file agents; the demo agent appears only after an admin switches the demo on', async () => {
     const before = await call('GET', '/agents', { as: OWNER })
     expect(before.status).toBe(200)
-    expect(before.json.agents.map((a: Loose) => a.slug)).toEqual(['librarian'])
+    expect(before.json.agents.map((a: Loose) => a.slug)).toEqual(['librarian', 'kb-setup'])
     expect(before.json.agents[0]).toMatchObject({ name: 'Librarian', colour: 'blue', answered_by: { id: 'demo' } })
     expect(before.json.agents[0].system_prompt).toBeUndefined()
 
@@ -109,7 +109,7 @@ describe('agent chat', () => {
     expect(fs.existsSync(path.join(TMP_KB, 'demo', 'personal-assistant', 'todo.md'))).toBe(true)
 
     const after = await call('GET', '/agents', { as: OWNER })
-    expect(after.json.agents.map((a: Loose) => a.slug)).toEqual(['librarian', 'demo-assistant'])
+    expect(after.json.agents.map((a: Loose) => a.slug)).toEqual(['librarian', 'kb-setup', 'demo-assistant'])
     const one = await call('GET', '/agents/demo-assistant', { as: OWNER })
     expect(one.json.agent.system_prompt).toMatch(/personal assistant/)
   })

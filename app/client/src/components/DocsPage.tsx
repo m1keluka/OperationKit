@@ -5,6 +5,8 @@ import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Menu, Save, Up
 import { api } from '../lib/api'
 import { Button, EmptyState, SkeletonText } from './ui'
 import { KnowledgeImportPanel, useKnowledgeImportEnabled } from './KnowledgeImport'
+import { KbSetupStep } from './kb-setup/KbSetupStep'
+import { useNavigate } from '../context/nav'
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, type PartialBlock } from '@blocknote/core'
@@ -164,7 +166,7 @@ function TreeItem({ node, depth, selectedPath, expanded, onToggle, onSelectFile 
       onClick={() => onSelectFile(node.path)}
       className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs transition ${
         isSelected
-          ? 'bg-accent/15 text-accent'
+          ? 'bg-surface-selected font-semibold text-fg-0 shadow-[inset_3px_0_0_var(--accent-text)]'
           : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
       }`}
       style={{ paddingLeft: padLeft + 16 }}
@@ -251,6 +253,7 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
   const [treeVersion, setTreeVersion] = useState(0)
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const navigate = useNavigate()
 
   // One knowledge base, one tree (obj 720348). Reloads after an import.
   useEffect(() => {
@@ -338,8 +341,16 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
   const sidebar = (
     <div className="flex h-full w-64 flex-col border-r border-line bg-surface-1">
       {/* One knowledge base — no source picker (obj 720348) */}
-      <div className="border-b border-line-soft p-3">
-        <h1 className="px-0.5 font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">Knowledge base</h1>
+      <div className="flex items-center justify-between gap-2 border-b border-line-soft p-3">
+        <h1 className="px-0.5 text-[15px] font-semibold tracking-[-0.01em] text-fg-0">Knowledge base</h1>
+        {/* Knowledge Base Setup (obj 900556) */}
+        <a
+          href="/knowledge/setup"
+          onClick={e => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) { e.preventDefault(); navigate('/knowledge/setup') } }}
+          className="rounded-sm border border-line px-2 py-0.5 text-[12px] font-medium text-fg-1 transition-colors hover:border-line-strong hover:text-fg-0"
+        >
+          Set up
+        </a>
       </div>
 
       {/* Tree */}
@@ -347,8 +358,9 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
         {treeLoading ? (
           <div className="p-3" aria-label="Loading pages"><SkeletonText lines={6} /></div>
         ) : treeData.length === 0 ? (
-          <div className="p-3 text-xs text-fg-3">
-            {importOn ? 'No pages yet. Import files to start your knowledge base.' : 'No pages yet.'}
+          <div className="space-y-3 p-3 text-xs text-fg-3">
+            <p>{importOn ? 'No pages yet. Import files to start your knowledge base.' : 'No pages yet.'}</p>
+            <KbSetupStep index={1} workspace={workspace} className="p-3" />
           </div>
         ) : (
           treeData.map(node => (
@@ -416,23 +428,23 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
               </Button>
             )}
             {file && !file.writable && (
-              <span className="rounded-xs bg-status-review/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-status-review">
+              <span className="rounded-xs bg-status-review/15 px-2 py-0.5 text-[12px] font-medium uppercase tracking-wider text-status-review">
                 Read-only
               </span>
             )}
             {saveState === 'saving' && (
-              <span className="text-[10px] text-fg-3">Saving…</span>
+              <span className="text-[12px] text-fg-3">Saving…</span>
             )}
             {saveState === 'saved' && (
-              <span className="text-[10px] text-status-done">Saved</span>
+              <span className="text-[12px] text-status-done">Saved</span>
             )}
             {saveState === 'error' && (
-              <span className="text-[10px] text-flag-blocked" title={saveError ?? ''}>
+              <span className="text-[12px] text-flag-blocked" title={saveError ?? ''}>
                 Save failed
               </span>
             )}
             {pendingMarkdown !== null && saveState === 'idle' && file?.writable && (
-              <span className="text-[10px] text-fg-3">Unsaved</span>
+              <span className="text-[12px] text-fg-3">Unsaved</span>
             )}
             {!importing && <button
               onClick={handleManualSave}

@@ -377,7 +377,7 @@ export function AgentTemplatesPage({ embedded = false }: { embedded?: boolean } 
             {[0, 1, 2].map(i => <Skeleton key={i} className="h-56 rounded-lg" />)}
           </div>
         ) : data && data.templates.length === 0 ? (
-          <Card><EmptyState title="No templates on this server" description="Starter templates ship with Operation Kit. Drop agent files into the local templates folder to list them here." /></Card>
+          <Card><EmptyState title="No templates on this server" description="Starter templates ship with the platform. Drop agent files into the local templates folder to list them here." /></Card>
         ) : data ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.templates.map(t => (

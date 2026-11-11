@@ -14,7 +14,7 @@ import { CopyButton } from '../ui/CopyButton'
 
 function Snippet({ code }: { code: string }) {
   return (
-    <pre className="max-w-full overflow-x-auto rounded-md border border-line bg-surface-1 p-3 font-mono text-[11.5px] leading-relaxed text-fg-1">
+    <pre className="max-w-full overflow-x-auto rounded-md border border-line bg-surface-1 p-3 font-mono text-[12px] leading-relaxed text-fg-1">
       <code>{code}</code>
     </pre>
   )
@@ -43,7 +43,7 @@ export function ApiMcpDocs() {
   const curlExample = `curl -s ${origin}/api/agent/attention \\\n  -H "Authorization: Bearer cc_live_…"`
 
   const setupPrompt =
-    `Add this Command Center MCP server to your config (the token is one of my agent keys from ` +
+    `Add this MCP server (${origin}) to your config (the token is one of my agent keys from ` +
     `Settings → API & MCP → Agent keys, not pasted here):\n\n${mcpConfig}\n\n` +
     `Set CC_AGENT_KEY in your environment to the key value, then call the "whoami" tool to confirm it connected.`
 
@@ -80,7 +80,7 @@ export function ApiMcpDocs() {
             <h3 className="text-[13px] font-semibold text-fg-0">MCP config — copy-paste for your agent</h3>
             <CopyButton value={mcpConfig} label="Copy JSON" />
           </div>
-          <p className="text-[11.5px] text-fg-3">
+          <p className="text-[12px] text-fg-3">
             One connector, one URL (<code className="font-mono">/api/mcp</code>) for board + knowledge-base tools.
             Swap in a named agent key from Agent keys below — the legacy full-access key is read-only over MCP.
           </p>
@@ -92,7 +92,7 @@ export function ApiMcpDocs() {
             <h3 className="text-[13px] font-semibold text-fg-0">REST — copy-paste curl example</h3>
             <CopyButton value={curlExample} label="Copy curl" />
           </div>
-          <p className="text-[11.5px] text-fg-3">
+          <p className="text-[12px] text-fg-3">
             Every call: <code className="font-mono">Authorization: Bearer cc_live_…</code>. This one reads the
             cards that need a decision (<code className="font-mono">board:read</code>).
           </p>
@@ -104,7 +104,7 @@ export function ApiMcpDocs() {
             <h3 className="text-[13px] font-semibold text-fg-0">“Have your agent set this up” prompt</h3>
             <CopyButton value={setupPrompt} label="Copy prompt" />
           </div>
-          <p className="text-[11.5px] text-fg-3">
+          <p className="text-[12px] text-fg-3">
             Paste this into Claude / Grok / whatever agent you're setting up — it hands the agent the MCP config and
             tells it how to verify the connection, without you touching JSON by hand.
           </p>

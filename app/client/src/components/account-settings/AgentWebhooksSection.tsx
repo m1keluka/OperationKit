@@ -114,7 +114,7 @@ export function AgentWebhooksSection() {
                         <Badge tone="amber">paused</Badge>
                       )}
                     </div>
-                    {hook && <p className="truncate font-mono text-[11px] text-fg-2">{hook.url}</p>}
+                    {hook && <p className="truncate font-mono text-[12px] text-fg-2">{hook.url}</p>}
                   </div>
                   <Button
                     className="min-h-[44px] shrink-0 self-start sm:min-h-0 sm:self-center"
@@ -328,14 +328,14 @@ function WebhookEditor({
             {hook?.has_secret ? 'Generate new key' : 'Generate key'}
           </Button>
         </div>
-        <p className="mt-1 text-[11px] text-fg-2">
+        <p className="mt-1 text-[12px] text-fg-2">
           Sent as the auth header below and used to sign each body (<span className="font-mono">X-CC-Signature: sha256=…</span>).
           {hook?.has_secret && <> Stored in Secrets as <span className="font-mono">{hook.secret_name}</span>.</>}
           {' '}Generate has the server pick a random key instead of you typing one — shown once, right after you save.
         </p>
         {revealedSecret && (
           <div role="status" className="mt-2 rounded-md border border-line-strong bg-surface-2 p-3">
-            <p className="text-[11px] font-medium text-fg-1">Your new sender key (shown once — copy it now)</p>
+            <p className="text-[12px] font-medium text-fg-1">Your new sender key (shown once — copy it now)</p>
             <div className="mt-1 flex items-center gap-2">
               <code className="min-w-0 flex-1 truncate rounded bg-surface px-2 py-1 font-mono text-xs text-fg-0">{revealedSecret}</code>
               <Button type="button" className="shrink-0" onClick={() => void copyRevealedSecret()}>Copy</Button>
@@ -354,7 +354,7 @@ function WebhookEditor({
           <input id={id('hprefix')} value={headerPrefix} maxLength={32} onChange={e => setHeaderPrefix(e.target.value)} placeholder="(none)" className={cn(INPUT, 'font-mono')} />
         </div>
       </div>
-      <p className="-mt-2 text-[11px] text-fg-2">
+      <p className="-mt-2 text-[12px] text-fg-2">
         Sends <span className="font-mono text-fg-1">{headerName || '…'}: {headerPrefix}&lt;sender key&gt;</span>
       </p>
 
@@ -379,7 +379,7 @@ function WebhookEditor({
                 />
                 <span className="min-w-0">
                   <span className="block font-mono text-xs text-fg-0">{e}</span>
-                  <span className="block text-[11px] text-fg-2">{AGENT_WEBHOOK_EVENT_DESCRIPTIONS[e]}</span>
+                  <span className="block text-[12px] text-fg-2">{AGENT_WEBHOOK_EVENT_DESCRIPTIONS[e]}</span>
                 </span>
               </label>
             )

@@ -42,7 +42,7 @@ function StatusBadge({ status }: { status: ObjectiveStatus }) {
   const meta = STATUS_META[status] ?? STATUS_META.queue
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1 rounded-sm border border-line-soft bg-surface-3 px-1.5 py-0.5 text-[10.5px] font-medium ${meta.tone}`}
+      className={`inline-flex shrink-0 items-center gap-1 rounded-sm border border-line-soft bg-surface-3 px-1.5 py-0.5 text-[12px] font-medium ${meta.tone}`}
     >
       <StatusDot status={status} size={6} />
       {meta.label}
@@ -181,8 +181,8 @@ export function ObjectiveSearchPanel({ open, workspace, onClose, onSelect }: Obj
             placeholder={mode === 'keyword' ? 'Search objectives (all stages)…' : 'Describe what you’re looking for, then Enter…'}
             className="flex-1 bg-transparent text-sm text-fg-0 placeholder-fg-3 outline-none"
           />
-          {loading && <span className="shrink-0 font-mono text-[10.5px] text-fg-3">…</span>}
-          <span className="shrink-0 font-mono text-[10.5px] text-fg-3">esc</span>
+          {loading && <span className="shrink-0 font-mono text-[12px] text-fg-3">…</span>}
+          <span className="shrink-0 font-mono text-[12px] text-fg-3">esc</span>
         </div>
 
         {/* Mode toggle */}
@@ -236,10 +236,10 @@ export function ObjectiveSearchPanel({ open, workspace, onClose, onSelect }: Obj
                 <div className="flex items-center gap-2">
                   <StatusBadge status={r.status} />
                   <span className="min-w-0 flex-1 truncate text-sm text-fg-0">{r.title || 'Untitled'}</span>
-                  <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-wide text-fg-3">{shortOf(r.workspace as Workspace)}</span>
+                  <span className="shrink-0 text-[12px] uppercase text-fg-3 font-semibold tracking-[0.06em]">{shortOf(r.workspace as Workspace)}</span>
                 </div>
                 {(snippet || agent) && (
-                  <div className="flex items-center gap-1.5 text-[11.5px] leading-snug text-fg-3">
+                  <div className="flex items-center gap-1.5 text-[12px] leading-snug text-fg-3">
                     {agent && <span className="shrink-0 font-mono text-fg-2">{agent}</span>}
                     {agent && snippet && <span className="shrink-0 text-fg-3">·</span>}
                     {snippet && <span className="line-clamp-2">{snippet}</span>}
