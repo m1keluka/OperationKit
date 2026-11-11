@@ -9,6 +9,12 @@ import {
 import { GIT_SSH_COMMAND } from '../config.js'
 import type { Objective } from '@operationkit/shared'
 
+// obj 900452: `verified_sender_stamps` now defaults ON (which also strips the
+// signing key and adds CC_STRIP_SIGNING_SECRETS). This file pins the legacy
+// flags-OFF spawn env, so it turns stamps off explicitly; the default-ON spawn
+// env is asserted in lib/session-trust.test.ts.
+process.env.CC_VERIFIED_SENDER_STAMPS = '0'
+
 // These tests exercise the owner's own credential, so they read it as the
 // server acting for that owner (services/connector-guard.ts).
 const SERVER_ACTOR = { kind: 'server' as const }

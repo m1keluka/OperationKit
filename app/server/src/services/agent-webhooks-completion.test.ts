@@ -65,7 +65,7 @@ beforeAll(() => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
   const db = getDb()
-  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'mike', 'x', 'admin')`).run(USER_ID)
+  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'operator', 'x', 'admin')`).run(USER_ID)
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace) VALUES (?, ?)`).run(USER_ID, WORKSPACE)
   const k = db
     .prepare(
@@ -107,7 +107,7 @@ describe('classifyCompletion', () => {
     expect(need?.category).toBe('completed')
   })
 
-  it('a move to done FROM review is not — Mike already saw it, and review already woke the owner', () => {
+  it('a move to done FROM review is not — Operator already saw it, and review already woke the owner', () => {
     expect(wh.classifyCompletion({ kind: 'status', from_value: 'review', to_value: 'done' })).toBeNull()
   })
 
@@ -185,12 +185,12 @@ describe('a child card that completes without passing through review', () => {
   })
 })
 
-describe('a top-level card Mike signs off in review', () => {
+describe('a top-level card Operator signs off in review', () => {
   it('gets its review wake and NO completion wake — human-done semantics unchanged', () => {
     const card = seedCard({ title: 'Top level', ownerBot: 'Operation Kit' })
     setStatus(card, 'review')
     enqueue()
-    setStatus(card, 'done') // Mike accepts
+    setStatus(card, 'done') // Operator accepts
     enqueue()
 
     const kinds = needsOf(card).map(q => (q.payload.need as { kind: string }).kind)

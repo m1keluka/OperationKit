@@ -65,10 +65,10 @@ if [ "$DRY_RUN" -eq 0 ]; then
   docker exec litellm-db pg_dump -U llmproxy -d litellm -Fc > "$STAGE/litellm.pgdump.tmp"
   [ -s "$STAGE/litellm.pgdump.tmp" ] || die "pg_dump produced an empty file"
   mv -f "$STAGE/litellm.pgdump.tmp" "$STAGE/litellm.pgdump"
-  crontab -u mike -l > "$STAGE/crontab.mike.txt" 2>/dev/null || true
+  crontab -u operator -l > "$STAGE/crontab.operator.txt" 2>/dev/null || true
   chmod 600 "$STAGE"/*
 else
-  log "[dry-run] would pg_dump litellm-db -> $STAGE/litellm.pgdump and export mike's crontab"
+  log "[dry-run] would pg_dump litellm-db -> $STAGE/litellm.pgdump and export operator's crontab"
 fi
 
 PATHS=("$STAGE" "$OPERATOR_HOME/second-brain" "$OPERATOR_HOME/ai-workspace" /etc/caddy)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify.sh — phase 3: prove the new host works. Read-only except where noted.
 #
-# Run on the NEW host as mike after cutover.sh:
+# Run on the NEW host as operator after cutover.sh:
 #   bash scripts/migrate/verify.sh [--new-ip IP] [--test-card] [--skip-accounts] [--dry-run]
 #
 # A cc_live_ API key is needed for the authenticated checks (MCP, API key page,

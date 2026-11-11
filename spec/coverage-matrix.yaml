@@ -8,7 +8,7 @@
 #   • Backlog input — the highest-priority untested/regressed cells are what an
 #     AaU1000 Ideate pass would target. In Phase-0 SHADOW the kitchen-loop service
 #     does NOT parse this file; it logs a static seed of the P0 gaps. Reading this
-#     file as the live Backlog source is a later, Mike-gated phase.
+#     file as the live Backlog source is a later, Operator-gated phase.
 #   • Coverage denominator — coverage_filled / coverage_total for loop_drift_metrics.
 #
 # An empty cell = an UNTESTED claim (§6.5). Priority key:

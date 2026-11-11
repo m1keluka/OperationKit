@@ -19,15 +19,13 @@ import {
   TRANSCRIPT_DIR,
 } from '../config.js'
 import { getAgent } from '../services/agent-registry.js'
+import { readMemory, readDisk, readProcessCount, detectContainer } from '../services/host-stats.js'
 
 const router = Router()
 
 // VPS system stats
 router.get('/system', async (_req: AuthRequest, res) => {
   const cpus = os.cpus()
-  const totalMem = os.totalmem()
-  const freeMem = os.freemem()
-  const usedMem = totalMem - freeMem
   const uptime = os.uptime()
 
   // CPU usage sampled over a short interval. os.cpus() reports CUMULATIVE times
@@ -47,26 +45,15 @@ router.get('/system', async (_req: AuthRequest, res) => {
   const totalDelta = s2.total - s1.total
   const cpuUsage = totalDelta > 0 ? (1 - idleDelta / totalDelta) * 100 : 0
 
-  // Disk usage via df
-  let disk = { total: 0, used: 0, available: 0, usagePercent: 0 }
-  try {
-    const df = execSync("df -B1 / | tail -1", { encoding: 'utf-8', timeout: 5000 }).trim().split(/\s+/)
-    disk = {
-      total: parseInt(df[1]) || 0,
-      used: parseInt(df[2]) || 0,
-      available: parseInt(df[3]) || 0,
-      usagePercent: parseInt(df[4]) || 0,
-    }
-  } catch {}
+  // Memory (MemAvailable), disk (statfs with df's math) and process count
+  // (/proc) are read from the kernel with no shell. See services/host-stats.ts
+  // for what the old ps/df/freemem reads got wrong (obj 900495).
+  const memory = readMemory()
+  const disk = readDisk('/')
+  const processCount = readProcessCount()
 
   // Load averages
   const loadAvg = os.loadavg()
-
-  // Process count
-  let processCount = 0
-  try {
-    processCount = parseInt(execSync("ps aux | wc -l", { encoding: 'utf-8', timeout: 5000 }).trim()) - 1
-  } catch {}
 
   res.json({
     cpu: {
@@ -75,16 +62,13 @@ router.get('/system', async (_req: AuthRequest, res) => {
       usagePercent: Math.round(cpuUsage * 10) / 10,
       loadAvg: loadAvg.map(l => Math.round(l * 100) / 100),
     },
-    memory: {
-      total: totalMem,
-      used: usedMem,
-      free: freeMem,
-      usagePercent: Math.round((usedMem / totalMem) * 1000) / 10,
-    },
+    memory,
     disk,
     uptime,
     processCount,
     hostname: os.hostname(),
+    // Under Docker the hostname is a container id, not the machine's name; the UI labels it.
+    inContainer: detectContainer(),
     platform: `${os.type()} ${os.release()}`,
     timestamp: new Date().toISOString(),
   })

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # preflight.sh — read-only readiness checks on BOTH hosts before any copy.
 #
-# Run on the NEW (OVH) host as mike, with agent forwarding to the old host:
-#   ssh -A mike@<ovh-ip>
-#   bash ~/cc-migrate/scripts/migrate/preflight.sh --src mike@<do-ip> [--sizes]
+# Run on the NEW (OVH) host as operator, with agent forwarding to the old host:
+#   ssh -A operator@<ovh-ip>
+#   bash ~/cc-migrate/scripts/migrate/preflight.sh --src operator@<do-ip> [--sizes]
 #
 # Changes nothing on either host (it has no mutating steps, so --dry-run is
 # accepted and behaves identically). Secret files are checked for EXISTENCE
@@ -39,8 +39,8 @@ fi
 if src sudo -n true 2>/dev/null; then pass "passwordless sudo on source"; else fail "sudo -n fails on source (needed to read ccuser/root-owned files)"; fi
 src_os=$(src "grep -oP '^PRETTY_NAME=\"\K[^\"]+' /etc/os-release" 2>/dev/null || echo unknown)
 log "source OS: $src_os"
-src_uid=$(src id -u mike 2>/dev/null || echo unknown)
-log "source uid of mike: $src_uid (bootstrap-host.sh --mike-uid must match)"
+src_uid=$(src id -u operator 2>/dev/null || echo unknown)
+log "source uid of operator: $src_uid (bootstrap-host.sh --operator-uid must match)"
 src_tz=$(src timedatectl show -p Timezone --value 2>/dev/null || src cat /etc/timezone 2>/dev/null || echo unknown)
 log "source timezone: $src_tz (cron schedules are wall-clock — destination must match)"
 log "source docker: $(src docker --version 2>/dev/null || echo MISSING)"
@@ -101,7 +101,7 @@ done
 
 step "SOURCE: schedulers to replicate"
 cron_lines=$(src 'crontab -l 2>/dev/null | grep -cvE "^\s*(#|$)" || true')
-log "mike crontab active entries: $cron_lines (markers below; full list is reinstalled from scripts/install-*-cron.sh)"
+log "operator crontab active entries: $cron_lines (markers below; full list is reinstalled from scripts/install-*-cron.sh)"
 src 'crontab -l 2>/dev/null | grep -oE "# command-center: [a-z-]+" | sort -u' | sed 's/^/  /' || true
 root_cron=$(src 'sudo -n crontab -l 2>/dev/null | grep -cvE "^\s*(#|$)" || true')
 if [ "${root_cron:-0}" -gt 0 ]; then note "root crontab has $root_cron entries — VERIFY ON HOST and port by hand"; fi
@@ -127,7 +127,7 @@ fi
 step "DESTINATION ($(hostname)): OS + toolchain"
 . /etc/os-release
 if [ "${VERSION_ID:-}" = "24.04" ]; then pass "Ubuntu 24.04"; else fail "expected Ubuntu 24.04, got ${PRETTY_NAME:-unknown}"; fi
-if sudo -n true 2>/dev/null; then pass "passwordless sudo"; else fail "sudo -n fails for mike"; fi
+if sudo -n true 2>/dev/null; then pass "passwordless sudo"; else fail "sudo -n fails for operator"; fi
 for bin in docker caddy rsync sqlite3 restic node git gh tmux ufw fail2ban-client mdadm smartctl; do
   if command -v "$bin" >/dev/null 2>&1; then pass "installed: $bin"; else fail "missing: $bin (run bootstrap-host.sh)"; fi
 done
@@ -135,8 +135,8 @@ if command -v gitleaks >/dev/null 2>&1; then pass "installed: gitleaks"; else no
 if docker compose version >/dev/null 2>&1; then pass "docker compose plugin"; else fail "docker compose plugin missing"; fi
 node_major=$(node -v 2>/dev/null | sed 's/^v//; s/\..*//' || echo 0)
 if [ "${node_major:-0}" -ge 22 ]; then pass "node >= 22 (CI + image use 22)"; else fail "node 22+ required, got $(node -v 2>/dev/null || echo none)"; fi
-if id -nG mike | grep -qw docker; then pass "mike in docker group"; else fail "mike not in docker group"; fi
-if [ "$(id -u mike)" = "$src_uid" ]; then pass "mike uid matches source ($src_uid)"; else fail "mike uid $(id -u mike) != source $src_uid (rsync --numeric-ids would mis-own files)"; fi
+if id -nG operator | grep -qw docker; then pass "operator in docker group"; else fail "operator not in docker group"; fi
+if [ "$(id -u operator)" = "$src_uid" ]; then pass "operator uid matches source ($src_uid)"; else fail "operator uid $(id -u operator) != source $src_uid (rsync --numeric-ids would mis-own files)"; fi
 dst_tz=$(timedatectl show -p Timezone --value 2>/dev/null || echo unknown)
 if [ "$dst_tz" = "$src_tz" ]; then pass "timezone matches source ($dst_tz)"; else fail "timezone $dst_tz != source $src_tz (sudo timedatectl set-timezone $src_tz)"; fi
 if swapon --show=NAME --noheadings | grep -q .; then pass "swap active"; else note "no swap configured"; fi

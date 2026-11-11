@@ -13,6 +13,14 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js'
 import { isLocalhost } from '../lib/is-localhost.js'
 import { requireInternalSecret } from '../middleware/internal-secret.js'
 import { parseAgentFile } from '../services/agent-file.js'
+import { getDb } from '../db/index.js'
+import { botForAgentSlug } from '../services/bots/bot-registry.js'
+import {
+  installSlugState,
+  localizeAgentFileText,
+  parseLocalizeOptions,
+  updateInstallSlugs,
+} from '../services/bots/install-slugs.js'
 import {
   AgentInstallError,
   exportAgent,
@@ -64,7 +72,20 @@ function importOne(req: Request, res: Response): void {
   try {
     if (typeof body.content === 'string') {
       const filename = typeof body.filename === 'string' ? body.filename : undefined
-      res.status(201).json(installAgentFromText(body.content, filename, { ...installOpts(body), origin: 'import' }))
+      let content = body.content
+      if (body.localize !== undefined && body.localize !== null) {
+        const localized = localizeForInstall(content, body.localize)
+        if (!localized.ok) {
+          res.status(localized.status).json({ error: localized.error })
+          return
+        }
+        content = localized.content
+      }
+      res.status(201).json(installAgentFromText(content, filename, { ...installOpts(body), origin: 'import' }))
+      return
+    }
+    if (body.localize !== undefined && body.localize !== null) {
+      res.status(400).json({ error: 'localize works with an uploaded file (content), not a server path' })
       return
     }
     if (typeof body.path === 'string') {
@@ -72,6 +93,55 @@ function importOne(req: Request, res: Response): void {
       return
     }
     res.status(400).json({ error: 'send either content (file text) or path (a file on the server)' })
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+/**
+ * `localize` on import (obj 900430): rewrite a generic example agent file
+ * (`workspaces/your-org` folder, "Your Org" name, placeholder slug) to this
+ * install's slug + folder before the normal validation + install. Refuses —
+ * never guesses — when the target slug does not belong to a bot in this
+ * install's registry (map it first with `bot-slugs`): that would install an
+ * agent whose threads no bot owns.
+ */
+function localizeForInstall(
+  content: string,
+  raw: unknown,
+): { ok: true; content: string } | { ok: false; status: number; error: string } {
+  const opts = parseLocalizeOptions(raw)
+  if (!opts.ok) return { ok: false, status: 400, error: opts.error }
+  const { slug } = opts.options
+  if (!botForAgentSlug(slug, getDb())) {
+    return {
+      ok: false,
+      status: 409,
+      error: `"${slug}" does not belong to any bot on this install — nothing was changed. Map it first: scripts/agent-template.sh bot-slugs add "<bot>" ${slug}`,
+    }
+  }
+  const out = localizeAgentFileText(content, opts.options)
+  if (!out.ok) return { ok: false, status: 400, error: out.error }
+  return { ok: true, content: out.text }
+}
+
+function getBotSlugs(_req: Request, res: Response): void {
+  try {
+    res.json(installSlugState(getDb()))
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+function putBotSlugs(req: Request, res: Response): void {
+  try {
+    const body = (req.body || {}) as Record<string, unknown>
+    const r = updateInstallSlugs(getDb(), { bot: body.bot, add: body.add, remove: body.remove })
+    if (!r.ok) {
+      res.status(r.status).json({ error: r.error })
+      return
+    }
+    res.json(r.state)
   } catch (err) {
     sendError(res, err)
   }
@@ -109,6 +179,8 @@ agentTemplatesRouter.post('/validate', validate)
 agentTemplatesRouter.post('/import', importOne)
 agentTemplatesRouter.post('/templates/:slug/install', installOne)
 agentTemplatesRouter.get('/agents/:slug/export', exportOne)
+agentTemplatesRouter.get('/bot-slugs', getBotSlugs)
+agentTemplatesRouter.put('/bot-slugs', putBotSlugs)
 
 // ── Internal (script / installer) ───────────────────────────────────────────
 
@@ -128,6 +200,8 @@ internalAgentTemplatesRouter.post('/validate', validate)
 internalAgentTemplatesRouter.post('/import', importOne)
 internalAgentTemplatesRouter.post('/templates/:slug/install', installOne)
 internalAgentTemplatesRouter.get('/agents/:slug/export', exportOne)
+internalAgentTemplatesRouter.get('/bot-slugs', getBotSlugs)
+internalAgentTemplatesRouter.put('/bot-slugs', putBotSlugs)
 
 /** Installer switch: `{ "templates": "all" }` or `{ "templates": ["operator"] }`.
  *  Skips any slug that is already installed unless `overwrite` is true. */

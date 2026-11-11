@@ -1,7 +1,7 @@
 /**
  * Secrets scope helpers — extracted from SecretsPage.tsx (behavior frozen).
  *
- * TERMINOLOGY: Mike thinks of workspaces as ORGANIZATIONS, so this UI *labels*
+ * TERMINOLOGY: Operator thinks of workspaces as ORGANIZATIONS, so this UI *labels*
  * the scopes "Command Center" (global — applies everywhere), "Organization"
  * (workspace), "User" (follows the user into any organization) and
  * "Organization + User" (workspace_user). This is a DISPLAY-LABEL decision only:

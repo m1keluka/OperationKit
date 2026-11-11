@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { useAgents } from '../hooks/useAgents'
 import {
@@ -193,7 +193,7 @@ function TemplateCard({
   )
 }
 
-export function AgentTemplatesPage() {
+export function AgentTemplatesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { refresh: refreshRoster } = useAgents()
   const [data, setData] = useState<Gallery | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -284,26 +284,37 @@ export function AgentTemplatesPage() {
     ? data?.installed.some(a => a.slug === (pending.result as { agent: ParsedAgent }).agent.slug && !a.archived)
     : false
 
-  return (
-    <PageContainer>
-      <PageHeader
-        title="Agent templates"
-        breadcrumbs={[{ label: 'Agents', href: '/agents' }, { label: 'Templates' }]}
-        description="Each agent is one file you can copy, share and re-import. Add a starter agent, import a file someone sent you, or export an agent to share it."
-        actions={
-          <>
-            <input
-              ref={fileInput}
-              type="file"
-              accept=".yaml,.yml,.md,text/yaml,text/markdown"
-              className="sr-only"
-              aria-label="Choose an agent file to import"
-              onChange={e => { void onFile(e.target.files?.[0]); e.target.value = '' }}
-            />
-            <Button variant="primary" onClick={() => fileInput.current?.click()}>Import agent file</Button>
-          </>
-        }
+  const importActions = (
+    <>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".yaml,.yml,.md,text/yaml,text/markdown"
+        className="sr-only"
+        aria-label="Choose an agent file to import"
+        onChange={e => { void onFile(e.target.files?.[0]); e.target.value = '' }}
       />
+      <Button variant="primary" onClick={() => fileInput.current?.click()}>Import agent file</Button>
+    </>
+  )
+  // Inside the one Agents page (obj 900495) the hub owns the title; the
+  // description and the import button sit in a plain intro row instead.
+  const Shell = embedded ? FragmentShell : PageContainer
+  return (
+    <Shell>
+      {embedded ? (
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <p className="max-w-3xl text-[13px] leading-relaxed text-fg-2">Each agent is one file you can copy, share and re-import. Add a starter agent, import a file someone sent you, or export an agent to share it.</p>
+          <div className="flex shrink-0 gap-2">{importActions}</div>
+        </div>
+      ) : (
+        <PageHeader
+          title="Agent templates"
+          breadcrumbs={[{ label: 'Agents', href: '/agents' }, { label: 'Templates' }]}
+          description="Each agent is one file you can copy, share and re-import. Add a starter agent, import a file someone sent you, or export an agent to share it."
+          actions={importActions}
+        />
+      )}
 
       {notice && (
         <Alert tone={notice.tone} className="mb-5">
@@ -446,6 +457,10 @@ export function AgentTemplatesPage() {
           <Button type="submit" loading={busy === 'path'} disabled={!serverPath.trim()}>Import</Button>
         </form>
       </section>
-    </PageContainer>
+    </Shell>
   )
+}
+
+function FragmentShell({ children }: { children: ReactNode }) {
+  return <>{children}</>
 }

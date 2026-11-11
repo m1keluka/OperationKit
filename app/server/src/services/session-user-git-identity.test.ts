@@ -3,6 +3,12 @@ import os from 'os'
 import path from 'path'
 import type { Objective } from '@operationkit/shared'
 
+// obj 900452: `verified_sender_stamps` now defaults ON (which also strips the
+// signing key and adds CC_STRIP_SIGNING_SECRETS). This file pins the legacy
+// flags-OFF spawn env, so it turns stamps off explicitly; the default-ON spawn
+// env is asserted in lib/session-trust.test.ts.
+process.env.CC_VERIFIED_SENDER_STAMPS = '0'
+
 // These tests exercise the owner's own credential, so they read it as the
 // server acting for that owner (services/connector-guard.ts).
 const SERVER_ACTOR = { kind: 'server' as const }
@@ -193,7 +199,7 @@ describe('buildSpawnEnv — attribution rides on the spawn env, flags OFF (decou
   // See the Google twin of this test: a card assigned by somebody else runs as
   // the assignee but does not borrow the assignee's linked GitHub token.
   it('a card assigned by someone else does NOT borrow the assignee GitHub token', () => {
-    seedUser(1, 'mike')
+    seedUser(1, 'operator')
     seedUser(7, 'eva')
     linkEva(7)
     const env = buildSpawnEnv({
@@ -207,7 +213,7 @@ describe('buildSpawnEnv — attribution rides on the spawn env, flags OFF (decou
   })
 
   it('and DOES once the assignee allows delegated work', () => {
-    seedUser(1, 'mike')
+    seedUser(1, 'operator')
     seedUser(7, 'eva')
     linkEva(7)
     setAccess('github', 7, { agents: null, workspaces: null, allow_delegated: true })
@@ -241,7 +247,7 @@ describe('E2E ATTRIBUTION PROOF (deterministic harness; live-push limitation sta
   // exact attribution env the spawned child receives. The live confirmation step —
   // open a PR as a linked user, then read back the GitHub "opened by" actor and the
   // HEAD commit author via the API — is the OPERATOR step documented in
-  // app/server/SPAWN-ENV-SCOPING-CUTOVER.md, which Mike runs once Eva links her token.
+  // app/server/SPAWN-ENV-SCOPING-CUTOVER.md, which Operator runs once Eva links her token.
   const mask = (v: string | undefined) =>
     typeof v === 'string' && v.length > 8 ? `${v.slice(0, 11)}…${v.slice(-4)} (len ${v.length})` : String(v)
 

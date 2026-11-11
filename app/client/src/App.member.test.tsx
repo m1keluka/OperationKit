@@ -80,7 +80,7 @@ function ClampHarness({
         onClick={() => {
           const member: User = {
             id: 2,
-            username: 'ava',
+            username: 'casey',
             role: 'member',
             workspaces: [{ workspace: 'example', role: 'member' }],
             created_at: '2026-01-01T00:00:00Z',
@@ -164,7 +164,7 @@ describe('App.tsx — member-workspace clamp effect (obj 708893)', () => {
   it('admin is unaffected — selectedWorkspaces stays as initialised', async () => {
     const admin: User = {
       id: 1,
-      username: 'mike',
+      username: 'operator',
       role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',

@@ -105,7 +105,7 @@ export function CostModule() {
   return (
     <Card inset>
       <CardHeader
-        title="Cost"
+        title="Estimated spend"
         eyebrow="Usage spend"
         actions={
           <Tabs

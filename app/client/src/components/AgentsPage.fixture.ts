@@ -149,7 +149,7 @@ export const AGENTS_FIXTURE_ALL: BoardLayerPayload = {
 const FILE_BODIES: Record<string, string> = {
   'agent:acq-sites': '# Agent: Acquisition Sites\n\nYou own the acquisition microsite estate.',
   'overlay:acq-sites': '# example overlay — acq-sites\n\nBrand rules, repo setup, deploy target.',
-  'agent:cto': '# Agent: CTO\n\nYou are Mike’s Chief Technology Officer.',
+  'agent:cto': '# Agent: CTO\n\nYou are Operator’s Chief Technology Officer.',
   'overlay:cto': '# example overlay — cto\n\nExample-specific priorities.',
   'skill:acq-site-builder': '# Skill: acq-site-builder\n\nScaffold, build, ship.',
   'skill:acq-copy-review': '# Skill: acq-copy-review\n\nBrand-voice pass.',

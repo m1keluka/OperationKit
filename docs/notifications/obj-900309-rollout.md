@@ -51,7 +51,7 @@ The next PR that merges is the test. It needs no setup.
 ```bash
 # before: the row is open
 curl -s localhost:3002/api/internal/objectives/<card> | node -e '...prs[].state'   # open
-# ... Mike merges the PR ...
+# ... Operator merges the PR ...
 # after: the row is merged, and the server said so out loud
 docker logs --tail=200 command-center | grep 'objective_prs'
 # expect: [github-webhook] objective_prs <repo>#<n> → merged (rows 1/1)
@@ -82,14 +82,14 @@ because testing it for real means sending a real webhook.
 
 ### 3.3 Completion wake — the top-level case must stay SILENT
 
-The next top-level card Mike accepts from `review`:
+The next top-level card Operator accepts from `review`:
 
 ```bash
 sqlite3 … "SELECT COUNT(*) FROM agent_webhook_deliveries WHERE event_id = 'cc_completed_<card>_k<key>'"
 ```
 
 PASS = `0`. A non-zero here means human-done semantics regressed and the owner is being
-woken for a card Mike already closed in front of them.
+woken for a card Operator already closed in front of them.
 
 ### 3.4 Dedupe under a reopen
 

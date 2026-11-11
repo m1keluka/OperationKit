@@ -32,6 +32,14 @@ import {
   rollbackSecret,
   recentAccessLog,
   moveSecret,
+  rotateSecret,
+  updateSecretMetadata,
+  getSecret,
+  queryAccessLog,
+  logAccess,
+  scopeLabel,
+  SECRET_DESCRIPTION_MAX,
+  type SecretAuditSource,
   type SecretScope,
   type SecretScopeType,
   type SecretSummary,
@@ -102,6 +110,36 @@ function parseScope(
   }
   return { scope: { scopeType: st, workspace: ws, userId: uid } }
 }
+
+/**
+ * 'ui' when the request rode the browser's httpOnly session cookie, 'api' for a
+ * bearer token / agent key. Recorded on the audit row; never trusted for access.
+ */
+function auditSource(req: AuthRequest): SecretAuditSource {
+  return req.cookies?.token ? 'ui' : 'api'
+}
+
+/**
+ * Optional `description` on a write body. undefined = not sent (leave as is);
+ * a string is trimmed and capped server-side. Anything else is a 400.
+ */
+function parseDescription(raw: unknown): { ok: true; value: string | null | undefined } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, value: undefined }
+  if (raw === null) return { ok: true, value: null }
+  if (typeof raw !== 'string') return { ok: false, error: 'description must be a string' }
+  if (raw.length > SECRET_DESCRIPTION_MAX) {
+    return { ok: false, error: `description must be at most ${SECRET_DESCRIPTION_MAX} characters` }
+  }
+  return { ok: true, value: raw }
+}
+
+/**
+ * Message returned by POST /reveal. Reveal-with-re-auth is a design decision
+ * that has not been made yet (docs/proposals/SECRETS-PROPOSAL.md), so values are
+ * write-only on every install and the attempt is audited.
+ */
+export const REVEAL_DISABLED_MESSAGE =
+  'Secret values are write-only. They are never shown after they are saved; to change one, rotate it with a new value.'
 
 const router = Router()
 router.use(requireAuth)
@@ -174,7 +212,8 @@ router.get('/connector-denials', (req: AuthRequest, res) => {
   res.json(recentConnectorDenials(Number.isFinite(limit) && limit > 0 ? limit : 100))
 })
 
-// GET /api/secrets/access-log — global admin only.
+// GET /api/secrets/access-log — global admin only. Legacy tail (newest 100);
+// kept for backward compatibility. New callers use /audit.
 router.get('/access-log', (req: AuthRequest, res) => {
   const user = req.user!
   if (user.role !== 'admin') {
@@ -182,6 +221,181 @@ router.get('/access-log', (req: AuthRequest, res) => {
     return
   }
   res.json(recentAccessLog(100))
+})
+
+// GET /api/secrets/audit — the append-only audit log, filtered + paginated.
+//   Whole log (no scope): global admin only. ?key=&action=&beforeId=&limit=
+//   One secret: ?scopeType=&workspace=&userId=&key= — anyone with access to
+//   that scope sees that secret's own history (same gate as /versions).
+// Returns { entries, nextBeforeId }. Entries are metadata only; the log never
+// holds a value.
+router.get('/audit', (req: AuthRequest, res) => {
+  const user = req.user!
+  const { scopeType, workspace, userId, key, action, beforeId, limit } = req.query
+  const lim = limit === undefined ? 100 : Number(limit)
+  const before = beforeId === undefined ? undefined : Number(beforeId)
+  if (!Number.isFinite(lim) || lim < 1) {
+    res.status(400).json({ error: 'limit must be a positive number' })
+    return
+  }
+  if (before !== undefined && !Number.isInteger(before)) {
+    res.status(400).json({ error: 'beforeId must be an integer' })
+    return
+  }
+  const act = typeof action === 'string' && action ? action : undefined
+
+  if (scopeType !== undefined) {
+    if (typeof key !== 'string' || !key.trim()) {
+      res.status(400).json({ error: 'key is required with a scope' })
+      return
+    }
+    const parsed = parseScope(scopeType, workspace, userId)
+    if ('error' in parsed) {
+      res.status(400).json({ error: parsed.error })
+      return
+    }
+    if (!canAccessScope(user, parsed.scope)) {
+      res.status(403).json({ error: 'You do not have access to this scope' })
+      return
+    }
+    const s = getSecret(parsed.scope, key)
+    if (!s) {
+      // Deleted secret: its rows remain (append-only) and are reachable by key
+      // from the admin view. A member gets an empty page rather than another
+      // scope's history.
+      res.json({ entries: [], nextBeforeId: null })
+      return
+    }
+    res.json(queryAccessLog({
+      secretId: s.id,
+      key,
+      scopeLabel: scopeLabel(parsed.scope),
+      action: act,
+      beforeId: before,
+      limit: lim,
+    }))
+    return
+  }
+
+  if (user.role !== 'admin') {
+    res.status(403).json({ error: 'Global admin role required' })
+    return
+  }
+  res.json(queryAccessLog({
+    key: typeof key === 'string' && key.trim() ? key.trim() : undefined,
+    action: act,
+    beforeId: before,
+    limit: lim,
+  }))
+})
+
+// POST /api/secrets/reveal — always refused (403), always audited.
+// Values are write-only until the owner picks a reveal design (proposal §4).
+// The attempt is recorded even when the caller lacks access to the scope, so
+// probing shows up in the log.
+router.post('/reveal', (req: AuthRequest, res) => {
+  const user = req.user!
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const key = typeof body.key === 'string' ? body.key.trim() : ''
+  if (!key) {
+    res.status(400).json({ error: 'key is required' })
+    return
+  }
+  const parsed = parseScope(body.scopeType, body.workspace, body.userId)
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error })
+    return
+  }
+  const allowed = canAccessScope(user, parsed.scope)
+  const existing = allowed ? getSecret(parsed.scope, key) : null
+  logAccess(user.id, 'reveal_attempt', scopeLabel(parsed.scope), key, {
+    secretId: existing?.id ?? null,
+    source: auditSource(req),
+    detail: allowed ? 'refused:write-only' : 'refused:no-scope-access',
+  })
+  res.status(403).json({ error: 'reveal_disabled', message: REVEAL_DISABLED_MESSAGE })
+})
+
+// POST /api/secrets/rotate — replace the value of an EXISTING secret.
+// Body: { scopeType, workspace?, userId?, key, value, description? }
+// 404 if it does not exist (rotation never creates); otherwise 200 +
+// the masked summary. The old value is never read back; it stays in version
+// history (encrypted) so a bad rotation can be rolled back.
+router.post('/rotate', (req: AuthRequest, res) => {
+  const user = req.user!
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const key = typeof body.key === 'string' ? body.key : ''
+  if (!key.trim()) {
+    res.status(400).json({ error: 'key is required' })
+    return
+  }
+  if (typeof body.value !== 'string' || body.value.length === 0) {
+    res.status(400).json({ error: 'value is required (non-empty string)' })
+    return
+  }
+  const desc = parseDescription(body.description)
+  if (!desc.ok) {
+    res.status(400).json({ error: desc.error })
+    return
+  }
+  const parsed = parseScope(body.scopeType, body.workspace, body.userId)
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error })
+    return
+  }
+  if (!canAccessScope(user, parsed.scope)) {
+    res.status(403).json({ error: 'You do not have access to this scope' })
+    return
+  }
+  const summary = rotateSecret({
+    scope: parsed.scope,
+    key,
+    value: body.value,
+    description: desc.value,
+    actorUserId: user.id,
+    source: auditSource(req),
+  })
+  if (!summary) {
+    res.status(404).json({ error: 'secret not found — rotation only replaces an existing secret' })
+    return
+  }
+  res.json(summary)
+})
+
+// PATCH /api/secrets/metadata — change a secret's description without touching
+// its value. Body: { scopeType, workspace?, userId?, key, description }
+router.patch('/metadata', (req: AuthRequest, res) => {
+  const user = req.user!
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const key = typeof body.key === 'string' ? body.key : ''
+  if (!key.trim()) {
+    res.status(400).json({ error: 'key is required' })
+    return
+  }
+  if (!('description' in body)) {
+    res.status(400).json({ error: 'description is required (string, or null to clear)' })
+    return
+  }
+  const desc = parseDescription(body.description)
+  if (!desc.ok) {
+    res.status(400).json({ error: desc.error })
+    return
+  }
+  const parsed = parseScope(body.scopeType, body.workspace, body.userId)
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error })
+    return
+  }
+  if (!canAccessScope(user, parsed.scope)) {
+    res.status(403).json({ error: 'You do not have access to this scope' })
+    return
+  }
+  const summary = updateSecretMetadata(parsed.scope, key, { description: desc.value ?? null }, user.id, auditSource(req))
+  if (!summary) {
+    res.status(404).json({ error: 'secret not found' })
+    return
+  }
+  res.json(summary)
 })
 
 // GET /api/secrets/rotation-flags — secrets the owner pasted into a card chat
@@ -299,6 +513,11 @@ router.post('/', (req: AuthRequest, res) => {
     res.status(400).json({ error: 'value is required (string)' })
     return
   }
+  const desc = parseDescription(body.description)
+  if (!desc.ok) {
+    res.status(400).json({ error: desc.error })
+    return
+  }
   const parsed = parseScope(body.scopeType, body.workspace, body.userId)
   if ('error' in parsed) {
     res.status(400).json({ error: parsed.error })
@@ -308,7 +527,14 @@ router.post('/', (req: AuthRequest, res) => {
     res.status(403).json({ error: 'You do not have access to this scope' })
     return
   }
-  const summary = setSecret({ scope: parsed.scope, key, value: body.value, actorUserId: user.id })
+  const summary = setSecret({
+    scope: parsed.scope,
+    key,
+    value: body.value,
+    description: desc.value,
+    actorUserId: user.id,
+    source: auditSource(req),
+  })
   res.status(201).json(summary)
 })
 
@@ -360,7 +586,7 @@ router.delete('/', (req: AuthRequest, res) => {
     res.status(403).json({ error: 'You do not have access to this scope' })
     return
   }
-  const removed = deleteSecret(parsed.scope, key, user.id)
+  const removed = deleteSecret(parsed.scope, key, user.id, auditSource(req))
   if (!removed) {
     res.status(404).json({ error: 'secret not found' })
     return

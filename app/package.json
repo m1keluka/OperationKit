@@ -1,6 +1,8 @@
 {
   "name": "command-center",
   "private": true,
+  "author": "Axia Growth LLC and contributors",
+  "license": "Apache-2.0",
   "workspaces": ["shared", "server", "client"],
   "scripts": {
     "dev:server": "npm run dev --workspace=server",

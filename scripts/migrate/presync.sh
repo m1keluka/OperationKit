@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # presync.sh — phase 1: copy the bulk of the data while the old host stays live.
 #
-# Run on the NEW host as mike (ssh -A mike@<ovh-ip>), as many times as you like
+# Run on the NEW host as operator (ssh -A operator@<ovh-ip>), as many times as you like
 # in the days before cutover; each run only moves the delta:
-#   bash scripts/migrate/presync.sh --src mike@<do-ip> [--dry-run] [--only NAME]
+#   bash scripts/migrate/presync.sh --src operator@<do-ip> [--dry-run] [--only NAME]
 #
 # NAME is one of: projects second-brain ai-workspace transcripts assistant
 #                 data ssh gh secrets   (default: all, in that order)
@@ -135,10 +135,10 @@ if want secrets; then
   confirm COPY-SECRETS "copy .env, encryption keys, Doppler token + config, cron.env to this host (600 perms)"
   for f in "${SECRET_FILES[@]}"; do pull_secret "$f"; done
   for d in "${SECRET_DIRS[@]}"; do pull_secret_dir "$d"; done
-  # mike owns everything here; the container reads them as root.
+  # operator owns everything here; the container reads them as root.
   if [ "$DRY_RUN" -eq 0 ]; then
-    for f in "${SECRET_FILES[@]}"; do [ -e "$f" ] && sudo chown mike:mike "$f"; done
-    for d in "${SECRET_DIRS[@]}"; do [ -d "$d" ] && sudo chown -R mike:mike "$d"; done
+    for f in "${SECRET_FILES[@]}"; do [ -e "$f" ] && sudo chown operator:operator "$f"; done
+    for d in "${SECRET_DIRS[@]}"; do [ -d "$d" ] && sudo chown -R operator:operator "$d"; done
   fi
 fi
 
@@ -148,8 +148,8 @@ if [ -z "$ONLY" ]; then
   run mkdir -p "$MIGRATE_STATE/src-etc"
   pull /etc/caddy/ "$MIGRATE_STATE/src-etc/caddy/"
   if [ "$DRY_RUN" -eq 0 ]; then
-    src 'crontab -l 2>/dev/null' > "$MIGRATE_STATE/src-etc/crontab.mike.txt" || true
-    chmod 600 "$MIGRATE_STATE/src-etc/crontab.mike.txt"
+    src 'crontab -l 2>/dev/null' > "$MIGRATE_STATE/src-etc/crontab.operator.txt" || true
+    chmod 600 "$MIGRATE_STATE/src-etc/crontab.operator.txt"
     src "systemctl list-unit-files 'cc-*' --no-legend" > "$MIGRATE_STATE/src-etc/systemd-units.txt" 2>/dev/null || true
     log "compare: diff $MIGRATE_STATE/src-etc/caddy/Caddyfile $CC_REPO/config/caddy/Caddyfile"
   fi

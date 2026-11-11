@@ -300,7 +300,7 @@ router.post('/routines/:id/resume', (req: AuthRequest, res) => {
 
 // ── Strategy nodes + Strategy-owned Jobs authoring (obj 2384) ────────────────
 // A Strategy is a delegate_mode objective (the top orchestrator tier). These two
-// routes let Mike (a) pick an existing strategy and (b) author a recurring
+// routes let Operator (a) pick an existing strategy and (b) author a recurring
 // research Job under a strategy from the UI — translating a friendly cadence into
 // a cron and a prompt into the routine's objective_template, so nobody hand-writes
 // cron/JSON. The routine is linked via routines.strategy_objective_id, so its runs
@@ -407,11 +407,11 @@ router.post('/strategy-jobs', (req: AuthRequest, res) => {
         strategyId = existing.id
       } else if (b.strategy_title?.trim()) {
         // Created in 'review' (human-owned), NOT 'queue': a brand-new strategy is
-        // a holder/steerer that Mike activates when ready. fireWake skips delegators
+        // a holder/steerer that Operator activates when ready. fireWake skips delegators
         // parked in 'review', so the existing (non-flag-gated) reconcile wake fabric
         // will NOT auto-spawn a session for it just because a routine run completed
         // under it while CC_STRATEGY_TIER is off. The run-summary still feeds back
-        // into its NOTES.md (append path bypasses fireWake). Mike starts it to engage
+        // into its NOTES.md (append path bypasses fireWake). Operator starts it to engage
         // autonomy.
         const r = db.prepare(
           `INSERT INTO objectives

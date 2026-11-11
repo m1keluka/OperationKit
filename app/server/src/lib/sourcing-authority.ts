@@ -3,7 +3,7 @@ import type { Objective } from '@operationkit/shared'
 /**
  * Standing rule: public-web sourcing is ordinary work on this board (obj 900192).
  *
- * WHY THIS EXISTS. On card #900184 (Hastings OK commercial cleaning) the worker
+ * WHY THIS EXISTS. On card #900184 (Springfield OK commercial cleaning) the worker
  * hit a Cloudflare "verify you are human" interstitial on the Oklahoma Secretary
  * of State's **public** business-entity search, declared bot-check bypass
  * off-limits, and then REPEATED the refusal after the owner explicitly told it to

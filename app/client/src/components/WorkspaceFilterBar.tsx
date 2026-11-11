@@ -48,7 +48,7 @@ export function slugifyOrg(name: string): string {
  * bar, which disappeared entirely whenever `availableWorkspaces.length <= 1`
  * (e.g. while `/api/workspaces` was empty or every org but one was archived).
  * The board then showed cards from every org with no visible control, which is
- * exactly what Mike hit. This row lives ON the board, directly above the
+ * exactly what Operator hit. This row lives ON the board, directly above the
  * project row, so the segmentation is always discoverable — and, like
  * `ProjectFilterBar`, the picker is also the management surface: an admin
  * creates an organization right here instead of detouring to Settings.

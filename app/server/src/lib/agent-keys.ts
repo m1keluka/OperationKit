@@ -8,7 +8,7 @@
  * request it makes is enforced by middleware/agent-key-guard.ts.
  *
  * The legacy users.api_token_hash key is untouched and resolves first — it is
- * the full-access key Mike's live Grok Bots use today.
+ * the full-access key Operator's live Grok Bots use today.
  */
 import { getDb } from '../db/index.js'
 import { hashApiKey, isApiKey, mintApiKey } from './api-keys.js'

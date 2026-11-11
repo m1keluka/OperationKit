@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # cutover.sh — phase 2: the downtime window. Moves Command Center for real.
 #
-# Run on the NEW host as mike, inside tmux (a dropped SSH must not kill it):
+# Run on the NEW host as operator, inside tmux (a dropped SSH must not kill it):
 #   tmux new -s cutover
-#   bash scripts/migrate/cutover.sh --src mike@<do-ip> --new-ip <ovh-ip> [--dry-run]
+#   bash scripts/migrate/cutover.sh --src operator@<do-ip> --new-ip <ovh-ip> [--dry-run]
 #
 # Options:
 #   --new-ip IP          public IP of this host (used to watch DNS flip over)
@@ -21,7 +21,7 @@
 #   restore    [confirm] install the DB + pg_restore LiteLLM here
 #   host-config install Caddyfile, preview-spool units, backup timer
 #   start      [confirm] docker compose up -d, wait for /api/health, install crons
-#   dns        print the DNS change for Mike, wait for it to resolve here
+#   dns        print the DNS change for Operator, wait for it to resolve here
 #
 # The old host is NEVER deleted from or wiped: services are stopped, data stays,
 # its crontab is commented out (not removed). Rollback: docs/migration/ovh-rise4.md §G.
@@ -268,14 +268,14 @@ if begin start "bring Command Center up here"; then
 fi
 
 # ── dns ─────────────────────────────────────────────────────────────────────
-if begin dns "point DNS at this host (Mike does this in the DNS provider)"; then
+if begin dns "point DNS at this host (Operator does this in the DNS provider)"; then
   cat <<EOF
 
   ┌───────────────────────────────────────────────────────────────────────┐
-  │ MIKE: change these A records to $NEW_IP (TTL 300):
+  │ OPERATOR: change these A records to $NEW_IP (TTL 300):
   │   $DOMAIN
   │   n8n.example.com   — ONLY if n8n was moved too (runbook §B.6)
-  │   llm.mikeluka.com     — LiteLLM admin, moved with compose
+  │   llm.example.com     — LiteLLM admin, moved with compose
   │   *.cc.example.com  — PR previews, if a wildcard record exists
   │ Leave everything else alone. The old droplet stays powered for 48h.
   └───────────────────────────────────────────────────────────────────────┘

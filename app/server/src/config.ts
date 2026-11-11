@@ -81,7 +81,7 @@ export const SPAWN_MAX_OUTPUT_TOKENS = parseInt(process.env.SPAWN_MAX_OUTPUT_TOK
 // These flags scope which secrets/capabilities a spawned session's env carries,
 // keyed by spawn tier (admin vs member). They ALL default to OFF, where OFF means
 // "exact current behavior" — every session gets the broadcast Doppler admin token
-// and the org Supabase token, identically. Flipping a flag ON is a Mike-gated,
+// and the org Supabase token, identically. Flipping a flag ON is a Operator-gated,
 // irreversible cutover step (provision scoped tokens FIRST, then flip, then rotate
 // the broadcast admin token) — see app/server/SPAWN-ENV-SCOPING-CUTOVER.md. Do NOT
 // enable these in a committed default or env file: turning them on before a scoped

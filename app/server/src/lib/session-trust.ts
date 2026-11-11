@@ -3,11 +3,14 @@
  * per-session token so a worker can reach the secrets broker and raise
  * `needs_secret` on ITS OWN card without an agent API key.
  *
- * Flags (settings table, both default OFF — '1' turns them on):
- *   verified_sender_stamps  — sessions see `[cc-sender] VERIFIED: …` / `AGENT: …`
- *                             on every chat message, and the prompt carries the
+ * Flags (settings table):
+ *   verified_sender_stamps  — DEFAULT ON since obj 900452 (a '0' row turns it
+ *                             off; see `verifiedSenderStampsEnabled`). Sessions
+ *                             see `[cc-sender] VERIFIED: …` / `AGENT: …` on every
+ *                             chat message, and the prompt carries the
  *                             verified-owner approval rule.
- *   session_secret_access   — the prompt lists the secret NAMES the session
+ *   session_secret_access   — default OFF ('1' turns it on). The prompt lists
+ *                             the secret NAMES the session
  *                             has, spawns carry CC_SESSION_TOKEN, and the
  *                             needs-secret / broker routes accept it.
  *
@@ -33,6 +36,35 @@ export function readSettingFlag(key: string, db?: Database.Database): boolean {
     return row?.value === '1'
   } catch {
     return false
+  }
+}
+
+/**
+ * obj 900452 — `verified_sender_stamps` defaults ON.
+ *
+ * It shipped default-OFF in #577 with a "turn it on after deploy" note, and the
+ * production row was never written — so on 2026-11-09 a worker on #900446 could
+ * not tell the owner's own typed follow-up ("run memo23/bbb-scraper now") from a
+ * bot relay, obeyed a bot-written FORBIDDEN line in the card instead, and told
+ * the owner to edit the card text. The owner-precedence rule is only enforceable
+ * when the stamp exists, so the stamp must not depend on a hidden SQL toggle.
+ *
+ * Env `CC_VERIFIED_SENDER_STAMPS` ('0' / '1') wins; otherwise a settings row of
+ * '0' is the only way to turn it off. A missing row, missing table or an
+ * uninitialised DB reads as ON. ON is also the SAFER state: it neutralises
+ * forged "VERIFIED:" text in every body and strips the signing key from spawns.
+ */
+export function verifiedSenderStampsEnabled(db?: Database.Database, env: NodeJS.ProcessEnv = process.env): boolean {
+  const override = (env.CC_VERIFIED_SENDER_STAMPS || '').trim()
+  if (override === '0') return false
+  if (override === '1') return true
+  try {
+    const row = (db ?? getDb()).prepare('SELECT value FROM settings WHERE key = ?').get(VERIFIED_SENDER_FLAG) as
+      | { value: string }
+      | undefined
+    return row?.value !== '0'
+  } catch {
+    return true
   }
 }
 

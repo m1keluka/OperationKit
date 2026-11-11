@@ -3,7 +3,7 @@
  * live in prompt-builder-workdir.ts / prompt-builder-history.ts /
  * prompt-builder-blocks.ts. This file is buildPrompt + re-exports.
  */
-import { buildSessionTrustBlock } from './session-trust-prompt.js'
+import { buildOwnerPrecedenceBlock, buildSessionTrustBlock } from './session-trust-prompt.js'
 import { buildAttachedFilesBlock } from './jail-uploads.js'
 import fs from 'fs'
 import type { Objective, AcceptanceCriterion } from '@operationkit/shared'
@@ -289,9 +289,10 @@ export function buildPrompt(objective: Objective): string {
   // obj 900408: files attached in the New Card modal were uploaded but never
   // mentioned to the session. Empty (prompt unchanged) when there are none.
   parts.push(...buildAttachedFilesBlock(objective.id))
-  // obj 718944 — server-stamped sender rule + secret names (flag-gated; empty
-  // when off). Deliberately AFTER the card description: an agent-written card
-  // rule must not override verified-owner approval.
+  // obj 718944 — server-stamped sender rule (verified_sender_stamps, default ON
+  // since obj 900452) + secret names. Deliberately AFTER the card description:
+  // an agent-written card rule must not override verified-owner approval. The
+  // owner-precedence block (obj 900452) comes later, after the Completion Goal.
   parts.push(...buildSessionTrustBlock(objective))
   if (objective.project) {
     parts.push('', `Project: ${objective.project}`)
@@ -308,7 +309,7 @@ export function buildPrompt(objective: Objective): string {
       '',
       objective.approved_plan,
       '',
-      'You are now in the Execute phase. Follow the plan above. If you discover the plan is wrong, STOP and report back to Mike with the conflict instead of silently deviating.',
+      'You are now in the Execute phase. Follow the plan above. If you discover the plan is wrong, STOP and report back to Operator with the conflict instead of silently deviating.',
     )
   }
 
@@ -400,6 +401,12 @@ export function buildPrompt(objective: Objective): string {
       ),
     )
   }
+
+  // obj 900452 — owner instructions outrank card text. Unflagged, and placed
+  // AFTER the description, approved plan, Completion Goal and acceptance
+  // criteria: a bot-written FORBIDDEN / HARD REQUIREMENT line there must not
+  // override what the verified owner typed in the card chat (#900446).
+  parts.push('', ...buildOwnerPrecedenceBlock())
 
   // Workflow hint — suggest a Dynamic Workflow pattern for complex tasks
   if (objective.workflow_hint) {
@@ -611,10 +618,10 @@ export function buildPrompt(objective: Objective): string {
       '',
       '## Jobs Disposition (REQUIRED — you are an automated daily job)',
       '',
-      'This run is a scheduled **job**, logged on the Jobs board (not the main Board). As the FINAL step of your run, record your disposition so Mike can triage at a glance:',
+      'This run is a scheduled **job**, logged on the Jobs board (not the main Board). As the FINAL step of your run, record your disposition so Operator can triage at a glance:',
       '',
       '```bash',
-      '# Clean run, nothing for Mike to do:',
+      '# Clean run, nothing for Operator to do:',
       `curl -s -X POST http://localhost:3002/api/internal/objectives/${objective.id}/job-disposition \\`,
       "  -H 'Content-Type: application/json' \\",
       `  -d '{"disposition":"complete"}'`,
@@ -622,12 +629,12 @@ export function buildPrompt(objective: Objective): string {
       '# You have a question, OR you saw a concrete way to improve our system:',
       `curl -s -X POST http://localhost:3002/api/internal/objectives/${objective.id}/job-disposition \\`,
       "  -H 'Content-Type: application/json' \\",
-      `  -d '{"disposition":"needs_review","note":"<one-line reason Mike should look>"}'`,
+      `  -d '{"disposition":"needs_review","note":"<one-line reason Operator should look>"}'`,
       '```',
       '',
-      'Use `needs_review` only when you genuinely want Mike\'s attention (a question, a decision, or a system-improvement opportunity you noticed while running). Otherwise use `complete`.',
+      'Use `needs_review` only when you genuinely want Operator\'s attention (a question, a decision, or a system-improvement opportunity you noticed while running). Otherwise use `complete`.',
       '',
-      `If Mike later replies in this thread asking you to "create an objective for X", create it with \`POST http://localhost:3002/api/internal/objectives\` (a JSON array of objective objects). Include \`"source_job_id":${objective.id}\` on each so the new card links back to this job. Then reply telling Mike the new objective id(s). Example:`,
+      `If Operator later replies in this thread asking you to "create an objective for X", create it with \`POST http://localhost:3002/api/internal/objectives\` (a JSON array of objective objects). Include \`"source_job_id":${objective.id}\` on each so the new card links back to this job. Then reply telling Operator the new objective id(s). Example:`,
       '```bash',
       `curl -s -X POST http://localhost:3002/api/internal/objectives \\`,
       "  -H 'Content-Type: application/json' \\",
@@ -654,7 +661,7 @@ export function buildLiveProgressBlock(objectiveId: number, memoryDir: string): 
   return [
     '## Live progress (keep the card readable while you run)',
     '',
-    `Mike and his bots ask "how's it going?" mid-run through GET /api/objectives/${objectiveId}/progress. Write a snapshot at each meaningful step — when you start, at each milestone, before any long wait, and when blocked:`,
+    `Operator and his bots ask "how's it going?" mid-run through GET /api/objectives/${objectiveId}/progress. Write a snapshot at each meaningful step — when you start, at each milestone, before any long wait, and when blocked:`,
     '```bash',
     `node ${CC_LIVE_SCRIPT} progress ${objectiveId} --step 2 --of 5 --label "what you are doing now" --note "short status, counts so far" [--artifact live/partial.csv]`,
     '```',

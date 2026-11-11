@@ -6,7 +6,7 @@
 // ../../services/posthog-hot-owner-scheduler.ts for the weekday-8-to-19:30-ET ticker.
 //
 // posthog_hot_owner_sync_runs  one row per run; the scheduler reads the last few to
-//                              count consecutive failures and alerts Mike at 3.
+//                              count consecutive failures and alerts Operator at 3.
 // posthog_hot_owner_undo_log   one row per person change, written BEFORE the $set is
 //                              sent. To undo a run: re-send previous_value for its rows.
 import type Database from 'better-sqlite3'

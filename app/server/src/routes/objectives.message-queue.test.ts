@@ -87,7 +87,7 @@ beforeEach(() => {
 
 describe('POST /:id/message while the worker is mid-turn (obj 900412)', () => {
   it('queues every message and never restarts the running worker', async () => {
-    const msgs = ['does the site language match what Mike said?', '????????', 'answer?', 'hello ???']
+    const msgs = ['does the site language match what Operator said?', '????????', 'answer?', 'hello ???']
     for (const m of msgs) {
       const r = await post('/message', { message: m })
       expect(r.status).toBe(200)

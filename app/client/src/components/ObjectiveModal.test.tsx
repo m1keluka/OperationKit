@@ -31,7 +31,7 @@ import type { Objective } from '@operationkit/shared'
 const { PROJECTS } = vi.hoisted(() => ({ PROJECTS: [] as Array<Record<string, unknown>> }))
 
 const { useAuthSpy } = vi.hoisted(() => ({
-  useAuthSpy: vi.fn(() => ({ user: { id: 1, role: 'admin', username: 'mike' } })),
+  useAuthSpy: vi.fn(() => ({ user: { id: 1, role: 'admin', username: 'operator' } })),
 }))
 
 vi.mock('../context/AuthContext', () => ({ useAuth: () => useAuthSpy() }))
@@ -202,12 +202,12 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
     // mockImplementation (not Once) so every re-render triggered by async effects
     // also sees the member role — Once only covers the first call and re-renders
     // revert to the default admin mock, incorrectly re-rendering the checkbox.
-    useAuthSpy.mockImplementation(() => ({ user: { id: 2, role: 'member', username: 'ava' } }))
+    useAuthSpy.mockImplementation(() => ({ user: { id: 2, role: 'member', username: 'casey' } }))
     try {
       const dialog = await mount(null)
       expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(0)
     } finally {
-      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'mike' } }))
+      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'operator' } }))
     }
   })
 
@@ -429,7 +429,7 @@ describe('ObjectiveModal — multi-owner picker (obj 711023)', () => {
   })
 
   it('non-admin: sends undefined for assignment (no regression)', async () => {
-    useAuthSpy.mockImplementation(() => ({ user: { id: 2, role: 'member', username: 'ava' } }))
+    useAuthSpy.mockImplementation(() => ({ user: { id: 2, role: 'member', username: 'casey' } }))
     try {
       const dialog = await mount(null)
 
@@ -445,7 +445,7 @@ describe('ObjectiveModal — multi-owner picker (obj 711023)', () => {
       const payload = onCreate.mock.calls[0][0] as Record<string, unknown>
       expect(payload.assigned_user_ids).toBeUndefined()
     } finally {
-      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'mike' } }))
+      useAuthSpy.mockImplementation(() => ({ user: { id: 1, role: 'admin', username: 'operator' } }))
     }
   })
 })

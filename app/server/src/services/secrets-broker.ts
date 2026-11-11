@@ -158,11 +158,11 @@ const SPECIFICITY: Record<Row['scope_type'], number> = { global: 0, workspace: 1
  * Most-specific visible row for `name` (workspace_user > user > workspace > global),
  * optionally pinned to one workspace. Returns the plaintext ONLY to executeHttp.
  */
-function resolveForUse(name: string, caller: Caller, policy: BrokerPolicy, workspace?: string): { value: string; scope: string; workspace: string | null } | null {
+function resolveForUse(name: string, caller: Caller, policy: BrokerPolicy, workspace?: string): { id: number; value: string; scope: string; workspace: string | null } | null {
   if (isServerOnlySecretKey(name)) return null
   const rows = (getDb()
-    .prepare('SELECT key, scope_type, workspace, user_id, value_encrypted FROM secrets WHERE key = ?')
-    .all(name) as Row[])
+    .prepare('SELECT id, key, scope_type, workspace, user_id, value_encrypted FROM secrets WHERE key = ?')
+    .all(name) as (Row & { id: number })[])
     .filter(r => !isSeatSecretKey(r.key))
     .filter(r => visibleTo(r, caller, policy))
     .filter(r => !workspace || r.scope_type === 'global' || r.scope_type === 'user' || r.workspace === workspace)
@@ -175,6 +175,7 @@ function resolveForUse(name: string, caller: Caller, policy: BrokerPolicy, works
   candidates.sort((a, b) => SPECIFICITY[b.scope_type] - SPECIFICITY[a.scope_type])
   const row = candidates[0]
   return {
+    id: row.id,
     value: decryptSecret(row.value_encrypted),
     scope: row.scope_type === 'global' ? 'global' : `${row.scope_type}:${row.workspace || row.user_id}`,
     workspace: row.workspace || null,
@@ -204,6 +205,8 @@ export interface BrokerHttpOutcome {
   audit: {
     secrets: string[]
     scopes: string[]
+    /** Store row ids of the secrets used (for the per-secret audit + last-used stamp). Never a value. */
+    secretIds?: number[]
     host: string | null
     method: string
     status: string
@@ -261,7 +264,7 @@ function reject(httpStatus: number, error: string, audit: BrokerHttpOutcome['aud
 export async function executeHttp(req: BrokerHttpRequest, caller: Caller): Promise<BrokerHttpOutcome> {
   const method = typeof req.method === 'string' ? req.method.toUpperCase() : 'GET'
   const workspace = typeof req.workspace === 'string' && req.workspace.trim() ? req.workspace.trim() : undefined
-  const audit: BrokerHttpOutcome['audit'] = { secrets: [], scopes: [], host: null, method, status: 'pending', workspace: workspace ?? null }
+  const audit: BrokerHttpOutcome['audit'] = { secrets: [], scopes: [], secretIds: [], host: null, method, status: 'pending', workspace: workspace ?? null }
 
   if (!ALLOWED_METHODS.has(method)) return reject(400, `method must be one of ${[...ALLOWED_METHODS].join(', ')}`, audit)
   if (workspace && !caller.isAdmin && !caller.workspaces.includes(workspace)) return reject(403, `No access to workspace '${workspace}'`, audit)
@@ -332,6 +335,7 @@ export async function executeHttp(req: BrokerHttpRequest, caller: Caller): Promi
     if (p.methods && p.methods.length && !p.methods.includes(method)) return reject(403, `method ${method} is not allowed for secret '${name}'`, audit)
     values.set(name, resolved.value)
     audit.scopes.push(`${name}@${resolved.scope}`)
+    audit.secretIds!.push(resolved.id)
     if (!audit.workspace && resolved.workspace) audit.workspace = resolved.workspace
     if (resolved.value) {
       redactMap.set(resolved.value, name)

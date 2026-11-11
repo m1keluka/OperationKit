@@ -90,7 +90,7 @@ afterAll(async () => {
 
 describe('GET /api/objectives/:id/design-frame', () => {
   it('401s without a session cookie', async () => {
-    const res = await getFrame(objId, 'https://ws-landing-preview.vercel.app/', false)
+    const res = await getFrame(objId, 'https://landing-preview-demo.vercel.app/', false)
     expect(res.status).toBe(401)
   })
 
@@ -101,13 +101,13 @@ describe('GET /api/objectives/:id/design-frame', () => {
   })
 
   it('rewrites the preview and sets a frameable CSP so CSS can load', async () => {
-    mockUpstream('https://ws-landing-preview.vercel.app/')
-    const res = await getFrame(objId, 'https://ws-landing-preview.vercel.app/')
+    mockUpstream('https://landing-preview-demo.vercel.app/')
+    const res = await getFrame(objId, 'https://landing-preview-demo.vercel.app/')
     expect(res.status).toBe(200)
     expect(res.headers.get('x-frame-options')).toBeNull()
     expect(res.headers.get('content-security-policy')).toBe(DESIGN_FRAME_CSP)
     const html = await res.text()
-    expect(html).toContain('<base href="https://ws-landing-preview.vercel.app/')
+    expect(html).toContain('<base href="https://landing-preview-demo.vercel.app/')
     expect(html).toContain('/_next/static/css/app.css')
     expect(html).not.toContain('/_next/static/chunks/main.js')
     expect(html).toContain('data-cc-design-bridge')

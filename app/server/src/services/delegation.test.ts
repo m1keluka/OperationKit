@@ -31,7 +31,7 @@ describe('reconcileDecision (delegator wake-storm guard)', () => {
 
   // THE FIX: a settled all-done state is actionable but NOT a new event, so the
   // reconcile net must not re-nudge it. This is the regression guard for the
-  // "stale duplicate wake" storm Mike reported on objective 311.
+  // "stale duplicate wake" storm Operator reported on objective 311.
   it('all done with the SAME signature already recorded → actionable but NOT changed', () => {
     const kids = [K(1, 'done'), K(2, 'done')]
     const first = reconcileDecision(kids, undefined)

@@ -11,7 +11,7 @@ import { callHaikuSummarizer } from './mentor-context.js'
 import { TRANSCRIPT_DIR } from '../config.js'
 import type { MessageSender } from '@operationkit/shared'
 import { stampForSession, systemSender } from '../lib/message-provenance.js'
-import { VERIFIED_SENDER_FLAG, readSettingFlag } from '../lib/session-trust.js'
+import { verifiedSenderStampsEnabled } from '../lib/session-trust.js'
 import {
   COMPACTION_SESSION_SENTINEL,
   MAX_OBJECTIVE_HISTORY_CHARS,
@@ -26,7 +26,7 @@ export function extractObjectiveTurns(objectiveId: number): ObjectiveTurn[] {
       .filter(f => f.startsWith(`cc-${objectiveId}-`) && f.endsWith('.jsonl'))
       .sort()
     const turns: ObjectiveTurn[] = []
-    const stampHistory = readSettingFlag(VERIFIED_SENDER_FLAG)
+    const stampHistory = verifiedSenderStampsEnabled()
     for (const file of files) {
       const content = fs.readFileSync(path.join(TRANSCRIPT_DIR, file), 'utf-8')
       for (const line of content.split('\n')) {

@@ -128,10 +128,10 @@ describe('Add Claude seat with "Sign in with Claude"', () => {
   it('link → paste code#state → seat saved like a pasted token, tested, healthy', async () => {
     const link = await startLink()
     expect(link.url).toMatch(/^https:\/\/claude\.com\/cai\/oauth\/authorize\?/)
-    const done = await call('POST', '/api/admin/seats/claude-oauth/finish', { loginId: link.loginId, code: `auth-code-1#${link.state}`, label: 'Mike Max' })
+    const done = await call('POST', '/api/admin/seats/claude-oauth/finish', { loginId: link.loginId, code: `auth-code-1#${link.state}`, label: 'Operator Max' })
     expect(done.status).toBe(201)
     expect(done.json.outcome).toBe('healthy')
-    expect(done.json.seat).toMatchObject({ kind: 'claude', label: 'Mike Max', health: 'healthy', available: true })
+    expect(done.json.seat).toMatchObject({ kind: 'claude', label: 'Operator Max', health: 'healthy', available: true })
     expect(done.json.seat.credential).toMatchObject({ kind: 'setup_token', last4: TOKEN_A.slice(-4) })
     // A one-year token: expiry recorded so the 14-day warning can see it.
     const days = (Date.parse(done.json.seat.credential.expiresAt) - Date.now()) / 86_400_000

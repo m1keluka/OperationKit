@@ -11,7 +11,7 @@ import { redactForStorage } from './secret-redaction.js'
 import path from 'path'
 import type { MessageSender, Objective } from '@operationkit/shared'
 import { stampForSession, systemSender } from '../lib/message-provenance.js'
-import { VERIFIED_SENDER_FLAG, readSettingFlag } from '../lib/session-trust.js'
+import { verifiedSenderStampsEnabled } from '../lib/session-trust.js'
 import { getDb } from '../db/index.js'
 import {
   recordSessionStart,
@@ -149,7 +149,7 @@ const WORKER_SESSION_ID = /^cc-\d+-\d+$/
  * message unchanged.
  */
 export function followUpSessionText(message: string, sender?: MessageSender): string {
-  return readSettingFlag(VERIFIED_SENDER_FLAG)
+  return verifiedSenderStampsEnabled()
     ? stampForSession(sender ?? systemSender('Command Center (unattributed)'), message)
     : message
 }

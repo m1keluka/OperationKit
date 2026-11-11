@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
+import { clearSecretAuditLogForTests } from '../__fixtures__/secret-audit-log.js'
 import os from 'os'
 import path from 'path'
 import type { Objective } from '@operationkit/shared'
+
+// obj 900452: `verified_sender_stamps` now defaults ON (which also strips the
+// signing key and adds CC_STRIP_SIGNING_SECRETS). This file pins the legacy
+// flags-OFF spawn env, so it turns stamps off explicitly; the default-ON spawn
+// env is asserted in lib/session-trust.test.ts.
+process.env.CC_VERIFIED_SENDER_STAMPS = '0'
 
 // obj-2353 / W3 — native scoped-secrets injection into buildSpawnEnv.
 //
@@ -41,9 +48,8 @@ beforeAll(() => {
 })
 
 beforeEach(() => {
-  getDb().exec(
-    'DELETE FROM secret_access_log; DELETE FROM secret_versions; DELETE FROM secrets; DELETE FROM users;',
-  )
+  clearSecretAuditLogForTests(getDb())
+  getDb().exec('DELETE FROM secret_versions; DELETE FROM secrets; DELETE FROM users;')
   seedUser(1, 'admin')
   seedUser(7, 'eva')
 })

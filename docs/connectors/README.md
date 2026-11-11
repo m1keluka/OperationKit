@@ -18,6 +18,9 @@ the file describes — no client code.
 | `name`, `description` | The card title and one plain sentence about what connecting lets agents do. |
 | `products` | Optional parts it unlocks, shown as chips (Google Workspace lists Gmail, Calendar, Drive). |
 | `connect` | Either `{ kind: 'token', fields: [...] }` (paste a key) or `{ kind: 'oauth', button_label }` (sign in on the provider's site). |
+| `auth_path` | **Required.** One of `'dcr_mcp' \| 'oauth_guided' \| 'api_key' \| 'self_hosted_aggregator'` — which of the catalog's four UX flows this integration uses (Sprint 7 integrations proposal, PR #681, §3). Today's connectors map onto `connect.kind`: a `{ kind: 'token' }` connector is `'api_key'`, a `{ kind: 'oauth' }` connector this install owns is `'oauth_guided'`. `'dcr_mcp'` and `'self_hosted_aggregator'` are for later connectors that don't fit either shape yet — see the proposal before using them. |
+| `setup_guide` | Optional path to a walkthrough, e.g. `docs/connectors/guides/github.md`. Omit until a guide exists; a stub is fine. |
+| `mcp_url`, `oauth`, `api_key_fields` | Optional, informational extras for the matching `auth_path` (`dcr_mcp`, `oauth_guided`, `api_key` respectively) — see `app/server/src/connectors/types.ts`. None of these are read by any UI yet; a guided wizard is a later follow-up card. |
 | `availability()` | Optional. Return `{ ok: false, reason }` when the server is not set up yet (for example a missing OAuth client). The card shows the reason instead of a connect button. |
 | `status(ctx)` | Describe the person's connection: state, who it is connected as, a few label/value rows. **Never include the credential.** |
 | `readCredential(ctx, use)` | Optional. The environment variables this connector contributes to a session. Call it only through `readConnectorCredential()` (`connectors/registry.ts`) — see "A connection belongs to one person" below. |
@@ -62,6 +65,7 @@ const slack: ConnectorDefinition = {
   id: 'slack',
   name: 'Slack',
   description: 'Lets agents post updates to your channels.',
+  auth_path: 'api_key',
   connect: {
     kind: 'token',
     fields: [{ key: 'token', label: 'Bot token', placeholder: 'xoxb-…', secret: true }],

@@ -10,7 +10,7 @@ const obj = (assigned_usernames?: string[]) => ({ assigned_usernames }) as any
 
 describe('defaultAssigneeSelection', () => {
   it('is Unassigned + the current user', () => {
-    expect(defaultAssigneeSelection('mike')).toEqual([UNASSIGNED_TOKEN, 'mike'])
+    expect(defaultAssigneeSelection('operator')).toEqual([UNASSIGNED_TOKEN, 'operator'])
   })
   it('falls back to just Unassigned when there is no current user', () => {
     expect(defaultAssigneeSelection(null)).toEqual([UNASSIGNED_TOKEN])
@@ -19,19 +19,19 @@ describe('defaultAssigneeSelection', () => {
 })
 
 describe('matchesAssigneeFilter', () => {
-  it('default selection (Unassigned+Mike) shows unassigned and Mike, hides Ava-only', () => {
-    const selected = new Set(defaultAssigneeSelection('mike'))
+  it('default selection (Unassigned+Operator) shows unassigned and Operator, hides Casey-only', () => {
+    const selected = new Set(defaultAssigneeSelection('operator'))
     expect(matchesAssigneeFilter(obj([]), selected)).toBe(true)          // unassigned
     expect(matchesAssigneeFilter(obj(undefined), selected)).toBe(true)   // unassigned (no field)
-    expect(matchesAssigneeFilter(obj(['mike']), selected)).toBe(true)    // Mike
-    expect(matchesAssigneeFilter(obj(['ava']), selected)).toBe(false)    // Ava-only hidden
-    expect(matchesAssigneeFilter(obj(['ava', 'mike']), selected)).toBe(true) // ANY-match: Mike present
+    expect(matchesAssigneeFilter(obj(['operator']), selected)).toBe(true)    // Operator
+    expect(matchesAssigneeFilter(obj(['casey']), selected)).toBe(false)    // Casey-only hidden
+    expect(matchesAssigneeFilter(obj(['casey', 'operator']), selected)).toBe(true) // ANY-match: Operator present
   })
 
   it('multi-select matches on ANY selected assignee', () => {
-    const selected = new Set(['mike', 'ava'])
-    expect(matchesAssigneeFilter(obj(['ava']), selected)).toBe(true)
-    expect(matchesAssigneeFilter(obj(['mike']), selected)).toBe(true)
+    const selected = new Set(['operator', 'casey'])
+    expect(matchesAssigneeFilter(obj(['casey']), selected)).toBe(true)
+    expect(matchesAssigneeFilter(obj(['operator']), selected)).toBe(true)
     expect(matchesAssigneeFilter(obj(['bob']), selected)).toBe(false)
     expect(matchesAssigneeFilter(obj([]), selected)).toBe(false) // Unassigned not selected
   })
@@ -39,26 +39,26 @@ describe('matchesAssigneeFilter', () => {
   it('Unassigned bucket only matches objectives with no assignees', () => {
     const selected = new Set([UNASSIGNED_TOKEN])
     expect(matchesAssigneeFilter(obj([]), selected)).toBe(true)
-    expect(matchesAssigneeFilter(obj(['mike']), selected)).toBe(false)
+    expect(matchesAssigneeFilter(obj(['operator']), selected)).toBe(false)
   })
 
   it('empty selection matches nothing', () => {
     const selected = new Set<string>()
     expect(matchesAssigneeFilter(obj([]), selected)).toBe(false)
-    expect(matchesAssigneeFilter(obj(['mike']), selected)).toBe(false)
+    expect(matchesAssigneeFilter(obj(['operator']), selected)).toBe(false)
   })
 })
 
 describe('assigneeRoster', () => {
   it('returns distinct usernames alpha-sorted, ignoring unassigned', () => {
     const roster = assigneeRoster([
-      obj(['mike']),
-      obj(['ava', 'mike']),
+      obj(['operator']),
+      obj(['casey', 'operator']),
       obj([]),
       obj(undefined),
-      obj(['ava']),
+      obj(['casey']),
     ])
-    expect(roster).toEqual(['ava', 'mike'])
+    expect(roster).toEqual(['casey', 'operator'])
   })
   it('supports arbitrary future users, nothing hardcoded', () => {
     expect(assigneeRoster([obj(['zoe']), obj(['newhire'])])).toEqual(['newhire', 'zoe'])

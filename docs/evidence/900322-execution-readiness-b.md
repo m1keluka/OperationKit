@@ -2,7 +2,7 @@
 
 **Scope:** constraints **C3**, **C4** and the cost half of **C9** from
 `workspaces/operationkit/architecture/2026-11-08-execution-readiness-architecture.md`,
-against go/no-go tests **G10**, **G11**, **G12**. Phase B of the Mike-approved
+against go/no-go tests **G10**, **G11**, **G12**. Phase B of the Operator-approved
 execution-correctness work (alongside isolation/900321).
 
 **No live operations were performed.** No production process was killed, no DB or

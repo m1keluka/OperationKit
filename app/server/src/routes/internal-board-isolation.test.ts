@@ -86,7 +86,7 @@ beforeAll(async () => {
       .lastInsertRowid,
   )
   avaId = Number(
-    db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('iso-ava', 'x', 'member')
+    db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('iso-casey', 'x', 'member')
       .lastInsertRowid,
   )
   bobId = Number(

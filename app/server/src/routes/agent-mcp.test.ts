@@ -411,7 +411,7 @@ describe('board tools through a named agent key', () => {
 
   it('a key without board:done cannot set done via MCP (same missing_scope as REST); it can cancel a duplicate', async () => {
     const bot = mint('grok-default') // default scopes: no board:done
-    const id = seed(WS, 'review', 'awaiting Mike')
+    const id = seed(WS, 'review', 'awaiting Operator')
     const done = await callTool('update_status', { id, status: 'done' }, bot.token)
     expect(done.result.isError).toBe(true)
     expect(done.result.structuredContent.missing_scope).toBe('board:done')

@@ -7,7 +7,7 @@
  * criteria → verdict `pass` → the objective moves to `done`. Nothing in that chain
  * ever looked at whether the PR's CI was actually green. A review PASS is a judgement
  * about the code, not about the checks. So objectives closed on top of red PRs and the
- * PR became ownerless — Mike had to hunt down which objective owned each red PR and
+ * PR became ownerless — Operator had to hunt down which objective owned each red PR and
  * message it by hand.
  *
  * THE GATE
@@ -44,7 +44,7 @@
  * are excluded from the required set, the failing set, and the advisory set alike.
  *
  * Plus a hard backstop on top of all three: {@link holdCap} hold cycles per objective,
- * ever. After that it escalates to Mike instead of bouncing worker→review forever. The
+ * ever. After that it escalates to Operator instead of bouncing worker→review forever. The
  * wait clock is per-OBJECTIVE and is deliberately NOT reset when the head SHA changes —
  * otherwise a worker pushing commits in a loop would reset the bound indefinitely.
  *
@@ -66,7 +66,7 @@
  * no gate. Everything it lets through non-green lands in `objective_completion_gate`
  * and is surfaced on the pr-health digest, so nothing it releases is orphaned.
  *
- * NO AUTO-MERGE. This module never merges anything. Mike merges.
+ * NO AUTO-MERGE. This module never merges anything. Operator merges.
  *
  * Split: pure decision in ci-green-gate-decide.ts, GitHub IO in
 

@@ -54,9 +54,9 @@ API: `POST /api/admin/seats/claude-oauth/start` (optional `seatId` to reconnect)
 
 **The installer works the same way.** `install/claude-login.sh` (with `CLAUDE_AUTH=login`) prints the **Sign in with Claude** link and waits for you to paste the code. Typing is hidden. It then checks the token with the same `CLAUDE-OK` call. Pasting a setup token at that prompt also works, and `--token` skips the link altogether.
 
-### One place to manage seats (Dashboard = Settings → Seats)
+### One place to manage seats (Settings → Seats)
 
-The Dashboard's **Subscription seats** panel is the same seat list as **Settings → Seats**, with the same actions. There is no second "accounts" flow. **Manage seats** on the panel opens Settings → Seats, which adds the engine-failover setting.
+Seats are managed only in **Settings → Seats** (to be renamed Settings → Models by Sprint 4b). The **System** page (formerly Dashboard) no longer shows seat widgets; it carries one link, *Manage AI accounts in Settings > Models* (obj 900495). There is no second "accounts" flow.
 
 - **Every card names its engine** (`CLAUDE`, `CODEX`, `GROK`) next to the seat's label.
 - **Add** exists for every engine: **Add Claude seat**, **Add Codex seat**, **Add Grok seat**. Claude opens Sign in with Claude. Codex and Grok create the seat and start the device login.

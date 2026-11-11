@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
-import { Dashboard } from './Dashboard'
+import { SeatPool } from './settings/SettingsSeats'
 
 // obj 718892 — subscription account nicknames were reverting to the default
 // label after a periodic poll resolved out of order against a just-saved
@@ -63,7 +63,7 @@ function seatFixture(label: string) {
 }
 const seatsFixture = (label: string) => ({ seats: [seatFixture(label)] })
 
-describe('Dashboard — subscription seat nickname persistence', () => {
+describe('SeatPool — seat nickname persistence (moved off the System page, obj 900495)', () => {
   let root: Root
   let container: HTMLDivElement
   // One pending resolver per '/admin/seats' call, in call order, so a test can
@@ -95,7 +95,7 @@ describe('Dashboard — subscription seat nickname persistence', () => {
     vi.useRealTimers()
   })
 
-  const render = () => flushSync(() => { root.render(<MemoryRouter><Dashboard /></MemoryRouter>) })
+  const render = () => flushSync(() => { root.render(<MemoryRouter><SeatPool refreshMs={15_000} /></MemoryRouter>) })
   const seatName = () => container.querySelector('[data-testid="seat-b"] h4')?.textContent ?? ''
 
   it('keeps a saved rename when a stale poll response resolves after the save', async () => {
@@ -115,34 +115,34 @@ describe('Dashboard — subscription seat nickname persistence', () => {
     expect(seatsResolvers).toHaveLength(2)
 
     // User renames the seat; the PATCH resolves with the saved seat.
-    apiMock.patch.mockResolvedValueOnce({ ok: true, seat: seatFixture('Ava Team') })
+    apiMock.patch.mockResolvedValueOnce({ ok: true, seat: seatFixture('Casey Team') })
     const renameBtn = Array.from(container.querySelectorAll('[data-testid="seat-b"] button')).find(b => b.textContent?.trim() === 'Rename') as HTMLButtonElement
     flushSync(() => { renameBtn.click() })
     const input = container.querySelector('#seat-label-b') as HTMLInputElement
     flushSync(() => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
-      setter.call(input, 'Ava Team')
+      setter.call(input, 'Casey Team')
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
     flushSync(() => { (input.closest('form') as HTMLFormElement).requestSubmit() })
     await flush()
 
-    expect(apiMock.patch).toHaveBeenCalledWith('/admin/seats/b', { label: 'Ava Team' })
-    expect(seatName()).toBe('Ava Team')
+    expect(apiMock.patch).toHaveBeenCalledWith('/admin/seats/b', { label: 'Casey Team' })
+    expect(seatName()).toBe('Casey Team')
 
     // Now the STALE poll (#1), which started before the rename, finally
     // resolves with the pre-rename payload. It must NOT clobber the display.
     seatsResolvers[1](seatsFixture('Secondary'))
     await flush()
-    expect(seatName()).toBe('Ava Team')
+    expect(seatName()).toBe('Casey Team')
   })
 
   it('keeps a saved rename across a remount (full page refresh)', async () => {
     render()
     await flush()
-    seatsResolvers[0](seatsFixture('Ava Team'))
+    seatsResolvers[0](seatsFixture('Casey Team'))
     await flush()
-    expect(seatName()).toBe('Ava Team')
+    expect(seatName()).toBe('Casey Team')
 
     // Simulate a hard refresh: unmount and remount against the same (now
     // server-persisted) data.
@@ -155,8 +155,8 @@ describe('Dashboard — subscription seat nickname persistence', () => {
 
     render()
     await flush()
-    seatsResolvers[0](seatsFixture('Ava Team'))
+    seatsResolvers[0](seatsFixture('Casey Team'))
     await flush()
-    expect(seatName()).toBe('Ava Team')
+    expect(seatName()).toBe('Casey Team')
   })
 })

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /*
  * One-time: attribute historical 'unknown'-account cost evenly (by dollars)
- * across accounts `a` and `c`, per Mike's directive (2026-06-14).
+ * across accounts `a` and `c`, per Operator's directive (2026-06-14).
  *
  * Why this exists: ~874 historical sessions ran before CC durably recorded which
  * subscription account they used, so their (real, counted) cost landed in an
- * 'unknown' bucket. Mike chose to split that pool evenly across his two primary
+ * 'unknown' bucket. Operator chose to split that pool evenly across his two primary
  * accounts rather than leave it unattributed. The cost TOTAL is unchanged — this
  * only decides which account column it shows under.
  *
@@ -25,7 +25,7 @@
 const Database = require('better-sqlite3');
 const DB_PATH = process.env.DB_PATH || '/app/data/command-center.db';
 const TARGETS = ['a', 'c'];
-const REASON = 'historical unknown account — even A/C split per Mike 2026-06-14';
+const REASON = 'historical unknown account — even A/C split per Operator 2026-06-14';
 
 const db = new Database(DB_PATH);
 db.exec(`CREATE TABLE IF NOT EXISTS session_account_override (

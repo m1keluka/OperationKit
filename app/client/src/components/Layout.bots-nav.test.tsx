@@ -10,7 +10,7 @@ import { createRoot, type Root } from 'react-dom/client'
    renames the route has to fail a test rather than break a bookmark. */
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, username: 'mike', role: 'admin', workspaces: [] }, logout: () => {} }),
+  useAuth: () => ({ user: { id: 1, username: 'operator', role: 'admin', workspaces: [] }, logout: () => {} }),
 }))
 vi.mock('../context/nav', () => ({ useNavigate: () => () => {} }))
 vi.mock('../preview/BoardShell', () => ({ useBoardTheme: () => ({ theme: 'dark', toggleTheme: () => {} }) }))

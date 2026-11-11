@@ -21,8 +21,8 @@ const { inheritedOwnership, NO_OWNERSHIP } = await import('../lib/objective-owne
 let server: http.Server
 let baseUrl: string
 
-const MIKE = 501
-const AVA = 502
+const OPERATOR = 501
+const CASEY = 502
 
 async function create(items: unknown[]): Promise<number[]> {
   const res = await fetch(`${baseUrl}/api/internal/objectives`, {
@@ -63,8 +63,8 @@ beforeAll(async () => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
   const db = getDb()
-  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'mike', 'x', 'admin')`).run(MIKE)
-  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'ava', 'x', 'member')`).run(AVA)
+  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'operator', 'x', 'admin')`).run(OPERATOR)
+  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'casey', 'x', 'member')`).run(CASEY)
   const app = express()
   app.use(express.json())
   app.use('/api/internal', internalRouter)
@@ -84,25 +84,25 @@ afterAll(async () => {
 
 describe('POST /api/internal/objectives — child ownership (obj 900208)', () => {
   it('a child inherits the parent owner, so it spawns with that person\'s connectors', async () => {
-    const parent = insertParent({ created_by: MIKE })
-    const [child] = await create([{ title: 'child of mike', workspace: 'ws-a', parent_id: parent }])
-    expect(ownerOf(child)).toEqual({ created_by: MIKE, assigned_user_id: null, agent_key_id: null, agent_key_label: null })
+    const parent = insertParent({ created_by: OPERATOR })
+    const [child] = await create([{ title: 'child of operator', workspace: 'ws-a', parent_id: parent }])
+    expect(ownerOf(child)).toEqual({ created_by: OPERATOR, assigned_user_id: null, agent_key_id: null, agent_key_label: null })
   })
 
   it('keeps a delegated parent delegated (assigned ≠ creator is copied as-is)', async () => {
-    const parent = insertParent({ created_by: MIKE, assigned_user_id: AVA })
+    const parent = insertParent({ created_by: OPERATOR, assigned_user_id: CASEY })
     const [child] = await create([{ title: 'delegated child', workspace: 'ws-a', parent_id: parent }])
-    expect(ownerOf(child)).toMatchObject({ created_by: MIKE, assigned_user_id: AVA })
+    expect(ownerOf(child)).toMatchObject({ created_by: OPERATOR, assigned_user_id: CASEY })
   })
 
   it('carries the parent\'s agent key so a key cannot widen its connector reach by filing a child', async () => {
-    const parent = insertParent({ created_by: MIKE, agent_key_id: 77, agent_key_label: 'cos-bot' })
+    const parent = insertParent({ created_by: OPERATOR, agent_key_id: 77, agent_key_label: 'cos-bot' })
     const [child] = await create([{ title: 'key child', workspace: 'ws-a', parent_id: parent }])
-    expect(ownerOf(child)).toMatchObject({ created_by: MIKE, agent_key_id: 77, agent_key_label: 'cos-bot' })
+    expect(ownerOf(child)).toMatchObject({ created_by: OPERATOR, agent_key_id: 77, agent_key_label: 'cos-bot' })
   })
 
   it('a child filed into a DIFFERENT workspace stays ownerless (no token crosses workspaces)', async () => {
-    const parent = insertParent({ created_by: MIKE, workspace: 'ws-a' })
+    const parent = insertParent({ created_by: OPERATOR, workspace: 'ws-a' })
     const [child] = await create([{ title: 'cross-ws child', workspace: 'ws-b', parent_id: parent }])
     expect(ownerOf(child)).toEqual(NO_OWNERSHIP)
   })

@@ -38,7 +38,7 @@ const OTHER_WS = 'example2'
 let server: http.Server
 let baseUrl: string
 const cookie = () =>
-  `token=${jwt.sign({ id: ADMIN_ID, username: 'mike', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
+  `token=${jwt.sign({ id: ADMIN_ID, username: 'operator', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })}`
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Loose = any
@@ -94,7 +94,7 @@ function seed(workspace: string, status = 'review', title = 'seeded'): number {
 beforeAll(async () => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
-  getDb().prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'mike', 'x', 'admin')`).run(ADMIN_ID)
+  getDb().prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'operator', 'x', 'admin')`).run(ADMIN_ID)
   const app = express()
   app.use(express.json())
   app.use(cookieParser())
@@ -178,7 +178,7 @@ describe('agent-key guard covers /api/agent/changes + /api/agent/attention', () 
 
 describe('MCP tool calls get the same scope + workspace checks as REST', () => {
   it('update_status to done with a key lacking board:done fails with missing_scope (set_status → done)', async () => {
-    const id = seed(WS, 'review', 'awaiting Mike')
+    const id = seed(WS, 'review', 'awaiting Operator')
     const bot = mint('grok-default') // default scopes: everything except board:done + board:delete
     const { result } = await mcpTool(bot.token, 'update_status', { id, status: 'done' })
     expect(result.isError).toBe(true)

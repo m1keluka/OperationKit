@@ -53,10 +53,10 @@ const { state, apiMock, ApiErrorMock } = vi.hoisted(() => {
     principals: {
       organizations: [
         { slug: 'example', name: 'Example Growth' },
-        { slug: 'example2', name: 'Grass Fed' },
+        { slug: 'example2', name: 'Example3' },
         { slug: 'operator', name: 'Operator' },
       ],
-      users: [{ id: 1, username: 'mike' }],
+      users: [{ id: 1, username: 'operator' }],
       canUseGlobal: true,
     },
     /** Slugs whose POST /secrets should reject (simulated partial failure). */
@@ -86,7 +86,7 @@ const { state, apiMock, ApiErrorMock } = vi.hoisted(() => {
 })
 
 vi.mock('../lib/api', () => ({ api: apiMock, ApiError: ApiErrorMock }))
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'mike' } }) }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'operator' } }) }))
 vi.mock('./ui', () => ({
   Modal: ({ children }: { children: React.ReactNode }) => <div role="dialog">{children}</div>,
   Skeleton: () => <div />,
@@ -105,10 +105,10 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
     state.principals = {
       organizations: [
         { slug: 'example', name: 'Example Growth' },
-        { slug: 'example2', name: 'Grass Fed' },
+        { slug: 'example2', name: 'Example3' },
         { slug: 'operator', name: 'Operator' },
       ],
-      users: [{ id: 1, username: 'mike' }],
+      users: [{ id: 1, username: 'operator' }],
       canUseGlobal: true,
     }
     apiMock.post.mockClear()
@@ -192,7 +192,7 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
     expect(container.querySelector('[data-testid="fanout-fail-example2"]')).toBeTruthy()
     expect(report!.textContent).toContain('Created in 1 of 2 organizations')
     expect(report!.textContent).toContain('Example Growth')
-    expect(report!.textContent).toContain('Grass Fed')
+    expect(report!.textContent).toContain('Example3')
 
     // The modal stays OPEN and only the failed organization stays ticked, so
     // resubmitting retries just that one.

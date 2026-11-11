@@ -23,6 +23,7 @@ import { initLiveProgressSchema } from './schema/live-progress.js'
 import { initFollowUpQueueSchema } from './schema/followup-queue.js'
 import { initModelsSchema } from './schema/models.js'
 import { initTokensSchema } from './schema/tokens.js'
+import { initGenericConnectorsSchema } from './schema/generic-connectors.js'
 import { initContentSchema } from './schema/content.js'
 import { initPostHogHotOwnerSchema } from './schema/posthog-hot-owner.js'
 import { initAgentKeysSchema } from './schema/agent-keys.js'
@@ -316,7 +317,7 @@ export function initDb(): Database.Database {
     // Strategy progressive-trust ladder (obj 2511, 2026-06-29). Per-strategy
     // autonomy stage on the 4-rung ladder from the gating framework
     // (architecture/strategy-layer-gating-review-framework.md §2):
-    //   0 = full-gate (every strategic decision parks for Mike — the safe default)
+    //   0 = full-gate (every strategic decision parks for Operator — the safe default)
     //   1 = partial-autonomy   2 = supervised-autonomy   3 = autonomous
     // What is auto-allowed vs gated at each stage is a PURE function of this
     // column (decideTrustStageAction in services/strategy-governance.ts); the
@@ -334,7 +335,7 @@ export function initDb(): Database.Database {
   // Corrective one-time reset (obj 2835). obj 2383 shipped a backfill that stamped
   // is_strategy=1 on every top-level delegator (`delegate_mode=1 AND parent_id IS
   // NULL`) AND inferred the marker ungated at create/update time. Since nearly every
-  // objective Mike runs is a top-level delegator, his entire history got wrongly
+  // objective Operator runs is a top-level delegator, his entire history got wrongly
   // stamped is_strategy=1 and showed the STRATEGY badge. is_strategy is now an
   // EXPLICIT opt-in marker only (set at creation, never inferred). To clear the
   // bad historical data we reset is_strategy=0 for ALL currently-stamped rows.
@@ -363,7 +364,7 @@ export function initDb(): Database.Database {
     // Durable wake-storm guard (2026-06-21): the per-delegator child-state
     // "signature" the reconcile safety net (state-poller.reconcileDelegators)
     // last nudged for. Persisting it across restarts stops an all-done delegator
-    // parked in `review` (awaiting Mike's accept) from being spuriously re-woken
+    // parked in `review` (awaiting Operator's accept) from being spuriously re-woken
     // on every server restart — each spurious wake spawned a ~$7 [child-complete]
     // session. NULL until the reconcile pass first records a signature; cleared
     // when the delegator reaches `done`. See
@@ -494,7 +495,7 @@ export function initDb(): Database.Database {
   // ── Strategy decision gate (obj 2385, 2026-06-28) ──────────────────────────
   // Broaden objective_reviews to store a strategy node's Stage-0 Decision
   // Request as a review row: mode='decision' (a fourth review surface alongside
-  // browser/api/doc/noop) with verdict='pending' while it awaits Mike's
+  // browser/api/doc/noop) with verdict='pending' while it awaits Operator's
   // confirm/deny, then 'pass' (approved) / 'fail' (denied). This REUSES the
   // reviews table per the strategy-layer gating design (decision history,
   // review history, and the false-pass join all stay in one place) instead of a
@@ -727,7 +728,7 @@ export function initDb(): Database.Database {
   //   - origin: how the objective was created (manual|strategy|routine|job_reply).
   //   - strategy_id: the Strategy (is_strategy=1) this objective belongs to /
   //     is associated with. Inherited from the parent chain at insert, OR set
-  //     explicitly on a MANUAL objective (even when parent_id IS NULL) so Mike
+  //     explicitly on a MANUAL objective (even when parent_id IS NULL) so Operator
   //     can associate a hand-created objective with a strategy and still see it.
   // Both default such that absence preserves prior behavior (origin='manual',
   // strategy_id=NULL). See docs/terminology-glossary.md.
@@ -857,7 +858,7 @@ export function initDb(): Database.Database {
   // obj 900412 — follow-ups sent mid-turn wait for the turn instead of killing it.
   initFollowUpQueueSchema(db)
 
-  // Seed routines — both DISABLED (enabled=0); Mike flips them on after review.
+  // Seed routines — both DISABLED (enabled=0); Operator flips them on after review.
   const seedRoutines: Array<{ name: string; cron_expr: string; template: Record<string, unknown>; enabled?: number }> = [
     {
       name: 'morning-briefing',
@@ -961,6 +962,8 @@ export function initDb(): Database.Database {
   initModelsSchema(db)
 
   initTokensSchema(db)
+
+  initGenericConnectorsSchema(db)
 
   // Content-engine ownership (obj 710856). Must run AFTER initCoreSchema (FK to
   // users) — its seed matches owners by username, so it is a no-op on a DB whose

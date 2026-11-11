@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # setup-hermes.sh — Install and configure Hermes agent on the VPS
-# Run this as user 'mike' on the VPS host (not inside Docker).
+# Run this as user 'operator' on the VPS host (not inside Docker).
 #
 # Usage:
 #   bash /home/operator/projects/operationkit/scripts/setup-hermes.sh [install|gateway|status|uninstall]
@@ -170,8 +170,8 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=mike
-Group=mike
+User=operator
+Group=operator
 Environment=HERMES_HOME=$HERMES_HOME
 Environment=PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=$VENV_DIR/bin/hermes gateway run

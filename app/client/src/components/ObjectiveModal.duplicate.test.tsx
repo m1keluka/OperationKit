@@ -14,7 +14,7 @@ async function flush() {
   await Promise.resolve()
 }
 
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'mike' } }) }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin', username: 'operator' } }) }))
 vi.mock('../hooks/useWorkspaces', () => ({
   useWorkspaces: () => ({ slugs: ['example'], labelOf: (s: string) => s, agentPoolOf: () => [] }),
 }))

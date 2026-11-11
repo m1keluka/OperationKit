@@ -36,7 +36,33 @@ export { SERVICE_ONLY_BY_DEFAULT, isServiceOnlyByDefault }
 export type SecretScopeType = 'global' | 'workspace' | 'user' | 'workspace_user'
 
 /** `use` = injected server-side by the secrets broker (obj 715532); never revealed. */
-export type SecretAction = 'create' | 'update' | 'delete' | 'read' | 'inject' | 'rollback' | 'use'
+export type SecretAction =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'read'
+  | 'inject'
+  | 'rollback'
+  | 'use'
+  /** Value replaced on an EXISTING secret via the rotate flow (obj 900498). */
+  | 'rotate'
+  /** Metadata-only change (description). The value is untouched. */
+  | 'describe'
+  /** Someone asked to see a value. Reveal is not enabled, so this is always refused. */
+  | 'reveal_attempt'
+
+/** How an audited action reached the store. Free-form on disk; these are the ones the server writes. */
+export type SecretAuditSource = 'ui' | 'api' | 'spawn' | 'broker' | 'server' | 'chat' | 'relay'
+
+/** Optional context for an audit row. NEVER a value, a fragment of one, or a hash of one. */
+export interface SecretAuditExtra {
+  secretId?: number | null
+  source?: SecretAuditSource | string | null
+  detail?: string | null
+}
+
+/** Longest description we store. It is a note, not a document. */
+export const SECRET_DESCRIPTION_MAX = 500
 
 /**
  * Addresses a single scope bucket. `workspace` is required for `workspace` and
@@ -64,6 +90,10 @@ export interface SecretSummary {
   updatedBy: number | null
   createdAt: string
   updatedAt: string
+  /** Operator note about what this secret is for. Never part of the value. */
+  description: string | null
+  /** Last time the server decrypted it for a real use (spawn injection, broker, server read). */
+  lastUsedAt: string | null
 }
 
 export interface SecretVersionSummary {
@@ -87,6 +117,8 @@ interface SecretRow {
   updated_by: number | null
   created_at: string
   updated_at: string
+  description?: string | null
+  last_used_at?: string | null
 }
 
 /**
@@ -169,6 +201,31 @@ function rowToSummary(row: SecretRow): SecretSummary {
     updatedBy: row.updated_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    description: row.description ?? null,
+    lastUsedAt: row.last_used_at ?? null,
+  }
+}
+
+/** Trim + cap a description. '' and whitespace become null (= cleared). */
+export function normalizeDescription(raw: unknown): string | null {
+  if (raw == null) return null
+  const s = String(raw).trim()
+  if (!s) return null
+  return s.slice(0, SECRET_DESCRIPTION_MAX)
+}
+
+/**
+ * Stamp `last_used_at` on the rows the server just decrypted for a real use.
+ * Best-effort: a failed stamp must never break a spawn or a broker call.
+ */
+export function touchLastUsed(ids: number[]): void {
+  if (ids.length === 0) return
+  try {
+    const db = getDb()
+    const stmt = db.prepare(`UPDATE secrets SET last_used_at = datetime('now') WHERE id = ?`)
+    db.transaction((xs: number[]) => { for (const id of xs) stmt.run(id) })(ids)
+  } catch (err) {
+    console.warn('[secrets-store] failed to stamp last_used_at:', (err as Error).message)
   }
 }
 
@@ -184,17 +241,27 @@ export function logAccess(
   action: SecretAction,
   scope: string,
   key: string,
+  extra: SecretAuditExtra = {},
 ): void {
   // Any value change must reach the redactor before the next text leaves the server.
-  if (action === 'create' || action === 'update' || action === 'delete' || action === 'rollback') {
+  if (action === 'create' || action === 'update' || action === 'delete' || action === 'rollback' || action === 'rotate') {
     invalidateSecretRegistry()
   }
   try {
     getDb()
       .prepare(
-        `INSERT INTO secret_access_log (actor_user_id, action, scope, key) VALUES (?, ?, ?, ?)`,
+        `INSERT INTO secret_access_log (actor_user_id, action, scope, key, secret_id, source, detail)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(actorUserId ?? null, action, scope, key)
+      .run(
+        actorUserId ?? null,
+        action,
+        scope,
+        key,
+        extra.secretId ?? null,
+        extra.source ?? null,
+        extra.detail == null ? null : String(extra.detail).slice(0, 200),
+      )
   } catch (err) {
     console.warn('[secrets-store] failed to write access log:', (err as Error).message)
   }
@@ -223,6 +290,15 @@ export interface SetSecretInput {
   actorUserId?: number | null
   /** obj 719065: recorded on the version row so History shows who relayed it. Never a value. */
   via?: string | null
+  /**
+   * Operator note (obj 900498). Omitted = leave the existing description alone
+   * (so every existing caller keeps its exact behaviour); null/'' = clear it.
+   */
+  description?: string | null
+  /** Audit source for this write. Omitted = 'api'. */
+  source?: SecretAuditSource
+  /** Internal: audit as 'rotate' instead of 'update' (set by rotateSecret). */
+  auditAction?: 'rotate'
 }
 
 /**
@@ -248,17 +324,19 @@ export function setSecret(input: SetSecretInput): SecretSummary {
       const nextVersion = existing.version + 1
       const keepServiceOnly =
         input.serviceOnly === undefined ? Number(existing.service_only) > 0 : input.serviceOnly
+      const description =
+        input.description === undefined ? existing.description ?? null : normalizeDescription(input.description)
       db.prepare(
         `UPDATE secrets
-           SET value_encrypted = ?, version = ?, service_only = ?, updated_by = ?, updated_at = datetime('now')
+           SET value_encrypted = ?, version = ?, service_only = ?, description = ?, updated_by = ?, updated_at = datetime('now')
          WHERE id = ?`,
-      ).run(encrypted, nextVersion, keepServiceOnly ? 1 : 0, actor, existing.id)
+      ).run(encrypted, nextVersion, keepServiceOnly ? 1 : 0, description, actor, existing.id)
       db.prepare(
         `INSERT INTO secret_versions (secret_id, version, value_encrypted, changed_by, via)
          VALUES (?, ?, ?, ?, ?)`,
       ).run(existing.id, nextVersion, encrypted, actor, via)
       row = findRow(n, key)!
-      action = 'update'
+      action = input.auditAction ?? 'update'
     } else {
       // A newly stored shared credential is service-only from the start, so a
       // fresh install never has a window where sessions receive it.
@@ -266,10 +344,13 @@ export function setSecret(input: SetSecretInput): SecretSummary {
         input.serviceOnly ?? (n.scopeType === 'global' && isServiceOnlyByDefault(key))
       const info = db
         .prepare(
-          `INSERT INTO secrets (scope_type, workspace, user_id, key, value_encrypted, version, service_only, created_by, updated_by)
-           VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+          `INSERT INTO secrets (scope_type, workspace, user_id, key, value_encrypted, version, service_only, description, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
         )
-        .run(n.scopeType, n.workspace, n.userId, key, encrypted, serviceOnly ? 1 : 0, actor, actor)
+        .run(
+          n.scopeType, n.workspace, n.userId, key, encrypted, serviceOnly ? 1 : 0,
+          normalizeDescription(input.description), actor, actor,
+        )
       const id = Number(info.lastInsertRowid)
       db.prepare(
         `INSERT INTO secret_versions (secret_id, version, value_encrypted, changed_by, via)
@@ -282,8 +363,47 @@ export function setSecret(input: SetSecretInput): SecretSummary {
   })
 
   const { row, action } = tx()
-  logAccess(actor, action, scopeLabel(input.scope), key)
+  logAccess(actor, action, scopeLabel(input.scope), key, {
+    secretId: row.id,
+    source: input.source ?? 'api',
+    detail: via ? `via:${via}` : null,
+  })
   return rowToSummary(row)
+}
+
+/**
+ * Rotate: replace the value of an EXISTING secret without ever reading the old
+ * one back. Same write path as setSecret (new version, old ciphertext kept in
+ * history for rollback), but refuses to CREATE — a typo in the key name during
+ * a rotation must fail loudly instead of quietly minting a second secret while
+ * the real one keeps its compromised value. Returns null if nothing is there.
+ */
+export function rotateSecret(input: Omit<SetSecretInput, 'auditAction'>): SecretSummary | null {
+  if (!findRow(normalizeScope(input.scope), input.key)) return null
+  return setSecret({ ...input, auditAction: 'rotate' })
+}
+
+/**
+ * Change a secret's metadata (description) without touching its value,
+ * version or ciphertext. Returns null if the secret does not exist.
+ */
+export function updateSecretMetadata(
+  scope: SecretScope,
+  key: string,
+  patch: { description?: string | null },
+  actorUserId?: number | null,
+  source: SecretAuditSource = 'api',
+): SecretSummary | null {
+  const n = normalizeScope(scope)
+  const row = findRow(n, key)
+  if (!row) return null
+  if (patch.description !== undefined) {
+    getDb()
+      .prepare(`UPDATE secrets SET description = ?, updated_by = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(normalizeDescription(patch.description), actorUserId ?? null, row.id)
+    logAccess(actorUserId ?? null, 'describe', scopeLabel(scope), key, { secretId: row.id, source })
+  }
+  return rowToSummary(findRow(n, key)!)
 }
 
 /** Masked summary for a single secret at a scope, or null if absent. */
@@ -305,7 +425,8 @@ export function getSecretValue(
 ): string | null {
   const row = findRow(normalizeScope(scope), key)
   if (!row) return null
-  logAccess(actorUserId ?? null, 'read', scopeLabel(scope), key)
+  logAccess(actorUserId ?? null, 'read', scopeLabel(scope), key, { secretId: row.id, source: 'server' })
+  touchLastUsed([row.id])
   return decryptSecret(row.value_encrypted)
 }
 
@@ -329,13 +450,19 @@ export function listSecrets(scope?: SecretScope): SecretSummary[] {
 
 /** Delete a secret at a scope (cascades its versions). Returns true if removed.
  *  Writes a `delete` audit row only when something was removed. */
-export function deleteSecret(scope: SecretScope, key: string, actorUserId?: number | null): boolean {
+export function deleteSecret(
+  scope: SecretScope,
+  key: string,
+  actorUserId?: number | null,
+  source: SecretAuditSource = 'api',
+): boolean {
   const n = normalizeScope(scope)
+  const existing = findRow(n, key)
   const result = getDb()
     .prepare(`DELETE FROM secrets WHERE scope_type = ? AND workspace = ? AND user_id = ? AND key = ?`)
     .run(n.scopeType, n.workspace, n.userId, key)
   const removed = result.changes > 0
-  if (removed) logAccess(actorUserId ?? null, 'delete', scopeLabel(scope), key)
+  if (removed) logAccess(actorUserId ?? null, 'delete', scopeLabel(scope), key, { secretId: existing?.id ?? null, source })
   return removed
 }
 
@@ -388,8 +515,8 @@ export function moveSecret(
   ).run(nTo.scopeType, nTo.workspace, nTo.userId, actorUserId ?? null, row.id)
 
   // One audit row per side so the tail reads as a move, not an orphaned update.
-  logAccess(actorUserId ?? null, 'update', `move-from:${scopeLabel(from)}`, key)
-  logAccess(actorUserId ?? null, 'update', `move-to:${scopeLabel(to)}`, key)
+  logAccess(actorUserId ?? null, 'update', `move-from:${scopeLabel(from)}`, key, { secretId: row.id, detail: 'move' })
+  logAccess(actorUserId ?? null, 'update', `move-to:${scopeLabel(to)}`, key, { secretId: row.id, detail: 'move' })
 
   return { ok: true, summary: rowToSummary(findRow(nTo, key)!) }
 }
@@ -441,7 +568,7 @@ export function rollbackSecret(
     return findRow(n, key)!
   })
   const updated = tx()
-  logAccess(actor, 'rollback', scopeLabel(scope), key)
+  logAccess(actor, 'rollback', scopeLabel(scope), key, { secretId: row.id, detail: `to-version:${toVersion}` })
   return rowToSummary(updated)
 }
 
@@ -536,9 +663,17 @@ export function resolveSecrets(opts: ResolveOptions = {}): Record<string, string
   for (const [key, r] of winners) {
     out[key] = decryptSecret(r.value_encrypted)
     if (opts.audit) {
-      logAccess(opts.actorUserId ?? null, 'inject', `${r.scope_type}`, key)
+      const label = scopeLabel({
+        scopeType: r.scope_type,
+        workspace: r.workspace === WS_SENTINEL ? null : r.workspace,
+        userId: r.user_id === USER_SENTINEL ? null : r.user_id,
+      })
+      logAccess(opts.actorUserId ?? null, 'inject', label, key, { secretId: r.id, source: 'spawn' })
     }
   }
+  // Only an audited resolve is a real use (session spawn). Boot hydration and
+  // plain lookups pass audit:false and must not make every secret look "used".
+  if (opts.audit) touchLastUsed([...winners.values()].map(r => r.id))
   return out
 }
 
@@ -598,17 +733,100 @@ export function hydrateProcessEnvFromSecretsStore(): number {
 }
 
 /** Read-only audit tail (newest first) for surfacing in an admin UI / tests. */
-export function recentAccessLog(limit = 100): {
+export function recentAccessLog(limit = 100): SecretAuditEntry[] {
+  return queryAccessLog({ limit }).entries
+}
+
+/** One row of the append-only secrets audit log. Metadata only — there is no value field. */
+export interface SecretAuditEntry {
+  id: number
   actorUserId: number | null
+  /** Resolved username, or null for system/session actors (or a deleted user). */
+  actorUsername: string | null
   action: string
   scope: string
   key: string
   at: string
-}[] {
+  secretId: number | null
+  source: string | null
+  detail: string | null
+}
+
+export interface AccessLogQuery {
+  /** Rows tied to this secret id (new rows), OR legacy rows (no id) with this key + scope label. */
+  secretId?: number
+  key?: string
+  /** Exact scope label, e.g. 'workspace:example'. Used with key for legacy rows. */
+  scopeLabel?: string
+  action?: string
+  /** Keyset pagination: only rows with id < beforeId. */
+  beforeId?: number
+  limit?: number
+}
+
+export const ACCESS_LOG_MAX_LIMIT = 500
+
+/**
+ * Filtered, paginated read of the audit log, newest first. Pure SELECT: the
+ * table is append-only (db/schema/secrets.ts triggers), so there is no write
+ * path here and none anywhere else.
+ */
+export function queryAccessLog(q: AccessLogQuery = {}): { entries: SecretAuditEntry[]; nextBeforeId: number | null } {
+  const where: string[] = []
+  const params: Record<string, unknown> = {}
+  if (q.secretId != null) {
+    // Newer rows carry secret_id. Older rows (before obj 900498) only have the
+    // key + scope label, so a per-secret view also matches those.
+    if (q.key && q.scopeLabel) {
+      where.push('(l.secret_id = @sid OR (l.secret_id IS NULL AND l.key = @key AND l.scope = @scope))')
+      params.key = q.key
+      params.scope = q.scopeLabel
+    } else {
+      where.push('l.secret_id = @sid')
+    }
+    params.sid = q.secretId
+  } else if (q.key) {
+    where.push('l.key = @key')
+    params.key = q.key
+  }
+  if (q.action) {
+    where.push('l.action = @action')
+    params.action = q.action
+  }
+  if (q.beforeId != null) {
+    where.push('l.id < @beforeId')
+    params.beforeId = q.beforeId
+  }
+  const limit = Math.max(1, Math.min(ACCESS_LOG_MAX_LIMIT, Math.floor(q.limit ?? 100)))
+  params.limit = limit + 1
   const rows = getDb()
     .prepare(
-      `SELECT actor_user_id, action, scope, key, at FROM secret_access_log ORDER BY at DESC, id DESC LIMIT ?`,
+      `SELECT l.id, l.actor_user_id, u.username AS actor_username, l.action, l.scope, l.key, l.at,
+              l.secret_id, l.source, l.detail
+         FROM secret_access_log l
+         LEFT JOIN users u ON u.id = l.actor_user_id
+        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+        ORDER BY l.id DESC
+        LIMIT @limit`,
     )
-    .all(limit) as { actor_user_id: number | null; action: string; scope: string; key: string; at: string }[]
-  return rows.map(r => ({ actorUserId: r.actor_user_id, action: r.action, scope: r.scope, key: r.key, at: r.at }))
+    .all(params) as {
+      id: number; actor_user_id: number | null; actor_username: string | null; action: string; scope: string
+      key: string; at: string; secret_id: number | null; source: string | null; detail: string | null
+    }[]
+  const page = rows.slice(0, limit)
+  return {
+    entries: page.map(r => ({
+      id: r.id,
+      actorUserId: r.actor_user_id,
+      actorUsername: r.actor_username ?? null,
+      action: r.action,
+      scope: r.scope,
+      key: r.key,
+      at: r.at,
+      secretId: r.secret_id ?? null,
+      source: r.source ?? null,
+      detail: r.detail ?? null,
+    })),
+    nextBeforeId: rows.length > limit ? page[page.length - 1]!.id : null,
+  }
 }

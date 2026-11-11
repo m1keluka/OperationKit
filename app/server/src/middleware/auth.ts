@@ -150,7 +150,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   }
 
   if (isApiKey(token)) {
-    // Legacy single per-user key first — unchanged, full access (Mike's live
+    // Legacy single per-user key first — unchanged, full access (Operator's live
     // Grok Bots use it). Then the named/scoped agent keys (obj 714090).
     const apiUser = userFromApiKey(token)
     if (apiUser) {
@@ -233,7 +233,7 @@ export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction
   }
   // Same defense for a card session's CC_SESSION_TOKEN (obj 900204). The
   // principal is already de-escalated to 'member', so this is belt-and-braces:
-  // a card must never reach an admin endpoint even if the acting user is Mike.
+  // a card must never reach an admin endpoint even if the acting user is Operator.
   if (req.sessionFile) {
     res.status(403).json({ error: 'Session tokens cannot call admin endpoints', missing_scope: null })
     return

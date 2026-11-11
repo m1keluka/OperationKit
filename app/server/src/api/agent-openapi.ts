@@ -14,7 +14,7 @@ export const AGENT_OPENAPI = {
       // Auth (obj 714090)
       'Auth: one NAMED, SCOPED agent key per bot — Settings → You → Agent keys — sent as `Authorization: Bearer cc_live_…`.',
       'Scopes: board:read, board:write, board:start, board:cancel, board:done, board:delete, vault:read, vault:write, board:secrets_request;',
-      'new keys default to everything except board:done and board:delete (done is Mike\'s signature). A key may also be pinned to a workspace allowlist.',
+      'new keys default to everything except board:done and board:delete (done is Operator\'s signature). A key may also be pinned to a workspace allowlist.',
       'A call the key is not scoped for returns 403 { error, missing_scope }; a workspace outside the allowlist returns 403 { error, workspace }.',
       'Cards created with an agent key (REST or MCP) carry origin=agent_api and agent_key_label. GET /api/auth/me returns api_key { kind, id, label, scopes, workspaces }.',
       'The legacy per-user key (Settings → You → Generate API key) keeps full access. The browser uses an httpOnly cookie (POST /api/auth/login); POST /api/auth/token issues a short-lived JWT.',

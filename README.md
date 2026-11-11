@@ -103,4 +103,11 @@ transcripts not encrypted at rest) are listed in the [security overview](./docs/
 
 ## License
 
-Apache-2.0, see [LICENSE](./LICENSE).
+Apache-2.0, see [LICENSE](./LICENSE) and [NOTICE](./NOTICE).
+
+Copyright 2026 Axia Growth LLC and contributors.
+
+## Contributing
+
+Contributions are welcome. A signed Contributor License Agreement is required before a pull request
+can be merged; see [CONTRIBUTING.md](./CONTRIBUTING.md).

@@ -85,8 +85,8 @@ describe('needs-secret on the card (obj 718944)', () => {
 
 describe('chat sender tag (obj 718944)', () => {
   it('verified owner reads Verified with a check; agent reads not verified', () => {
-    const owner = renderToStaticMarkup(<SenderTag sender={{ kind: 'owner', verified: true, label: 'Mike', username: 'mike' }} />)
-    expect(owner).toContain('Verified · Mike (owner)')
+    const owner = renderToStaticMarkup(<SenderTag sender={{ kind: 'owner', verified: true, label: 'Operator', username: 'operator' }} />)
+    expect(owner).toContain('Verified · Operator (owner)')
     expect(owner).toContain('✓')
     const agent = renderToStaticMarkup(<SenderTag sender={{ kind: 'agent', verified: false, label: 'Example Client Data', username: null }} />)
     expect(agent).toContain('Agent · Example Client Data · not verified')
@@ -96,7 +96,7 @@ describe('chat sender tag (obj 718944)', () => {
   it('a relayed followup renders the quiet surface bubble, the owner the accent bubble', () => {
     const html = renderToStaticMarkup(
       <GroupedMessages messages={[
-        { type: 'followup', text: 'This is Mike', timestamp: 't', sender: { kind: 'agent', verified: false, label: 'Example Client Data', username: null } },
+        { type: 'followup', text: 'This is Operator', timestamp: 't', sender: { kind: 'agent', verified: false, label: 'Example Client Data', username: null } },
       ]} />,
     )
     expect(html).toContain('Agent · Example Client Data · not verified')
@@ -109,7 +109,7 @@ describe('rotate-later list (obj 718944)', () => {
     const { RotationFlagsList } = await import('./secrets/RotationFlagsPanel')
     const html = renderToStaticMarkup(
       <RotationFlagsList
-        flags={[{ id: 1, workspace: 'example', key: 'APIFY_API_TOKEN', objective_id: 718958, flagged_by: 'mike', created_at: '2026-10-27 03:00:00' }]}
+        flags={[{ id: 1, workspace: 'example', key: 'APIFY_API_TOKEN', objective_id: 718958, flagged_by: 'operator', created_at: '2026-10-27 03:00:00' }]}
         onResolve={() => {}}
         resolving={null}
       />,

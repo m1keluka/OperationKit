@@ -20,7 +20,7 @@ describe('buildKbAccessBlock', () => {
     // The vault is never offered as a PATH to use. (It is named once, as the
     // thing that is absent — that warning is the point, not a pointer.)
     expect(text).not.toMatch(/~\/second-brain\//)
-    expect(text).not.toMatch(/\/home\/mike\/\w/)
+    expect(text).not.toMatch(/\/home\/operator\/\w/)
     // ...and says so out loud, so the session does not go hunting.
     expect(text).toMatch(/There is no `~\/second-brain`/)
   })

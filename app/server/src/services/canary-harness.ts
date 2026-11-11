@@ -25,7 +25,7 @@
 //     (getFalsePassRate filters to source='reopen').
 //   • The SCHEDULED run is gated behind `canary_harness_enabled` (default 0 in
 //     code) plus a kill switch; nothing auto-fires on deploy. Manual invocation
-//     (runCanaryHarness) is always allowed for tests / Mike-triggered runs.
+//     (runCanaryHarness) is always allowed for tests / Operator-triggered runs.
 
 import fs from 'fs'
 import path from 'path'
@@ -240,7 +240,7 @@ export interface RunCanaryOptions {
  * Writes one canary_runs summary row, a gate_false_pass(source='canary') row per
  * escape, and raises a critical alarm per escape. Returns the run summary.
  *
- * This is the MANUAL entry point — always runnable (tests, Mike-triggered). The
+ * This is the MANUAL entry point — always runnable (tests, Operator-triggered). The
  * scheduled wrapper (startCanaryHarnessScheduler) guards on the enable flag.
  */
 export function runCanaryHarness(db: Database = getDb(), opts: RunCanaryOptions = {}): CanaryRunSummary {
@@ -380,7 +380,7 @@ const SCHEDULE_INTERVAL_MS = 6 * 60 * 60 * 1000
 /**
  * Start the scheduled canary harness. NO-OP unless `canary_harness_enabled` is set
  * (settings row or CC_CANARY_HARNESS_ENABLED) — so NOTHING auto-fires on deploy.
- * Each tick re-checks the flag + kill switch, so Mike can arm/disarm live without a
+ * Each tick re-checks the flag + kill switch, so Operator can arm/disarm live without a
  * restart. Safe to call unconditionally at boot.
  */
 export function startCanaryHarnessScheduler(db: Database = getDb()): void {

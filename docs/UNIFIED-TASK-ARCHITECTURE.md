@@ -97,7 +97,7 @@ This document was produced as part of CC objective #141 ("Build unified task man
 | Component | Role | Status |
 |---|---|---|
 | Hermes orchestrator (LLM) | Reads Telegram text → emits one or more objective JSONs → batch-creates them | **Planned** — not deployed |
-| Hermes seed memory | `scripts/hermes-seeds/MEMORY.md` (CC API contract + decomposition heuristics) + `USER.md` (Mike's profile) | **Authored** and ready to load into Hermes' system prompt the moment the service comes up |
+| Hermes seed memory | `scripts/hermes-seeds/MEMORY.md` (CC API contract + decomposition heuristics) + `USER.md` (Operator's profile) | **Authored** and ready to load into Hermes' system prompt the moment the service comes up |
 | Internal API (`routes/internal.ts`) | Localhost-only no-JWT endpoints Hermes calls (objectives, status, message, progress, briefing) | **Working** |
 | Briefing query (`/api/internal/briefing`, `/api/briefing/briefing`) | Aggregates working + review + blocked into one daily snapshot | **Fixed 2026-06-04** — was filtering `status IN ('working','blocked','needs_review')` which never matched (`blocked` and `needs_review` are not valid statuses). Now `('working','review')` with the blocked facet derived from `has_blockers`. |
 
@@ -129,29 +129,29 @@ This document was produced as part of CC objective #141 ("Build unified task man
 
 ## 3. End-to-End Walk-Through
 
-### Path A: Mike sends a Telegram brain dump
+### Path A: Operator sends a Telegram brain dump
 
-1. the operator DMs the Hermes bot: *"three things — get the GHL sync running for Murphy, audit Cavaro's last EB sends, and someone needs to look at why the calendar webhook is dropping events"*.
+1. the operator DMs the Hermes bot: *"three things — get the GHL sync running for Client A, audit Client B's last EB sends, and someone needs to look at why the calendar webhook is dropping events"*.
 2. Hermes parses, picks `agent_context`/`workspace`/`effort` per `MEMORY.md` heuristics, calls `POST /api/internal/objectives` with an array of three.
 3. CC returns three `id`s; Hermes replies *"Created 3 objectives: #N1 (cto/example), #N2 (general/example), #N3 (cto/example)"*.
-4. Mike (or Hermes via `PATCH /:id/status`) flips them to `working`; sessions spawn.
+4. Operator (or Hermes via `PATCH /:id/status`) flips them to `working`; sessions spawn.
 5. Each session runs its pipeline. On completion → `review`. State-poller calls `handleSessionDeath()` → `queueExtraction()` → session-intel summary lands in DB and activity feed.
 6. Any decision the agent wrote to `~/second-brain/workspaces/example/decisions/` is picked up live by `scanForKnowledgeWrites`. If the agent forgot to write one, the capture-gap detector flags it.
 
-**Status today:** steps 2–6 work; step 1 is the missing link (Hermes systemd unit not deployed). Until Hermes is running, Mike must curl the endpoint directly or use the CC web UI to create objectives.
+**Status today:** steps 2–6 work; step 1 is the missing link (Hermes systemd unit not deployed). Until Hermes is running, Operator must curl the endpoint directly or use the CC web UI to create objectives.
 
 ### Path B: Action item from a Granola-recorded meeting
 
 1. Cron triggers `run-granola-ingest.sh` (every 15 min — *cron entry missing today*).
 2. `granola-ingest.ts` pulls new meetings, writes vault notes, queues action items into `granola_action_items` with `status='pending-review'`.
 3. CC frontend polls `GET /api/meeting-queue/count` and shows a badge.
-4. Mike opens the queue, clicks Approve → `POST /api/meeting-queue/:id/approve` (or the new `/approve-batch` with multiple ids).
-5. Objective lands in `queue` status; Mike (or Hermes) flips to `working`.
+4. Operator opens the queue, clicks Approve → `POST /api/meeting-queue/:id/approve` (or the new `/approve-batch` with multiple ids).
+5. Objective lands in `queue` status; Operator (or Hermes) flips to `working`.
 6. Same Archive flow as Path A.
 
 **Status today:** steps 2–6 work; step 1 is the missing link (cron entry).
 
-### Path C: Mike creates an objective directly in the CC UI
+### Path C: Operator creates an objective directly in the CC UI
 
 1. Click "+ New" → fill the form → POST `/api/objectives` (JWT-authenticated).
 2. Same Execute and Archive flow.

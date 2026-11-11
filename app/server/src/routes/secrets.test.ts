@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
+import { clearSecretAuditLogForTests } from '../__fixtures__/secret-audit-log.js'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -81,7 +82,8 @@ afterAll(async () => {
 })
 
 beforeEach(() => {
-  getDb().exec('DELETE FROM secret_versions; DELETE FROM secret_access_log; DELETE FROM secrets;')
+  clearSecretAuditLogForTests(getDb())
+  getDb().exec('DELETE FROM secret_versions; DELETE FROM secrets;')
 })
 
 /** Assert a response body never leaks the plaintext or the encrypted column. */

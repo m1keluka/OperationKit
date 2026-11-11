@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # ok-jail — the per-session sandbox image (PRD §6.4).
 #
-# Built and run ONLY when SESSION_ISOLATION=docker. Mike's live droplet leaves
+# Built and run ONLY when SESSION_ISOLATION=docker. Operator's live droplet leaves
 # that flag unset, so nothing here is on the production path today.
 #
 # Deliberately does NOT inherit from app/Dockerfile: the control-plane image
@@ -11,7 +11,7 @@
 # Build:  docker build -t ok-jail:local -f app/jail/Dockerfile app/jail
 # Pin:    tag by digest and set SESSION_JAIL_IMAGE=ok-jail@sha256:… in any real
 #         deployment. There is no registry push — publishing to ghcr.io is a
-#         Mike-reserved open question (PRD §9), so the default tag is local.
+#         Operator-reserved open question (PRD §9), so the default tag is local.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim
 

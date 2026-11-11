@@ -1,9 +1,17 @@
+/**
+ * System (obj 900495 — was "Dashboard", /dashboard → /system): AI usage,
+ * estimated spend and host stats for this install.
+ *
+ * Subscription seats are deliberately NOT here any more — they are managed in
+ * Settings → Models (MODELS_SETTINGS_ROUTE); this page carries one link there.
+ */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { Info } from 'lucide-react'
 import { api } from '../lib/api'
+import { MODELS_SETTINGS_ROUTE } from '../lib/routes'
 import { ModelsModule } from './ModelsModule'
 import { CostModule } from './CostModule'
-import { SeatPool } from './settings/SettingsSeats'
 import {
   PageContainer,
   PageHeader,
@@ -13,12 +21,10 @@ import {
   Badge,
   Button,
   Alert,
-  DataTable,
   Skeleton,
   SkeletonText,
   cn,
 } from './ui'
-import type { Column } from './ui'
 
 interface WindowUsage {
   tokens: number
@@ -64,20 +70,17 @@ interface SystemData {
   processCount: number
   hostname: string
   platform: string
+  /** True when the server runs in a container: `hostname` is then a container id. */
+  inContainer?: boolean
   timestamp: string
 }
 
-interface RateLimitEvent {
-  timestamp: string
-  accountId: string
-  label: string
-  tokensAtLimit: number
-  sessionsAtLimit: number
-  costAtLimit: number
-  activeSessions: number
-  resetTime: string
-  triggerMessage?: string
-}
+/** The exact disclaimer Operator asked for (obj 900495). Exported for the test. */
+export const SPEND_DISCLAIMER =
+  'Spend is estimated from public token prices. If you use subscription accounts (Claude, Codex, Grok), this reflects your token volume, not what you are billed.'
+
+/** Host numbers older than this are flagged stale (the poll is every 5s). */
+export const HOST_STALE_MS = 30_000
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -141,12 +144,6 @@ function UsageBar({ percent }: { percent: number }) {
   )
 }
 
-// Codex / Grok are flat-rate subscriptions surfaced alongside the Claude rotation,
-// not members of it.
-function isSubscriptionAccount(account: AccountInfo): boolean {
-  return account.id === 'codex' || account.id === 'grok' || account.kind === 'codex' || account.kind === 'grok'
-}
-
 // Compact headline metric tile. Mono number + uppercase mono eyebrow.
 function MetricCard({
   label,
@@ -166,17 +163,13 @@ function MetricCard({
   )
 }
 
-// Mono uppercase eyebrow heading, matching the primitive CardHeader kicker.
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <h3 className="mb-3 font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">{children}</h3>
-  )
-}
-
-export function Dashboard() {
+export function SystemPage() {
   const [accounts, setAccounts] = useState<AccountsData | null>(null)
   const [system, setSystem] = useState<SystemData | null>(null)
-  const [rateLimitHistory, setRateLimitHistory] = useState<RateLimitEvent[]>([])
+  // When the host numbers were last received. A failed poll used to leave the
+  // previous numbers on screen with no sign they were old; now they age visibly.
+  const [systemAt, setSystemAt] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const [error, setError] = useState<string | null>(null)
 
   // Monotonic request counter: a slow poll tick that started before a label
@@ -190,38 +183,43 @@ export function Dashboard() {
   const fetchData = useCallback(async () => {
     const reqId = ++fetchSeq.current
     try {
-      const [acc, sys, rl] = await Promise.all([
+      const [acc, sys] = await Promise.all([
         api.get<AccountsData>('/admin/accounts').catch(() => null),
         api.get<SystemData>('/admin/system').catch(() => null),
-        api.get<RateLimitEvent[]>('/admin/rate-limits?limit=20').catch(() => null),
       ])
       if (reqId !== fetchSeq.current) return // superseded by a newer fetch — drop this stale response
       if (acc) setAccounts(acc)
-      if (sys) setSystem(sys)
-      if (rl) setRateLimitHistory(rl)
+      if (sys) { setSystem(sys); setSystemAt(Date.now()) }
       setError(null)
     } catch {
       if (reqId !== fetchSeq.current) return
-      setError('Failed to fetch dashboard data')
+      setError('Failed to fetch system data')
     }
   }, [])
 
   useEffect(() => {
     fetchData()
     const interval = setInterval(fetchData, 5000)
-    return () => clearInterval(interval)
+    const tick = setInterval(() => setNow(Date.now()), 1000)
+    return () => { clearInterval(interval); clearInterval(tick) }
   }, [fetchData])
 
   if (error && !accounts && !system) {
     return (
       <PageContainer width="wide">
-        <PageHeader title="System Dashboard" />
-        <Alert tone="alarm" title="Dashboard unavailable">
+        <PageHeader title="System" />
+        <Alert tone="alarm" title="System data unavailable">
           {error}
         </Alert>
       </PageContainer>
     )
   }
+
+  const hostAgeMs = systemAt != null ? Math.max(0, now - systemAt) : null
+  const hostStale = hostAgeMs != null && hostAgeMs > HOST_STALE_MS
+  const hostLabel = system
+    ? `${system.inContainer ? `container ${system.hostname}` : system.hostname} · ${system.platform}`
+    : undefined
 
   const totalActiveSessions = accounts?.accounts.reduce((sum, a) => sum + a.activeSessions.length, 0) ?? 0
   // Headline "today" totals include the untracked bucket (in-progress sessions
@@ -231,108 +229,24 @@ export function Dashboard() {
   const totalSessionsToday = (accounts?.accounts.reduce((sum, a) => sum + a.sessionsToday, 0) ?? 0) + untracked.sessions
   const totalCostToday = (accounts?.accounts.reduce((sum, a) => sum + a.costToday, 0) ?? 0) + untracked.cost
   const totalTokensToday = (accounts?.accounts.reduce((sum, a) => sum + a.tokensToday, 0) ?? 0) + untracked.tokens
-  // The "Accounts available" headline must measure the Claude ROTATION pool only
-  // (what pickAccount() actually draws from). Codex is a flat-rate ChatGPT
-  // subscription with priority 99 — explicitly not in the rotation — so folding it
-  // into the fraction made the one number an operator reads to answer "can a new
-  // session get an account right now?" structurally wrong (e.g. it could never
-  // legitimately read 0 while Codex auth was present). Count rotation slots here
-  // and surface Codex separately on its own card.
-  const rotationAccounts = accounts?.accounts.filter((a) => !isSubscriptionAccount(a)) ?? []
-  const availableCount = rotationAccounts.filter((a) => a.available).length
-  const totalAccounts = rotationAccounts.length
-  // First rotation slot to recover, from the server's bench timers (rotation-only —
-  // getEarliestResetTime ignores Codex). Lets us show honest recovery context under
-  // the headline whenever the pool is degraded, instead of a bare red "0".
-  const nextResetLabel =
-    availableCount < totalAccounts && accounts?.earliestReset
-      ? `next free in ${formatTimeUntil(accounts.earliestReset)}`
-      : 'available'
+  // The seat-availability tile ("Accounts n/m") moved out with the seat list:
+  // AI accounts are managed in Settings → Models (obj 900495).
 
   const loading = !accounts && !system
-
-  const rateLimitColumns: Column<RateLimitEvent>[] = [
-    {
-      key: 'when',
-      header: 'When',
-      sortable: true,
-      sortValue: (e) => new Date(e.timestamp).getTime(),
-      className: 'w-40',
-      cell: (e) => (
-        <span className="font-mono text-xs text-fg-2">
-          {new Date(e.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}{' '}
-          {new Date(e.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-        </span>
-      ),
-    },
-    {
-      key: 'account',
-      header: 'Account',
-      cell: (e) => (
-        <span className="flex items-center gap-1.5">
-          <Badge tone="alarm" mono>{e.accountId.toUpperCase()}</Badge>
-          <span className="text-xs text-fg-3">{e.label}</span>
-        </span>
-      ),
-    },
-    {
-      key: 'tokens',
-      header: 'Tokens',
-      mono: true,
-      align: 'right',
-      sortable: true,
-      sortValue: (e) => e.tokensAtLimit,
-      cell: (e) => <span className="text-fg-0">{formatTokens(e.tokensAtLimit)}</span>,
-    },
-    {
-      key: 'sessions',
-      header: 'Sessions',
-      mono: true,
-      align: 'right',
-      sortable: true,
-      sortValue: (e) => e.sessionsAtLimit,
-      cell: (e) => <span className="text-fg-0">{e.sessionsAtLimit}</span>,
-    },
-    {
-      key: 'cost',
-      header: 'Cost',
-      mono: true,
-      align: 'right',
-      sortable: true,
-      sortValue: (e) => e.costAtLimit,
-      cell: (e) => <span className="text-fg-0">${e.costAtLimit.toFixed(2)}</span>,
-    },
-    {
-      key: 'reset',
-      header: 'Reset After',
-      mono: true,
-      align: 'right',
-      cell: (e) => {
-        const resetDuration = Math.round(
-          (new Date(e.resetTime).getTime() - new Date(e.timestamp).getTime()) / 60000
-        )
-        return (
-          <span className="text-xs text-fg-3">
-            {resetDuration > 60 ? `${Math.round(resetDuration / 60)}h ${resetDuration % 60}m` : `${resetDuration}m`}
-          </span>
-        )
-      },
-    },
-  ]
 
   return (
     <PageContainer width="wide">
       <PageHeader
-        title="System Dashboard"
-        description={system ? `${system.hostname} · ${system.platform}` : undefined}
+        title="System"
+        description="AI usage, estimated spend and host health for this install."
         actions={<Badge tone="neutral" mono>auto-refresh · 5s</Badge>}
       />
 
       <div className="space-y-6">
         {/* Summary metrics */}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {loading ? (
-            Array.from({ length: 5 }).map((_, i) => (
+            Array.from({ length: 4 }).map((_, i) => (
               <Card key={i}>
                 <Skeleton className="h-3 w-16" />
                 <Skeleton className="mt-2 h-7 w-12" />
@@ -342,31 +256,21 @@ export function Dashboard() {
             <>
               <MetricCard label="Active" value={totalActiveSessions} sub="sessions" />
               <MetricCard label="Today" value={totalSessionsToday} sub="sessions" />
-              <MetricCard
-                label="Accounts"
-                value={
-                  <span>
-                    <span
-                      className={cn(
-                        availableCount === 0
-                          ? 'text-signal-alarm'
-                          : availableCount < 3
-                            ? 'text-signal-amber'
-                            : 'text-signal-verify'
-                      )}
-                    >
-                      {availableCount}
-                    </span>
-                    <span className="text-base text-fg-3"> / {totalAccounts}</span>
-                  </span>
-                }
-                sub={nextResetLabel}
-              />
               <MetricCard label="Tokens" value={formatTokens(totalTokensToday)} sub="today" />
-              <MetricCard label="Cost" value={`$${totalCostToday.toFixed(2)}`} sub="today" />
+              <MetricCard label="Est. spend" value={`$${totalCostToday.toFixed(2)}`} sub="today, at token prices" />
             </>
           )}
         </div>
+
+        {/* Spend disclaimer (obj 900495): the dollar figures are token volume ×
+            public list prices, which is NOT the bill on a flat-rate subscription. */}
+        <p
+          data-testid="spend-disclaimer"
+          className="flex items-start gap-2 rounded-md border border-line bg-surface-1 px-3 py-2 text-[12.5px] leading-snug text-fg-2"
+        >
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-3" strokeWidth={1.75} aria-hidden />
+          <span>{SPEND_DISCLAIMER}</span>
+        </p>
 
         {/* Reconciliation note: today's totals above fold in usage that isn't yet
             attributed to a rotation slot (mostly in-progress sessions). Without
@@ -384,18 +288,39 @@ export function Dashboard() {
         {/* Cost over a selectable time window (Eastern day boundaries) */}
         <CostModule />
 
-        {/* VPS Compute */}
+        {/* Host */}
         {loading && !system ? (
           <Card inset>
-            <CardHeader title="VPS Compute" eyebrow="Host" />
+            <CardHeader title="Host" eyebrow="Server" />
             <CardBody>
               <SkeletonText lines={3} />
             </CardBody>
           </Card>
         ) : system ? (
           <Card inset>
-            <CardHeader title="VPS Compute" eyebrow="Host" />
+            <CardHeader
+              title="Host"
+              eyebrow="Server"
+              actions={
+                <span className="flex items-center gap-2">
+                  {hostStale && <Badge tone="amber" mono>stale</Badge>}
+                  {hostAgeMs != null && (
+                    <span data-testid="host-updated" className="font-mono text-[11px] text-fg-3">
+                      updated {Math.round(hostAgeMs / 1000)}s ago
+                    </span>
+                  )}
+                </span>
+              }
+            />
             <CardBody>
+              {hostLabel && (
+                <div data-testid="host-label" className="-mt-1 mb-4 truncate font-mono text-xs text-fg-3">{hostLabel}</div>
+              )}
+              {hostStale && (
+                <Alert tone="amber" className="mb-4">
+                  The server stopped answering; these numbers are from {Math.round((hostAgeMs ?? 0) / 1000)}s ago.
+                </Alert>
+              )}
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <div className="mb-2 flex items-baseline justify-between">
@@ -432,27 +357,23 @@ export function Dashboard() {
                     <span className="text-sm text-fg-2">Uptime</span>
                     <span className="font-mono text-sm font-medium text-fg-0">{formatUptime(system.uptime)}</span>
                   </div>
-                  <div className="mt-1 font-mono text-xs text-fg-3">{system.processCount} processes</div>
+                  <div className="mt-1 font-mono text-xs text-fg-3">
+                    {system.processCount} processes visible to the server
+                  </div>
                 </div>
               </div>
             </CardBody>
           </Card>
         ) : null}
 
-        {/* Subscription seats — the same list and actions as Settings → Seats,
-            so there is one way to add, sign in, reconnect and remove a seat. */}
-        <section aria-labelledby="dashboard-seats">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 id="dashboard-seats" className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">Subscription seats</h3>
-            <Link
-              to="/settings/seats"
-              className="inline-flex min-h-[44px] items-center rounded-md px-2 text-[12.5px] font-medium text-accent-hover underline-offset-2 transition-colors duration-fast ease-out hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]"
-            >
-              Manage seats
-            </Link>
-          </div>
-          <SeatPool refreshMs={15_000} />
-        </section>
+        {/* Seats are managed in Settings → Models (Sprint 4b) — one link, no widgets. */}
+        <Link
+          to={MODELS_SETTINGS_ROUTE}
+          data-testid="manage-ai-accounts"
+          className="inline-flex min-h-[44px] items-center rounded-md text-[12.5px] font-medium text-accent-hover underline-offset-2 transition-colors duration-fast ease-out hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]"
+        >
+          Manage AI accounts in Settings &gt; Models
+        </Link>
 
         {/* Models configuration */}
         <ModelsModule />
@@ -476,49 +397,6 @@ export function Dashboard() {
           </Alert>
         )}
 
-        {/* Rate Limit History */}
-        {rateLimitHistory.length > 0 && (
-          <div>
-            <SectionHeading>Rate Limit History</SectionHeading>
-            <DataTable
-              columns={rateLimitColumns}
-              rows={rateLimitHistory}
-              rowKey={(e) => `${e.accountId}-${e.timestamp}`}
-              mobileTitle={(e) => e.accountId.toUpperCase()}
-              initialSort={{ key: 'when', dir: 'desc' }}
-              empty={{ title: 'No rate-limit events', description: 'Accounts have not hit a limit recently.' }}
-            />
-            {rateLimitHistory.length >= 3 && (
-              <Card inset className="mt-4">
-                <CardBody>
-                  <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
-                    Observed limits (avg at time of rate limit)
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap gap-6 text-sm">
-                    <div>
-                      <span className="text-fg-3">Avg tokens: </span>
-                      <span className="font-mono font-medium text-fg-0">
-                        {formatTokens(Math.round(rateLimitHistory.reduce((s, e) => s + e.tokensAtLimit, 0) / rateLimitHistory.length))}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-fg-3">Avg sessions: </span>
-                      <span className="font-mono font-medium text-fg-0">
-                        {Math.round(rateLimitHistory.reduce((s, e) => s + e.sessionsAtLimit, 0) / rateLimitHistory.length)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-fg-3">Avg cost: </span>
-                      <span className="font-mono font-medium text-fg-0">
-                        ${(rateLimitHistory.reduce((s, e) => s + e.costAtLimit, 0) / rateLimitHistory.length).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </CardBody>
-              </Card>
-            )}
-          </div>
-        )}
       </div>
     </PageContainer>
   )

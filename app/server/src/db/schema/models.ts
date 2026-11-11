@@ -77,7 +77,7 @@ export function initModelsSchema(db: Database.Database): void {
     db.pragma('foreign_keys = ON')
   }
   // First-seed + one-time Fable→Opus cutover. Tied to the empty-table check so a
-  // restart never clobbers Mike's later toggles.
+  // restart never clobbers Operator's later toggles.
   const modelCount = (db.prepare('SELECT COUNT(*) AS n FROM models').get() as { n: number }).n
   if (modelCount === 0) {
     const seedModel = db.prepare(

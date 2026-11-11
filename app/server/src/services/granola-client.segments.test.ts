@@ -2,7 +2,7 @@
  * Speaker attribution in the Granola client (obj 710856).
  *
  * The client used to flatten `transcript[]` straight to a single string, which
- * discards WHO said each line. Voice-profile extraction ("write in Ava's tone")
+ * discards WHO said each line. Voice-profile extraction ("write in Casey's tone")
  * depends on isolating the owner's own lines, and once flattened that is
  * unrecoverable — so these tests pin the attribution, not just the text.
  */
@@ -30,8 +30,8 @@ afterEach(() => {
 
 const NOTE = {
   id: 'not_x',
-  title: 'Ava <> Mike',
-  owner: { name: 'Ava Kelly', email: 'ava@example.com' },
+  title: 'Casey <> Operator',
+  owner: { name: 'Casey Rivera', email: 'casey@example.com' },
   transcript: [
     { speaker: { source: 'me', diarization_label: 'Me' }, text: 'I kind of wanted to talk about how I should edit them.' },
     { speaker: { source: 'them', diarization_label: 'Michael Rivera' }, text: 'So what I do now is take reference content.' },
@@ -79,7 +79,7 @@ describe('per-owner credential', () => {
 
   it('verifyApiKey returns the owning account on success', async () => {
     stubFetch({ notes: [NOTE], hasMore: false })
-    await expect(verifyApiKey('grn_ok')).resolves.toEqual({ ok: true, account: 'ava@example.com' })
+    await expect(verifyApiKey('grn_ok')).resolves.toEqual({ ok: true, account: 'casey@example.com' })
   })
 
   it('verifyApiKey reports failure instead of throwing', async () => {
@@ -91,7 +91,7 @@ describe('per-owner credential', () => {
 
 // Regression (obj 710856): the live API attributes lines by AUDIO TRACK —
 // 'microphone' is the owner's own mic, 'speaker' is system audio (everyone else).
-// We originally only matched 'me', so 24 of Ava's real meetings came back with
+// We originally only matched 'me', so 24 of Casey's real meetings came back with
 // owner_lines: 0 and her voice profile had nothing to build from.
 describe('owner attribution by audio track', () => {
   it('treats speaker.source "microphone" as the owner and "speaker" as not', async () => {

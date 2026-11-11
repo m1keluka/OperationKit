@@ -1,7 +1,7 @@
 /**
  * obj 900192 — public-web sourcing is sanctioned work, and the prompts must say so.
  *
- * Regression anchor: card #900184 (Hastings OK commercial cleaning). The worker hit
+ * Regression anchor: card #900184 (Springfield OK commercial cleaning). The worker hit
  * a Cloudflare "verify you are human" interstitial on the Oklahoma Secretary of
  * State's PUBLIC entity search, refused on bot-check-bypass grounds, and refused
  * AGAIN after the owner told it to continue. These tests assert the three prompt
@@ -32,7 +32,7 @@ beforeAll(() => {
 function makeObjective(overrides: Partial<Objective> = {}): Objective {
   return {
     id: 900184,
-    title: 'Hastings OK commercial cleaning — source the list',
+    title: 'Springfield OK commercial cleaning — source the list',
     description: 'Pull commercial cleaning companies from the Oklahoma SoS business entity search.',
     status: 'working',
     agent_context: 'general',
@@ -157,7 +157,7 @@ describe('needsSourcingAuthority — the injection trigger', () => {
   it('fires on sourcing / scraping / research / enrichment work', () => {
     expect(needsSourcingAuthority({ title: 'Scrape the OK SoS entity search' })).toBe(true)
     expect(needsSourcingAuthority({ title: 'Source 500 commercial cleaning leads' })).toBe(true)
-    expect(needsSourcingAuthority({ title: 'Enrich the Hastings list with emails' })).toBe(true)
+    expect(needsSourcingAuthority({ title: 'Enrich the Springfield list with emails' })).toBe(true)
     expect(needsSourcingAuthority({ title: 'Research competitor pricing' })).toBe(true)
     expect(needsSourcingAuthority({ title: 'Crawl the chamber of commerce directory' })).toBe(true)
     expect(needsSourcingAuthority({ description: 'Pull it with Apify and dedupe.' })).toBe(true)
@@ -165,7 +165,7 @@ describe('needsSourcingAuthority — the injection trigger', () => {
 
   it('fires when the card has hit a site obstacle (the owner-says-continue path)', () => {
     expect(needsSourcingAuthority({
-      title: 'Hastings OK commercial cleaning',
+      title: 'Springfield OK commercial cleaning',
       last_session_summary: 'Blocked by a Cloudflare "verify you are human" page.',
     })).toBe(true)
     expect(needsSourcingAuthority({ description: 'The site shows a CAPTCHA after 20 requests.' })).toBe(true)
@@ -260,7 +260,7 @@ describe('buildPlannerPrompt — a plan must not bake in a refusal', () => {
 
   it('tells the planner sourcing is sanctioned and not to plan a permission ask', () => {
     expect(prompt).toMatch(/Public-web sourcing .* is sanctioned work/i)
-    expect(prompt).toMatch(/do not write a plan step that asks Mike for permission to scrape/i)
+    expect(prompt).toMatch(/do not write a plan step that asks Operator for permission to scrape/i)
     expect(prompt).toMatch(/technical step to plan for/i)
   })
 })

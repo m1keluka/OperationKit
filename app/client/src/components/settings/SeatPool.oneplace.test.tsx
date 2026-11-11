@@ -82,7 +82,7 @@ describe('SeatPool (shared by Settings → Seats and the Dashboard)', () => {
   beforeEach(() => {
     for (const fn of [apiMock.post, apiMock.put, apiMock.patch, apiMock.del]) fn.mockReset()
     store.seats = [
-      seat({ id: 's1', label: 'Mike@ biz', credential: CLI_CLAUDE, available: false }),
+      seat({ id: 's1', label: 'Operator@ biz', credential: CLI_CLAUDE, available: false }),
       seat({ id: 'codex', label: 'Codex', kind: 'codex', credential: { kind: 'cli_login', last4: null, addedAt: null, expiresAt: null, expiry: null, usable: true, needsClaudeSignIn: false } }),
       seat({ id: 'grok', label: 'Grok', kind: 'grok', credential: { kind: 'cli_login', last4: null, addedAt: null, expiresAt: null, expiry: null, usable: true, needsClaudeSignIn: false } }),
     ]
@@ -107,7 +107,7 @@ describe('SeatPool (shared by Settings → Seats and the Dashboard)', () => {
   it('every card names its engine', async () => {
     await render()
     expect(card('s1').textContent).toContain('Claude')
-    expect(card('s1').textContent).toContain('Mike@ biz')
+    expect(card('s1').textContent).toContain('Operator@ biz')
     expect(card('codex').textContent).toContain('Codex')
     expect(card('grok').textContent).toContain('Grok')
     // The engine chip is the first badge on the title row, on every card.
@@ -141,7 +141,7 @@ describe('SeatPool (shared by Settings → Seats and the Dashboard)', () => {
     apiMock.post.mockImplementation((url: string) => {
       if (url === '/admin/seats/claude-oauth/start') return Promise.resolve(LINK)
       if (url === '/admin/seats/claude-oauth/finish') {
-        return Promise.resolve({ ok: true, outcome: 'healthy', seat: seat({ id: 's1', label: 'Mike@ biz', credential: { kind: 'setup_token', last4: 'zz99', addedAt: null, expiresAt: null, expiry: null, usable: true, needsClaudeSignIn: false } }) })
+        return Promise.resolve({ ok: true, outcome: 'healthy', seat: seat({ id: 's1', label: 'Operator@ biz', credential: { kind: 'setup_token', last4: 'zz99', addedAt: null, expiresAt: null, expiry: null, usable: true, needsClaudeSignIn: false } }) })
       }
       return Promise.reject(new Error(`unexpected ${url}`))
     })

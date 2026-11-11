@@ -131,7 +131,8 @@ describe('sendFollowUp + resume cap', () => {
     sendFollowUp(sessionId, 'keep going', objective(id))
     const opts = spawnInTmux.mock.calls[0][0]
     expect(opts.resumeSessionId).toBe(CLAUDE_ID)
-    expect(opts.prompt).toBe('keep going')
+    // obj 900452: stamps default ON, so an unattributed follow-up arrives as SYSTEM.
+    expect(opts.prompt).toBe('[cc-sender] SYSTEM: Command Center (unattributed) (automated, not verified)\n\nkeep going')
     expect(fs.readFileSync(jsonl, 'utf-8')).not.toContain('chain_reset')
     const row = getDb().prepare('SELECT kind, reason FROM session_starts WHERE session_id = ? ORDER BY id DESC').get(sessionId)
     expect(row).toMatchObject({ kind: 'resume' })

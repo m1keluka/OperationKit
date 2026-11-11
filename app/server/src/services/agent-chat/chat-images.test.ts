@@ -45,7 +45,7 @@ beforeAll(() => {
   if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB)
   initDb()
   const db = getDb()
-  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'ava', 'x', 'member')`).run(USER)
+  db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, 'casey', 'x', 'member')`).run(USER)
   fs.mkdirSync(path.join(TMP_AGENTS, 'helper'))
   fs.writeFileSync(
     path.join(TMP_AGENTS, 'helper', 'agent.yaml'),
@@ -67,7 +67,7 @@ describe('an attached screenshot reaches the model as image content', () => {
     const seen: Seen[] = []
     const out = await runTurn({
       userId: USER,
-      username: 'ava',
+      username: 'casey',
       agent: { ...agent(), provider: 'anthropic' },
       text: 'what is wrong here?',
       images: screenshot(),

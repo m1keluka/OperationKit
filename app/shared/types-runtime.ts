@@ -217,7 +217,7 @@ export interface GoogleConnectStartResponse {
 
 // ── Personal Assistant config (obj 701700, Phase 1) ─────────────────────────
 // Per-(user, workspace) contract that replaces the hardcoded single-user
-// ("Mike"/Assistant) assistant in services/mentor-session.ts with a config-driven,
+// ("Operator"/Assistant) assistant in services/mentor-session.ts with a config-driven,
 // multi-tenant one. Mirrors the design kit's config-schema.ts (obj 1786). The
 // frontend has its own DTO and does not import this; the server owns it.
 

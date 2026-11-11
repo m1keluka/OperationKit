@@ -95,6 +95,8 @@ export function initSecretsSchema(db: Database.Database): void {
     ).run(...SERVICE_ONLY_BY_DEFAULT)
   }
 
+  initSecretsHardeningSchema(db)
+
   // ── Scoped agent/skill assignment (obj-2388) ─────────────────────────────
   // One row = "resource R (an agent or a skill) is assigned at scope S". Reuses
   // the obj-2353/1731 credential scope model (global/workspace/user) and adds a
@@ -121,4 +123,56 @@ export function initSecretsSchema(db: Database.Database): void {
       ON resource_assignments(resource_type, scope_type, workspace, project, user_id);
   `)
 
+}
+
+/**
+ * Sprint 6 secrets hardening (obj 900498). Additive only: no stored value,
+ * ciphertext or key is read, rewritten or re-encrypted here.
+ *
+ *   secrets.description   operator note ("Stripe live key, billing worker").
+ *                         Metadata only, shown in Settings, never part of a value.
+ *   secrets.last_used_at  stamped when the server decrypts the value for a real
+ *                         use (session injection, broker use, server-side read).
+ *
+ *   secret_access_log gains secret_id / source / detail so the log can be
+ *   filtered per secret and says HOW something happened (ui / api / broker /
+ *   spawn / chat). It never stores a value.
+ *
+ * APPEND-ONLY: two BEFORE triggers abort any UPDATE or DELETE on
+ * secret_access_log. Nothing in the server mutates past rows, so this changes
+ * no behaviour; it turns "we never edit the audit trail" from a convention into
+ * a database guarantee. An operator who genuinely needs to prune it must DROP
+ * the trigger first, which is a deliberate, visible act (docs/security.md →
+ * "Audit log").
+ */
+export const SECRET_AUDIT_TRIGGERS = [
+  'trg_secret_access_log_no_update',
+  'trg_secret_access_log_no_delete',
+] as const
+
+export function initSecretsHardeningSchema(db: Database.Database): void {
+  const cols = (table: string) =>
+    new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(c => c.name))
+
+  const sc = cols('secrets')
+  if (!sc.has('description')) db.exec('ALTER TABLE secrets ADD COLUMN description TEXT')
+  if (!sc.has('last_used_at')) db.exec('ALTER TABLE secrets ADD COLUMN last_used_at TEXT')
+
+  const lc = cols('secret_access_log')
+  if (!lc.has('secret_id')) db.exec('ALTER TABLE secret_access_log ADD COLUMN secret_id INTEGER')
+  if (!lc.has('source')) db.exec('ALTER TABLE secret_access_log ADD COLUMN source TEXT')
+  if (!lc.has('detail')) db.exec('ALTER TABLE secret_access_log ADD COLUMN detail TEXT')
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_secret_access_log_secret ON secret_access_log(secret_id, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_secret_access_log_key ON secret_access_log(key, id DESC);
+
+    CREATE TRIGGER IF NOT EXISTS trg_secret_access_log_no_update
+      BEFORE UPDATE ON secret_access_log
+      BEGIN SELECT RAISE(ABORT, 'secret_access_log is append-only'); END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_secret_access_log_no_delete
+      BEFORE DELETE ON secret_access_log
+      BEGIN SELECT RAISE(ABORT, 'secret_access_log is append-only'); END;
+  `)
 }

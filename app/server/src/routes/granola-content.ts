@@ -1,7 +1,7 @@
 // Content engine HTTP surface — one content owner per authenticated user.
 //
 // Gating (obj 710856): requireAuth + requireContentOwner. Previously this was
-// `requireAdmin`, which made Mike structurally the only person who could ever use
+// `requireAdmin`, which made Operator structurally the only person who could ever use
 // the engine. Access is now a row in `content_owners`; a user without one gets 403
 // on every endpoint and never sees the nav item. That preserves the CONTRACT's
 // hard isolation requirement — stronger, in fact, since the owner row (not the

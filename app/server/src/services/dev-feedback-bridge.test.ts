@@ -32,7 +32,7 @@ const {
   resolveInstance,
   DEV_FEEDBACK_INSTANCES,
   EXAMPLE2_INSTANCE,
-  WEIGHT_SUPPLY_INSTANCE,
+  EXAMPLE_PROJECT_INSTANCE,
   instanceConfigured,
 } = await import('./dev-feedback-bridge.js')
 
@@ -415,10 +415,10 @@ const WS_ITEM = {
   steps_to_repro: '1. Add item\n2. Checkout',
   expected_behavior: 'Total includes shipping',
   actual_behavior: 'Shipping missing',
-  page_url: 'https://app.weightsupply.com/checkout',
+  page_url: 'https://app.exampleproject.com/checkout',
   severity: 'high',
   submitter_name: 'Test Admin',
-  submitter_email: 'test-admin@weightsupply.com',
+  submitter_email: 'test-admin@exampleproject.com',
   screenshot_url: 'https://ws-project.test/storage/v1/object/sign/x.png?token=t',
   created_at: '2026-09-26T10:00:00Z',
 }
@@ -498,14 +498,14 @@ describe('instance list', () => {
     expect(EXAMPLE2_INSTANCE.bearerEnv).toBeUndefined()
   })
   it('example-project instance points at the dev-feedback-internal contract endpoints', () => {
-    const r = resolveInstance(WEIGHT_SUPPLY_INSTANCE, WS_ENV)!
+    const r = resolveInstance(EXAMPLE_PROJECT_INSTANCE, WS_ENV)!
     expect(`${r.baseUrl}${r.def.pendingPath}`).toBe(`${WS_BASE}/pending`)
     expect(`${r.baseUrl}${r.def.syncPath}`).toBe(`${WS_BASE}/sync`)
     expect(r.def).toMatchObject({ workspace: 'example-project', project: 'example-project-platform', agentContext: 'cto', secretEnv: 'WS_DEV_FEEDBACK_INTERNAL_SECRET', baseUrlEnv: 'WS_DEV_FEEDBACK_BASE_URL', bearerEnv: 'WS_DEV_FEEDBACK_ANON_KEY' })
     expect(r.headers).toEqual({ Authorization: 'Bearer ws-anon', apikey: 'ws-anon' })
   })
   it('WS_DEV_FEEDBACK_BASE_URL is trimmed; anon key is optional', () => {
-    const r = resolveInstance(WEIGHT_SUPPLY_INSTANCE, { WS_DEV_FEEDBACK_INTERNAL_SECRET: 's', WS_DEV_FEEDBACK_BASE_URL: 'https://x.test/fn/' })!
+    const r = resolveInstance(EXAMPLE_PROJECT_INSTANCE, { WS_DEV_FEEDBACK_INTERNAL_SECRET: 's', WS_DEV_FEEDBACK_BASE_URL: 'https://x.test/fn/' })!
     expect(r.baseUrl).toBe('https://x.test/fn')
     expect(r.headers).toEqual({})
   })
@@ -564,7 +564,7 @@ describe('runDevFeedbackBridge — example-project instance', () => {
 
       const obj = getDb().prepare(`SELECT id, title, description, workspace, project, agent_context, dev_feedback_source FROM objectives WHERE dev_feedback_uuid = ?`).get(WS_ITEM.id) as any
       expect(obj).toMatchObject({ title: '[bug] Checkout total wrong', workspace: 'example-project', project: 'example-project-platform', agent_context: 'cto', dev_feedback_source: 'example-project' })
-      expect(obj.description).toContain('**Submitted by:** Test Admin <test-admin@weightsupply.com>')
+      expect(obj.description).toContain('**Submitted by:** Test Admin <test-admin@exampleproject.com>')
       expect(obj.description).toContain(`**Screenshot:** ${WS_ITEM.screenshot_url}`)
 
       const sync = calls.find((c) => c.url === `${WS_BASE}/sync`)!

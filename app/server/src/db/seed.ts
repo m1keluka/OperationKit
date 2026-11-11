@@ -16,12 +16,12 @@ async function seed() {
     process.exit(2)
   }
   const users = [
-    { username: 'mike', password: SEED_PASSWORD, role: 'admin', workspaces: [
+    { username: 'operator', password: SEED_PASSWORD, role: 'admin', workspaces: [
       { workspace: 'example', role: 'admin' },
       { workspace: 'example-project', role: 'admin' },
       { workspace: 'personal', role: 'admin' },
     ]},
-    { username: 'ava', password: SEED_PASSWORD, role: 'member', workspaces: [
+    { username: 'casey', password: SEED_PASSWORD, role: 'member', workspaces: [
       { workspace: 'example', role: 'member' },
     ]},
   ]

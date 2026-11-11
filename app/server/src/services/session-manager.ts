@@ -93,7 +93,7 @@ let userSetup = false
 export function ensureUser() {
   if (userSetup) return
   // The server process runs git as root, but the project repos under
-  // /home/operator/projects are owned by mike. Without this, every `git -C
+  // /home/operator/projects are owned by operator. Without this, every `git -C
   // <projectDir>` that ensureWorktree runs as root is rejected with
   // "fatal: detected dubious ownership", ensureWorktree throws, and worktree
   // isolation FAILS OPEN (the session spawns in the live checkout — the exact

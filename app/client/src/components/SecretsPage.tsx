@@ -42,6 +42,7 @@ import {
 import { SecretRow } from './secrets/SecretRow'
 import { SecretModal } from './secrets/SecretModal'
 import { VersionHistoryModal } from './secrets/VersionHistoryModal'
+import { AuditLogPanel } from './secrets/AuditLogPanel'
 
 export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth()
@@ -206,7 +207,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
           <div>
             {!embedded && <h1 className="text-xl font-semibold text-fg-0">Secrets</h1>}
             <p className={embedded ? 'text-xs text-fg-3' : 'mt-1 text-xs text-fg-3'}>
-              Scoped, encrypted-at-rest secrets. Values are never shown — type a new one to change it.
+              Scoped, encrypted-at-rest secrets. Values are write-only: never shown after saving — rotate to change one.
             </p>
             {!loading && (
               <p className="mt-1 text-xs text-fg-2" data-testid="secret-count">
@@ -293,6 +294,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
                 <th className="px-3 py-2 font-medium">Value</th>
                 <th className="px-3 py-2 font-medium">Version</th>
                 <th className="px-3 py-2 font-medium">Updated</th>
+                <th className="px-3 py-2 font-medium">Last used</th>
                 <th className="px-3 py-2 font-medium text-right">Actions</th>
               </tr>
             </thead>
@@ -305,12 +307,13 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
                     <td className="px-3 py-2"><Skeleton className="h-4 w-16" /></td>
                     <td className="px-3 py-2"><Skeleton className="h-4 w-8" /></td>
                     <td className="px-3 py-2"><Skeleton className="h-4 w-24" /></td>
+                    <td className="px-3 py-2"><Skeleton className="h-4 w-24" /></td>
                     <td className="px-3 py-2"><div className="flex justify-end gap-2"><Skeleton className="h-4 w-8" /><Skeleton className="h-4 w-10" /></div></td>
                   </tr>
                 ))
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-sm text-fg-3">
+                  <td colSpan={7} className="px-3 py-8 text-center text-sm text-fg-3">
                     {isAllScopes ? 'No secrets yet. Click "New" to add one.' : 'No secrets at this scope. Click "New" to add one.'}
                   </td>
                 </tr>
@@ -333,6 +336,9 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
             </tbody>
           </table>
         </div>
+
+        {/* obj 900498 — append-only audit log of every create/rotate/delete/use/reveal attempt. Admin only. */}
+        {isGlobalAdmin && <AuditLogPanel refreshToken={secrets} />}
       </div>
 
       {modalOpen && (

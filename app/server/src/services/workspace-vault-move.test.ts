@@ -29,7 +29,7 @@ describe('collisionName', () => {
 describe('moveVaultTree', () => {
   beforeEach(() => {
     w('src/decisions/a.md', 'alpha')
-    w('src/data/linkedin-connections-2026-09-03/Connections.csv', 'id,name\n1,mike\n')
+    w('src/data/linkedin-connections-2026-09-03/Connections.csv', 'id,name\n1,operator\n')
     w('src/shared.md', 'SOURCE version')
     w('src/same.md', 'identical')
     w('dest/shared.md', 'DEST version — newer')
@@ -53,7 +53,7 @@ describe('moveVaultTree', () => {
     const plan = moveVaultTree(path.join(root, 'src'), path.join(root, 'dest'), 'example', { apply: true })
     const r = (p: string) => fs.readFileSync(path.join(root, 'dest', p), 'utf8')
     expect(r('decisions/a.md')).toBe('alpha')
-    expect(r('data/linkedin-connections-2026-09-03/Connections.csv')).toBe('id,name\n1,mike\n')
+    expect(r('data/linkedin-connections-2026-09-03/Connections.csv')).toBe('id,name\n1,operator\n')
     // The destination's own file is untouched...
     expect(r('shared.md')).toBe('DEST version — newer')
     // ...and the source's version is preserved beside it, not lost.

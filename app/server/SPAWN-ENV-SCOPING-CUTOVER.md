@@ -1,11 +1,11 @@
 # Spawn-Env Scoping — Cutover Runbook (obj-2202 / onboarding gate B1–B4)
 
-**Audience:** Mike (or an admin acting on his explicit go-ahead).
+**Audience:** Operator (or an admin acting on his explicit go-ahead).
 **Status of the code that ships with this doc:** the refactor is **live but DORMANT**.
 With the committed defaults, **every session's env is byte-for-byte identical to
 before** (proven by `app/server/src/services/session-spawn-env.test.ts`). Nothing
 in this runbook has been executed. Each step below is **irreversible and
-Mike-gated** — do them in order, verifying between each.
+Operator-gated** — do them in order, verifying between each.
 
 > ⚠️ These workers (including the ones that built this) run **inside** the platform
 > they change. A wrong cutover step bricks the platform. Do not batch steps. Do not
@@ -34,7 +34,7 @@ Mike-gated** — do them in order, verifying between each.
   selected by `objective.workspace`. It **fails CLOSED** — returns `''` when the
   workspace has no provisioned token, so a member session gets **no**
   `DOPPLER_TOKEN`, never the admin token. **The map is EMPTY today** (no tokens
-  minted — that is Step 1 below, Mike-gated), so the seam returns `''` and nothing
+  minted — that is Step 1 below, Operator-gated), so the seam returns `''` and nothing
   changes until both a token is provisioned AND the flag is flipped.
 - The W4 extension hook (`userGitIdentityEnv`) is **now FILLED** (obj-2221): for an
   objective whose owner has a linked GitHub token it injects per-user identity env;
@@ -111,7 +111,7 @@ linked a token — zero keys, byte-identical env, for every objective today.)
 > `src/services/session-user-git-identity.test.ts` (the "E2E ATTRIBUTION PROOF"
 > block), which constructs the exact `GH_TOKEN` + `GIT_AUTHOR_*`/`GIT_COMMITTER_*`
 > env `buildSpawnEnv` hands a spawned child for a linked owner. Step 3 above is the
-> one-time live confirmation Mike/Eva run after merge.
+> one-time live confirmation Operator/Eva run after merge.
 
 ### Rollback / kill
 
@@ -143,7 +143,7 @@ linked a token — zero keys, byte-identical env, for every objective today.)
 **The code is already implemented (obj-2411).** `getScopedDopplerToken` resolves
 from the encrypted `doppler_scoped_tokens` table via
 `services/doppler-scoped-tokens.ts`; the only thing missing is the **rows** (the
-minted tokens). This step mints them. It is **irreversible-ish and Mike-gated**: it
+minted tokens). This step mints them. It is **irreversible-ish and Operator-gated**: it
 creates real Doppler service tokens and writes real DB rows.
 
 The map is **table-based**, not a host file — one encrypted row per
@@ -161,7 +161,7 @@ mounted into any member session.
    cd app/server
    tsx scripts/provision-scoped-doppler-tokens.ts            # prints exactly what it WOULD mint + store
    ```
-3. **Mint live (Mike-gated — requires BOTH the flag and the env guard):**
+3. **Mint live (Operator-gated — requires BOTH the flag and the env guard):**
    ```bash
    cd app/server
    # doppler CLI must be logged in as an identity that can create service tokens;

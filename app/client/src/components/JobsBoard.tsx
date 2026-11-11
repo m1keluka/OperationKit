@@ -1,9 +1,11 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { ExternalLink, AlertCircle, Clock, Play, Pause, Inbox, CheckCircle2, Loader2, Target, Plus } from 'lucide-react'
 import type { Objective, ObjectiveStatus, Workspace } from '@operationkit/shared'
 import { useObjectives } from '../hooks/useObjectives'
 import { useRoutines, isAutoPaused, type RoutineSummary, type StrategyOption, type StrategyJobInput } from '../hooks/useRoutines'
 import { RoutineAutoPauseBanner } from './RoutineAutoPauseBanner'
+import { HostCronJobs } from './jobs/HostCronJobs'
+import { HOST_CRON_ANCHOR } from '../lib/routes'
 import { useWorkspaces } from '../hooks/useWorkspaces'
 import { SessionViewer } from './SessionViewer'
 import { relativeTime, relativeFuture } from '../lib/time'
@@ -78,6 +80,13 @@ export function JobsBoard(_props: JobsBoardProps) {
   const [sessionObjective, setSessionObjective] = useState<Objective | null>(null)
   const [wsFilter, setWsFilter] = useState<string>(ALL)
   const [authoring, setAuthoring] = useState(false)
+
+  // /settings/platform redirects to /jobs#host-cron (obj 900495): land on that section.
+  useEffect(() => {
+    if (window.location.hash !== '#' + HOST_CRON_ANCHOR) return
+    const t = setTimeout(() => document.getElementById(HOST_CRON_ANCHOR)?.scrollIntoView({ block: 'start' }), 50)
+    return () => clearTimeout(t)
+  }, [])
 
   // jobs = routine-spawned objectives. Newest run first within each lane.
   const allJobs = useMemo(
@@ -358,6 +367,9 @@ export function JobsBoard(_props: JobsBoardProps) {
         <h3 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-fg-3">
           <Clock className="h-3.5 w-3.5" strokeWidth={1.75} /> Scheduled routines
         </h3>
+        <p className="max-w-3xl text-[12.5px] leading-snug text-fg-2">
+          Recurring work the app schedules itself. Each run opens a card in the lanes below.
+        </p>
         <DataTable
           columns={routineColumns}
           rows={visibleRoutines}
@@ -375,6 +387,9 @@ export function JobsBoard(_props: JobsBoardProps) {
           }}
         />
       </section>
+
+      {/* ── Host cron (obj 900495; was Settings → Platform). ── */}
+      <HostCronJobs />
 
       {/* ── Outcome lanes — Running / Needs Review / Complete. ── */}
       {LANE_ORDER.map(lane => {
