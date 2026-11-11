@@ -63,12 +63,12 @@ Worker-tick helpers now live in `poller-worker.ts`: knowledge/scope scans, limit
 | File | ~LOC | Split |
 |---|---:|---|
 | `ConfigPage.tsx` | 1900 | **done** — tab shell + `config/{Workspaces,Users,AgentsSkills,Assignments,Cron,Tools}Tab.tsx`. Skill Graph stays `SkillGraphTab` |
-| `LoopsPage.tsx` | 1140 | **done** — page shell + `loops/{types,NewLoopModal,LoopDetailModal,LoopCard,Lane,BulkActionBar,Scratchpad,ReviewQueue}` |
+| `LoopsPage.tsx` | 1140 | **done** — page shell + `loops/{types,NewLoopModal,LoopDetailModal,LoopCard,Lane,BulkActionBar,Scratchpad,ReviewQueue}`  _(page removed, obj 900543)_ |
 | `ObjectiveModal.tsx` | 1125 | **done** — state/submit shell + `objective-modal/{GoalDrafter,AgentPicker,TypeAndAttachments,PlacementFields,FlagsRoutingHistory,FooterActions}` |
 | `SecretsPage.tsx` | 1040 | **done** — page shell + `secrets/{scope,SecretRow,SecretModal,VersionHistoryModal}` |
 | `SessionViewer.tsx` | 895 | **done** — drawer shell + `session-viewer/{types,ViewerHeader,CorrectionPanel,BriefPanel,ThreadPane,Composer}` |
 | `AccountSettings.tsx` | 870 | **done** — page shell + `account-settings/{Github,GoogleWorkspace,YourAssistant,MySecrets}Section` |
-| `DevelopmentPage.tsx` | 825 | **done** — page shell + `development/{types,BoardToolbar,boardColumns,KeyboardHelpModal}` (drawer/chips/changelog already extracted) |
+| `DevelopmentPage.tsx` | 825 | **done** — page shell + `development/{types,BoardToolbar,boardColumns,KeyboardHelpModal}` (drawer/chips/changelog already extracted)  _(page removed, obj 900543)_ |
 
 Out of Phase 1 originally: replacing the pathname ternary with `react-router-dom` (behavior: 404s, deep links) — done as the last Phase 1 item.
 

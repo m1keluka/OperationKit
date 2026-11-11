@@ -304,7 +304,7 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
           >
             <Search className="h-4 w-4" />
             <span className="hidden md:inline">Search</span>
-            <span className="hidden font-mono text-[10.5px] text-fg-3 md:inline">/</span>
+            <span className="hidden font-mono text-[12px] text-fg-3 md:inline">/</span>
           </button>
           <button
             type="button"
@@ -350,7 +350,7 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
         onDelete={deleteProject}
       />
       <div className="flex items-center gap-2 overflow-x-auto border-b border-line px-4 py-2">
-        <span className="shrink-0 text-[11px] font-medium uppercase tracking-[0.1em] text-fg-3">Owner</span>
+        <span className="shrink-0 text-[12px] font-medium uppercase tracking-[0.1em] text-fg-3">Owner</span>
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
@@ -388,10 +388,10 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
         {columns.map(status => (
           <section key={status} className="cc-ws-col max-h-full w-[300px] shrink-0 overflow-hidden">
             <div className="flex items-center px-3 py-2">
-              <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-fg-2">
+              <span className="text-[12px] font-medium uppercase tracking-[0.1em] text-fg-2">
                 {STATUS_META[status].label}
               </span>
-              <span className="ml-auto font-mono text-[11px] text-fg-3">{grouped[status].length}</span>
+              <span className="ml-auto font-mono text-[12px] text-fg-3">{grouped[status].length}</span>
             </div>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-3">
               {grouped[status].map(obj => (
@@ -408,13 +408,13 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
               {status === 'done' && (
                 <>
                   {doneLoading && (
-                    <div className="px-2 py-3 text-center text-[11px] text-fg-3">Loading done…</div>
+                    <div className="px-2 py-3 text-center text-[12px] text-fg-3">Loading done…</div>
                   )}
                   {!doneLoading && (doneHasMore || !doneLoaded) && (
                     <button
                       type="button"
                       onClick={() => loadMoreDone()}
-                      className="w-full rounded-md border border-dashed border-line px-3 py-2 text-[11px] text-fg-2 hover:border-line-strong hover:text-fg-0"
+                      className="w-full rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-2 hover:border-line-strong hover:text-fg-0"
                     >
                       {doneLoaded ? 'Load more done' : 'Load done'}
                     </button>
@@ -422,7 +422,7 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
                   <button
                     type="button"
                     onClick={() => navigate('/archive')}
-                    className="w-full rounded-md px-3 py-2 text-[11px] text-fg-2 hover:text-fg-0"
+                    className="w-full rounded-md px-3 py-2 text-[12px] text-fg-2 hover:text-fg-0"
                   >
                     View full archive
                   </button>

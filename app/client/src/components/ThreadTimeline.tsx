@@ -59,7 +59,7 @@ function ActionsGap({
             onClick={onToggle}
             className="mb-1 flex w-full items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-left text-xs text-fg-2 hover:text-fg-1"
           >
-            <span className="text-[10px] text-fg-3 transition-transform rotate-90">{'▸'}</span>
+            <span className="text-[12px] text-fg-3 transition-transform rotate-90">{'▸'}</span>
             <span className="font-medium">Collapse {label} action{label !== 1 ? 's' : ''}</span>
           </button>
         )}
@@ -79,9 +79,9 @@ function ActionsGap({
         onClick={onToggle}
         className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-left text-xs text-fg-2 hover:bg-surface-3 hover:text-fg-1"
       >
-        <span className="text-[10px] text-fg-3">{'▸'}</span>
+        <span className="text-[12px] text-fg-3">{'▸'}</span>
         <span className="font-medium">Expand to show {label} action{label !== 1 ? 's' : ''}</span>
-        {loading && <span className="ml-auto text-[10px] text-fg-3">Loading…</span>}
+        {loading && <span className="ml-auto text-[12px] text-fg-3">Loading…</span>}
       </button>
     </div>
   )
@@ -97,7 +97,7 @@ function Divider({ seg }: { seg: Extract<ThreadSegment, { type: 'divider' }> }) 
     return (
       <div className="my-3 flex items-center gap-2" title={seg.text}>
         <div className="h-px flex-1 bg-line" />
-        <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-wider text-fg-3">
+        <span className="shrink-0 text-[12px] uppercase text-fg-3 font-semibold tracking-[0.06em]">
           {label}
         </span>
         <div className="h-px flex-1 bg-line" />
@@ -122,7 +122,7 @@ function Divider({ seg }: { seg: Extract<ThreadSegment, { type: 'divider' }> }) 
       {seg.queued && (
         // obj 900412: sent while the agent was mid-task. It was NOT restarted;
         // it reads this as soon as the current step finishes.
-        <span className="font-mono text-[10.5px] text-fg-3">
+        <span className="font-mono text-[12px] text-fg-3">
           Agent is mid-task. It will read this when the current step finishes.
         </span>
       )}
@@ -136,7 +136,7 @@ function Question({ seg }: { seg: Extract<ThreadSegment, { type: 'question' }> }
   return (
     <div className="my-1 flex justify-start">
       <div className="w-full max-w-full rounded-lg border border-status-working/30 bg-status-working/[0.06] px-4 py-3">
-        <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-status-working">Awaiting</div>
+        <div className="mb-1 text-[12px] font-medium uppercase tracking-wider text-status-working">Awaiting</div>
         <div
           className="cc-prose overflow-hidden break-words"
           dangerouslySetInnerHTML={{ __html: renderMarkdown(seg.text) }}
@@ -414,7 +414,7 @@ export function ThreadTimeline({ objectiveId, status, onStatus, scrollContainerR
         <div className="flex justify-end">
           <button
             onClick={toggleAll}
-            className="rounded px-2 py-0.5 text-[11px] text-fg-3 hover:text-fg-1"
+            className="rounded px-2 py-0.5 text-[12px] text-fg-3 hover:text-fg-1"
           >
             {allExpanded ? 'Collapse all' : 'Expand all'}
           </button>

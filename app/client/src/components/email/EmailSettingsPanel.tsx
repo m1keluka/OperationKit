@@ -53,7 +53,7 @@ function Field({ label, hint, children, htmlFor }: { label: string; hint?: React
     <div className="min-w-0 space-y-1">
       <label htmlFor={htmlFor} className="block text-[12px] font-medium text-fg-1">{label}</label>
       {children}
-      {hint && <p className="text-[11px] leading-snug text-fg-3">{hint}</p>}
+      {hint && <p className="text-[12px] leading-snug text-fg-3">{hint}</p>}
     </div>
   )
 }
@@ -213,7 +213,7 @@ export function EmailSettingsPanel({ onChange, className }: EmailSettingsPanelPr
                     <span className="text-[13px] font-medium text-fg-0">{PROVIDER_LABEL[p.id]}</span>
                     {setup.has_credential[p.id] && <Badge tone="neutral">key saved</Badge>}
                   </div>
-                  <p className="mt-1 text-[11.5px] leading-snug text-fg-3">{p.blurb}</p>
+                  <p className={cn('mt-1 text-[12px] leading-snug', active ? 'text-fg-1' : 'text-fg-2')}>{p.blurb}</p>
                 </button>
               )
             })}
@@ -304,7 +304,7 @@ export function EmailSettingsPanel({ onChange, className }: EmailSettingsPanelPr
                 Send test email
               </Button>
             </div>
-            {dirty && <p className="text-[11.5px] text-fg-3">Save your changes first.</p>}
+            {dirty && <p className="text-[12px] text-fg-3">Save your changes first.</p>}
             {testMsg && <Alert tone={testMsg.tone} title={testMsg.tone === 'verify' ? 'Sent' : 'Test failed'}>{testMsg.text}</Alert>}
             {!testMsg && setup.last_test && (
               <p className={cn('flex items-center gap-1.5 text-[12px]', setup.last_test.ok ? 'text-signal-verify' : 'text-signal-alarm')}>
@@ -347,7 +347,7 @@ function DnsHelpCard({ dns }: { dns: DnsHelp }) {
                 <code className="min-w-0 flex-1 break-all font-mono text-[12px] text-fg-1">{r.value}</code>
                 {!r.value.includes('…') && !r.value.includes('<') && <CopyButton text={r.value} label="Copy value" />}
               </div>
-              <p className="mt-1 text-[11.5px] text-fg-3">{r.note}</p>
+              <p className="mt-1 text-[12px] text-fg-3">{r.note}</p>
             </div>
           ))}
         </div>

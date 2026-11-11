@@ -195,7 +195,7 @@ export function CleanupPanel({
             <h4 id="cleanup-needs" className="flex items-center gap-2 font-display text-[13.5px] font-semibold tracking-[-0.01em] text-fg-0">
               <Eye className="h-4 w-4 text-signal-amber" aria-hidden="true" />
               Needs a look
-              <span className="font-mono text-[11px] font-normal text-fg-3">{report.needs_human.length}</span>
+              <span className="font-mono text-[12px] font-normal text-fg-3">{report.needs_human.length}</span>
             </h4>
             {report.needs_human.length === 0
               ? <p className="text-[13px] text-fg-2">Nothing needs your attention.</p>
@@ -206,7 +206,7 @@ export function CleanupPanel({
             <h4 id="cleanup-fixed" className="flex items-center gap-2 font-display text-[13.5px] font-semibold tracking-[-0.01em] text-fg-0">
               <CheckCircle2 className="h-4 w-4 text-signal-verify" aria-hidden="true" />
               Fixed automatically
-              <span className="font-mono text-[11px] font-normal text-fg-3">{report.fixed.length}</span>
+              <span className="font-mono text-[12px] font-normal text-fg-3">{report.fixed.length}</span>
             </h4>
             {report.fixed.length === 0
               ? <p className="text-[13px] text-fg-2">Nothing needed fixing.</p>
@@ -219,7 +219,7 @@ export function CleanupPanel({
         <section aria-labelledby="cleanup-schedule" className="flex flex-col gap-2 border-t border-line-soft pt-4">
           <h4 id="cleanup-schedule" className="font-display text-[13.5px] font-semibold tracking-[-0.01em] text-fg-0">Schedule</h4>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-[11.5px] text-fg-3">
+            <label className="flex flex-col gap-1 text-[12px] text-fg-3">
               How often
               <select value={settings.lint_schedule} disabled={!isAdmin || saving}
                 onChange={e => { void saveSettings({ lint_schedule: e.target.value as LintSchedule }) }} className={FIELD}>
@@ -227,7 +227,7 @@ export function CleanupPanel({
               </select>
             </label>
             {settings.lint_schedule === 'nightly' && (
-              <label className="flex flex-col gap-1 text-[11.5px] text-fg-3">
+              <label className="flex flex-col gap-1 text-[12px] text-fg-3">
                 At
                 <select value={settings.lint_hour_utc} disabled={!isAdmin || saving}
                   onChange={e => { void saveSettings({ lint_hour_utc: Number(e.target.value) }) }} className={FIELD}>

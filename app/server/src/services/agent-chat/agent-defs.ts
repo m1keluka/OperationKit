@@ -41,10 +41,12 @@ export interface ChatAgent {
   schedules: AgentSchedule[]
   version: string | null
   author: string | null
-  /** Where it came from: an agent file on disk, or the built-in demo. */
-  source: 'file' | 'demo'
+  /** Where it came from: an agent file on disk, the built-in demo, or an agent that ships with the app (obj 900556). */
+  source: AgentSource
   file: string
 }
+
+export type AgentSource = 'file' | 'demo' | 'builtin'
 
 export interface AgentLoadProblem { slug: string; file: string; errors: string[] }
 
@@ -52,6 +54,17 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const DEMO_DIR = path.join(HERE, 'demo')
 export const DEMO_AGENT_SLUG = 'demo-assistant'
+/**
+ * Agents that ship with the app and are listed on every install (obj 900556):
+ * <this dir>/builtin/<slug>/agent.md. An agent file on disk with the same slug
+ * replaces the built-in one, so an install can customise it. Switch them off
+ * with AGENT_CHAT_BUILTINS=0.
+ */
+export const BUILTIN_DIR = path.join(HERE, 'builtin')
+
+export function builtinsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !/^(0|false|off|no)$/i.test((env.AGENT_CHAT_BUILTINS || '').trim())
+}
 
 export function agentsDir(env: NodeJS.ProcessEnv = process.env): string {
   return (env.AGENT_FILES_DIR || '').trim() || path.join(AI_WORKSPACE_DIR, 'agents')
@@ -95,7 +108,7 @@ export function normaliseKnowledgeFolder(raw: string): string | null {
 /** Validate + normalise a parsed agent definition. */
 export function toChatAgent(
   data: Record<string, YamlValue>,
-  opts: { slugHint: string; file: string; body?: string; source?: 'file' | 'demo' },
+  opts: { slugHint: string; file: string; body?: string; source?: AgentSource },
 ): { agent: ChatAgent | null; errors: string[]; warnings: string[] } {
   const errors: string[] = []
   const warnings: string[] = []
@@ -174,7 +187,7 @@ export function toChatAgent(
 }
 
 /** Parse one agent file's text (agent.yaml or agent.md). */
-export function parseAgentText(text: string, file: string, slugHint: string, source: 'file' | 'demo' = 'file') {
+export function parseAgentText(text: string, file: string, slugHint: string, source: AgentSource = 'file') {
   try {
     if (file.endsWith('.md')) {
       const fm = splitFrontMatter(text)
@@ -187,7 +200,7 @@ export function parseAgentText(text: string, file: string, slugHint: string, sou
   }
 }
 
-function readAgentDir(dir: string, slug: string, source: 'file' | 'demo') {
+function readAgentDir(dir: string, slug: string, source: AgentSource) {
   for (const name of ['agent.yaml', 'agent.yml', 'agent.md']) {
     const file = path.join(dir, name)
     let text: string
@@ -207,7 +220,7 @@ export function demoEnabled(env: NodeJS.ProcessEnv = process.env, setting?: stri
 }
 
 /** Every agent on this install, plus the files that failed to load. */
-export function loadChatAgents(opts: { env?: NodeJS.ProcessEnv; includeDemo?: boolean } = {}): {
+export function loadChatAgents(opts: { env?: NodeJS.ProcessEnv; includeDemo?: boolean; includeBuiltins?: boolean } = {}): {
   agents: ChatAgent[]
   problems: AgentLoadProblem[]
 } {
@@ -226,6 +239,16 @@ export function loadChatAgents(opts: { env?: NodeJS.ProcessEnv; includeDemo?: bo
     if (!r) continue
     if (r.agent) agents.push(r.agent)
     else problems.push({ slug: e.name, file: path.join(dir, e.name), errors: r.errors })
+  }
+  if (opts.includeBuiltins) {
+    let builtins: fs.Dirent[] = []
+    try { builtins = fs.readdirSync(BUILTIN_DIR, { withFileTypes: true }) } catch { /* none shipped */ }
+    for (const e of builtins.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!e.isDirectory() || !SLUG_RE.test(e.name) || agents.some(a => a.slug === e.name)) continue
+      const r = readAgentDir(path.join(BUILTIN_DIR, e.name), e.name, 'builtin')
+      if (r?.agent) agents.push(r.agent)
+      else if (r) problems.push({ slug: e.name, file: path.join(BUILTIN_DIR, e.name), errors: r.errors })
+    }
   }
   if (opts.includeDemo && !agents.some(a => a.slug === DEMO_AGENT_SLUG)) {
     const r = readAgentDir(path.join(DEMO_DIR, 'agents', DEMO_AGENT_SLUG), DEMO_AGENT_SLUG, 'demo')

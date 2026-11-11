@@ -16,6 +16,7 @@ import { isContentOwner } from '../services/content-owners.js'
 import { CF_ACCESS_HEADER, CF_ACCESS_LOGOUT_PATH, getCfAccessVerifier } from '../lib/cf-access.js'
 import { cfAccessIdentifies } from '../lib/cf-access-identity.js'
 import type { LoginRequest, TokenResponse, User } from '@operationkit/shared'
+import { resolveBrandName } from '../services/branding-config.js'
 import emailLinkRouter from './auth-email-link.js'
 
 const TOKEN_EXPIRES_IN_SEC = 7 * 24 * 60 * 60
@@ -237,8 +238,8 @@ router.post('/cloudflare-access', async (req, res) => {
     console.warn(`[cf-access] verified email has ${rows.length === 0 ? 'no' : 'more than one'} matching user`)
     res.status(403).json({
       error: rows.length === 0
-        ? 'There is no Operation Kit account for this email.'
-        : 'More than one Operation Kit account uses this email. Ask your admin to fix it.',
+        ? `There is no ${resolveBrandName()} account for this email.`
+        : `More than one ${resolveBrandName()} account uses this email. Ask your admin to fix it.`,
       code: rows.length === 0 ? 'no_account' : 'ambiguous_account',
       email: result.email,
       logout_url: CF_ACCESS_LOGOUT_PATH,

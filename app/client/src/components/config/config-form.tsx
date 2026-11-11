@@ -14,7 +14,7 @@ export const selectCls =
 
 export function SectionLabel({ icon, children, className }: { icon?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <div className={cn('mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-fg-3', className)}>
+    <div className={cn('mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wider text-fg-3', className)}>
       {icon}{children}
     </div>
   )

@@ -48,7 +48,7 @@ export function HostCronJobs({ initial }: { initial?: CronJob[] } = {}) {
     <section id={HOST_CRON_ANCHOR} aria-labelledby="host-cron-heading" className="mb-6 scroll-mt-4 space-y-2">
       <h3
         id="host-cron-heading"
-        className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-fg-3"
+        className="flex items-center gap-2 text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]"
       >
         <Server className="h-3.5 w-3.5" strokeWidth={1.75} /> Host cron jobs
         {!loading && <span className="font-mono text-fg-3">{jobs.length}</span>}
@@ -79,10 +79,10 @@ export function HostCronJobs({ initial }: { initial?: CronJob[] } = {}) {
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-fg-3">
                     <span>{job.scheduleHuman}</span>
                     {job.timezone !== 'UTC' && <Badge tone="neutral" mono>{job.timezone}</Badge>}
-                    <span className="font-mono text-[11px]">{job.schedule}</span>
+                    <span className="font-mono text-[12px]">{job.schedule}</span>
                   </div>
                 </div>
-                <div className="shrink-0 text-left font-mono text-[11px] text-fg-3 sm:text-right">
+                <div className="shrink-0 text-left font-mono text-[12px] text-fg-3 sm:text-right">
                   <div>{job.scriptPath.split('/').pop()}</div>
                   {job.logSize > 0 && <div className="mt-0.5">Log: {formatBytes(job.logSize)}</div>}
                 </div>
@@ -97,7 +97,7 @@ export function HostCronJobs({ initial }: { initial?: CronJob[] } = {}) {
                     {expandedLog === job.name ? 'Hide log' : 'Show log'} ({job.logTail.split('\n').length} lines)
                   </button>
                   {expandedLog === job.name && (
-                    <pre className="max-h-80 overflow-auto border-t border-line bg-surface-1 px-4 py-3 font-mono text-[11px] leading-relaxed text-fg-2">
+                    <pre className="max-h-80 overflow-auto border-t border-line bg-surface-1 px-4 py-3 font-mono text-[12px] leading-relaxed text-fg-2">
                       {job.logTail}
                     </pre>
                   )}

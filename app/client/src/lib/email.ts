@@ -66,14 +66,14 @@ export const emailApi = {
 
 /** The "have your coding agent set up email" prompt (Email panel + checklist). */
 export function emailAgentPrompt(siteUrl: string): string {
-  const site = siteUrl || 'https://<your Operation Kit site>'
+  const site = siteUrl || 'https://<your site>'
   return [
-    `Set up transactional email for my Operation Kit install at ${site}.`,
+    `Set up transactional email for my self-hosted install at ${site}.`,
     '',
     'Goal: the app sends its own sign-in links, user invites and password-reset emails from my domain, using my own email provider account (Resend, Postmark, or any SMTP service). No shared or third-party relay.',
     '',
     'Steps:',
-    '1. Read docs/email.md in the Operation Kit repo.',
+    '1. Read docs/email.md in the repository this install runs from.',
     '2. Ask me which provider I use (or recommend one) and which address mail should come from (e.g. no-reply@mydomain.com).',
     '3. Tell me exactly which DNS records to add for SPF, DKIM and DMARC (use GET /api/admin/email/dns?provider=<provider>&domain=<domain> to see what is published now). If you have access to my DNS provider, add them yourself and wait until the provider shows the domain as verified.',
     '4. Configure it with PUT /api/admin/email (body: provider, from_name, from_address, app_url, smtp{host,port,security,username} for SMTP, and credential = the API key / SMTP password). Authenticate with my personal API key from Settings → You as a Bearer token. If you do not have that key, tell me what to paste into Settings → Email instead.',

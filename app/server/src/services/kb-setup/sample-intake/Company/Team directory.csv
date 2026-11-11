@@ -1,0 +1,5 @@
+Name,Role,Email,Started,Reports to
+Maya Lindqvist,Founder & creative director,maya@lumenlark.example,2019-02-01,
+Theo Okonkwo,Senior designer,theo@lumenlark.example,2021-06-14,Maya Lindqvist
+Priya Raman,Project manager,priya@lumenlark.example,2023-01-09,Maya Lindqvist
+Jonas Feld,Contract web developer,jonas@feld.example,2024-03-01,Priya Raman

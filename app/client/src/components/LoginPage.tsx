@@ -43,7 +43,7 @@ export function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <BrandMark branding={branding} />
-          <p className="mt-2 text-sm text-fg-2">AI Session Management</p>
+          <p className="mt-3 text-[15px] text-fg-1">Sign in to continue</p>
         </div>
 
         {linkToken ? (
@@ -52,15 +52,15 @@ export function LoginPage() {
           <EmailLinkRequest onBack={() => setMode('password')} />
         ) : (
         <>
-        <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-border bg-surface-raised p-6">
+                <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-line bg-surface-1 p-6">
           {error && (
-            <div className="rounded bg-signal-alarm/10 px-3 py-2 text-sm text-signal-alarm">
+            <div className="rounded-md border border-signal-alarm px-3 py-2 text-sm text-signal-alarm">
               {error}
             </div>
           )}
 
           <div>
-            <label htmlFor="username" className="mb-1 block text-sm text-fg-1">
+            <label htmlFor="username" className="mb-1.5 block text-[13px] font-medium text-fg-1">
               Username
             </label>
             <input
@@ -68,7 +68,7 @@ export function LoginPage() {
               type="text"
               value={username}
               onChange={e => setUsername(e.target.value)}
-              className="w-full rounded border border-border bg-surface min-h-[44px] px-3 py-2 text-fg-0 placeholder-fg-3 outline-none transition focus:border-accent focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="w-full rounded-md border border-line bg-surface-1 min-h-[44px] px-3 py-2 text-[15px] text-fg-0 placeholder:text-fg-3 outline-none transition focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
               placeholder="username"
               autoFocus
               required
@@ -76,7 +76,7 @@ export function LoginPage() {
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-1 block text-sm text-fg-1">
+            <label htmlFor="password" className="mb-1.5 block text-[13px] font-medium text-fg-1">
               Password
             </label>
             <input
@@ -84,7 +84,7 @@ export function LoginPage() {
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full rounded border border-border bg-surface min-h-[44px] px-3 py-2 text-fg-0 placeholder-fg-3 outline-none transition focus:border-accent focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="w-full rounded-md border border-line bg-surface-1 min-h-[44px] px-3 py-2 text-[15px] text-fg-0 placeholder:text-fg-3 outline-none transition focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
               placeholder="password"
               required
             />
@@ -93,7 +93,7 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="min-h-[44px] w-full rounded bg-accent py-2 text-sm font-medium text-accent-fg transition duration-150 hover:bg-accent-hover hover:shadow-md active:bg-accent-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-[44px] w-full rounded-md bg-accent py-2 text-[15px] font-semibold text-accent-fg transition duration-150 hover:bg-accent-hover active:bg-accent-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-1 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
@@ -108,6 +108,9 @@ export function LoginPage() {
           </button>
         )}
         </>
+        )}
+        {branding.powered_by && (
+          <p className="mt-6 text-center text-[12px] text-fg-3">Powered by {branding.default_name}</p>
         )}
       </div>
     </div>

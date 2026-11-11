@@ -44,7 +44,7 @@ export function Tabs({
           >
             {t.label}
             {typeof t.count === 'number' && (
-              <span className={cn('font-mono text-[11px]', active ? 'text-accent-hover' : 'text-fg-3')}>
+              <span className={cn('font-mono text-[12px]', active ? 'text-accent-hover' : 'text-fg-3')}>
                 {t.count}
               </span>
             )}

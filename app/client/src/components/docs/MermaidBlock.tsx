@@ -52,20 +52,20 @@ export const mermaidBlockSpec = createReactBlockSpec(
         <div className="my-2 w-full">
           <div ref={containerRef}>
             <div
-              className="mermaid-block flex justify-center rounded-lg border border-white/5 bg-black/20 p-3 overflow-x-auto"
+              className="mermaid-block flex justify-center rounded-lg border border-line bg-surface-1 p-3 overflow-x-auto"
               data-mermaid-source={source}
             />
           </div>
           <details
-            className="mt-1 text-xs text-gray-400"
+            className="mt-1 text-xs text-fg-2"
             open={showSource}
             onToggle={(e) => setShowSource((e.target as HTMLDetailsElement).open)}
           >
-            <summary className="cursor-pointer select-none text-[11px] text-gray-500 hover:text-gray-300">
+            <summary className="cursor-pointer select-none text-[12px] text-fg-2 hover:text-fg-0">
               Mermaid source
             </summary>
             <textarea
-              className="mt-1 w-full rounded border border-border bg-black/30 p-2 font-mono text-[11px] text-gray-200 focus:border-accent focus:outline-none"
+              className="mt-1 w-full rounded border border-border bg-surface-2 p-2 font-mono text-[12px] text-fg-0 focus:border-accent focus:outline-none"
               rows={Math.max(3, Math.min(12, draft.split('\n').length + 1))}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

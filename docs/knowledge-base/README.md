@@ -11,6 +11,8 @@ It follows a simple idea popularised by Andrej Karpathy (the "LLM wiki"): keep t
 
 You find it on the **Knowledge base** page (Docs in the menu): click **Import files** to add files, chats and calls, ask questions, browse the wiki and see the cleanup report.
 
+**Starting from a pile of existing files?** Use **Knowledge base → Set up**: drop in whole folders of documents, spreadsheets, slide decks, exports and notes, and the Knowledge Base Setup agent files them into people, companies & clients, projects, decisions, processes, products and a glossary — and asks you about anything it should not guess. See [How to set up your knowledge base](setup-agent.md).
+
 ---
 
 ## The five parts

@@ -7,12 +7,14 @@ import { cn } from './cn'
 type Tone = 'neutral' | 'accent' | 'verify' | 'amber' | 'alarm' | 'info'
 
 const TONE: Record<Tone, string> = {
-  neutral: 'border-line bg-surface-3 text-fg-2',
-  accent: 'border-[color:var(--accent-line)] bg-[var(--accent-tint)] text-accent-hover',
+  // neutral / accent / info are outlines on the card surface, like StatusPill —
+  // no lavender or greige fill (QA r2 #5, QA r3 #1)
+  neutral: 'border-line bg-surface-2 text-fg-2',
+  accent: 'border-[color:var(--accent-line)] bg-surface-2 text-accent-hover',
   verify: 'border-signal-verify/30 bg-signal-verify/10 text-signal-verify',
   amber: 'border-signal-amber/30 bg-signal-amber/10 text-signal-amber',
   alarm: 'border-signal-alarm/30 bg-signal-alarm/10 text-signal-alarm',
-  info: 'border-status-working/30 bg-status-working/10 text-status-working',
+  info: 'border-status-working/40 bg-surface-2 text-status-working',
 }
 
 export function Badge({
@@ -29,7 +31,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px] font-medium leading-none',
+        'inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[12px] font-medium leading-none',
         mono && 'font-mono tracking-[0.01em]',
         TONE[tone],
         className,
@@ -62,7 +64,7 @@ export function StatusPill({ status, className }: { status: PipelineStatus; clas
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border bg-surface-2 px-2 py-0.5 text-[11px] font-medium leading-none',
+        'inline-flex items-center gap-1.5 rounded-full border bg-surface-2 px-2 py-0.5 text-[12px] font-medium leading-none',
         s.ring,
         s.text,
         className,

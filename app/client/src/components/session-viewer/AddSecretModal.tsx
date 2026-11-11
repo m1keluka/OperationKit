@@ -58,7 +58,7 @@ export function AddSecretModal({ objectiveId, workspace, initialName = '', initi
         </div>
 
         <div className="space-y-1.5">
-          <label htmlFor="add-secret-name" className="text-[11px] font-medium uppercase tracking-wider text-fg-2">Name</label>
+          <label htmlFor="add-secret-name" className="text-[12px] font-medium uppercase tracking-wider text-fg-2">Name</label>
           <input
             id="add-secret-name"
             value={name}
@@ -70,13 +70,13 @@ export function AddSecretModal({ objectiveId, workspace, initialName = '', initi
             aria-invalid={!!name && !nameOk}
             className="min-h-[44px] w-full rounded-md border border-line bg-surface-1 px-3 py-2 font-mono text-base text-fg-0 placeholder:text-fg-3 transition-colors duration-base hover:border-line-strong focus:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:min-h-[36px] sm:text-[13px]"
           />
-          {name && !nameOk && <p className="text-[11.5px] text-flag-blocked">Use UPPER_SNAKE_CASE, at least two characters.</p>}
+          {name && !nameOk && <p className="text-[12px] text-flag-blocked">Use UPPER_SNAKE_CASE, at least two characters.</p>}
         </div>
 
         <SecretScopePicker id="add-secret-scope" value={scope} onChange={setScope} workspace={workspace} disabled={saving} />
 
         <div className="space-y-1.5">
-          <label htmlFor="add-secret-value" className="text-[11px] font-medium uppercase tracking-wider text-fg-2">Value</label>
+          <label htmlFor="add-secret-value" className="text-[12px] font-medium uppercase tracking-wider text-fg-2">Value</label>
           <MaskedSecretInput id="add-secret-value" value={value} onChange={setValue} autoFocus={!!initialName && !initialValue} disabled={saving} />
         </div>
 

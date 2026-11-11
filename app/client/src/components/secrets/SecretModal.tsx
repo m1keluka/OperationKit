@@ -263,7 +263,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
             </p>
             <ul className="mt-1.5 space-y-1">
               {fanout.map(r => (
-                <li key={r.slug} data-testid={`fanout-${r.ok ? 'ok' : 'fail'}-${r.slug}`} className="flex gap-2 text-[11px] leading-relaxed">
+                <li key={r.slug} data-testid={`fanout-${r.ok ? 'ok' : 'fail'}-${r.slug}`} className="flex gap-2 text-[12px] leading-relaxed">
                   <span className={`flex-none font-medium ${r.ok ? 'text-signal-verify' : 'text-signal-alarm'}`}>
                     {r.ok ? '✓' : '✕'}
                   </span>
@@ -274,7 +274,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
                 </li>
               ))}
             </ul>
-            <p className="mt-1.5 text-[11px] text-fg-3">
+            <p className="mt-1.5 text-[12px] text-fg-3">
               The failed organizations are still selected — re-enter the value and submit again to retry just those.
             </p>
           </div>
@@ -297,7 +297,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               at any scope from any view — and an existing one re-scoped. */}
           <div className="rounded border border-border bg-surface p-3">
             <div>
-              <label htmlFor="secret-scope-type" className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Scope</label>
+              <label htmlFor="secret-scope-type" className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Scope</label>
               <select
                 id="secret-scope-type"
                 value={scopeType}
@@ -312,18 +312,18 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               </select>
               {/* Inline, always-visible — not a hover tooltip. This sentence is
                   the whole reason "Organization" is no longer ambiguous. */}
-              <p id="secret-scope-hint" data-testid="modal-scope-hint" className="mt-1.5 text-[11px] leading-relaxed text-fg-3">
+              <p id="secret-scope-hint" data-testid="modal-scope-hint" className="mt-1.5 text-[12px] leading-relaxed text-fg-3">
                 {(isEdit ? SCOPE_HINTS : SCOPE_HINTS_CREATE)[scopeType]}
               </p>
             </div>
 
             {needsWorkspace && (multiOrg ? (
               <fieldset className="mt-3">
-                <legend className="mb-1 text-[11px] uppercase tracking-wider text-fg-3">
+                <legend className="mb-1 text-[12px] uppercase tracking-wider text-fg-3">
                   Organizations <span className="normal-case tracking-normal text-fg-3">(pick one or more)</span>
                 </legend>
                 {orgs.length === 0 ? (
-                  <p className="rounded border border-dashed border-border px-3 py-4 text-center text-[11px] text-fg-3">
+                  <p className="rounded border border-dashed border-border px-3 py-4 text-center text-[12px] text-fg-3">
                     No organizations available to you.
                   </p>
                 ) : (
@@ -352,7 +352,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
                       })}
                     </div>
                     <div className="mt-1.5 flex items-center gap-3">
-                      <p className="text-[11px] text-fg-3" data-testid="modal-org-selection-summary">
+                      <p className="text-[12px] text-fg-3" data-testid="modal-org-selection-summary">
                         {workspaces.length === 0
                           ? 'No organizations selected.'
                           : `${workspaces.length} of ${orgs.length} selected — ${workspaces.length} secret ${workspaces.length === 1 ? 'row' : 'rows'} will be created, one per organization.`}
@@ -360,7 +360,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
                       <button
                         type="button"
                         onClick={() => { setFanout(null); setWorkspaces(workspaces.length === orgs.length ? [] : orgs.map(o => o.slug)) }}
-                        className="ml-auto flex-none rounded px-1.5 py-1 text-[11px] text-accent transition-colors duration-fast ease-out hover:bg-surface-overlay hover:text-accent-hover"
+                        className="ml-auto flex-none rounded px-1.5 py-1 text-[12px] text-accent transition-colors duration-fast ease-out hover:bg-surface-overlay hover:text-accent-hover"
                       >
                         {workspaces.length === orgs.length ? 'Clear all' : 'Select all'}
                       </button>
@@ -370,7 +370,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               </fieldset>
             ) : (
               <div className="mt-3">
-                <label htmlFor="secret-scope-org" className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Organization</label>
+                <label htmlFor="secret-scope-org" className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Organization</label>
                 <select
                   id="secret-scope-org"
                   value={workspaces[0] || ''}
@@ -388,7 +388,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
 
             {needsUser && (
               <div className="mt-3">
-                <label htmlFor="secret-scope-user" className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">User</label>
+                <label htmlFor="secret-scope-user" className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">User</label>
                 <select
                   id="secret-scope-user"
                   value={userId}
@@ -404,7 +404,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               </div>
             )}
             {scopeChanged && (
-              <p className="mt-1 text-[11px] text-accent">
+              <p className="mt-1 text-[12px] text-accent">
                 Moving from {SCOPE_LABELS[initialScope.scopeType]} — the value is carried over untouched.
               </p>
             )}
@@ -424,7 +424,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               placeholder="What is this for? e.g. Stripe live key — billing worker"
               className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
             />
-            <p className="mt-1 text-[11px] text-fg-3">Visible to anyone who can see this secret. Never put the value here.</p>
+            <p className="mt-1 text-[12px] text-fg-3">Visible to anyone who can see this secret. Never put the value here.</p>
           </div>
 
           <div>
@@ -437,7 +437,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
                 className="mb-1.5 flex items-center justify-between rounded border border-dashed border-border bg-surface px-2 py-1.5 text-xs text-fg-3"
               >
                 <span>Current value: <span className="font-mono">{'••••••••'}</span> (v{editing?.version})</span>
-                <span className="text-[11px]">write-only — never shown</span>
+                <span className="text-[12px]">write-only — never shown</span>
               </div>
             )}
             <input
@@ -451,7 +451,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               placeholder={isEdit ? 'type a new value to rotate' : 'secret value'}
               className="w-full rounded border border-border bg-surface px-2 py-1.5 font-mono text-sm text-fg-0 outline-none focus:border-accent"
             />
-            <p className="mt-1 text-[11px] text-fg-3">
+            <p className="mt-1 text-[12px] text-fg-3">
               Stored encrypted. The value is never returned by the API or shown again.
               {isEdit && ' Rotating saves a new version; the old one stays in History (encrypted) so you can roll back.'}
               {isEdit && ' Leave it blank to change only the scope or description.'}
@@ -464,7 +464,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               type="submit"
               disabled={saving}
               data-testid="modal-submit"
-              className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-fg-0 transition-colors duration-fast ease-out hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition-colors duration-fast ease-out hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving
                 ? 'Saving...'

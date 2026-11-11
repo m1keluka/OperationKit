@@ -10,6 +10,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { EmailSettingsPanel } from './EmailSettingsPanel'
 import { SetupChecklist } from '../setup/SetupChecklist'
+import { invalidateWorkspacesCache } from '../../hooks/useWorkspaces'
 import type { EmailSetup, SetupStatus } from '../../lib/email'
 
 async function flush() {
@@ -132,13 +133,31 @@ describe('SetupChecklist', () => {
     render(<SetupChecklist />)
     await flush()
     const items = [...host.querySelectorAll('li[data-step]')]
-    expect(items.map(li => li.getAttribute('data-step'))).toEqual(['branding', 'email', 'models'])
-    expect(items.map(li => li.getAttribute('data-done'))).toEqual(['1', '0', '0'])
-    expect(host.textContent).toContain('1 of 3 done')
+    expect(items.map(li => li.getAttribute('data-step'))).toEqual(['branding', 'email', 'models', 'knowledge_base'])
+    expect(items.map(li => li.getAttribute('data-done'))).toEqual(['1', '0', '0', '0'])
+    expect(host.textContent).toContain('1 of 4 done')
     expect(host.textContent).toContain('send a test')
     const hrefs = [...host.querySelectorAll('a')].map(a => a.getAttribute('href'))
-    expect(hrefs).toEqual(expect.arrayContaining(['/settings/branding', '/settings/email', '/settings/models']))
+    expect(hrefs).toEqual(expect.arrayContaining(['/settings/branding', '/settings/email', '/settings/models', '/knowledge/setup']))
     expect(host.textContent).toContain('Copy prompt')
+  })
+
+  it('step 4 "Set up your knowledge base" ticks once a visible workspace has a finished setup run (obj 900556)', async () => {
+    invalidateWorkspacesCache()
+    mockFetch({
+      'GET /api/admin/setup-status': () => ({ json: { complete: true, steps: [{ id: 'branding', title: 'Branding', done: true }, { id: 'email', title: 'Email', done: true }, { id: 'models', title: 'Models', done: true }] } }),
+      'GET /api/workspaces': () => ({ json: [{ slug: 'acme', name: 'Acme' }, { slug: 'beta', name: 'Beta' }] }),
+      'GET /api/kb-setup/status?workspace=acme': () => ({ json: { step_done: false } }),
+      'GET /api/kb-setup/status?workspace=beta': () => ({ json: { step_done: true } }),
+    })
+    render(<SetupChecklist />)
+    await flush()
+    await flush()
+    const kb = host.querySelector('li[data-step="knowledge_base"]')!
+    expect(kb.textContent).toContain('Set up your knowledge base')
+    expect(kb.getAttribute('data-done')).toBe('1')
+    expect(host.textContent).toContain('4 of 4 done')
+    invalidateWorkspacesCache()
   })
 
   it('accepts link overrides (for the settings reorg) and never invents a branding route', async () => {
@@ -146,7 +165,7 @@ describe('SetupChecklist', () => {
     render(<SetupChecklist links={{ email: '/settings/email', models: '/settings/models' }} />)
     await flush()
     const hrefs = [...host.querySelectorAll('a')].map(a => a.getAttribute('href'))
-    expect(hrefs).toEqual(['/settings/email', '/settings/models'])
+    expect(hrefs).toEqual(['/settings/email', '/settings/models', '/knowledge/setup'])
     expect(host.textContent).toContain('OK_BRAND_NAME')
     expect(host.textContent).toContain('Keep default')
   })

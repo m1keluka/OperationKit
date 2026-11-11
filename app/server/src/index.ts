@@ -10,7 +10,7 @@ import { initWebSocket } from './ws/index.js'
 import { startPoller } from './services/state-poller.js'
 import { logPreviewSpoolHealth } from './services/preview-spool.js'
 import authRouter from './routes/auth.js'
-import brandingRouter from './routes/branding.js'
+import brandingRouter, { renderBrandedIndex } from './routes/branding.js'
 import agentKeyWebhooksRouter from './routes/agent-key-webhooks.js'
 import { startAgentWebhooks } from './services/agent-webhooks.js'
 import { agentKeyGuard } from './middleware/agent-key-guard.js'
@@ -25,7 +25,6 @@ import filesRouter from './routes/files.js'
 import secretsBrokerRouter from './routes/secrets-broker.js'
 import agentMcpRouter from './routes/agent-mcp.js'
 import briefingRouter from './routes/briefing.js'
-import statusRouter from './routes/status.js'
 import systemRouter from './routes/system.js'
 import webhooksRouter from './routes/webhooks.js'
 import costsRouter from './routes/costs.js'
@@ -43,6 +42,8 @@ import { buildCommit, initBuildInfo } from './lib/build-info.js'
 import kbIngestRouter, { internalKbIngestRouter } from './routes/kb-ingest.js'
 import { resumeAfterRestart as resumeDocIngest } from './services/doc-ingest/service.js'
 import kbWikiRouter, { internalKbWikiRouter, resumeKbWiki } from './routes/kb-wiki.js'
+import kbSetupRouter from './routes/kb-setup.js'
+import { resumeSetupRunsAfterRestart } from './services/kb-setup/service.js'
 import { getWorkspaceSlugs } from './services/workspaces.js'
 import internalOperationkitRouter from './routes/internal-operationkit.js'
 import prHealthRouter from './routes/pr-health.js'
@@ -54,8 +55,6 @@ import adminAgentsRouter from './routes/admin-agents.js'
 import { agentTemplatesRouter, internalAgentTemplatesRouter } from './routes/agent-templates.js'
 import { installStarterTemplatesFromEnv } from './services/agent-templates.js'
 import contactsRouter from './routes/contacts.js'
-import loopsRouter from './routes/loops.js'
-import scratchpadRouter from './routes/scratchpad.js'
 import agentChatRouter from './routes/agent-chat.js'
 import granolaContentRouter from './routes/granola-content.js'
 import meetingQueueRouter from './routes/meeting-queue.js'
@@ -66,7 +65,6 @@ import modelsRouter from './routes/models.js'
 import githubWebhookRouter from './routes/github-webhook.js'
 import changelogRouter, { internalChangelogRouter } from './routes/changelog.js'
 import publicDevRouter from './routes/public-dev.js'
-import devItemsRouter from './routes/dev-items.js'
 import devChangelogRouter from './routes/dev-changelog.js'
 import { devIngestCors } from './middleware/dev-ingest-token.js'
 import userGithubTokenRouter from './routes/user-github-token.js'
@@ -240,7 +238,6 @@ app.use('/api/files', filesRouter)  // read-only workspace-scoped search/stat/do
 app.use('/api/secrets-broker', secretsBrokerRouter)  // use-without-reveal: list secret names + host-allowlisted HTTPS proxy (obj 715532)
 app.use('/api', agentMcpRouter)  // POST /api/mcp — unified MCP server: knowledge (obj 716490) + board control (obj 714092/718417); tools forward to the REST routes over loopback
 app.use('/api/briefing', briefingRouter)  // /api/briefing/briefing — board briefing for the Agent API/MCP (the assistant chat itself was removed, obj 720115)
-app.use('/api/status', statusRouter)  // /api/status/monitors, /api/status/events
 app.use('/api/system', systemRouter)  // /api/system/disk — host-disk state for the dashboard low-disk banner (auth)
 app.use('/api/webhooks', webhooksRouter)  // /api/webhooks/uptimerobot
 app.use('/api/admin', adminRouter)  // /api/admin/accounts, /system, /agents, /dream-cycle, etc.
@@ -265,6 +262,7 @@ app.use('/api/internal/kb-ingest', internalKbIngestRouter)  // document-library 
 app.use('/api/starter-packs', starterPacksRouter)  // admin: list / enable / disable starter packs (obj 719936)
 app.use('/api/kb-ingest', kbIngestRouter)  // knowledge-base file import: upload → read → organized notes, ask (obj 719936)
 app.use('/api/internal/kb-wiki', internalKbWikiRouter)  // board sessions file answers into a KB (localhost; obj 720117)
+app.use('/api/kb-setup', kbSetupRouter)  // knowledge base setup agent: drop files/folders → tagged KB pages + open questions (obj 900556)
 app.use('/api/kb-wiki', kbWikiRouter)  // knowledge-base wiki: pages, saved answers, chat/call imports, cleanup (obj 720117)
 app.use('/api/internal/pr-health', prHealthRouter)         // read-only PR-health surface: / (JSON) + /digest (markdown)
 app.use('/api/internal/operationkit', internalOperationkitRouter)  // OperationKit authoring: registry / validate / scaffold (localhost-only)
@@ -279,8 +277,6 @@ app.use('/api/internal/agent-templates', internalAgentTemplatesRouter)  // same,
 app.use('/api/models', modelsRouter)                      // model registry: GET enabled (auth) / all + PATCH toggle (admin)
 app.use('/api/contacts', contactsRouter)                  // Phase 1 Personal CRM: POST /reindex (admin)
 app.use('/api/meeting-queue', meetingQueueRouter)         // Granola action-item review queue → CC objectives
-app.use('/api/loops', loopsRouter)                        // operator loops tracker (Kanban: pending/queued/working/done; admin-only)
-app.use('/api/scratchpad', scratchpadRouter)              // per-user human markdown store (auth; strictly per-account)
 app.use('/api/agent-chat', agentChatRouter)              // built-in agent chat: one chat per person per agent (obj 719987)
 app.use('/api/granola-content', granolaContentRouter)     // per-owner Granola Content surface (drafts/hooks/ideas; content_owners-gated)
 app.use('/api/objectives', reviewsRouter)                 // /api/objectives/:id/reviews — AI Review iteration history
@@ -318,7 +314,6 @@ app.use(
 app.use('/api/public', devIngestCors, publicDevRouter)     // P1-P4: ingest, attachment, "my requests", per-workspace changelog feed
 // Admin surface: CC session + admin gate (triage is Operator-only by decision; there
 // is deliberately NO per-workspace ACL).
-app.use('/api/dev-items', devItemsRouter)                  // A1-A11: board list/detail/create/patch/triage/promote/rank/attach-pr/notes/delete/bulk
 app.use('/api/dev-changelog', devChangelogRouter)          // A12-A16: internal changelog list/edit/publish/retranslate/notify
 
 // Product name + logo for the sign-in page (no auth; obj 719935)
@@ -422,9 +417,15 @@ app.use('/shell', shellRouter)
 
 // Serve static frontend in production
 const clientDist = path.join(__dirname, '../../client/dist')
-app.use(express.static(clientDist))
+// index: false — the SPA shell is served below with the install's brand name
+// and favicon injected, so the very first paint is white-labeled (obj 900543).
+app.use(express.static(clientDist, { index: false }))
 app.get('*', (_req, res) => {
-  res.sendFile(path.join(clientDist, 'index.html'))
+  fs.readFile(path.join(clientDist, 'index.html'), 'utf-8', (err, html) => {
+    if (err) { res.status(404).send('Frontend not built'); return }
+    res.setHeader('Cache-Control', 'no-cache')
+    res.type('html').send(renderBrandedIndex(html))
+  })
 })
 
 // Initialize WebSocket
@@ -453,6 +454,7 @@ if (scratchVerdict.scratch) {
   // Start routines scheduler (cron-scheduled recurring objectives, 60s tick)
   startRoutineScheduler()
   try { resumeDocIngest(getWorkspaceSlugs()) } catch (err) { console.warn('[doc-ingest] resume failed:', (err as Error).message) }
+  try { resumeSetupRunsAfterRestart(getWorkspaceSlugs()) } catch (err) { console.warn('[kb-setup] resume failed:', (err as Error).message) }
   try { resumeKbWiki(getWorkspaceSlugs()) } catch (err) { console.warn('[kb-wiki] resume failed:', (err as Error).message) }
 
   // Start the anti-signal canary harness scheduler (obj-2376). Ticks are a NO-OP

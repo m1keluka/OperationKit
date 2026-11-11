@@ -75,7 +75,7 @@ describe('needs-secret on the card (obj 718944)', () => {
     // obj 719065: scope picker defaults to the card's organization
     expect(owner).toMatch(/aria-checked="true"[^>]*>Organization</)
     const global = renderToStaticMarkup(<NeedsSecretPanel objectiveId={1} workspace="example" items={[{ ...items[0], scope: 'global' }]} canFill />)
-    expect(global).toMatch(/aria-checked="true"[^>]*>Command Center</)
+    expect(global).toMatch(/aria-checked="true"[^>]*>Everywhere</)
     const member = renderToStaticMarkup(<NeedsSecretPanel objectiveId={1} workspace="example" items={items} canFill={false} />)
     expect(member).not.toContain('type="password"')
     expect(member).toContain('Only the card owner or an admin can add this')

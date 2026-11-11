@@ -31,13 +31,27 @@ import type { User, UserRole } from '@operationkit/shared'
 export const LINK_TTL_MINUTES = 15
 const TOKEN_EXPIRES_IN_SEC = 7 * 24 * 60 * 60
 const WINDOW_MS = 15 * 60 * 1000
-const MAX_PER_IP = 5
-const MAX_PER_EMAIL = 3
+/** POST / — sign-in link requests per client IP per window (email-bombing / enumeration). */
+export const MAX_PER_IP = 5
+/** POST / — links actually SENT to one address per window, whoever asks (inbox flooding). */
+export const MAX_PER_EMAIL = 3
+/** POST /redeem — token guesses per client IP per window. */
+export const MAX_REDEEM_PER_IP = 20
+/** Sweep expired keys once the limiter map gets this big, so a flood of distinct
+ *  IPs/addresses cannot grow it without bound. */
+const SWEEP_AT = 10_000
 
 const router = Router()
 
+// In-process sliding-window limiter (same shape as middleware/login-rate-limit
+// and services/file-access rateLimit). Single Node process per install, so an
+// in-memory map is the whole picture.
 const hits = new Map<string, number[]>()
+function sweep(now: number): void {
+  for (const [k, list] of hits) if (!list.some(t => now - t < WINDOW_MS)) hits.delete(k)
+}
 function overLimit(key: string, max: number, now = Date.now()): boolean {
+  if (hits.size >= SWEEP_AT) sweep(now)
   const list = (hits.get(key) ?? []).filter(t => now - t < WINDOW_MS)
   if (list.length >= max) { hits.set(key, list); return true }
   list.push(now)
@@ -54,6 +68,10 @@ router.get('/', (_req, res) => {
   res.json({ available: emailConfigured() })
 })
 
+// Rate limited in-handler: MAX_PER_IP per client IP (429 + Retry-After) and
+// MAX_PER_EMAIL sends per address (silent, still 202 so it cannot be used to
+// enumerate accounts). CodeQL only recognises npm limiter packages, hence:
+// codeql[js/missing-rate-limiting] -- per-IP + per-email limiter via overLimit() above; covered by auth-email-link.test.ts
 router.post('/', (req, res) => {
   if (!emailConfigured()) {
     res.status(409).json({ error: 'Email sign-in is not set up on this site. Sign in with your password.', code: 'email_not_configured' })
@@ -87,11 +105,14 @@ router.post('/', (req, res) => {
   void sendSignInLink({ to: email, username: user.username, token, minutes: LINK_TTL_MINUTES }).catch(() => { /* logged by mailer */ })
 })
 
+// Rate limited in-handler: MAX_REDEEM_PER_IP token attempts per client IP.
+// codeql[js/missing-rate-limiting] -- per-IP limiter via overLimit() above; covered by auth-email-link.test.ts
 router.post('/redeem', (req, res) => {
   const raw = (req.body || {}).token
   const token = typeof raw === 'string' ? raw.trim() : ''
   const ip = req.ip || req.socket.remoteAddress || 'unknown'
-  if (overLimit(`redeem:${ip}`, 20)) {
+  if (overLimit(`redeem:${ip}`, MAX_REDEEM_PER_IP)) {
+    res.setHeader('Retry-After', String(WINDOW_MS / 1000))
     res.status(429).json({ error: 'Too many attempts. Try again later.' })
     return
   }

@@ -69,10 +69,10 @@ export function ModelsModule() {
         <div className="space-y-5">
           {groups.map(g => (
             <div key={g.engine}>
-              <div className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-fg-3">{g.label}</div>
+              <div className="mb-2 text-[12px] uppercase tracking-[0.1em] text-fg-3 font-semibold tracking-[0.06em]">{g.label}</div>
               <div className="overflow-hidden rounded-lg border border-line">
                 <table className="w-full text-[13px]">
-                  <thead className="bg-surface-1 font-mono text-[11px] uppercase tracking-[0.1em] text-fg-3">
+                  <thead className="bg-surface-1 text-[12px] uppercase tracking-[0.1em] text-fg-3 font-semibold tracking-[0.06em]">
                     <tr>
                       <th className="px-3 py-2.5 text-left font-medium">Model</th>
                       <th className="px-3 py-2.5 text-center font-medium">Enabled</th>
@@ -88,7 +88,7 @@ export function ModelsModule() {
                         <tr key={m.id} className={busy ? 'opacity-50' : undefined}>
                           <td className="px-3 py-2.5">
                             <div className="text-fg-0">{m.label}</div>
-                            <div className="font-mono text-[11px] text-fg-3">{m.id}</div>
+                            <div className="font-mono text-[12px] text-fg-3">{m.id}</div>
                           </td>
                           <td className="px-3 py-2.5 text-center">
                             <input
@@ -130,7 +130,7 @@ export function ModelsModule() {
           ))}
         </div>
 
-        <p className="mt-3 text-[11px] text-fg-3">
+        <p className="mt-3 text-[12px] text-fg-3">
           Setting a model as default or planner auto-enables it. The active default and planner can't be disabled —
           reassign the role first.
         </p>

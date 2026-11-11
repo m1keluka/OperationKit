@@ -155,7 +155,7 @@ export function AlertBell() {
       >
         <BellIcon className="h-5 w-5" />
         {unreadCount > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-signal-alarm px-1 font-mono text-[10px] font-medium leading-none text-surface-0">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--t-alarm)] px-1 font-mono text-[12px] font-medium leading-none text-surface-0">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
@@ -172,7 +172,7 @@ export function AlertBell() {
           <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
             <div className="flex items-baseline gap-2">
               <span className="text-sm font-semibold text-fg-0">Notifications</span>
-              {unreadCount > 0 && <span className="font-mono text-[11px] text-fg-3">{unreadCount} unread</span>}
+              {unreadCount > 0 && <span className="font-mono text-[12px] text-fg-3">{unreadCount} unread</span>}
             </div>
             {unreadCount > 0 && (
               <button
@@ -215,7 +215,7 @@ export function AlertBell() {
             ) : (
               groups.map(group => (
                 <section key={group.label} aria-label={group.label}>
-                  <h4 className="sticky top-0 z-[1] bg-surface-1 px-3 pb-1 pt-2.5 font-mono text-[10px] uppercase tracking-[0.12em] text-fg-3">
+                  <h4 className="sticky top-0 z-[1] bg-surface-1 px-3 pb-1 pt-2.5 text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">
                     {group.label}
                   </h4>
                   <ul>
@@ -251,18 +251,18 @@ function NotificationRow({ alert, onMarkRead }: { alert: Alert; onMarkRead: (id:
           <div className="flex items-start justify-between gap-2">
             <div className={cn('min-w-0 text-sm leading-snug', unread ? 'font-semibold' : 'font-normal', unread ? sev.text : 'text-fg-1')}>
               {sev.label && (
-                <span className="mr-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em]">{sev.label}</span>
+                <span className="mr-1.5 text-[12px] uppercase tracking-[0.08em] font-semibold tracking-[0.06em]">{sev.label}</span>
               )}
               <span className="break-words">{alert.title}</span>
             </div>
-            <span className="shrink-0 font-mono text-[10.5px] text-fg-3" title={alert.created_at}>
+            <span className="shrink-0 font-mono text-[12px] text-fg-3" title={alert.created_at}>
               {formatRelative(alert.created_at)}
             </span>
           </div>
           {alert.message && (
             <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap break-words text-xs leading-snug text-fg-2">{alert.message}</p>
           )}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
             <span className="font-mono text-fg-3">{alert.source}</span>
             {alert.email_sent_at && <span className="text-fg-3" title={`Emailed at ${alert.email_sent_at}`}>emailed</span>}
             <span className="ml-auto flex items-center gap-3">

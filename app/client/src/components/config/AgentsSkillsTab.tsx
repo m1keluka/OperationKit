@@ -199,7 +199,7 @@ export function AgentsSkillsTab() {
                   {agent.kind === 'executive' ? 'executive' : 'routing-only'}
                 </Badge>
               </div>
-              <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-fg-3">
+              <div className="mt-0.5 flex items-center gap-2 font-mono text-[12px] text-fg-3">
                 <span>{formatBytes(agent.size)}</span>
                 <span>· {skillsForAgent(agent.slug).length} skills</span>
                 {!agent.assignable && <span className="text-flag-blocked">· not assignable</span>}
@@ -225,9 +225,9 @@ export function AgentsSkillsTab() {
                   {rs?.needs_improvement && <Badge tone="verify">needs work</Badge>}
                 </div>
                 {skill.description && (
-                  <div className="mt-0.5 line-clamp-2 text-[11px] text-fg-3">{skill.description}</div>
+                  <div className="mt-0.5 line-clamp-2 text-[12px] text-fg-3">{skill.description}</div>
                 )}
-                <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[10px] text-fg-3">
+                <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[12px] text-fg-3">
                   <span>{consumers.length} agent{consumers.length !== 1 ? 's' : ''}</span>
                   {typeof rs?.usage_count === 'number' && <span>· {rs.usage_count} uses</span>}
                   {!!rs?.failure_count && <span className="text-flag-blocked">· {rs.failure_count} fails</span>}
@@ -265,13 +265,13 @@ export function AgentsSkillsTab() {
                   </h3>
                 </div>
                 {agent?.kind === 'routing-only' && (
-                  <p className="text-[11px] text-fg-3">
+                  <p className="text-[12px] text-fg-3">
                     Normally invoked via the CLAUDE.md routing table or spawned as a sub-agent.
                     Still selectable as an objective's primary agent.
                   </p>
                 )}
                 <div>
-                  <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-3">
+                  <div className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-fg-3">
                     Skills used ({agentSkills.length})
                   </div>
                   {agentSkills.length === 0 ? (
@@ -312,7 +312,7 @@ export function AgentsSkillsTab() {
                   <span><span className={cn('font-mono', rs?.failure_count ? 'text-flag-blocked' : 'text-fg-0')}>{rs?.failure_count ?? 0}</span> failures</span>
                 </div>
                 <div>
-                  <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-3">
+                  <div className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-fg-3">
                     Consuming agents ({consumers.length})
                   </div>
                   {consumers.length === 0 ? (
@@ -332,7 +332,7 @@ export function AgentsSkillsTab() {
                     fed by an unvalidated skill->skill block the frontmatter layer
                     does not declare (obj 707012). */}
                 <div>
-                  <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-3">
+                  <div className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-fg-3">
                     Tools reached ({rs?.tools?.length ?? 0})
                   </div>
                   {!rs?.tools?.length ? (
@@ -347,7 +347,7 @@ export function AgentsSkillsTab() {
                 </div>
                 {!!rs?.subskills?.length && (
                   <div>
-                    <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-3">
+                    <div className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-fg-3">
                       Sub-skills ({rs.subskills.length})
                     </div>
                     <div className="flex flex-wrap gap-1.5">

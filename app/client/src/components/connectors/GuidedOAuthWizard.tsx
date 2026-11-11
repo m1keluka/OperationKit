@@ -44,7 +44,7 @@ export function GuidedOAuthWizard({
           <div className="mt-5 space-y-4">
             <div>
               <div className="mb-1 flex items-center justify-between gap-2">
-                <span className="text-[11px] font-medium uppercase tracking-wider text-fg-3">Redirect URI</span>
+                <span className="text-[12px] font-medium uppercase tracking-wider text-fg-3">Redirect URI</span>
                 <CopyButton value={setup.redirect_uri} />
               </div>
               <code className="block break-all rounded-md border border-line bg-surface-1 px-3 py-2 text-[12px] text-fg-0">
@@ -55,7 +55,7 @@ export function GuidedOAuthWizard({
             {setup.scopes.length > 0 && (
               <div>
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-fg-3">Scopes to add</span>
+                  <span className="text-[12px] font-medium uppercase tracking-wider text-fg-3">Scopes to add</span>
                   <CopyButton value={setup.scopes.join(' ')} />
                 </div>
                 <ul className="flex flex-wrap gap-1.5" aria-label={`Scopes ${c.name} requests`}>

@@ -96,21 +96,21 @@ export function ConnectorCard({
               {c.status.error && <p className="text-[13px] text-signal-alarm">{c.status.error}</p>}
               <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
                 <div>
-                  <dt className="text-[11px] uppercase tracking-wider text-fg-3">Connected as</dt>
+                  <dt className="text-[12px] uppercase tracking-wider text-fg-3">Connected as</dt>
                   <dd className="break-all text-[13px] text-fg-0">{c.status.account ?? '—'}</dd>
                 </div>
                 {c.status.details.map(d => (
                   <div key={d.label}>
-                    <dt className="text-[11px] uppercase tracking-wider text-fg-3">{d.label}</dt>
+                    <dt className="text-[12px] uppercase tracking-wider text-fg-3">{d.label}</dt>
                     <dd className="break-all text-[13px] text-fg-1">{d.value}</dd>
                   </div>
                 ))}
                 <div>
-                  <dt className="text-[11px] uppercase tracking-wider text-fg-3">Connected</dt>
+                  <dt className="text-[12px] uppercase tracking-wider text-fg-3">Connected</dt>
                   <dd className="text-[13px] text-fg-1">{fmtDate(c.status.connected_at)}</dd>
                 </div>
                 <div>
-                  <dt className="text-[11px] uppercase tracking-wider text-fg-3">Last checked</dt>
+                  <dt className="text-[12px] uppercase tracking-wider text-fg-3">Last checked</dt>
                   <dd className="text-[13px] text-fg-1">{fmtDate(c.status.checked_at)}</dd>
                 </div>
               </dl>

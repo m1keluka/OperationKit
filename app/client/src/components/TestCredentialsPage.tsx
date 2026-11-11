@@ -121,7 +121,7 @@ export function TestCredentialsPage({ embedded = false }: { embedded?: boolean }
           </div>
           <button
             onClick={openCreate}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-fg-0 transition-colors duration-fast ease-out hover:bg-accent-hover"
+            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition-colors duration-fast ease-out hover:bg-accent-hover"
           >
             + New
           </button>
@@ -451,7 +451,7 @@ function TestCredentialModal({ existing, adminWorkspaces, onClose, onSaved }: Mo
             <button
               type="submit"
               disabled={saving}
-              className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-fg-0 hover:bg-accent-hover disabled:opacity-50"
+              className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg hover:bg-accent-hover disabled:opacity-50"
             >
               {saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}
             </button>

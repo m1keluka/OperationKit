@@ -175,7 +175,7 @@ export function AgentKeysSection() {
               onClick={() => onToggle(c.id)}
               className={cn(
                 'min-h-[44px] rounded-full border px-3 text-xs transition-colors duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]',
-                on ? 'border-accent/60 bg-accent/15 text-fg-0' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
+                on ? 'border-accent bg-surface-2 font-medium text-accent-hover' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
               )}
             >
               {c.name}
@@ -398,7 +398,7 @@ export function AgentKeysSection() {
                         {s}
                         {HUMAN_SIGNATURE.includes(s) && <Badge tone="amber">human</Badge>}
                       </span>
-                      <span className="block text-[11px] text-fg-2">{AGENT_SCOPE_DESCRIPTIONS[s]}</span>
+                      <span className="block text-[12px] text-fg-2">{AGENT_SCOPE_DESCRIPTIONS[s]}</span>
                     </span>
                   </label>
                 )
@@ -429,7 +429,7 @@ export function AgentKeysSection() {
                       onClick={() => toggleWorkspace(w.slug)}
                       className={cn(
                         'min-h-[44px] rounded-full border px-3 text-xs transition-colors duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]',
-                        on ? 'border-accent/60 bg-accent/15 text-fg-0' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
+                        on ? 'border-accent bg-surface-2 font-medium text-accent-hover' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
                       )}
                     >
                       {labelOf(w.slug)}
@@ -442,13 +442,13 @@ export function AgentKeysSection() {
 
           <fieldset>
             <legend className="text-xs font-medium text-fg-1">Your connected accounts it may use</legend>
-            <p className="mt-1 max-w-prose text-[11px] text-fg-2">
+            <p className="mt-1 max-w-prose text-[12px] text-fg-2">
               A new key follows YOUR access: it can use the connected accounts you are allowed to use,
               and nothing else. Never anyone else&rsquo;s account, never more than you have right now —
               each use is re-checked against your access at that moment, so disconnecting an account or
               narrowing it in Settings &rarr; Integrations takes effect immediately, with no key to edit.
             </p>
-            <p className="mt-1 max-w-prose text-[11px] text-fg-2">
+            <p className="mt-1 max-w-prose text-[12px] text-fg-2">
               This is about connected accounts only. It does not change what the key can DO on the board
               (that is the tick list above — done and delete still stay with you), and it has nothing to
               do with Settings &rarr; Secrets, which is a separate store the key cannot read. Tokens are
@@ -456,7 +456,7 @@ export function AgentKeysSection() {
             </p>
             <ModeButtons mode={connectorMode} setMode={setConnectorMode} idPrefix="new" />
             {connectorMode === 'none' && (
-              <p className="mt-2 text-[11px] text-fg-2">This key will not be able to use any connected account.</p>
+              <p className="mt-2 text-[12px] text-fg-2">This key will not be able to use any connected account.</p>
             )}
             {connectorMode === 'pick' && (
               <div className="mt-2">
@@ -513,19 +513,19 @@ export function AgentKeysSection() {
                 </div>
                 {!k.revoked_at && editing === k.id && (
                   <div className="space-y-2 rounded-md border border-line bg-surface-1 p-2.5">
-                    <p className="text-[11px] text-fg-2">
+                    <p className="text-[12px] text-fg-2">
                       Which of your connected accounts this key may use. Your own, never anyone else&rsquo;s,
                       and never more than you are allowed right now.
                     </p>
                     {isLegacyAll(k.connectors) && draftMode === 'inherit' && (
-                      <p className="text-[11px] text-fg-2">
+                      <p className="text-[12px] text-fg-2">
                         This key predates the per-key list and currently reaches everything. Saving moves it
                         to following your access, which is re-checked on every use.
                       </p>
                     )}
                     <ModeButtons mode={draftMode} setMode={setDraftMode} idPrefix={`k${k.id}`} />
                     {draftMode === 'none' && (
-                      <p className="text-[11px] text-fg-2">This key will not be able to use any connected account.</p>
+                      <p className="text-[12px] text-fg-2">This key will not be able to use any connected account.</p>
                     )}
                     {draftMode === 'pick' && (
                       <CataloguePicker
@@ -540,7 +540,7 @@ export function AgentKeysSection() {
                     </div>
                   </div>
                 )}
-                <p className="text-[11px] text-fg-2">
+                <p className="text-[12px] text-fg-2">
                   Created {fmtDate(k.created_at)} · Last used {k.last_used_at ? fmtDate(k.last_used_at) : 'never'}
                   {k.revoked_at && <> · Revoked {fmtDate(k.revoked_at)}</>}
                 </p>

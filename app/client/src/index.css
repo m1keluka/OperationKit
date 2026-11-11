@@ -3,36 +3,33 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────
-   Self-hosted fonts — Geist (display/UI) · Geist Mono (machine
-   data) · Inter (body). woff2 live in src/fonts, bundled by Vite.
+   Self-hosted fonts — the brand 1.0 type system (operationkit-site
+   tokens.css): Unbounded (display: page titles, brand lockup) ·
+   Familjen Grotesk (all UI + body text) · JetBrains Mono (machine
+   data). Variable woff2 + OFL licences live in src/fonts.
    ───────────────────────────────────────────────────────── */
-@font-face{font-family:Geist;src:url(./fonts/geist-sans-400.woff2) format("woff2");font-weight:400;font-display:swap}
-@font-face{font-family:Geist;src:url(./fonts/geist-sans-500.woff2) format("woff2");font-weight:500;font-display:swap}
-@font-face{font-family:Geist;src:url(./fonts/geist-sans-600.woff2) format("woff2");font-weight:600;font-display:swap}
-@font-face{font-family:Geist;src:url(./fonts/geist-sans-700.woff2) format("woff2");font-weight:700;font-display:swap}
-@font-face{font-family:"Geist Mono";src:url(./fonts/geist-mono-400.woff2) format("woff2");font-weight:400;font-display:swap}
-@font-face{font-family:"Geist Mono";src:url(./fonts/geist-mono-500.woff2) format("woff2");font-weight:500;font-display:swap}
-@font-face{font-family:"Geist Mono";src:url(./fonts/geist-mono-600.woff2) format("woff2");font-weight:600;font-display:swap}
-@font-face{font-family:Inter;src:url(./fonts/inter-400.woff2) format("woff2");font-weight:400;font-display:swap}
-@font-face{font-family:Inter;src:url(./fonts/inter-500.woff2) format("woff2");font-weight:500;font-display:swap}
-@font-face{font-family:Inter;src:url(./fonts/inter-600.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:Unbounded;src:url(./fonts/unbounded-var.woff2) format("woff2");font-weight:200 900;font-display:swap}
+@font-face{font-family:"Familjen Grotesk";src:url(./fonts/familjen-grotesk-var.woff2) format("woff2");font-weight:400 700;font-display:swap}
+@font-face{font-family:"JetBrains Mono";src:url(./fonts/jetbrains-mono-var.woff2) format("woff2");font-weight:100 800;font-display:swap}
 
 /* ─────────────────────────────────────────────────────────
-   Operation Kit brand tokens v1.0 (default install branding —
-   see docs/branding.md). Ultramarine primary · Cadmium (model)
-   accent · Shell/Paper light ground, Ink dark ground. Light is
-   the DEFAULT theme; dark is a variant via [data-theme="dark"].
-   A fresh install with no OK_BRAND_* env/config overrides renders
-   these exact values — every consumer in this app reads the
-   semantic layer below (surface/fg/line/accent/status/agent),
-   never these raw --ok-* swatches directly, so one block here
-   restyles the whole app. Tailwind's theme (tailwind.config.ts)
-   points every color utility at these same CSS custom properties,
-   so `bg-surface-0`, `text-fg-1`, `text-accent`, etc. stay in sync
-   automatically — no consumer file needs literal hex.
+   Design tokens (obj 900543 rework of brand 1.0). Light is the
+   default; dark via <html data-theme="dark"> (lib/theme.ts — the
+   ONE theme store). Every consumer reads the SEMANTIC layer
+   (surface/fg/line/accent/status/agent), never raw swatches.
+   Contrast floor (WCAG 2.1, measured on surface-0 AND surface-1):
+     fg-0  body text      ≥ 13:1  (AAA)
+     fg-1  secondary      ≥ 6.7:1 (AAA on light ground, AA+ on dark cards)
+     fg-2  tertiary/meta  ≥ 5.5:1 (AA)
+     fg-3  hints/disabled ≥ 4.7:1 (AA)  — was 2.4:1 on dark cards
+     accent-text          ≥ 6.4:1 — dark uses a lifted accent, the raw
+                          accent on Ink was 1.9:1 ("hurts my eyes").
+   Install branding (OK_BRAND_* / Branding panel) sets only --accent*
+   and --brand-* (useBranding.applyBrandTokens); everything else is
+   derived here, so a custom accent stays readable in both themes.
    ───────────────────────────────────────────────────────── */
 :root {
-  /* raw OK v1.0 palette (brand 1.0 "circle O", from operationkit-site tokens.css) */
+  /* raw brand 1.0 palette (operationkit-site tokens.css) */
   --ok-ultramarine-50: #F2F2FE; --ok-ultramarine-100: #E6E6FC; --ok-ultramarine-200: #C8C8F9;
   --ok-ultramarine-300: #A0A0F5; --ok-ultramarine-400: #6F6FEF; --ok-ultramarine: #2B2BE8;
   --ok-ultramarine-600: #2727C9; --ok-ultramarine-700: #2323A9;
@@ -41,64 +38,98 @@
   --ok-cadmium-600: #ECAA0B; --ok-cadmium-700: #B47806; --ok-cadmium-800: #895709;
   --ok-paper: #FBF9F4; --ok-shell: #F3F0E8; --ok-putty: #DCD6C8;
   --ok-warm-grey: #6E6A60; --ok-warm-grey-600: #615D54;
-  --ok-verify: #0B7643; --ok-verify-on-dark: #63D18F;
-  --ok-caution: #BD321B; --ok-caution-on-dark: #F47D67;
+  --ok-verify-on-dark: var(--brand-verify-on-dark, #63D18F);
+  --ok-caution: var(--brand-caution, #BD321B);
+  --ok-caution-on-dark: var(--brand-caution-on-dark, #F47D67);
 
-  /* brand constants (legacy names kept; now alias the OK primary) */
-  --ok-signal: var(--ok-ultramarine);
-  --ok-ember:  var(--ok-ultramarine-700);
+  /* legacy aliases (kept for older consumers) */
+  --ok-signal: var(--accent);
+  --ok-ember:  var(--accent-press);
   --ok-carbon: var(--ok-ink);
 
-  /* surfaces — light (default): Shell ground, Paper cards, derived raised/sunken steps */
+  /* surfaces — light, exactly the site's layering (tokens.css: --ok-bg Shell,
+     --ok-surface AND --ok-surface-raised both Paper, --ok-border Putty).
+     Cards, panels, table headers AND rows, inputs: all Paper on Shell, split
+     by Putty hairlines — no darker greige/tan card fills (QA r1 #3/#4).
+     surface-3/4 are only hover / inset chips, a half-step below the page. */
   --surface-0: var(--ok-shell);
   --surface-1: var(--ok-paper);
-  --surface-2: color-mix(in srgb, var(--ok-paper) 92%, var(--ok-ink) 8%);
-  --surface-3: color-mix(in srgb, var(--ok-paper) 84%, var(--ok-ink) 16%);
-  --surface-4: color-mix(in srgb, var(--ok-paper) 72%, var(--ok-ink) 28%);
+  --surface-2: var(--ok-paper);
+  --surface-3: color-mix(in srgb, var(--ok-shell) 78%, var(--ok-putty));
+  --surface-4: color-mix(in srgb, var(--ok-shell) 45%, var(--ok-putty));
+  /* selected rows / nav items: an accent wash on Paper (11%) plus the 3px
+     accent bar on the row. 16% read as a lavender pill (QA r2 #1), 7% was
+     too faint to spot the selection (QA r3 #4). Derived from the install
+     accent, so a custom brand keeps it. */
+  --surface-selected: color-mix(in srgb, var(--accent) 11%, var(--ok-paper));
+  --surface-lane: color-mix(in srgb, var(--ok-shell) 75%, var(--ok-putty));
 
   /* text — light */
   --fg-0: var(--ok-ink);
-  --fg-1: var(--ok-warm-grey-600);
-  --fg-2: var(--ok-warm-grey);
-  --fg-3: color-mix(in srgb, var(--ok-warm-grey) 60%, var(--ok-putty) 40%);
+  --fg-1: color-mix(in srgb, var(--ok-ink) 65%, var(--ok-warm-grey-600));
+  /* meta/hints: Warm Grey-600 pulled 40% toward Ink (QA r1 #5, r2 #3) */
+  --fg-2: color-mix(in srgb, var(--ok-warm-grey-600) 60%, var(--ok-ink));
+  --fg-3: color-mix(in srgb, var(--ok-warm-grey-600) 60%, var(--ok-ink));
 
   /* hairlines — light */
   --line:        var(--ok-putty);
-  --line-soft:   color-mix(in srgb, var(--ok-putty) 55%, var(--ok-paper) 45%);
-  --line-strong: color-mix(in srgb, var(--ok-putty) 70%, var(--ok-ink) 30%);
+  --line-soft:   color-mix(in srgb, var(--ok-putty) 55%, var(--ok-paper));
+  --line-strong: color-mix(in srgb, var(--ok-putty) 60%, var(--ok-warm-grey));
 
-  /* the one accent — Ultramarine (configurable: OK_BRAND_ACCENT / Branding panel) */
+  /* the one accent (configurable: OK_BRAND_ACCENT / Branding panel) */
   --accent:       var(--ok-ultramarine);
   --accent-hover: var(--ok-ultramarine-600);
   --accent-press: var(--ok-ultramarine-700);
   --accent-fg:    var(--ok-shell);
-  --accent-tint:  color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-text:  color-mix(in srgb, var(--accent) 80%, var(--ok-ink));
+  --accent-tint:  color-mix(in srgb, var(--accent) 7%, transparent);
   --accent-line:  color-mix(in srgb, var(--accent) 32%, transparent);
+  --focus-ring:   var(--accent);
 
-  /* semantic status triad (--ok-verify is the raw OK token itself here; dark overrides it below) */
-  --ok-amber: var(--ok-cadmium-600);
-  --ok-alarm: var(--ok-caution);
+  /* semantic status triad */
+  --ok-verify: var(--brand-verify, #0B7643);
+  --ok-amber:  var(--ok-cadmium-800);
+  --ok-alarm:  var(--ok-caution);
 
-  /* 7-status pipeline (cool=machine, ultramarine=needs-you, green=shipped) */
-  --st-planning: var(--ok-ultramarine-400);
-  --st-queue:    var(--ok-warm-grey);
-  --st-working:  var(--ok-ultramarine-300);
-  --st-ai:       #2E8B87;
-  --st-review:   var(--ok-cadmium-700);
+  /* 7-status pipeline (cool=machine, accent=needs-you, green=shipped) */
+  --st-planning: var(--ok-ink-600);
+  --st-queue:    var(--ok-warm-grey-600);
+  --st-working:  var(--accent);
+  --st-ai:       color-mix(in srgb, var(--accent) 70%, var(--ok-ink));
+  --st-review:   var(--ok-cadmium-800);
   --st-human:    var(--accent);
   --st-done:     var(--ok-verify);
-  --st-cancelled: color-mix(in srgb, var(--ok-warm-grey) 55%, var(--ok-putty) 45%);
-  /* legacy alias used by JobsBoard inline style */
+  --st-cancelled: var(--ok-warm-grey-600);
   --status-human: var(--st-human);
 
-  /* agent identity (desaturated; never competes with status) */
-  --agent-cto: #4C6FB0; --agent-cmo: #A5567E; --agent-coo: #3F8862;
-  --agent-cfo: #9C6B1E; --agent-general: var(--ok-warm-grey-600);
+  /* Text versions of the signal/status hues: 20% Ink in light so a label on its
+     own 10% tint stays >= AA (5.4:1+) — incl. a custom accent. Dark = the hue. */
+  --t-verify: color-mix(in srgb, var(--ok-verify) 80%, var(--ok-ink));
+  --t-amber: color-mix(in srgb, var(--ok-amber) 80%, var(--ok-ink));
+  --t-alarm: color-mix(in srgb, var(--ok-alarm) 80%, var(--ok-ink));
+  --t-planning: color-mix(in srgb, var(--st-planning) 80%, var(--ok-ink));
+  --t-queue: color-mix(in srgb, var(--st-queue) 80%, var(--ok-ink));
+  --t-working: color-mix(in srgb, var(--st-working) 80%, var(--ok-ink));
+  --t-ai: color-mix(in srgb, var(--st-ai) 80%, var(--ok-ink));
+  --t-review: color-mix(in srgb, var(--st-review) 80%, var(--ok-ink));
+  --t-human: color-mix(in srgb, var(--st-human) 80%, var(--ok-ink));
+  --t-done: color-mix(in srgb, var(--st-done) 80%, var(--ok-ink));
+  --t-cancelled: color-mix(in srgb, var(--st-cancelled) 80%, var(--ok-ink));
 
-  /* type */
-  --font-display: Geist, "Inter Tight", system-ui, sans-serif;
-  --font-body:    Inter, system-ui, -apple-system, sans-serif;
-  --font-mono:    "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+  /* agent identity (desaturated; never competes with status) */
+  --agent-cto: #3F5F9E; --agent-cmo: #93466D; --agent-coo: #2F7350;
+  --agent-cfo: #85591A; --agent-general: var(--ok-warm-grey-600);
+  --t-agent-cto: color-mix(in srgb, var(--agent-cto) 80%, var(--ok-ink));
+  --t-agent-cmo: color-mix(in srgb, var(--agent-cmo) 80%, var(--ok-ink));
+  --t-agent-coo: color-mix(in srgb, var(--agent-coo) 80%, var(--ok-ink));
+  --t-agent-cfo: color-mix(in srgb, var(--agent-cfo) 80%, var(--ok-ink));
+  --t-agent-general: color-mix(in srgb, var(--agent-general) 80%, var(--ok-ink));
+
+  /* type — brand 1.0 */
+  --font-brand:   Unbounded, "Familjen Grotesk", system-ui, sans-serif;
+  --font-display: "Familjen Grotesk", system-ui, -apple-system, sans-serif;
+  --font-body:    "Familjen Grotesk", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* motion */
   --dur-fast: 110ms;
@@ -106,99 +137,86 @@
   --dur-slow: 240ms;
   --ease-out: cubic-bezier(.22,.61,.36,1);
   --ease-inout: cubic-bezier(.45,0,.25,1);
+
+  color-scheme: light;
 }
 
-/* Dark variant — toggled via <html data-theme="dark">. */
+/* Dark — the brand's Ink "mission control" variant. Also applied pre-JS by
+   the media query below when the OS is dark and no choice is stored. */
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --surface-0: var(--ok-ink);
   --surface-1: var(--ok-ink-800);
-  --surface-2: var(--ok-ink-700);
-  --surface-3: color-mix(in srgb, var(--ok-ink-700) 80%, white 20%);
-  --surface-4: color-mix(in srgb, var(--ok-ink-700) 62%, white 38%);
+  /* cards one step clearer of the Ink ground than raw Ink-700 (QA r1 #6) */
+  --surface-2: color-mix(in srgb, var(--ok-ink-700) 70%, var(--ok-ink-600));
+  --surface-3: color-mix(in srgb, var(--ok-ink-700) 35%, var(--ok-ink-600));
+  --surface-4: var(--ok-ink-600);
+  --surface-lane: color-mix(in srgb, var(--ok-ink) 50%, var(--ok-ink-800));
+  --surface-selected: color-mix(in srgb, var(--accent-text) 24%, var(--ok-ink-800));
 
   --fg-0: var(--ok-shell);
-  --fg-1: var(--ok-ink-300);
-  --fg-2: color-mix(in srgb, var(--ok-ink-300) 70%, var(--ok-ink) 30%);
-  --fg-3: color-mix(in srgb, var(--ok-ink-300) 45%, var(--ok-ink) 55%);
+  --fg-1: color-mix(in srgb, var(--ok-shell) 60%, var(--ok-ink-300));
+  /* meta/hints: Ink-300 pulled 45% toward Shell (QA r1 #5, r2 #3) */
+  --fg-2: color-mix(in srgb, var(--ok-ink-300) 55%, var(--ok-shell));
+  --fg-3: color-mix(in srgb, var(--ok-ink-300) 55%, var(--ok-shell));
 
-  --line:        var(--ok-ink-600);
-  --line-soft:   color-mix(in srgb, var(--ok-ink-600) 55%, var(--ok-ink-800) 45%);
-  --line-strong: color-mix(in srgb, var(--ok-ink-600) 70%, var(--ok-shell) 30%);
+  --line:        color-mix(in srgb, var(--ok-ink-600) 80%, var(--ok-ink-300));
+  --line-soft:   color-mix(in srgb, var(--ok-ink-600) 70%, var(--ok-ink-700));
+  --line-strong: color-mix(in srgb, var(--ok-ink-600) 50%, var(--ok-ink-300));
 
-  --accent:       var(--ok-ultramarine);
-  --accent-hover: var(--ok-ultramarine-600);
-  --accent-press: var(--ok-ultramarine-700);
-  --accent-fg:    var(--ok-shell);
-  --accent-tint:  color-mix(in srgb, var(--accent) 16%, transparent);
-  --accent-line:  color-mix(in srgb, var(--accent) 38%, transparent);
+  /* Buttons keep the brand accent; accent-coloured TEXT/rings/icons use a
+     lifted tint so a dark accent stays legible on Ink (default → Ultramarine-300). */
+  --accent-text:  color-mix(in srgb, var(--accent) 45%, white);
+  --accent-tint:  color-mix(in srgb, var(--accent) 22%, transparent);
+  --accent-line:  color-mix(in srgb, var(--accent-text) 45%, transparent);
+  --focus-ring:   var(--accent-text);
 
   --ok-verify: var(--ok-verify-on-dark);
   --ok-amber:  var(--ok-cadmium);
   --ok-alarm:  var(--ok-caution-on-dark);
 
-  --st-planning: var(--ok-ultramarine-400);
+  --st-planning: color-mix(in srgb, var(--ok-shell) 55%, var(--ok-ink-300));
   --st-queue:    var(--ok-ink-300);
-  --st-working:  var(--ok-ultramarine-300);
-  --st-ai:       #4FB3AD;
+  --st-working:  var(--accent-text);
+  --st-ai:       color-mix(in srgb, var(--accent-text) 70%, var(--ok-shell));
   --st-review:   var(--ok-cadmium);
-  --st-human:    var(--accent);
+  --st-human:    var(--accent-text);
   --st-done:     var(--ok-verify-on-dark);
-  --st-cancelled: color-mix(in srgb, var(--ok-ink-300) 55%, var(--ok-ink-600) 45%);
+  --st-cancelled: color-mix(in srgb, var(--ok-ink-300) 80%, var(--ok-ink-600));
   --status-human: var(--st-human);
 
-  --agent-cto: #7FA3E0; --agent-cmo: #D389B0; --agent-coo: #6FB58C;
-  --agent-cfo: #D6A24E; --agent-general: var(--ok-ink-300);
+  --t-verify: color-mix(in srgb, var(--ok-verify) 88%, var(--ok-shell));
+  --t-amber: color-mix(in srgb, var(--ok-amber) 88%, var(--ok-shell));
+  --t-alarm: color-mix(in srgb, var(--ok-alarm) 88%, var(--ok-shell));
+  --t-planning: color-mix(in srgb, var(--st-planning) 88%, var(--ok-shell));
+  --t-queue: color-mix(in srgb, var(--st-queue) 88%, var(--ok-shell));
+  --t-working: color-mix(in srgb, var(--st-working) 88%, var(--ok-shell));
+  --t-ai: color-mix(in srgb, var(--st-ai) 88%, var(--ok-shell));
+  --t-review: color-mix(in srgb, var(--st-review) 88%, var(--ok-shell));
+  --t-human: color-mix(in srgb, var(--st-human) 88%, var(--ok-shell));
+  --t-done: color-mix(in srgb, var(--st-done) 88%, var(--ok-shell));
+  --t-cancelled: color-mix(in srgb, var(--st-cancelled) 88%, var(--ok-shell));
+
+  --agent-cto: #8FB0E8; --agent-cmo: #DE9BBE; --agent-coo: #80C49C;
+  --agent-cfo: #DDB066; --agent-general: var(--ok-ink-300);
+  /* 15% Shell so agent initials stay >= AA on the raised/selected card steps */
+  --t-agent-cto: color-mix(in srgb, var(--agent-cto) 85%, var(--ok-shell));
+  --t-agent-cmo: color-mix(in srgb, var(--agent-cmo) 85%, var(--ok-shell));
+  --t-agent-coo: color-mix(in srgb, var(--agent-coo) 85%, var(--ok-shell));
+  --t-agent-cfo: color-mix(in srgb, var(--agent-cfo) 85%, var(--ok-shell));
+  --t-agent-general: color-mix(in srgb, var(--agent-general) 85%, var(--ok-shell));
 }
 
-/* System preference, when the install hasn't set an explicit theme yet
-   (data-theme="auto", the default — main.tsx only writes an explicit
-   light/dark once the user picks one in the topbar toggle). Mirrors the
-   [data-theme="dark"] block above exactly. */
 @media (prefers-color-scheme: dark) {
   :root[data-theme="auto"] {
     color-scheme: dark;
-    --surface-0: var(--ok-ink);
-    --surface-1: var(--ok-ink-800);
-    --surface-2: var(--ok-ink-700);
-    --surface-3: color-mix(in srgb, var(--ok-ink-700) 80%, white 20%);
-    --surface-4: color-mix(in srgb, var(--ok-ink-700) 62%, white 38%);
-
-    --fg-0: var(--ok-shell);
-    --fg-1: var(--ok-ink-300);
-    --fg-2: color-mix(in srgb, var(--ok-ink-300) 70%, var(--ok-ink) 30%);
-    --fg-3: color-mix(in srgb, var(--ok-ink-300) 45%, var(--ok-ink) 55%);
-
-    --line:        var(--ok-ink-600);
-    --line-soft:   color-mix(in srgb, var(--ok-ink-600) 55%, var(--ok-ink-800) 45%);
-    --line-strong: color-mix(in srgb, var(--ok-ink-600) 70%, var(--ok-shell) 30%);
-
-    --accent:       var(--ok-ultramarine);
-    --accent-hover: var(--ok-ultramarine-600);
-    --accent-press: var(--ok-ultramarine-700);
-    --accent-fg:    var(--ok-shell);
-    --accent-tint:  color-mix(in srgb, var(--accent) 16%, transparent);
-    --accent-line:  color-mix(in srgb, var(--accent) 38%, transparent);
-
-    --ok-verify: var(--ok-verify-on-dark);
-    --ok-amber:  var(--ok-cadmium);
-    --ok-alarm:  var(--ok-caution-on-dark);
-
-    --st-planning: var(--ok-ultramarine-400);
-    --st-queue:    var(--ok-ink-300);
-    --st-working:  var(--ok-ultramarine-300);
-    --st-ai:       #4FB3AD;
-    --st-review:   var(--ok-cadmium);
-    --st-human:    var(--accent);
-    --st-done:     var(--ok-verify-on-dark);
-    --st-cancelled: color-mix(in srgb, var(--ok-ink-300) 55%, var(--ok-ink-600) 45%);
-    --status-human: var(--st-human);
-
-    --agent-cto: #7FA3E0; --agent-cmo: #D389B0; --agent-coo: #6FB58C;
-    --agent-cfo: #D6A24E; --agent-general: var(--ok-ink-300);
+    --surface-0: var(--ok-ink); --surface-1: var(--ok-ink-800); --surface-2: color-mix(in srgb, var(--ok-ink-700) 70%, var(--ok-ink-600));
+    --surface-3: color-mix(in srgb, var(--ok-ink-700) 35%, var(--ok-ink-600)); --surface-4: var(--ok-ink-600); --surface-lane: color-mix(in srgb, var(--ok-ink) 50%, var(--ok-ink-800));
+    --surface-selected: color-mix(in srgb, var(--accent-text) 24%, var(--ok-ink-800));
+    --fg-0: var(--ok-shell); --fg-1: color-mix(in srgb, var(--ok-shell) 35%, var(--ok-ink-300)); --fg-2: color-mix(in srgb, var(--ok-ink-300) 75%, var(--ok-shell)); --fg-3: color-mix(in srgb, var(--ok-ink-300) 75%, var(--ok-shell));
+    --line: color-mix(in srgb, var(--ok-ink-600) 80%, var(--ok-ink-300)); --line-soft: color-mix(in srgb, var(--ok-ink-600) 70%, var(--ok-ink-700)); --line-strong: color-mix(in srgb, var(--ok-ink-600) 50%, var(--ok-ink-300));
   }
 }
-:root[data-theme="dark"] { color-scheme: dark; }
-:root:not([data-theme="dark"]) { color-scheme: light; }
 
 html, body, #root {
   height: 100%;
@@ -214,13 +232,17 @@ html, body, #root {
    token only; honors :focus-visible so it never shows on mouse click.
    ───────────────────────────────────────────────────────── */
 :where(a, button, [role="button"], [role="tab"], [tabindex="0"], input, select, textarea, summary):focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
 body {
   font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  font-feature-settings: "ss01" off;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -310,8 +332,8 @@ code, pre, .font-mono, .mono {
   .cc-live-breathe { animation: cc-breathe 2.2s var(--ease-inout) infinite; }
 }
 @keyframes cc-breathe {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(31,184,119,.5); }
-  50%      { opacity: .6; box-shadow: 0 0 0 4px rgba(31,184,119,0); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok-verify) 50%, transparent); }
+  50%      { opacity: .6; box-shadow: 0 0 0 4px transparent; }
 }
 
 /* 4. Status transition / "land" — 150ms ease-out card slide between columns.
@@ -369,9 +391,9 @@ code, pre, .font-mono, .mono {
 .cc-shimmer {
   background: linear-gradient(
     90deg,
-    rgba(255,255,255,0)    0%,
-    rgba(255,255,255,.04) 50%,
-    rgba(255,255,255,0)  100%
+    transparent 0%,
+    color-mix(in srgb, var(--fg-0) 6%, transparent) 50%,
+    transparent 100%
   );
   background-size: 200% 100%;
 }
@@ -394,7 +416,7 @@ code, pre, .font-mono, .mono {
 .s-cancelled{--c:var(--st-cancelled)}
 .a-cto{--ac:var(--agent-cto)} .a-cmo{--ac:var(--agent-cmo)} .a-coo{--ac:var(--agent-coo)}
 .a-cfo{--ac:var(--agent-cfo)} .a-general{--ac:var(--agent-general)}
-.eyebrow{font-family:var(--font-mono);font-size:11.5px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-2)}
+.eyebrow{font-family:var(--font-body);font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-2)}
 .caret{color:var(--accent)}
 
 /* ─────────────────────────────────────────────────────────
@@ -411,8 +433,8 @@ code, pre, .font-mono, .mono {
 .cc-prose pre    { background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; }
 
 /* Diff rows — add/del tinted via subtle backgrounds, no shouty colors. */
-.cc-diff-add { background: rgba(31,184,119,.10); color: #b8e6cf; }
-.cc-diff-del { background: rgba(229,86,75,.10);  color: #E8B7B2; }
+.cc-diff-add { background: color-mix(in srgb, var(--ok-verify) 12%, transparent); color: var(--fg-0); }
+.cc-diff-del { background: color-mix(in srgb, var(--ok-alarm) 12%, transparent);  color: var(--fg-0); }
 
 /* ─────────────────────────────────────────────────────────
    ok-skeleton — quiet loading shimmer for the UI primitive layer
@@ -426,8 +448,14 @@ code, pre, .font-mono, .mono {
     position: absolute;
     inset: 0;
     transform: translateX(-100%);
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,.05), transparent);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg-0) 6%, transparent), transparent);
     animation: ok-shimmer 1.5s var(--ease-inout) infinite;
   }
 }
 @keyframes ok-shimmer { 100% { transform: translateX(100%); } }
+
+/* Page titles use the brand display face, like operationkit.com's app type
+   scale (--ok-type-app-h1: Unbounded 600). A font-* class still wins. */
+@layer base {
+  h1 { font-family: var(--font-brand); font-weight: 600; letter-spacing: -0.01em; }
+}

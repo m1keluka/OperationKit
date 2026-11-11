@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { useBranding } from '../hooks/useBranding'
 import { RefreshCw, DollarSign } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import {
@@ -287,7 +288,7 @@ function BreakdownBar({
     <div className="flex items-center gap-3">
       <span
         className={cn(
-          'w-32 shrink-0 truncate rounded-sm border border-line bg-surface-3 px-2 py-0.5 font-mono text-[11px] font-medium sm:w-36',
+          'w-32 shrink-0 truncate rounded-sm border border-line bg-surface-3 px-2 py-0.5 font-mono text-[12px] font-medium sm:w-36',
           labelMuted ? 'italic text-fg-3' : 'text-fg-1',
         )}
         title={label}
@@ -305,10 +306,10 @@ function BreakdownBar({
       <div className="w-20 shrink-0 text-right font-mono text-[12.5px] font-medium tabular-nums text-fg-0">
         {formatUsd(value)}
       </div>
-      <div className="hidden w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-fg-3 sm:block">
+      <div className="hidden w-14 shrink-0 text-right font-mono text-[12px] tabular-nums text-fg-3 sm:block">
         {sessions}s
       </div>
-      <div className="hidden w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-fg-3 sm:block">
+      <div className="hidden w-14 shrink-0 text-right font-mono text-[12px] tabular-nums text-fg-3 sm:block">
         {formatTokens(tokens)}
       </div>
     </div>
@@ -344,7 +345,7 @@ function KpiCard({
 }) {
   return (
     <Card className="min-h-[88px]">
-      <div className="font-mono text-[11px] uppercase tracking-[0.1em] text-fg-3">{label}</div>
+      <div className="text-[12px] uppercase tracking-[0.1em] text-fg-3 font-semibold tracking-[0.06em]">{label}</div>
       {loading ? (
         <>
           <Skeleton className="mt-1.5 h-[26px] w-20" />
@@ -353,7 +354,7 @@ function KpiCard({
       ) : (
         <>
           <div className="mt-1 font-mono text-[22px] font-semibold text-fg-0">{value}</div>
-          <div className="font-mono text-[11px] text-fg-3">{sub}</div>
+          <div className="font-mono text-[12px] text-fg-3">{sub}</div>
         </>
       )}
     </Card>
@@ -361,6 +362,7 @@ function KpiCard({
 }
 
 export function CostsPage() {
+  const brandName = useBranding().name
   const [tz, setTz] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(TZ_STORAGE_KEY)
@@ -515,7 +517,7 @@ export function CostsPage() {
     <PageContainer width="wide">
       <PageHeader
         title="Costs"
-        breadcrumbs={[{ label: 'OperationKit' }, { label: 'Costs' }]}
+        breadcrumbs={[{ label: brandName }, { label: 'Costs' }]}
         description={`Token usage & spend · days bucketed in ${tzShort}`}
         actions={
           <Button
@@ -558,7 +560,7 @@ export function CostsPage() {
         }
         right={
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-fg-3">TZ</span>
+            <span className="text-[12px] uppercase tracking-[0.08em] text-fg-3 font-semibold tracking-[0.06em]">TZ</span>
             <select
               value={tz}
               onChange={e => changeTz(e.target.value)}
@@ -620,12 +622,12 @@ export function CostsPage() {
       <section className="mb-6 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-fg-3">
+            <h3 className="text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">
               Daily {metric === 'cost' ? 'Spend' : 'Tokens'}
             </h3>
             <Tabs items={METRIC_TABS} value={metric} onChange={k => setMetric(k as ChartMetric)} />
           </div>
-          <div className="font-mono text-[11px] text-fg-3">
+          <div className="font-mono text-[12px] text-fg-3">
             {data ? `All-time: ${formatUsd(data.all_time_usd)}` : ''}
           </div>
         </div>
@@ -643,8 +645,8 @@ export function CostsPage() {
       {/* Per-account breakdown */}
       {(data?.by_account.length ?? 0) > 0 && (
         <section className="mb-6 space-y-2">
-          <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-fg-3">
-            By Account <span className="text-fg-3/70">(selected range)</span>
+          <h3 className="text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">
+            By Account <span className="text-fg-3">(selected range)</span>
           </h3>
           <Card className="space-y-2.5">
             {data!.by_account.map(a => (
@@ -664,8 +666,8 @@ export function CostsPage() {
       {/* Per-model breakdown */}
       {(data?.by_model?.length ?? 0) > 0 && (
         <section className="mb-6 space-y-2">
-          <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-fg-3">
-            By Model <span className="text-fg-3/70">(selected range)</span>
+          <h3 className="text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">
+            By Model <span className="text-fg-3">(selected range)</span>
           </h3>
           <Card className="space-y-2.5">
             {data!.by_model!.map(m => (
@@ -685,8 +687,8 @@ export function CostsPage() {
 
       {/* Per-objective table */}
       <section className="space-y-2">
-        <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-fg-3">
-          By Objective <span className="text-fg-3/70">(selected range, top 50 by cost)</span>
+        <h3 className="text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">
+          By Objective <span className="text-fg-3">(selected range, top 50 by cost)</span>
         </h3>
         <DataTable
           columns={objectiveColumns}

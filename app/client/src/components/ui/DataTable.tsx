@@ -128,7 +128,7 @@ export function DataTable<T>({
                     key={col.key}
                     aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                     className={cn(
-                      'px-3 py-2.5 font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-fg-3',
+                      'px-3 py-2.5 text-[12px] uppercase tracking-[0.1em] text-fg-3 font-semibold tracking-[0.06em]',
                       alignCls(col.align),
                       col.headerClassName,
                       col.className,
@@ -262,7 +262,7 @@ export function DataTable<T>({
                   <dl className="flex flex-col gap-1.5">
                     {rest.map((col) => (
                       <div key={col.key} className="flex items-baseline justify-between gap-3">
-                        <dt className="shrink-0 font-mono text-[10.5px] uppercase tracking-[0.08em] text-fg-3">
+                        <dt className="shrink-0 text-[12px] uppercase tracking-[0.08em] text-fg-3 font-semibold tracking-[0.06em]">
                           {col.header}
                         </dt>
                         <dd className={cn('min-w-0 truncate text-right text-[12.5px] text-fg-1', col.mono && 'font-mono text-fg-2')}>

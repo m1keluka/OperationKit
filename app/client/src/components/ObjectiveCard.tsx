@@ -137,7 +137,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
       <div className="ok-cact" onClick={e => e.stopPropagation()}>
         <button
           onClick={open}
-          className="inline-flex items-center whitespace-nowrap rounded-sm border border-line-strong bg-surface-1 px-2 py-0.5 font-mono text-[11px] text-fg-1 transition-colors duration-fast ease-out hover:border-fg-3 hover:text-fg-0"
+          className="inline-flex items-center whitespace-nowrap rounded-sm border border-line-strong bg-surface-1 px-2 py-0.5 font-mono text-[12px] text-fg-1 transition-colors duration-fast ease-out hover:border-fg-3 hover:text-fg-0"
         >
           {objective.status === 'planning' ? 'Plan' : 'View'}
         </button>
@@ -148,7 +148,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
             variant={action.variant}
             loading={pending}
             onClick={() => onChangeStatus(objective.id, action.target)}
-            className="h-auto whitespace-nowrap rounded-sm px-2 py-0.5 font-mono text-[11px] font-normal"
+            className="h-auto whitespace-nowrap rounded-sm px-2 py-0.5 font-mono text-[12px] font-normal"
           >
             {action.label}
           </Button>
@@ -178,7 +178,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
 
       {/* Agent identity tile */}
       <span
-        className={`ok-tile ${agent.tw} flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-sm font-mono text-[10.5px] font-semibold tracking-[0.02em] text-surface-0`}
+        className={`ok-tile ${agent.tw} flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-sm font-mono text-[12px] font-semibold tracking-[0.02em] text-surface-0`}
         aria-label={`agent ${objective.agent_context || 'general'}`}
       >
         {agent.mono}
@@ -207,7 +207,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
         )}
 
         {/* Meta row 1 — mono machine data */}
-        <div className="mt-[7px] flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-fg-3">
+        <div className="mt-[7px] flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12px] text-fg-3">
           <span className="text-fg-2">#{objective.id}</span>
           {objective.branch_name && <span className="max-w-[150px] truncate">{objective.branch_name}</span>}
           {sessions > 0 && <span>{sessions} sess</span>}
@@ -227,7 +227,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
               {assignees.join(', ')}
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 text-fg-3/70" title="Unassigned">
+            <span className="inline-flex items-center gap-1 text-fg-3" title="Unassigned">
               <UserIcon className="h-3 w-3 opacity-60" aria-hidden="true" />
               Unassigned
             </span>
@@ -242,7 +242,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
 
         {/* Meta row 2 — tags */}
         {(objective.is_strategy || (objective.origin && ORIGIN_BADGES[objective.origin]) || objective.pr_number || objective.model || objective.workspace || objective.project_name || showOrgChip) && (
-          <div className="mt-[7px] flex flex-wrap items-center gap-2 font-mono text-[10.5px]">
+          <div className="mt-[7px] flex flex-wrap items-center gap-2 font-mono text-[12px]">
             {objective.is_strategy && (
               <span
                 className={`rounded-full border px-1.5 py-px font-semibold tracking-[0.04em] ${STRATEGY_BADGE.cls}`}
@@ -318,7 +318,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
                 output for the requested model. */}
             {objective.ran_on_fallback ? (
               <span
-                className="rounded-full border border-amber-500/50 px-1.5 py-px font-semibold text-amber-500"
+                className="rounded-full border border-signal-amber/50 px-1.5 py-px font-semibold text-signal-amber"
                 title={`The main agentic loop actually ran on the fallback model, not the requested ${objective.model}.${objective.ran_model ? ` Main-loop models observed: ${objective.ran_model}.` : ''}${objective.fallback_detected_at ? ` Detected ${objective.fallback_detected_at}.` : ''}`}
               >
                 Fallback ⚠
@@ -330,7 +330,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
                  Fable run was indistinguishable from "no telemetry". */
               ranOnRequestedModel(objective) && (
                 <span
-                  className="rounded-full border border-emerald-500/50 px-1.5 py-px font-semibold text-emerald-500"
+                  className="rounded-full border border-signal-verify/50 px-1.5 py-px font-semibold text-signal-verify"
                   title={`Transcript-verified: the main agentic loop ran on ${objective.model}. Main-loop models observed: ${objective.ran_model}. Sub-agents/helpers may use other models by design.`}
                 >
                   {MODEL_SHORT_LABEL[objective.model as string] ?? objective.model} ✓
@@ -382,7 +382,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
             {showAIDots && <AIReviewDots iteration={aiIter} verdict={objective.ai_review_verdict} />}
             {orchestrating && (
               <span
-                className="inline-flex items-center gap-1.5 font-mono text-[11px] text-accent"
+                className="inline-flex items-center gap-1.5 font-mono text-[12px] text-accent"
                 title="Orchestrating workers — auto-wakes to process finished ones. Not waiting on you."
               >
                 <span className="ok-dot live" style={{ ['--c' as string]: 'var(--accent)' }} aria-hidden="true" />
@@ -394,7 +394,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
             {freshAfterCap && (
               <span
                 data-testid="fresh-after-cap"
-                className="inline-flex items-center gap-1 font-mono text-[11px] text-fg-2"
+                className="inline-flex items-center gap-1 font-mono text-[12px] text-fg-2"
                 title="The last restart did not replay the full transcript: the session chain hit the history cap (tokens or resume rounds), so a fresh session was seeded with a compact card summary."
               >
                 fresh start · history capped

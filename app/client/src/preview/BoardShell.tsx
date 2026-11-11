@@ -1,29 +1,37 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import './preview.css'
 import { DiskLowBanner } from '../components/DiskLowBanner'
-
-const THEME_KEY = 'cc.preview.theme.v2'
-
-function loadTheme(): 'light' | 'dark' {
-  try {
-    const v = localStorage.getItem(THEME_KEY)
-    if (v === 'dark' || v === 'light') return v
-  } catch { /* ignore */ }
-  return 'dark'
-}
+import { paintTheme, readStoredTheme, resolveTheme, setTheme as persistTheme, type Theme } from '../lib/theme'
 
 const BoardThemeContext = createContext<{
-  theme: 'light' | 'dark'
+  theme: Theme
   toggleTheme: () => void
-}>({ theme: 'dark', toggleTheme: () => {} })
+}>({ theme: 'light', toggleTheme: () => {} })
 
+/** App-wide theme state (name kept for back-compat). Reads and writes the ONE
+ * theme store in lib/theme.ts, which paints `<html data-theme>` — so the
+ * header, board, settings, login and portals always agree (obj 900543). */
 export function BoardThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<'light' | 'dark'>(loadTheme)
+  const [theme, setThemeState] = useState<Theme>(resolveTheme)
+
+  // No explicit choice yet → follow the OS preference live.
+  useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)')
+    if (!mq) return
+    const onChange = () => {
+      if (readStoredTheme()) return
+      const next: Theme = mq.matches ? 'dark' : 'light'
+      paintTheme(next)
+      setThemeState(next)
+    }
+    mq.addEventListener?.('change', onChange)
+    return () => mq.removeEventListener?.('change', onChange)
+  }, [])
 
   function toggleTheme() {
-    setTheme(prev => {
-      const next = prev === 'light' ? 'dark' : 'light'
-      try { localStorage.setItem(THEME_KEY, next) } catch { /* ignore */ }
+    setThemeState(prev => {
+      const next: Theme = prev === 'light' ? 'dark' : 'light'
+      persistTheme(next)
       return next
     })
   }
@@ -39,11 +47,11 @@ export function useBoardTheme() {
   return useContext(BoardThemeContext)
 }
 
-/** Themed canvas for the workspace board / objective page. Lives inside Layout. */
+/** Canvas for the workspace board / objective page. Lives inside Layout and
+ * inherits the theme from <html data-theme> — it no longer carries its own. */
 export function BoardShell({ children }: { children: ReactNode }) {
-  const { theme } = useBoardTheme()
   return (
-    <div className="cc-ws flex h-full min-h-0 flex-col" data-theme={theme}>
+    <div className="cc-ws flex h-full min-h-0 flex-col">
       <DiskLowBanner />
       {children}
     </div>

@@ -1,0 +1,20 @@
+# CodeQL configuration for the public OperationKit repo (advanced setup).
+# Used by .github/workflows/codeql.yml. Synced from the private upstream's
+# tracked tree, so edit it there.
+name: operationkit-codeql
+
+# Test harnesses spin up bare Express apps (no CSRF middleware, no limiter)
+# on purpose; scanning them reported "missing CSRF middleware" on files that
+# never run in production. Exclude test FILES only — every route module under
+# app/server/src/** is still scanned with the full default query suite.
+paths-ignore:
+  - '**/*.test.ts'
+  - '**/*.test.tsx'
+  - '**/*.test.mts'
+  - '**/*.test.mjs'
+  - '**/*.test.js'
+  - '**/*.spec.ts'
+  - '**/*.testkit.ts'
+  - '**/fixtures/**'
+  - '**/node_modules/**'
+  - 'app/client/dist/**'

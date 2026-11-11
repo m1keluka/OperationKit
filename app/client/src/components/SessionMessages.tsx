@@ -79,16 +79,16 @@ export function CollapsibleDetails({ label, icon, colorScheme, previewLines = 5,
         className={`${BLOCK_HEADER} transition-colors duration-fast ease-out hover:bg-surface-3`}
       >
         {statusDot ?? <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${scheme.dot}`} />}
-        {icon && <span className="shrink-0 text-[11px] opacity-80">{icon}</span>}
+        {icon && <span className="shrink-0 text-[12px] opacity-80">{icon}</span>}
         <span className={`truncate font-mono font-medium ${scheme.text}`}>{label}</span>
         {meta}
-        <span className={`${meta ? '' : 'ml-auto'} shrink-0 text-[10px] text-fg-3 transition-transform ${expanded ? 'rotate-90' : ''}`}>{'▸'}</span>
+        <span className={`${meta ? '' : 'ml-auto'} shrink-0 text-[12px] text-fg-3 transition-transform ${expanded ? 'rotate-90' : ''}`}>{'▸'}</span>
       </button>
       {(expanded || hasMore) && (
         <pre className={BLOCK_BODY}>
           {expanded ? children : preview}
           {!expanded && hasMore && (
-            <button onClick={() => setExpanded(true)} className="mt-1 block text-[10px] text-accent hover:underline">
+            <button onClick={() => setExpanded(true)} className="mt-1 block text-[12px] text-accent hover:underline">
               +{lines.length - previewLines} more lines
             </button>
           )}
@@ -108,14 +108,14 @@ export function ResultCard({ text, cost, duration }: { text?: string; cost?: num
     <div className="my-2 overflow-hidden rounded-md border border-status-done/25 bg-status-done/[0.06]">
       <div className="flex items-center gap-2 border-b border-status-done/15 px-4 py-1.5">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-status-done" />
-        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-status-done">Result</span>
+        <span className="text-[12px] uppercase tracking-[0.14em] text-status-done font-semibold tracking-[0.06em]">Result</span>
       </div>
       <div className="px-4 py-3">
         {text && (
           <div className="cc-prose break-words" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
         )}
         {(cost != null || duration != null) && (
-          <div className="mt-2 flex gap-4 font-mono text-[11px] text-fg-3">
+          <div className="mt-2 flex gap-4 font-mono text-[12px] text-fg-3">
             {cost != null && <span>${cost.toFixed(4)}</span>}
             {duration != null && <span>{(duration / 1000).toFixed(1)}s</span>}
           </div>
@@ -131,7 +131,7 @@ export function ErrorCard({ text }: { text?: string }) {
     <div className="my-2 overflow-hidden rounded-md border border-flag-blocked/40 bg-flag-blocked/10">
       <div className="flex items-center gap-2 border-b border-flag-blocked/20 px-4 py-1.5">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-flag-blocked" />
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-flag-blocked">Error</span>
+        <span className="text-[12px] uppercase tracking-[0.14em] text-flag-blocked font-semibold tracking-[0.06em]">Error</span>
       </div>
       <div className="cc-prose break-words px-4 py-3" dangerouslySetInnerHTML={{ __html: renderMarkdown(text || '') }} />
     </div>
@@ -187,7 +187,7 @@ function ToolStatusDot({ status }: { status: ToolStatus }) {
 function ToolMeta({ cost, duration }: { cost?: number; duration?: number }) {
   if (cost == null && duration == null) return null
   return (
-    <span className="ml-auto flex shrink-0 items-center gap-2 font-mono text-[10px] text-fg-3">
+    <span className="ml-auto flex shrink-0 items-center gap-2 font-mono text-[12px] text-fg-3">
       {duration != null && <span>{(duration / 1000).toFixed(1)}s</span>}
       {cost != null && <span>${cost.toFixed(4)}</span>}
     </span>
@@ -280,11 +280,11 @@ function EditDiffCollapsible({ label, icon, text, statusDot, meta }: { label: Re
         className={`${BLOCK_HEADER} transition-colors duration-fast ease-out hover:bg-surface-3`}
       >
         {statusDot ?? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-status-done" />}
-        {icon && <span className="shrink-0 text-[11px] opacity-80">{icon}</span>}
+        {icon && <span className="shrink-0 text-[12px] opacity-80">{icon}</span>}
         <span className="truncate font-mono font-medium text-fg-1">{label}</span>
         {meta}
-        {hasMore && !expanded && <span className={`${meta ? '' : 'ml-auto'} shrink-0 font-mono text-[10px] text-fg-3`}>+{lines.length - previewLines}</span>}
-        <span className={`${(hasMore && !expanded) || meta ? '' : 'ml-auto'} shrink-0 text-[10px] text-fg-3 transition-transform ${expanded ? 'rotate-90' : ''}`}>{'▸'}</span>
+        {hasMore && !expanded && <span className={`${meta ? '' : 'ml-auto'} shrink-0 font-mono text-[12px] text-fg-3`}>+{lines.length - previewLines}</span>}
+        <span className={`${(hasMore && !expanded) || meta ? '' : 'ml-auto'} shrink-0 text-[12px] text-fg-3 transition-transform ${expanded ? 'rotate-90' : ''}`}>{'▸'}</span>
       </button>
       {expanded ? (
         <DiffBody text={text} />
@@ -335,7 +335,7 @@ function ToolCallMessage({ msg }: { msg: SessionMessage }) {
       ) : (
         <div className={`${BLOCK} flex items-center gap-2 px-3 py-2 text-[12px] transition-colors duration-fast ease-out hover:border-line-soft`}>
           {dot}
-          {icon && <span className="shrink-0 text-[11px] opacity-80">{icon}</span>}
+          {icon && <span className="shrink-0 text-[12px] opacity-80">{icon}</span>}
           <span className="truncate font-mono font-medium text-fg-1">{renderedLabel}</span>
           {meta}
         </div>
@@ -373,20 +373,20 @@ function ToolGroup({ tools }: { tools: SessionMessage[] }) {
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-status-done" />
         <span className="shrink-0 font-mono font-medium text-fg-1">{tools.length} tool calls</span>
         {errorCount > 0 && (
-          <span className="shrink-0 rounded-full border border-flag-blocked/40 bg-flag-blocked/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-flag-blocked">
+          <span className="shrink-0 rounded-full border border-flag-blocked/40 bg-flag-blocked/10 px-1.5 py-0.5 font-mono text-[12px] font-medium text-flag-blocked">
             {errorCount} error{errorCount === 1 ? '' : 's'}
           </span>
         )}
         {pendingCount > 0 && (
           <span
-            className="shrink-0 rounded-full border px-1.5 py-0.5 font-mono text-[11px] font-medium"
+            className="shrink-0 rounded-full border px-1.5 py-0.5 font-mono text-[12px] font-medium"
             style={{ color: 'var(--ok-amber)', borderColor: 'color-mix(in srgb, var(--ok-amber) 40%, transparent)', background: 'color-mix(in srgb, var(--ok-amber) 10%, transparent)' }}
           >
             {pendingCount} pending
           </span>
         )}
         <span className="truncate font-mono text-fg-3">{summary}</span>
-        <span className={`ml-auto shrink-0 text-[10px] text-fg-3 transition-transform ${expanded ? 'rotate-90' : ''}`}>{'▸'}</span>
+        <span className={`ml-auto shrink-0 text-[12px] text-fg-3 transition-transform ${expanded ? 'rotate-90' : ''}`}>{'▸'}</span>
       </button>
       {expanded && (
         <div className="ml-2 mt-1 space-y-1 border-l border-line pl-3">
@@ -482,7 +482,7 @@ export function GroupedMessages({ messages, initialCap = 100 }: GroupedMessagesP
           }
           return (
             <div key={group.key} className="text-center my-1">
-              <span className="inline-block rounded-full border border-line bg-surface-2 px-3 py-1 font-mono text-[11px] text-fg-2">{text}</span>
+              <span className="inline-block rounded-full border border-line bg-surface-2 px-3 py-1 font-mono text-[12px] text-fg-2">{text}</span>
             </div>
           )
         }

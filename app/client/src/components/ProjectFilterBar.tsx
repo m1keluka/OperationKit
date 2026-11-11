@@ -139,7 +139,7 @@ export function ProjectFilterBar({
       data-testid="project-filter-bar"
       className="flex items-center gap-2 overflow-x-auto border-b border-line px-4 py-2"
     >
-      <span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">
         <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />
         Project
       </span>
@@ -165,7 +165,7 @@ export function ProjectFilterBar({
           >
             {chipLabel(p)}
             {typeof p.objective_count === 'number' && (
-              <span className="ml-1.5 font-mono text-[10.5px] text-fg-3">{p.objective_count}</span>
+              <span className="ml-1.5 font-mono text-[12px] text-fg-3">{p.objective_count}</span>
             )}
           </button>
         ))}
@@ -260,7 +260,7 @@ export function ProjectFilterBar({
       )}
 
       {error && (
-        <span className="shrink-0 rounded-md border border-line bg-surface-1 px-2 py-1 text-[11.5px] text-[color:var(--ok-alarm)]">
+        <span className="shrink-0 rounded-md border border-line bg-surface-1 px-2 py-1 text-[12px] text-[color:var(--ok-alarm)]">
           {error}
         </span>
       )}

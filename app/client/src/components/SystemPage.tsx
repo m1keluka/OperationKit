@@ -155,9 +155,9 @@ function MetricCard({
 }) {
   return (
     <Card>
-      <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">{label}</div>
+      <div className="text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">{label}</div>
       <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-fg-0">{value}</div>
-      {sub && <div className="mt-0.5 font-mono text-[11px] text-fg-3">{sub}</div>}
+      {sub && <div className="mt-0.5 font-mono text-[12px] text-fg-3">{sub}</div>}
     </Card>
   )
 }
@@ -276,7 +276,7 @@ export function SystemPage() {
             naming it, the per-account cards visibly under-sum the headline and the
             numbers read as inconsistent. Surface it so the math closes. */}
         {!loading && untracked.sessions > 0 && (
-          <div className="font-mono text-[11px] text-fg-3">
+          <div className="font-mono text-[12px] text-fg-3">
             Today’s totals include {untracked.sessions} in-progress session
             {untracked.sessions === 1 ? '' : 's'} not yet attributed to an account
             {' · '}${untracked.cost.toFixed(2)}
@@ -304,7 +304,7 @@ export function SystemPage() {
                 <span className="flex items-center gap-2">
                   {hostStale && <Badge tone="amber" mono>stale</Badge>}
                   {hostAgeMs != null && (
-                    <span data-testid="host-updated" className="font-mono text-[11px] text-fg-3">
+                    <span data-testid="host-updated" className="font-mono text-[12px] text-fg-3">
                       updated {Math.round(hostAgeMs / 1000)}s ago
                     </span>
                   )}

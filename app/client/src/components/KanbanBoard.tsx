@@ -398,7 +398,7 @@ export function KanbanBoard({ workspaces }: KanbanBoardProps) {
           {SKELETON_COLS.map(({ label, status }, ci) => (
             <section key={status} className="ok-col" data-status={status}>
               <div className="ok-colhead">
-                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">{label}</span>
+                <span className="text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">{label}</span>
               </div>
               <div className="ok-cards">
                 {Array.from({ length: 3 - ci }).map((_, i) => (
@@ -487,7 +487,7 @@ export function KanbanBoard({ workspaces }: KanbanBoardProps) {
           >
             <Search className="h-4 w-4" />
             <span className="hidden md:inline">Search</span>
-            <span className="hidden font-mono text-[10.5px] text-fg-3 md:inline">/</span>
+            <span className="hidden font-mono text-[12px] text-fg-3 md:inline">/</span>
           </button>
           <ConnectionPulse
             state={connectionState}
@@ -522,7 +522,7 @@ export function KanbanBoard({ workspaces }: KanbanBoardProps) {
 
       {/* ── Assignee filter — multi-select toggle chips (obj 700857) ── */}
       <div className="flex items-center gap-2 overflow-x-auto border-b border-line-soft bg-surface-0 px-4 py-2 sm:px-5">
-        <span className="shrink-0 font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">Assignee</span>
+        <span className="shrink-0 text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">Assignee</span>
         <div className="flex shrink-0 items-center gap-1">
           {[{ token: UNASSIGNED_TOKEN, label: 'Unassigned' }, ...assigneeOptions.map(u => ({ token: u, label: u }))].map(opt => {
             const active = selectedAssignees.has(opt.token)

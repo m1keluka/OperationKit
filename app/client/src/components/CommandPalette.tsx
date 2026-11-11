@@ -68,7 +68,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
             placeholder="Jump to…"
             className="flex-1 bg-transparent text-sm text-fg-0 placeholder-fg-3 outline-none"
           />
-          <span className="font-mono text-[10.5px] text-fg-3">esc</span>
+          <span className="font-mono text-[12px] text-fg-3">esc</span>
         </div>
         <ul role="listbox" className="max-h-[40vh] overflow-y-auto py-1">
           {filtered.length === 0 ? (
@@ -85,7 +85,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
               }`}
             >
               <span>{item.label}</span>
-              {item.hint && <span className="font-mono text-[10.5px] text-fg-3">{item.hint}</span>}
+              {item.hint && <span className="font-mono text-[12px] text-fg-3">{item.hint}</span>}
             </li>
           ))}
         </ul>

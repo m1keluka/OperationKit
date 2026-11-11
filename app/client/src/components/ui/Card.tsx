@@ -41,7 +41,7 @@ export function CardHeader({
     <div className={cn('flex items-start justify-between gap-3 border-b border-line-soft px-4 py-3', className)}>
       <div className="min-w-0">
         {eyebrow && (
-          <div className="mb-0.5 font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">{eyebrow}</div>
+          <div className="mb-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-fg-2">{eyebrow}</div>
         )}
         <h3 className="truncate font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">{title}</h3>
       </div>

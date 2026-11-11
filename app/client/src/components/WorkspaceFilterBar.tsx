@@ -102,7 +102,7 @@ export function WorkspaceFilterBar({
       data-testid="workspace-filter-bar"
       className="flex items-center gap-2 overflow-x-auto border-b border-line px-4 py-2"
     >
-      <span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">
         <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
         Org
       </span>
@@ -176,7 +176,7 @@ export function WorkspaceFilterBar({
       ))}
 
       {error && (
-        <span className="shrink-0 rounded-md border border-line bg-surface-1 px-2 py-1 text-[11.5px] text-[color:var(--ok-alarm)]">
+        <span className="shrink-0 rounded-md border border-line bg-surface-1 px-2 py-1 text-[12px] text-[color:var(--ok-alarm)]">
           {error}
         </span>
       )}

@@ -83,7 +83,7 @@ export function NeedsSecretPanel({ objectiveId, workspace, items, canFill }: {
       className="cc-pop-in border-b border-status-human/30 bg-status-human/5"
     >
       <div className="mx-auto max-w-4xl space-y-3 px-4 py-3 sm:px-5">
-        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-status-human">
+        <div className="flex items-center gap-2 text-[12px] font-medium uppercase tracking-wider text-status-human">
           <KeyRound className="h-3.5 w-3.5" aria-hidden />
           Session is waiting on {items.length === 1 ? 'a secret' : `${items.length} secrets`}
         </div>

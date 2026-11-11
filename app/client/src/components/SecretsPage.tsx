@@ -218,7 +218,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
           </div>
           <button
             onClick={openCreate}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-fg-0 transition-colors duration-fast ease-out hover:bg-accent-hover"
+            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition-colors duration-fast ease-out hover:bg-accent-hover"
           >
             + New
           </button>
@@ -230,7 +230,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
         {/* Scope filter. "All scopes" is the cross-organization admin view. */}
         <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface-raised p-4">
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Scope</label>
+            <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Scope</label>
             <select
               value={scopeFilter}
               onChange={e => setScopeFilter(e.target.value as ScopeFilter)}
@@ -245,11 +245,11 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
           </div>
           {!isAllScopes && needsWorkspace && (
             <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Organization</label>
+              <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Organization</label>
               <select
                 value={workspace}
                 onChange={e => setWorkspace(e.target.value)}
-                className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
+                className="rounded border border-line bg-surface-1 px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
               >
                 <option value="">— select —</option>
                 {orgs.map(o => (
@@ -260,7 +260,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
           )}
           {!isAllScopes && needsUser && (
             <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">User</label>
+              <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">User</label>
               <select
                 value={userId}
                 onChange={e => setUserId(e.target.value)}
@@ -274,7 +274,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
               </select>
             </div>
           )}
-          <p className="ml-auto max-w-prose text-[11px] text-fg-3">
+          <p className="ml-auto max-w-prose text-[12px] text-fg-3">
             {isAllScopes
               ? 'Every secret you may see, across every organization and user. Each row acts on its own scope.'
               : SCOPE_HINTS[scopeFilter as SecretScopeType]}

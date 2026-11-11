@@ -227,11 +227,11 @@ export function PlanningPanel({ objective: initialObjective, onClose, onApproved
       <div className="flex items-center justify-between border-b border-border px-4 py-3 bg-surface-raised">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="rounded bg-status-planning/20 text-status-planning border border-status-planning/30 px-1.5 py-0.5 text-[10px] font-semibold">PLANNING</span>
-            <h3 className="text-sm font-medium text-white truncate">{objective.title}</h3>
+            <span className="rounded bg-status-planning/20 text-status-planning border border-status-planning/30 px-1.5 py-0.5 text-[12px] font-semibold">PLANNING</span>
+            <h3 className="text-sm font-medium text-fg-0 truncate">{objective.title}</h3>
           </div>
           {objective.planning_session_id && (
-            <div className="text-[10px] text-gray-600 font-mono truncate mt-0.5">{objective.planning_session_id}</div>
+            <div className="text-[12px] text-fg-3 font-mono truncate mt-0.5">{objective.planning_session_id}</div>
           )}
         </div>
         <div className="flex items-center gap-2 ml-3">
@@ -240,13 +240,13 @@ export function PlanningPanel({ objective: initialObjective, onClose, onApproved
               <button
                 onClick={handleApprove}
                 disabled={approving}
-                className="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                className="rounded-lg bg-signal-verify hover:bg-signal-verify/90 px-3 py-1.5 text-xs font-medium text-surface-1 disabled:opacity-50"
               >
                 {approving ? 'Approving...' : 'Approve Plan'}
               </button>
               <button
                 onClick={handleCancel}
-                className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-400 border border-border hover:text-white hover:border-border-hover"
+                className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-fg-2 border border-border hover:text-fg-0 hover:border-border-hover"
               >
                 Cancel Planning
               </button>
@@ -254,7 +254,7 @@ export function PlanningPanel({ objective: initialObjective, onClose, onApproved
           )}
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-gray-500 hover:text-gray-300 hover:bg-surface-overlay"
+            className="rounded-lg p-2 text-fg-2 hover:text-fg-1 hover:bg-surface-overlay"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -266,7 +266,7 @@ export function PlanningPanel({ objective: initialObjective, onClose, onApproved
       {!sessionStarted && (
         <div className="flex-1 flex items-center justify-center px-6">
           <div className="max-w-md text-center space-y-4">
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-fg-2">
               This is a Project-type objective, so it starts in the planning stage. A read-only planner sub-session will ask you clarifying questions, then emit a plan you approve. Approving the plan starts the worker — you do not click Start again.
             </p>
             <button
@@ -286,13 +286,13 @@ export function PlanningPanel({ objective: initialObjective, onClose, onApproved
                     setError(e instanceof Error ? e.message : 'Skip failed')
                   }
                 }}
-                className="text-xs text-gray-500 hover:text-gray-300 underline"
+                className="text-xs text-fg-2 hover:text-fg-1 underline"
               >
                 Skip planning, send straight to queue
               </button>
             </div>
             {error && (
-              <div className="rounded bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>
+              <div className="rounded bg-signal-alarm/10 px-3 py-2 text-xs text-signal-alarm">{error}</div>
             )}
           </div>
         </div>
@@ -318,14 +318,14 @@ export function PlanningPanel({ objective: initialObjective, onClose, onApproved
 
           <div className="border-t border-border bg-surface-raised">
             <div className="max-w-4xl mx-auto px-3 pt-2 pb-3">
-              <div className="mb-2 rounded bg-surface px-3 py-1.5 text-[11px] text-gray-500 border border-border/60 flex items-center gap-2">
-                <span className="text-emerald-400">●</span>
-                <span>Planner is read-only. Click <span className="text-emerald-400 font-medium">Approve Plan</span> to lock the plan and start the worker.</span>
+              <div className="mb-2 rounded bg-surface px-3 py-1.5 text-[12px] text-fg-2 border border-border/60 flex items-center gap-2">
+                <span className="text-signal-verify">●</span>
+                <span>Planner is read-only. Click <span className="text-signal-verify font-medium">Approve Plan</span> to lock the plan and start the worker.</span>
               </div>
               {error && (
-                <div className="mb-2 rounded bg-red-500/10 px-3 py-1.5 text-xs text-red-400 flex items-center justify-between">
+                <div className="mb-2 rounded bg-signal-alarm/10 px-3 py-1.5 text-xs text-signal-alarm flex items-center justify-between">
                   <span>{error}</span>
-                  <button onClick={() => setError(null)} className="ml-2 text-red-400/60 hover:text-red-400">&times;</button>
+                  <button onClick={() => setError(null)} className="ml-2 text-signal-alarm/60 hover:text-signal-alarm">&times;</button>
                 </div>
               )}
               {/* Attached files chips */}
@@ -334,11 +334,11 @@ export function PlanningPanel({ objective: initialObjective, onClose, onApproved
                   {attachedFiles.map((f, i) => {
                     const isImage = f.mimetype.startsWith('image/')
                     return (
-                      <span key={i} className="inline-flex items-center gap-1.5 rounded-md bg-surface-overlay border border-border px-2 py-1 text-xs text-gray-300">
+                      <span key={i} className="inline-flex items-center gap-1.5 rounded-md bg-surface-overlay border border-border px-2 py-1 text-xs text-fg-1">
                         <span>{isImage ? '🖼️' : '📄'}</span>
                         <span className="truncate max-w-[150px]">{f.originalName}</span>
-                        <span className="text-gray-600">{formatFileSize(f.size)}</span>
-                        <button onClick={() => removeFile(i)} className="text-gray-500 hover:text-red-400 ml-0.5">&times;</button>
+                        <span className="text-fg-3">{formatFileSize(f.size)}</span>
+                        <button onClick={() => removeFile(i)} className="text-fg-2 hover:text-signal-alarm ml-0.5">&times;</button>
                       </span>
                     )
                   })}
@@ -360,7 +360,7 @@ export function PlanningPanel({ objective: initialObjective, onClose, onApproved
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading || sending}
-                  className="mb-1 shrink-0 rounded p-1 text-gray-500 hover:text-accent disabled:opacity-40 transition-colors"
+                  className="mb-1 shrink-0 rounded p-1 text-fg-2 hover:text-accent disabled:opacity-40 transition-colors"
                   title="Attach files"
                 >
                   <Paperclip className={`h-4 w-4 ${uploading ? 'animate-pulse' : ''}`} />
@@ -378,12 +378,12 @@ export function PlanningPanel({ objective: initialObjective, onClose, onApproved
                   onPaste={handlePaste}
                   placeholder={isDragging ? 'Drop files to attach…' : "Answer the planner's questions, or say 'approve' to lock the plan..."}
                   rows={1}
-                  className="flex-1 resize-none bg-transparent py-1.5 text-base sm:text-sm text-white placeholder-gray-600 focus:outline-none font-mono"
+                  className="flex-1 resize-none bg-transparent py-1.5 text-base sm:text-sm text-fg-0 placeholder-fg-3 focus:outline-none font-mono"
                 />
                 <button
                   onClick={handleSend}
                   disabled={(!message.trim() && attachedFiles.length === 0) || sending}
-                  className="mb-1 shrink-0 rounded-md bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-40"
+                  className="mb-1 shrink-0 rounded-md bg-accent px-3 py-1 text-sm font-medium text-accent-fg disabled:opacity-40"
                 >
                   Send
                 </button>

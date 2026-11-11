@@ -24,7 +24,7 @@ export function CorrectionPanel({
   return (
     <div className="border-b border-line bg-status-review/5">
       <div className="px-4 py-3 sm:px-5 space-y-2">
-        <label className="block text-[11px] font-medium text-fg-2">
+        <label className="block text-[12px] font-medium text-fg-2">
           What did this session get wrong? This becomes a high-priority gotcha injected into the next spawn for this objective.
         </label>
         <textarea
@@ -35,7 +35,7 @@ export function CorrectionPanel({
           placeholder="e.g. Edited the live checkout instead of an isolated worktree — always branch first."
           className="w-full resize-y rounded-md border border-line bg-surface-1 px-3 py-2 text-base text-fg-0 placeholder:text-fg-3 focus:border-accent focus:outline-none sm:text-[13px]"
         />
-        {correctionError && <div className="text-[11px] text-flag-blocked">{correctionError}</div>}
+        {correctionError && <div className="text-[12px] text-flag-blocked">{correctionError}</div>}
         <div className="flex items-center justify-end gap-2">
           <Button
             size="sm"

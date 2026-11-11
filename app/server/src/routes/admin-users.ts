@@ -1,9 +1,10 @@
-import { Router } from 'express'
+import { Router, type Response, type NextFunction } from 'express'
 import bcrypt from 'bcrypt'
 import { getDb } from '../db/index.js'
 import { requireAuth, requireAdmin, type AuthRequest } from '../middleware/auth.js'
 import { sendInvite, sendTempPassword } from '../services/mailer/account-emails.js'
 import type { SendResult } from '../services/mailer/types.js'
+import { rateLimit } from '../services/file-access.js'
 import type {
   CreateUserRequest,
   ResetPasswordRequest,
@@ -16,6 +17,20 @@ const router = Router()
 router.use(requireAuth, requireAdmin)
 
 const BCRYPT_ROUNDS = 10
+
+/** Create-user / reset-password calls per admin per window. Both run a bcrypt
+ *  hash and can send an email, so even a signed-in admin (or a stolen admin
+ *  cookie) should not be able to drive them in a tight loop. Generous enough
+ *  that no human admin ever meets it. */
+export const ADMIN_USER_WRITE_LIMIT = 30
+const ADMIN_USER_WRITE_WINDOW_MS = 10 * 60 * 1000
+
+function adminWriteLimited(req: AuthRequest, res: Response, next: NextFunction): void {
+  const retry = rateLimit(`admin-users-write:${req.user?.id ?? 'unknown'}`, ADMIN_USER_WRITE_LIMIT, ADMIN_USER_WRITE_WINDOW_MS)
+  if (retry === null) { next(); return }
+  res.setHeader('Retry-After', String(retry))
+  res.status(429).json({ error: 'Too many user changes. Try again in a few minutes.', retry_after: retry })
+}
 
 interface UserRow {
   id: number
@@ -96,7 +111,10 @@ router.get('/', (_req: AuthRequest, res) => {
 })
 
 // POST /api/admin/users  body: { username, password, role?, email? }
-router.post('/', async (req: AuthRequest, res) => {
+// Admin-only (router.use(requireAuth, requireAdmin)) and per-admin limited by
+// adminWriteLimited (services/file-access rateLimit), which CodeQL cannot see:
+// codeql[js/missing-rate-limiting] -- admin-auth route, per-admin rateLimit() middleware above
+router.post('/', adminWriteLimited, async (req: AuthRequest, res) => {
   const { username, password, role = 'member', email: rawEmail } = req.body as CreateUserRequest
   const sendEmail = (req.body as { send_email?: unknown }).send_email === true
 
@@ -144,7 +162,8 @@ router.post('/', async (req: AuthRequest, res) => {
 })
 
 // POST /api/admin/users/:id/reset-password  body: { password }
-router.post('/:id/reset-password', async (req: AuthRequest, res) => {
+// codeql[js/missing-rate-limiting] -- admin-auth route, per-admin rateLimit() middleware above
+router.post('/:id/reset-password', adminWriteLimited, async (req: AuthRequest, res) => {
   const idParam = req.params.id
   const userId = parseInt(typeof idParam === 'string' ? idParam : '', 10)
   if (Number.isNaN(userId)) {

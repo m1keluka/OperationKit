@@ -16,7 +16,7 @@ export interface ChatAgentInfo {
   provider: ProviderId | null
   version: string | null
   author: string | null
-  source: 'file' | 'demo'
+  source: 'file' | 'demo' | 'builtin'
   answered_by: { id: ProviderId; model: string | null }
 }
 
@@ -115,9 +115,9 @@ export const PROVIDER_LABELS: Record<ProviderId, string> = {
 
 /** Agent colour names → the agent-* design tokens (literal class strings so Tailwind keeps them). */
 export const COLOUR_CLASSES: Record<AgentColour, { tile: string; ring: string }> = {
-  blue: { tile: 'bg-agent-cto/15 text-agent-cto border-agent-cto/35', ring: 'ring-agent-cto/40' },
-  pink: { tile: 'bg-agent-cmo/15 text-agent-cmo border-agent-cmo/35', ring: 'ring-agent-cmo/40' },
-  green: { tile: 'bg-agent-coo/15 text-agent-coo border-agent-coo/35', ring: 'ring-agent-coo/40' },
-  amber: { tile: 'bg-agent-cfo/15 text-agent-cfo border-agent-cfo/35', ring: 'ring-agent-cfo/40' },
-  grey: { tile: 'bg-agent-general/15 text-agent-general border-agent-general/35', ring: 'ring-agent-general/40' },
+  blue: { tile: 'bg-agent-cto/10 text-agent-cto border-agent-cto/35', ring: 'ring-agent-cto/40' },
+  pink: { tile: 'bg-agent-cmo/10 text-agent-cmo border-agent-cmo/35', ring: 'ring-agent-cmo/40' },
+  green: { tile: 'bg-agent-coo/10 text-agent-coo border-agent-coo/35', ring: 'ring-agent-coo/40' },
+  amber: { tile: 'bg-agent-cfo/10 text-agent-cfo border-agent-cfo/35', ring: 'ring-agent-cfo/40' },
+  grey: { tile: 'bg-agent-general/10 text-agent-general border-agent-general/35', ring: 'ring-agent-general/40' },
 }

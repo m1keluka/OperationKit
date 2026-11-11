@@ -129,12 +129,14 @@ own dashboard shows.
 ## Onboarding order
 
 Settings → the setup checklist (`/setup`, and linked from the dashboard for a
-fresh install) walks a new install through exactly three steps, in this order:
+fresh install) walks a new install through four steps, in this order:
 
 1. **Branding** — name and logo shown everywhere, including in email (above).
 2. **Transactional email** — this page.
 3. **Add one coding subscription account** — connect a Claude/Codex/Grok
    subscription so agents can start working.
+4. **Set up your knowledge base** — drop in existing documents at
+   `/knowledge/setup`; see [the setup agent guide](knowledge-base/setup-agent.md).
 
 Each step links straight to its settings panel (`/settings/branding`,
 `/settings/email`, `/settings/models`) and ticks itself done once

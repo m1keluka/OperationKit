@@ -82,7 +82,7 @@ export function getAgentMeta(agent: string | null | undefined): AgentAvatarMeta 
 
 export function AgentMonogram({ agent, size = 'sm' }: { agent: string | null | undefined; size?: 'sm' | 'md' }) {
   const meta = getAgentMeta(agent)
-  const cls = size === 'md' ? 'h-6 w-6 text-[11px]' : 'h-5 w-5 text-[10px]'
+  const cls = size === 'md' ? 'h-6 w-6 text-[12px]' : 'h-5 w-5 text-[12px]'
   return (
     <span
       className={`${cls} inline-flex shrink-0 items-center justify-center rounded-sm font-mono font-semibold tracking-tight text-surface-0`}
@@ -148,7 +148,7 @@ export function ConnectionPulse({ state, label }: { state: ConnectionState; labe
     return (
       <span className="inline-flex items-center gap-1.5">
         <span className="inline-block h-2 w-2 rounded-full bg-flag-live" />
-        {label && <span className="text-[11px] text-fg-2">{label ?? 'Connected'}</span>}
+        {label && <span className="text-[12px] text-fg-2">{label ?? 'Connected'}</span>}
       </span>
     )
   }
@@ -156,14 +156,14 @@ export function ConnectionPulse({ state, label }: { state: ConnectionState; labe
     return (
       <span className="inline-flex items-center gap-1.5">
         <span className="cc-pulse-amber inline-block h-2 w-2" />
-        {label && <span className="text-[11px] text-status-review">{label ?? 'Reconnecting'}</span>}
+        {label && <span className="text-[12px] text-status-review">{label ?? 'Reconnecting'}</span>}
       </span>
     )
   }
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="inline-block h-2 w-2 rounded-full bg-flag-blocked" />
-      {label && <span className="text-[11px] text-flag-blocked">{label ?? 'Disconnected'}</span>}
+      {label && <span className="text-[12px] text-flag-blocked">{label ?? 'Disconnected'}</span>}
     </span>
   )
 }
@@ -172,7 +172,7 @@ export function ConnectionPulse({ state, label }: { state: ConnectionState; labe
 
 export function LiveBadge({ label = 'live' }: { label?: string }) {
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-flag-live">
+    <span className="inline-flex items-center gap-1 text-[12px] font-medium text-flag-live">
       <span className="cc-live-breathe inline-block h-1.5 w-1.5" />
       {label}
     </span>
@@ -183,7 +183,7 @@ export function LiveBadge({ label = 'live' }: { label?: string }) {
 
 export function BlockedFlag({ label = 'blocked' }: { label?: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-sm border border-flag-blocked/30 bg-flag-blocked/10 px-1.5 py-0.5 text-[10px] font-medium text-flag-blocked">
+    <span className="inline-flex items-center gap-1 rounded-sm border border-flag-blocked/30 bg-flag-blocked/10 px-1.5 py-0.5 text-[12px] font-medium text-flag-blocked">
       {label}
     </span>
   )
@@ -198,7 +198,7 @@ export function NeedsSecretFlag({ names }: { names: string[] }) {
   const label = names.length === 1 ? names[0] : `${names[0]} +${names.length - 1}`
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1 rounded-sm border border-status-human/40 bg-status-human/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-status-human"
+      className="inline-flex max-w-full items-center gap-1 rounded-sm border border-status-human/40 bg-status-human/10 px-1.5 py-0.5 font-mono text-[12px] font-medium text-status-human"
       title={`Needs a secret from the owner: ${names.join(', ')}`}
     >
       <span aria-hidden="true">⚿</span>
@@ -224,8 +224,8 @@ export function SenderTag({ sender }: { sender: MessageSender }) {
     <span
       className={
         verifiedOwner
-          ? 'inline-flex items-center gap-1 font-mono text-[10.5px] text-signal-verify'
-          : 'inline-flex items-center gap-1 font-mono text-[10.5px] text-fg-2'
+          ? 'inline-flex items-center gap-1 font-mono text-[12px] text-signal-verify'
+          : 'inline-flex items-center gap-1 font-mono text-[12px] text-fg-2'
       }
     >
       {verifiedOwner && <span aria-hidden="true">✓</span>}
@@ -254,7 +254,7 @@ export function AIReviewDots({ iteration, verdict, max = 3 }: AIReviewDotsProps)
   }
   return (
     <span className="inline-flex items-center gap-1" title={`AI review — iteration ${iteration}/${max}${verdict ? `, ${verdict}` : ''}`}>
-      <span className="text-[10px] font-mono text-fg-2">AI</span>
+      <span className="text-[12px] font-mono text-fg-2">AI</span>
       {dots.map((d, i) => (
         <span
           key={i}

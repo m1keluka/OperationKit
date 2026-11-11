@@ -107,22 +107,22 @@ export function ImportChooser({
           wrapClassName="w-full lg:w-64"
         />
         <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-[11.5px] text-fg-3">
+          <label className="flex flex-col gap-1 text-[12px] text-fg-3">
             From
             <input type="date" value={filter.from ?? ''} onChange={e => setField({ from: e.target.value || undefined })} className={FIELD} />
           </label>
-          <label className="flex flex-col gap-1 text-[11.5px] text-fg-3">
+          <label className="flex flex-col gap-1 text-[12px] text-fg-3">
             To
             <input type="date" value={filter.to ?? ''} onChange={e => setField({ to: e.target.value || undefined })} className={FIELD} />
           </label>
-          <label className="flex flex-col gap-1 text-[11.5px] text-fg-3">
+          <label className="flex flex-col gap-1 text-[12px] text-fg-3">
             Status
             <select value={filter.status ?? ''} onChange={e => setField({ status: (e.target.value || undefined) as ImportItemStatus | undefined })} className={FIELD}>
               <option value="">Any</option>
               {(Object.keys(ITEM_STATUS) as ImportItemStatus[]).map(s => <option key={s} value={s}>{ITEM_STATUS[s].label}</option>)}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-[11.5px] text-fg-3">
+          <label className="flex flex-col gap-1 text-[12px] text-fg-3">
             Length
             <select value={filter.min_messages ?? 0} onChange={e => setField({ min_messages: Number(e.target.value) || undefined })} className={FIELD}>
               <option value={0}>Any length</option>
@@ -187,7 +187,7 @@ export function ImportChooser({
                     <span className="min-w-0 truncate text-[13.5px] font-medium text-fg-0" title={it.title}>{it.title}</span>
                     {it.status !== 'pending' && <Badge tone={st.tone}>{st.label}</Badge>}
                   </div>
-                  <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11.5px] text-fg-3">
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 text-[12px] text-fg-3">
                     {it.started_at && <span>{shortDate(it.started_at)}</span>}
                     <span>{it.message_count} message{it.message_count === 1 ? '' : 's'}</span>
                     {it.participants.length > 0 && (
@@ -216,7 +216,7 @@ export function ImportChooser({
           <Button size="sm" variant="ghost" className="min-h-[44px] sm:min-h-[32px]" disabled={offset === 0} onClick={() => setOffset(o => Math.max(0, o - PAGE_SIZE))}>
             Previous
           </Button>
-          <span className="font-mono text-[11.5px] text-fg-3">
+          <span className="font-mono text-[12px] text-fg-3">
             {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
           </span>
           <Button size="sm" variant="ghost" className="min-h-[44px] sm:min-h-[32px]" disabled={offset + PAGE_SIZE >= total} onClick={() => setOffset(o => o + PAGE_SIZE)}>

@@ -52,10 +52,10 @@ function AutoPausedRow({
   return (
     <li className="flex flex-wrap items-center gap-2">
       <span className="font-medium text-fg-0">{routine.title}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11.5px]" title={routine.auto_pause_reason ?? ''}>
+      <span className="min-w-0 flex-1 truncate font-mono text-[12px]" title={routine.auto_pause_reason ?? ''}>
         {routine.auto_pause_reason || `auto-paused: ${routine.consecutive_failures ?? '?'} failures`}
       </span>
-      {err && <span className="font-mono text-[11px] text-signal-alarm">{err}</span>}
+      {err && <span className="font-mono text-[12px] text-signal-alarm">{err}</span>}
       <Button
         variant="secondary"
         size="sm"

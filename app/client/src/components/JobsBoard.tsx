@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useBranding } from '../hooks/useBranding'
 import { ExternalLink, AlertCircle, Clock, Play, Pause, Inbox, CheckCircle2, Loader2, Target, Plus } from 'lucide-react'
 import type { Objective, ObjectiveStatus, Workspace } from '@operationkit/shared'
 import { useObjectives } from '../hooks/useObjectives'
@@ -32,7 +33,7 @@ const fieldCls =
   'placeholder-fg-3 transition-colors focus:border-accent focus:outline-none'
 const selectCls =
   'w-full rounded-md border border-line bg-surface-1 px-2.5 py-2 text-[13px] text-fg-0 focus:border-accent focus:outline-none'
-const labelCls = 'block text-[11px] font-medium uppercase tracking-[0.08em] text-fg-3 mb-1'
+const labelCls = 'block text-[12px] font-medium uppercase tracking-[0.08em] text-fg-3 mb-1'
 
 interface JobsBoardProps {
   workspace: Workspace
@@ -67,6 +68,7 @@ export function laneOf(o: Pick<Objective, 'status' | 'job_disposition'>): JobLan
 }
 
 export function JobsBoard(_props: JobsBoardProps) {
+  const brandName = useBranding().name
   // Jobs are workspace-agnostic automated runs; show them all regardless of the
   // board's workspace selector (admin-only surface). useObjectives('all') still
   // wires the same WebSocket live-update path the main board uses.
@@ -259,7 +261,7 @@ export function JobsBoard(_props: JobsBoardProps) {
             {spawned.length > 0 && (
               <div className="mt-1 flex flex-col gap-0.5">
                 {spawned.map(s => (
-                  <span key={s.id} className="inline-flex items-center gap-1 text-[11.5px] text-accent-hover">
+                  <span key={s.id} className="inline-flex items-center gap-1 text-[12px] text-accent-hover">
                     <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
                     spawned #{s.id}: {s.title}
                   </span>
@@ -319,7 +321,7 @@ export function JobsBoard(_props: JobsBoardProps) {
     <PageContainer width="wide">
       <PageHeader
         title="Jobs"
-        breadcrumbs={[{ label: 'OperationKit' }, { label: 'Jobs' }]}
+        breadcrumbs={[{ label: brandName }, { label: 'Jobs' }]}
         description={
           `${jobs.length} automated ${jobs.length === 1 ? 'run' : 'runs'}` +
           ` · ${visibleRoutines.length} ${visibleRoutines.length === 1 ? 'routine' : 'routines'} · ${enabledCount} active`
@@ -364,7 +366,7 @@ export function JobsBoard(_props: JobsBoardProps) {
 
       {/* ── Scheduled routines — the global DataTable. ── */}
       <section className="mb-6 space-y-2">
-        <h3 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-fg-3">
+        <h3 className="flex items-center gap-2 text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">
           <Clock className="h-3.5 w-3.5" strokeWidth={1.75} /> Scheduled routines
         </h3>
         <p className="max-w-3xl text-[12.5px] leading-snug text-fg-2">
@@ -400,7 +402,7 @@ export function JobsBoard(_props: JobsBoardProps) {
           <section key={lane} className="mb-6 space-y-2">
             <h3
               className={cn(
-                'flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em]',
+                'flex items-center gap-2 text-[12px] uppercase tracking-[0.12em] font-semibold tracking-[0.06em]',
                 lane === 'needs_review' ? 'text-signal-amber' : 'text-fg-3',
               )}
             >
@@ -697,7 +699,7 @@ function RunNowButton({
   return (
     <div className="flex items-center gap-2">
       {toast && (
-        <span className="max-w-[140px] truncate font-mono text-[11px] text-fg-2" title={toast}>{toast}</span>
+        <span className="max-w-[140px] truncate font-mono text-[12px] text-fg-2" title={toast}>{toast}</span>
       )}
       <Button
         variant="secondary"

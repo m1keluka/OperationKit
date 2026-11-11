@@ -10,7 +10,7 @@
 import { useState, type FormEvent } from 'react'
 
 const inputCls =
-  'w-full rounded border border-border bg-surface min-h-[44px] px-3 py-2 text-fg-0 placeholder-fg-3 outline-none transition focus:border-accent focus-visible:ring-2 focus-visible:ring-accent/40'
+  'w-full rounded border border-line bg-surface-1 min-h-[44px] px-3 py-2 text-fg-0 placeholder-fg-3 outline-none transition focus:border-accent focus-visible:ring-2 focus-visible:ring-accent/40'
 const primaryBtn =
   'min-h-[44px] w-full rounded bg-accent py-2 text-sm font-medium text-accent-fg transition duration-150 hover:bg-accent-hover active:bg-accent-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50'
 

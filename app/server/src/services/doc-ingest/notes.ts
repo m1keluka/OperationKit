@@ -36,6 +36,12 @@ export interface Entity {
   summary?: string
   facts: EntityFact[]
   related?: RelatedRef[]
+  /**
+   * Extra frontmatter tags beyond the type tag, e.g. `client` on an
+   * organization or `process` / `decision` / `glossary` on a topic
+   * (obj 900556, KB setup taxonomy). Merged (union) into an existing note.
+   */
+  tags?: string[]
 }
 
 /**
@@ -196,6 +202,16 @@ function mergeRelatedLines(have: string[], add: string[]): string[] {
   return [...byTarget.values()]
 }
 
+/** Union of two tag lists, order kept, lower-case slugs only. */
+export function mergeTags(have: string[], add?: string[]): string[] {
+  const out: string[] = []
+  for (const t of [...have, ...(add ?? [])]) {
+    const s = typeof t === 'string' ? t.trim().toLowerCase().replace(/[^a-z0-9/_-]+/g, '-').replace(/^-+|-+$/g, '') : ''
+    if (s && !out.includes(s)) out.push(s)
+  }
+  return out
+}
+
 const TAGS_FOR: Record<EntityType, string> = { organization: 'organization', person: 'person', project: 'project', product: 'product', topic: 'topic' }
 
 /**
@@ -212,7 +228,7 @@ export function upsertEntityNote(existing: string | null, e: Entity, src: Source
       type: e.type,
       aliases: [...new Set((e.aliases ?? []).filter(a => a && a !== e.name))],
       sources: [src.notePath],
-      tags: [TAGS_FOR[e.type]],
+      tags: mergeTags([TAGS_FOR[e.type]], e.tags),
       updated: today,
     }
     const parts = [renderFrontmatter(fm), '', `# ${e.name}`, '']
@@ -228,7 +244,7 @@ export function upsertEntityNote(existing: string | null, e: Entity, src: Source
     type: oldFm?.type || e.type,
     aliases: [...new Set([...(oldFm?.aliases ?? []), ...(e.aliases ?? []), ...(oldFm?.title && oldFm.title !== e.name ? [e.name] : [])])].filter(a => a !== (oldFm?.title || e.name)),
     sources: [...new Set([...(oldFm?.sources ?? []), src.notePath])],
-    tags: oldFm?.tags.length ? oldFm.tags : [TAGS_FOR[e.type]],
+    tags: mergeTags(oldFm?.tags.length ? oldFm.tags : [TAGS_FOR[e.type]], e.tags),
     updated: today,
   }
   const { pre, sections } = splitSections(body)
@@ -350,6 +366,7 @@ function cleanEntity(raw: Entity): Entity | null {
     related: Array.isArray(raw.related)
       ? raw.related.filter(r => r && ENTITY_TYPES.includes(r.type) && typeof r.name === 'string').map(r => ({ type: r.type, name: r.name, label: cleanRelationLabel(r.label) }))
       : [],
+    tags: Array.isArray(raw.tags) ? mergeTags([], raw.tags.filter(t => typeof t === 'string')) : undefined,
   }
 }
 
@@ -417,6 +434,7 @@ export function writeOrganized(
       prev.aliases = [...new Set([...(prev.aliases ?? []), ...(e.aliases ?? [])])].filter(a => a !== prev.name)
       prev.related = [...(prev.related ?? []), ...(e.related ?? [])]
       prev.summary = prev.summary || e.summary
+      prev.tags = mergeTags(prev.tags ?? [], e.tags)
     } else {
       byRel.set(rel, e)
       // Later entities in this same file can now match this one by name.

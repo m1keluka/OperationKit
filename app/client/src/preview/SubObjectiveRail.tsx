@@ -13,8 +13,8 @@ export function SubObjectiveRail({
   return (
     <aside className="hidden h-full w-[240px] shrink-0 flex-col border-r border-line bg-surface-1 md:flex">
       <div className="border-b border-line px-3 py-2.5">
-        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-fg-2">Sub-objectives</div>
-        <div className="mt-0.5 font-mono text-[11px] text-fg-3">{items.length}</div>
+        <div className="text-[12px] font-medium uppercase tracking-[0.08em] text-fg-2">Sub-objectives</div>
+        <div className="mt-0.5 font-mono text-[12px] text-fg-3">{items.length}</div>
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto p-2">
         {items.length === 0 && (
@@ -31,7 +31,7 @@ export function SubObjectiveRail({
               <StatusDot status={o.status} size={7} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12.5px] text-fg-0">{o.title.replace(/^worker:\s*/i, '')}</span>
-                <span className="mt-0.5 block font-mono text-[10.5px] text-fg-3">#{o.id} · {o.status}</span>
+                <span className="mt-0.5 block font-mono text-[12px] text-fg-3">#{o.id} · {o.status}</span>
               </span>
             </button>
           </li>

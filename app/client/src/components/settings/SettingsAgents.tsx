@@ -12,14 +12,14 @@ const TABS: TabItem[] = [
 ]
 
 const SETUP_PROMPT =
-  `Configure a new agent, skill, and (if it needs non-default scoping) an assignment on Command Center, for me:\n\n` +
+  `Configure a new agent, skill, and (if it needs non-default scoping) an assignment on this platform, for me:\n\n` +
   `- Agent: who does the work — a named profile with a model, effort level, and default workspace.\n` +
   `- Skill: how-to instructions an agent follows for a kind of task.\n` +
   `- Tool: an integration an agent can reach (see Settings → Integrations) — connect it there, then reference ` +
   `it from the skill/agent.\n` +
   `- Assignment (only if needed): scopes an agent or skill to one organization, project, or user instead of ` +
   `applying globally.\n\n` +
-  `Ask me what the agent/skill is for, then use the Command Center API (docs/api/README.md, GET /api/openapi.json) ` +
+  `Ask me what the agent/skill is for, then use the platform API (docs/api/README.md, GET /api/openapi.json) ` +
   `to set it up rather than describing steps for me to click through.`
 
 export function SettingsAgents() {
@@ -42,7 +42,7 @@ export function SettingsAgents() {
           organization, project, or user instead of it applying everywhere.
         </p>
         <div className="flex items-start justify-between gap-3 rounded-md border border-line bg-surface-1 p-3">
-          <p className="max-w-prose text-[11.5px] leading-relaxed text-fg-3">
+          <p className="max-w-prose text-[12px] leading-relaxed text-fg-3">
             Prefer to set this up by talking to an assistant instead of clicking through forms? Copy this prompt.
           </p>
           <CopyButton value={SETUP_PROMPT} label="Copy setup prompt" />

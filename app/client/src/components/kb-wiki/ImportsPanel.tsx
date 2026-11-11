@@ -161,7 +161,7 @@ export function ImportsPanel({
             Try with sample data
           </Button>
         </div>
-        <div className="max-w-[60ch] text-[11.5px] leading-relaxed text-fg-3">
+        <div className="max-w-[60ch] text-[12px] leading-relaxed text-fg-3">
           Chat exports (.zip from Claude or ChatGPT “Export data”) · call transcripts (.vtt, .srt, .txt, .docx, .json, .md) ·
           you choose which chats get read · your original files are kept untouched on this server
         </div>
@@ -200,7 +200,7 @@ export function ImportsPanel({
                   <MessagesSquare className="mt-0.5 h-4 w-4 shrink-0 text-fg-2" aria-hidden="true" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13.5px] font-medium text-fg-0" title={job.label}>{job.label}</div>
-                    <div className="text-[11.5px] text-fg-3">
+                    <div className="text-[12px] text-fg-3">
                       {JOB_KIND_LABEL[job.kind]} · {job.counts.total} {job.kind === 'transcripts' ? 'call' : 'chat'}{job.counts.total === 1 ? '' : 's'} · added {shortDate(job.created_at)}
                     </div>
                   </div>

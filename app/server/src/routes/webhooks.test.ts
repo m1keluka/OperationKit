@@ -5,7 +5,6 @@ import path from 'path'
 import http from 'http'
 import express from 'express'
 import cookieParser from 'cookie-parser'
-import jwt from 'jsonwebtoken'
 
 // Real SQLite via initDb() — exercises the actual uptime_events schema and
 // indexes, not a fake. Each test resets the table.
@@ -15,23 +14,16 @@ process.env.JWT_SECRET = 'test-secret-webhooks'
 
 const { initDb, getDb } = await import('../db/index.js')
 const { default: webhooksRouter } = await import('./webhooks.js')
-const { default: statusRouter } = await import('./status.js')
 
 let server: http.Server
 let baseUrl: string
-let cookie: string
 
 function makeApp(): express.Express {
   const app = express()
   app.use(express.json())
   app.use(cookieParser())
   app.use('/api/webhooks', webhooksRouter)
-  app.use('/api/status', statusRouter)
   return app
-}
-
-function authToken(): string {
-  return jwt.sign({ id: 1, username: 'tester', role: 'admin' }, process.env.JWT_SECRET as string, { expiresIn: '1h' })
 }
 
 beforeAll(async () => {
@@ -44,7 +36,6 @@ beforeAll(async () => {
   const addr = server.address()
   if (!addr || typeof addr === 'string') throw new Error('server has no address')
   baseUrl = `http://127.0.0.1:${addr.port}`
-  cookie = `token=${authToken()}`
 })
 
 afterAll(async () => {
@@ -202,64 +193,5 @@ describe('POST /api/webhooks/uptimerobot', () => {
     expect(res.status).toBe(200)
     const json = await res.json() as { stored: boolean }
     expect(json.stored).toBe(true)
-  })
-})
-
-describe('GET /api/status/monitors', () => {
-  it('401s when unauthenticated', async () => {
-    const res = await fetch(`${baseUrl}/api/status/monitors`)
-    expect(res.status).toBe(401)
-  })
-
-  it('returns {configured:false, monitors:[]} when UPTIMEROBOT_API_KEY is missing', async () => {
-    const res = await fetch(`${baseUrl}/api/status/monitors`, {
-      headers: { Cookie: cookie },
-    })
-    expect(res.status).toBe(200)
-    const json = await res.json() as { configured: boolean; monitors: unknown[]; fetched_at: string }
-    expect(json.configured).toBe(false)
-    expect(json.monitors).toEqual([])
-    expect(typeof json.fetched_at).toBe('string')
-  })
-})
-
-describe('GET /api/status/events', () => {
-  it('401s when unauthenticated', async () => {
-    const res = await fetch(`${baseUrl}/api/status/events`)
-    expect(res.status).toBe(401)
-  })
-
-  it('returns rows ordered by event_at DESC, scoped to last N days, and OMITS payload_raw', async () => {
-    const db = getDb()
-    const insert = db.prepare(
-      `INSERT INTO uptime_events
-       (received_at, event_at, monitor_id, monitor_name, monitor_url,
-        alert_type, alert_type_friendly_name, alert_details, alert_duration,
-        response_time, payload_raw)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-
-    const now = Date.now()
-    const iso = (msAgo: number) => new Date(now - msAgo).toISOString()
-
-    insert.run(iso(0), iso(1000 * 60 * 60), '1', 'mon-1', 'https://a', 1, 'Down', null, null, null, '{"raw":"oldest"}')
-    insert.run(iso(0), iso(1000 * 30), '2', 'mon-2', 'https://b', 2, 'Up', null, null, 200, '{"raw":"newest"}')
-    // 60 days ago — should be excluded by days=30
-    insert.run(iso(0), iso(1000 * 60 * 60 * 24 * 60), '3', 'mon-3', 'https://c', 1, 'Down', null, null, null, '{"raw":"too-old"}')
-
-    const res = await fetch(`${baseUrl}/api/status/events?days=30`, {
-      headers: { Cookie: cookie },
-    })
-    expect(res.status).toBe(200)
-    const json = await res.json() as { events: Array<Record<string, unknown>>; days: number; limit: number }
-    expect(json.days).toBe(30)
-    expect(json.events).toHaveLength(2)
-    // Ordered DESC — newest first
-    expect(json.events[0].monitor_id).toBe('2')
-    expect(json.events[1].monitor_id).toBe('1')
-    // No payload_raw in response
-    for (const ev of json.events) {
-      expect(ev).not.toHaveProperty('payload_raw')
-    }
   })
 })

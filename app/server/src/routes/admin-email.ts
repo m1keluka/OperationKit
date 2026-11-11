@@ -202,6 +202,9 @@ router.get('/setup-status', async (_req, res) => {
   res.json(await setupStatus())
 })
 
+// Admin-only (admin.ts facade: requireAuth + requireAdmin); one idempotent
+// settings upsert, no email, no external call — nothing worth throttling.
+// codeql[js/missing-rate-limiting] -- admin-auth route; single idempotent settings row write
 router.post('/setup/branding', async (req, res) => {
   const done = (req.body || {}).done !== false
   getDb()

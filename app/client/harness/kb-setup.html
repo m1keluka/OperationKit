@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en" class="h-full bg-surface">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knowledge base setup harness</title>
+    <script>
+      // Apply ?theme= before first paint (same data-theme attribute main.tsx uses).
+      var t = new URLSearchParams(location.search).get('theme');
+      document.documentElement.setAttribute('data-theme', t === 'dark' || t === 'light' ? t : 'light');
+    </script>
+  </head>
+  <body class="h-full bg-surface-0 text-fg-0"><div id="root" class="h-full"></div><script type="module" src="./kb-setup.tsx"></script></body>
+</html>

@@ -46,7 +46,7 @@ export function WorkerRollup({ workers, onOpenWorker, label = 'Workers' }: Worke
     <div className="mt-2.5 ml-7 rounded-md border border-line-soft bg-surface-1/50">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-[11.5px] text-fg-2 hover:text-fg-1"
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-[12px] text-fg-2 hover:text-fg-1"
       >
         <ChevronRight className={`h-3 w-3 shrink-0 transition-transform duration-fast ${expanded ? 'rotate-90' : ''}`} />
         <span className="font-medium uppercase tracking-[0.06em]">{label}</span>
@@ -67,7 +67,7 @@ export function WorkerRollup({ workers, onOpenWorker, label = 'Workers' }: Worke
               >
                 <StatusDot status={w.status} size={6} />
                 <span className="flex-1 truncate">{w.title.replace(/^worker:\s*/i, '')}</span>
-                <span className="shrink-0 font-mono text-[10.5px] text-fg-3">{workerStateLabel(w)}</span>
+                <span className="shrink-0 font-mono text-[12px] text-fg-3">{workerStateLabel(w)}</span>
               </button>
             </li>
           ))}

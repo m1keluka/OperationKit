@@ -163,7 +163,7 @@ export function AssignmentsTab() {
         <div className="mt-3 flex flex-wrap items-end gap-3">
           {/* Resource type toggle */}
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Resource</label>
+            <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Resource</label>
             <div className="inline-flex rounded-md border border-line bg-surface-1 p-0.5">
               {(['agent', 'skill'] as ResourceType[]).map(rt => (
                 <button
@@ -183,7 +183,7 @@ export function AssignmentsTab() {
 
           {/* Resource picker */}
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">
+            <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">
               {resourceType === 'agent' ? 'Agent' : 'Skill name'}
             </label>
             {resourceType === 'agent' ? (
@@ -213,7 +213,7 @@ export function AssignmentsTab() {
 
           {/* Scope type */}
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Scope</label>
+            <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Scope</label>
             <select
               value={scopeType}
               onChange={e => setScopeType(e.target.value as ResourceScopeType)}
@@ -227,7 +227,7 @@ export function AssignmentsTab() {
 
           {needsWorkspace && (
             <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Organization</label>
+              <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Organization</label>
               <select
                 value={workspace}
                 onChange={e => setWorkspace(e.target.value)}
@@ -243,7 +243,7 @@ export function AssignmentsTab() {
 
           {needsProject && (
             <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">Project / repo</label>
+              <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Project / repo</label>
               <input
                 type="text"
                 value={project}
@@ -256,7 +256,7 @@ export function AssignmentsTab() {
 
           {needsUser && (
             <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-wider text-fg-3">User ID</label>
+              <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">User ID</label>
               <input
                 type="number"
                 value={userId}

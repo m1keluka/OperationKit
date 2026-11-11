@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-surface" data-theme="auto">
+<html lang="en" class="h-full bg-surface" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#F3F0E8" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232B2BE8'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23F3F0E8' stroke-width='3'/%3E%3C/svg%3E" />
+    <!-- Replaced server-side with the install's own favicon + name (routes/branding.ts renderBrandedIndex). -->
+    <link rel="icon" href="/api/branding/favicon" />
     <title>Operation Kit</title>
     <!--
       App-shell skeleton (obj 700585). This inline critical CSS + markup paints an
@@ -25,12 +26,11 @@
         height: 48px; flex: 0 0 auto; display: flex; align-items: center; gap: 14px;
         padding: 0 16px; border-bottom: 1px solid #DCD6C8; background: #F3F0E8;
       }
+      /* Neutral logo placeholder — never a brand glyph (white-label, obj 900543). */
       .as-mark {
-        width: 24px; height: 24px; border-radius: 6px; background: #FBF9F4;
-        border: 1px solid #DCD6C8; color: #2B2BE8; font: 700 15px/24px monospace;
-        text-align: center; flex: 0 0 auto;
+        width: 28px; height: 28px; border-radius: 6px; background: #E5E1D5; flex: 0 0 auto;
       }
-      .as-pill { height: 12px; border-radius: 4px; background: #E6E6FC; }
+      .as-pill { height: 12px; border-radius: 4px; background: #E5E1D5; }
       .as-board {
         flex: 1 1 auto; display: flex; gap: 12px; padding: 16px;
         overflow: hidden; align-items: flex-start;
@@ -39,18 +39,18 @@
         flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px;
       }
       .as-colhead {
-        height: 11px; width: 82px; border-radius: 3px; background: #E6E6FC; margin-bottom: 4px;
+        height: 11px; width: 82px; border-radius: 3px; background: #E5E1D5; margin-bottom: 4px;
       }
       .as-card {
         display: flex; gap: 10px; padding: 11px; border-radius: 6px;
         border: 1px solid #DCD6C8; background: #FBF9F4;
       }
-      .as-tile { width: 26px; height: 26px; border-radius: 4px; background: #E6E6FC; flex: 0 0 auto; }
+      .as-tile { width: 26px; height: 26px; border-radius: 4px; background: #E5E1D5; flex: 0 0 auto; }
       .as-lines { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
-      .as-line { height: 11px; border-radius: 3px; background: #E6E6FC; }
+      .as-line { height: 11px; border-radius: 3px; background: #E5E1D5; }
       .as-shimmer {
         position: relative; overflow: hidden;
-        background: linear-gradient(90deg, #E6E6FC 0%, #C8C8F9 50%, #E6E6FC 100%);
+        background: linear-gradient(90deg, #E5E1D5 0%, #DCD6C8 50%, #E5E1D5 100%);
         background-size: 200% 100%; animation: as-pulse 1.4s ease-in-out infinite;
       }
       @keyframes as-pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
@@ -60,7 +60,7 @@
       /* Dark-theme skeleton (localStorage 'ok-theme'='dark', read inline below). */
       html[data-theme="dark"] #app-shell { background: #16163A; }
       html[data-theme="dark"] .as-topbar { background: #16163A; border-bottom-color: #393C62; }
-      html[data-theme="dark"] .as-mark { background: #202148; border-color: #393C62; color: #A0A0F5; }
+      html[data-theme="dark"] .as-mark { background: #292B53; }
       html[data-theme="dark"] .as-pill,
       html[data-theme="dark"] .as-colhead,
       html[data-theme="dark"] .as-tile,
@@ -70,7 +70,7 @@
       @media (prefers-color-scheme: dark) {
         html[data-theme="auto"] #app-shell { background: #16163A; }
         html[data-theme="auto"] .as-topbar { background: #16163A; border-bottom-color: #393C62; }
-        html[data-theme="auto"] .as-mark { background: #202148; border-color: #393C62; color: #A0A0F5; }
+        html[data-theme="auto"] .as-mark { background: #292B53; }
         html[data-theme="auto"] .as-pill,
         html[data-theme="auto"] .as-colhead,
         html[data-theme="auto"] .as-tile,
@@ -81,9 +81,15 @@
     <script>
       // Read the theme choice before first paint so the skeleton above doesn't flash
       // the wrong mode (main.tsx re-applies this on every load; kept in sync here).
+      // Mirrors lib/theme.ts: explicit choice, else the OS preference.
       (function () {
-        var t = localStorage.getItem('ok-theme');
-        document.documentElement.setAttribute('data-theme', t === 'dark' || t === 'light' ? t : 'auto');
+        var t = null;
+        try { t = localStorage.getItem('ok-theme') || localStorage.getItem('cc.preview.theme.v2'); } catch (e) {}
+        if (t !== 'dark' && t !== 'light') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', t);
+        if (t === 'dark') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#16163A');
       })();
     </script>
   </head>
@@ -92,7 +98,7 @@
       <!-- Instant app shell — swapped out when React mounts (obj 700585). -->
       <div id="app-shell" aria-hidden="true">
         <div class="as-topbar">
-          <div class="as-mark">&#8250;</div>
+          <div class="as-mark"></div>
           <div class="as-pill as-shimmer" style="width:56px"></div>
           <div class="as-pill as-shimmer" style="width:52px"></div>
           <div class="as-pill as-shimmer" style="width:48px"></div>

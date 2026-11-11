@@ -500,7 +500,11 @@ describe('board tools through a named agent key', () => {
   it('list_chat_agents / get_chat_agent hand an outside AI the same chat agent (obj 719987)', async () => {
     const reader = mint('claude-desktop', ['vault:read'], [WS])
     const list = await callTool('list_chat_agents', {}, reader.token)
-    expect(list.data.agents).toEqual([expect.objectContaining({ slug: 'librarian', name: 'Librarian', knowledge_folders: ['team'], tools: ['search', 'read_file'] })])
+    expect(list.data.agents).toEqual([
+      expect.objectContaining({ slug: 'librarian', name: 'Librarian', knowledge_folders: ['team'], tools: ['search', 'read_file'] }),
+      // The built-in setup agent ships with every install (obj 900556).
+      expect.objectContaining({ slug: 'kb-setup', name: 'Knowledge Base Setup', knowledge_folders: [], tools: [] }),
+    ])
     const one = await callTool('get_chat_agent', { slug: 'librarian' }, reader.token)
     expect(one.data.system_prompt).toBe('You organise the knowledge base.')
     // Board-only keys don't get agent instructions, and chat history stays off the agent surface.

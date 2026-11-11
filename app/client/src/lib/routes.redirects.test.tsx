@@ -7,7 +7,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { LEGACY_REDIRECTS, SYSTEM_ROUTE, MODELS_SETTINGS_ROUTE } from './routes'
+import { LEGACY_REDIRECTS, REMOVED_ROUTES, SYSTEM_ROUTE, MODELS_SETTINGS_ROUTE } from './routes'
 
 function Where() {
   const l = useLocation()
@@ -27,6 +27,7 @@ async function landOn(from: string): Promise<string> {
       <MemoryRouter initialEntries={[from]}>
         <Routes>
           {LEGACY_REDIRECTS.map(r => <Route key={r.from} path={r.from} element={<Navigate to={r.to} replace />} />)}
+          {REMOVED_ROUTES.map(p => <Route key={p} path={p} element={<Navigate to="/" replace />} />)}
           <Route path="*" element={<Where />} />
         </Routes>
       </MemoryRouter>,
@@ -53,5 +54,19 @@ describe('legacy redirects (obj 900495)', () => {
 
   it('the Models link resolves to a route that exists today (4b flips it to /settings/models)', () => {
     expect(['/settings/seats', '/settings/models']).toContain(MODELS_SETTINGS_ROUTE)
+  })
+})
+
+describe('removed unfinished surfaces redirect to the board (obj 900543)', () => {
+  it.each([
+    '/loops', '/feed', '/strategies', '/strategy', '/strategy/12',
+    '/development', '/development/DEV-4', '/feedback', '/status', '/contacts',
+  ])('%s → /', async (from) => {
+    expect(await landOn(from)).toBe('/')
+  })
+
+  it('does not swallow live routes that share a prefix', async () => {
+    expect(await landOn('/knowledge/setup')).toBe('/knowledge/setup')
+    expect(await landOn('/jobs')).toBe('/jobs')
   })
 })

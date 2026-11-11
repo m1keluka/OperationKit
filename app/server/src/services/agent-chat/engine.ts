@@ -10,7 +10,7 @@ import path from 'path'
 import { getDb } from '../../db/index.js'
 import { SECOND_BRAIN_DIR } from '../../config.js'
 import { getUserWorkspaces } from '../../middleware/workspace.js'
-import { DEMO_AGENT_SLUG, DEMO_DIR, demoEnabled, loadChatAgents, type ChatAgent, type ChatProviderId } from './agent-defs.js'
+import { DEMO_AGENT_SLUG, DEMO_DIR, demoEnabled, loadChatAgents, type ChatAgent, type ChatProviderId, builtinsEnabled } from './agent-defs.js'
 import { resolveConnectors } from './connectors.js'
 import { chooseProviderId, createProvider, imageDataUrl, ProviderError, type ChatMessage, type ChatProvider, type ProviderDeps } from './providers.js'
 import {
@@ -71,7 +71,7 @@ export function seedDemoKnowledge(env: NodeJS.ProcessEnv = process.env): string 
 }
 
 export function listAgents(env: NodeJS.ProcessEnv = process.env) {
-  return loadChatAgents({ env, includeDemo: isDemoOn(env) })
+  return loadChatAgents({ env, includeDemo: isDemoOn(env), includeBuiltins: builtinsEnabled(env) })
 }
 
 export function findAgent(slug: string, env: NodeJS.ProcessEnv = process.env): ChatAgent | null {
