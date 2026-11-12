@@ -27,6 +27,7 @@ import { isApiKey, userFromApiKey } from '../lib/api-keys.js'
 import { resolveAgentKey, touchAgentKey, type AgentKeyPrincipal } from '../lib/agent-keys.js'
 import { logObjectiveAudit, type AuditEventType } from '../services/objective-audit.js'
 import { extractToken, type AuthRequest } from './auth.js'
+import { defaultWorkspaceSlug } from '../services/workspaces.js'
 
 export type ScopeRule =
   | { kind: 'public' }
@@ -103,6 +104,14 @@ export function requiredScope(method: string, path: string, body: unknown): Scop
     return { kind: 'off_surface' }
   }
 
+  // Workflows (obj 900642, card B6 — docs/design/WORKFLOWS.md §7.6). Reads need
+  // board:read; creating, drafting and validating need board:write; a self-test
+  // or a live run needs board:start. PUBLISH (and so the owner's send/spend
+  // approval) is never on the agent surface: an outside agent builds and tests,
+  // a human signed in to the web app publishes (§5.4). The route checks the
+  // workspace (key allowlist ∩ owner's memberships) itself.
+  if (p === '/api/flows' || p.startsWith('/api/flows/')) return flowScope(m, p)
+
   if (p === '/api/docs/search' || p === '/api/docs/tree' || p === '/api/docs/file') {
     if (m === 'GET') return { kind: 'scope', scope: 'vault:read' }
     if (m === 'PUT' && p === '/api/docs/file') return { kind: 'scope', scope: 'vault:write' }
@@ -112,7 +121,7 @@ export function requiredScope(method: string, path: string, body: unknown): Scop
   // (MCP file_answer). Imports, cleanup and rebuild stay off-surface.
   if (m === 'POST' && p === '/api/kb-wiki/answers') return { kind: 'scope', scope: 'vault:write' }
   // Link graph (obj 720162): read-only lookups (MCP kb_related / kb_who_knows).
-  if (m === 'GET' && (p === '/api/kb-wiki/graph/related' || p === '/api/kb-wiki/graph/who-knows')) return { kind: 'scope', scope: 'vault:read' }
+  if (m === 'GET' && (p === '/api/kb-wiki/graph' || p === '/api/kb-wiki/graph/related' || p === '/api/kb-wiki/graph/who-knows')) return { kind: 'scope', scope: 'vault:read' }
 
   // Built-in chat agents' definitions (obj 719987) — so Claude / ChatGPT / Grok
   // can load the same agent through MCP. Chat history and drafts stay off-surface.
@@ -126,6 +135,31 @@ export function requiredScope(method: string, path: string, body: unknown): Scop
     return { kind: 'scope', scope: 'vault:read' }
   }
 
+  return { kind: 'off_surface' }
+}
+
+const FLOW_ID = String.raw`\d+`
+
+/**
+ * `/api/flows*` for an agent key. An allowlist: any flows path not named here
+ * (publish, and whatever a later card adds) is off-surface until it is added.
+ */
+export function flowScope(method: string, path: string): ScopeRule {
+  const is = (re: string) => new RegExp(`^/api/flows${re}$`).test(path)
+  if (method === 'GET') {
+    if (is('') || is('/runs') || is(`/${FLOW_ID}`) || is(`/${FLOW_ID}/runs`) || is(`/${FLOW_ID}/runs/${FLOW_ID}`) ||
+        is(`/${FLOW_ID}/tests`) || is(`/${FLOW_ID}/tests/${FLOW_ID}`) ||
+        // B8: repair incidents are readable; drafting one is the repair card's session only, approve/reject the owner's.
+        is(`/${FLOW_ID}/repairs`) || is(`/${FLOW_ID}/repairs/${FLOW_ID}`)) {
+      return { kind: 'scope', scope: 'board:read' }
+    }
+    return { kind: 'off_surface' }
+  }
+  if (method === 'POST') {
+    if (is('') || is('/validate') || is(`/${FLOW_ID}/versions`)) return { kind: 'scope', scope: 'board:write' }
+    if (is(`/${FLOW_ID}/test`) || is(`/${FLOW_ID}/runs`)) return { kind: 'scope', scope: 'board:start' }
+  }
+  // POST /api/flows/:id/publish lands here on purpose.
   return { kind: 'off_surface' }
 }
 
@@ -232,12 +266,12 @@ function enforceWorkspaces(
   }
 
   // Create with no workspace (body or ?workspace=): the handler defaults to
-  // 'example'. Pin a single-workspace key to its workspace; otherwise check the
+  // defaultWorkspaceSlug() (historically 'example'). Pin a single-workspace key to its workspace; otherwise check the
   // default. (A ?workspace= query was already checked as explicit above.)
   if (m === 'POST' && p === '/api/objectives' && !(typeof bodyWs === 'string' && bodyWs) && typeof q.workspace !== 'string') {
     if (key.workspaces.length === 1) {
       ;(req.body as Record<string, unknown>).workspace = key.workspaces[0]
-    } else if (!allow.has('example')) {
+    } else if (!allow.has(defaultWorkspaceSlug())) {
       res.status(400).json({
         error: 'workspace is required for an agent key restricted to several workspaces',
         allowed_workspaces: key.workspaces,

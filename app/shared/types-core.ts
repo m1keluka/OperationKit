@@ -31,8 +31,9 @@ export type ObjectiveType = 'project' | 'bug' | 'task'
  *  - 'strategy'  — a delegator/Strategy decomposed it into a sub-objective.
  *  - 'routine'   — a routine spawned it (a recurring job).
  *  - 'job_reply' — spawned from a job's in-thread "create an objective" reply.
+ *  - 'workflow'  — the home card of a workflow (obj 900640, docs/design/WORKFLOWS.md §7.2).
  */
-export type ObjectiveOrigin = 'manual' | 'strategy' | 'routine' | 'job_reply' | 'agent_api' | 'agent_chat'
+export type ObjectiveOrigin = 'manual' | 'strategy' | 'routine' | 'job_reply' | 'agent_api' | 'agent_chat' | 'workflow'
 /**
  * Disposition of a job (routine-spawned objective) once its run is done.
  * - `complete`     — clean run, nothing for Operator to do. Default.
@@ -136,6 +137,12 @@ export interface ModelRow {
   is_default: boolean
   is_planner: boolean
   sort_order: number
+  /** Where the row came from: a seed migration or a provider refresh (obj 900679). */
+  source?: 'seed' | 'provider'
+  /** When a provider refresh first inserted it (provider rows only). */
+  discovered_at?: string | null
+  /** Last provider refresh that saw this id at its provider. */
+  last_seen_at?: string | null
 }
 
 /** GET /api/models response: enabled models + the configured default id. */
@@ -473,6 +480,18 @@ export interface Objective {
   stall_reason?: string | null
   /** Watchdog auto-restarts spent in the current stall episode (0 or 1). */
   stall_restarts?: number
+  /** obj 900625 — queue auto-start. When the card last entered queue (NULL = created_at). */
+  queued_at?: string | null
+  /** Set when a start hit the session cap: auto-start this card when a slot frees. */
+  auto_start_requested_at?: string | null
+  /** Non-NULL = held: the queue auto-starter never starts it. */
+  queue_hold?: string | null
+  /** Card id this one waits on; auto-start skips it until that card is done. */
+  blocked_by?: number | null
+  /** When the queue auto-starter launched it. */
+  autostarted_at?: string | null
+  /** The auto-starter's latest reason for NOT starting it yet (waiting / refused). */
+  auto_start_note?: string | null
 }
 
 // ── AI Review Stage ──

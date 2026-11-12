@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
-import { SystemPage, SPEND_DISCLAIMER } from './SystemPage'
+import { SystemPage, SPEND_DISCLAIMER, CpuDetail } from './SystemPage'
 import { MODELS_SETTINGS_ROUTE } from '../lib/routes'
 
 const { apiMock } = vi.hoisted(() => ({
@@ -91,5 +91,25 @@ describe('System page (obj 900495)', () => {
     await flush()
     expect(host.textContent).toContain('stale')
     expect(host.textContent).toMatch(/these numbers are from \d+s ago/)
+  })
+})
+
+describe('CpuDetail (obj 900685)', () => {
+  it('shows the window, minute avg/peak and who used the CPU', () => {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    flushSync(() => root.render(<CpuDetail cpu={{ ...SYSTEM.cpu, windowSeconds: 10, avg1mPercent: 31.2, peak1mPercent: 59, breakdown: { sessions: 18, kernel: 22, other: 1 } }} />))
+    const text = host.textContent ?? ''
+    expect(text).toContain('10s avg · 1-min avg 31.2% · peak 59%')
+    expect(text).toContain('Sessions 18% · Kernel 22% · Server/other 1%')
+    flushSync(() => root.unmount())
+  })
+
+  it('renders nothing for an older server payload', () => {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    flushSync(() => root.render(<CpuDetail cpu={SYSTEM.cpu} />))
+    expect(host.querySelector('[data-testid="cpu-detail"]')).toBeNull()
+    flushSync(() => root.unmount())
   })
 })

@@ -332,3 +332,44 @@ export function radialLayout(n: number, width: number, height: number, pad = 44)
 export function shortTitle(s: string, max = 18): string {
   return s.length <= max ? s : `${s.slice(0, max - 1).trimEnd()}…`
 }
+
+// Mirrors kbWorkspaceGraph in app/server/src/services/kb-wiki/graph.ts, as served by GET /api/kb-wiki/graph (obj 900674).
+
+export interface WorkspaceGraphNode extends GraphNodeRef { degree: number }
+/** Every connection between the same two pages folded into one line (a < b). */
+export interface WorkspaceGraphLink { a: string; b: string; kinds: EdgeKind[]; label: string | null; weight: number }
+export interface WorkspaceGraphResponse {
+  /** Absolute folder the page paths are relative to (to open a page in the Knowledge base editor). */
+  root?: string
+  nodes: WorkspaceGraphNode[]
+  links: WorkspaceGraphLink[]
+  counts: { pages: number; links: number; isolated: number; by_kind: Record<string, number> }
+  truncated: boolean
+}
+
+/** The part of the graph to draw: pages of a hidden kind (and, optionally, unconnected pages) left out. */
+export function visibleGraph(
+  g: WorkspaceGraphResponse,
+  opts: { hiddenKinds?: ReadonlySet<string>; showIsolated?: boolean } = {},
+): { nodes: WorkspaceGraphNode[]; links: WorkspaceGraphLink[] } {
+  const hidden = opts.hiddenKinds ?? new Set<string>()
+  const kept = g.nodes.filter(n => !hidden.has(n.kind))
+  const keptRels = new Set(kept.map(n => n.rel))
+  const links = g.links.filter(l => keptRels.has(l.a) && keptRels.has(l.b))
+  // Degree within what is drawn, so hiding sources can leave a page unconnected.
+  const deg = new Map<string, number>()
+  for (const l of links) for (const r of [l.a, l.b]) deg.set(r, (deg.get(r) ?? 0) + 1)
+  const nodes = kept
+    .map(n => ({ ...n, degree: deg.get(n.rel) ?? 0 }))
+    .filter(n => opts.showIsolated !== false || n.degree > 0)
+  return { nodes, links }
+}
+
+/** Pages whose title (or path) contains every word of `q`, best connected first. */
+export function matchPages<T extends GraphNodeRef & { degree?: number }>(nodes: T[], q: string): T[] {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return []
+  return nodes
+    .filter(n => { const hay = `${n.title} ${n.rel}`.toLowerCase(); return words.every(w => hay.includes(w)) })
+    .sort((a, b) => (b.degree ?? 0) - (a.degree ?? 0) || a.title.localeCompare(b.title))
+}

@@ -4,21 +4,35 @@
  * connectors/defs folder — each with connect/disconnect, status, and who may
  * use it.
  *
+ * obj 900682: the main view lists ONLY what is connected (accounts, the
+ * workspace's MCP servers from #900620, Tools an Integrations bot built).
+ * "New Integration" opens Browse (the #900499 catalog with setup guides + MCP
+ * catalog) or Make my own (the Integrations bot). Deep link: `?new=browse|make`.
+ *
  * Every integration here is the signed-in person's own. The server keeps the
  * credential encrypted and only ever sends back a description of it.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
 import type {
   ConnectorAccess,
   ConnectorConnectResponse,
   ConnectorStatus,
   ConnectorSummary,
+  IntegrationBuildSummary,
+  McpServerSummary,
 } from '@operationkit/shared'
 import { api, ApiError } from '../../lib/api'
+import { useAuth } from '../../context/AuthContext'
 import { useAgents } from '../../hooks/useAgents'
 import { useWorkspaces } from '../../hooks/useWorkspaces'
-import { Alert, EmptyState, Skeleton, useConfirm } from '../ui'
+import { Alert, Button, EmptyState, Skeleton, useConfirm } from '../ui'
 import { ConnectorCard, type ConnectorActions } from '../connectors/ConnectorCard'
+import { McpServersSection } from '../connectors/McpServersSection'
+import { defaultWorkspace } from '../connectors/mcpServerCopy'
+import { NewIntegrationPanel } from '../connectors/NewIntegrationPanel'
+import { BuiltIntegrationsSection } from '../connectors/BuiltIntegrationsSection'
+import { connectedConnectors, newIntegrationStep, type NewIntegrationStep } from '../connectors/integrationsView'
 
 function errText(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return (err.body as { error?: string } | null)?.error || err.message || fallback
@@ -58,6 +72,8 @@ export function SettingsConnectors() {
   const [loadError, setLoadError] = useState('')
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
   const { confirm, confirmDialog } = useConfirm()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const { agents } = useAgents()
   const { slugs: wsSlugs, labelOf } = useWorkspaces()
 
@@ -65,6 +81,22 @@ export function SettingsConnectors() {
     () => agents.filter(a => !a.archived).map(a => ({ value: a.slug, label: a.label || a.slug })),
     [agents],
   )
+  // null = the connected list; otherwise which New Integration step is open.
+  const [newStep, setNewStepState] = useState<NewIntegrationStep | null>(() => newIntegrationStep(window.location.search))
+  const [mcpServers, setMcpServers] = useState<McpServerSummary[] | null>(null)
+  const [builtTools, setBuiltTools] = useState<IntegrationBuildSummary[]>([])
+  const [mcpWorkspace, setMcpWorkspace] = useState('')
+
+  /** Keep `?new=` in the URL so a refresh (or a shared link) lands on the same step. */
+  const setNewStep = useCallback((step: NewIntegrationStep | null) => {
+    setNewStepState(step)
+    const params = new URLSearchParams(window.location.search)
+    if (step) params.set('new', step === 'choose' ? '1' : step)
+    else params.delete('new')
+    const qs = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+  }, [])
+
   const workspaceOptions = useMemo(
     () => wsSlugs.filter(s => s !== 'all').map(s => ({ value: s, label: labelOf(s) })),
     // labelOf is rebuilt every render; the slug list is what matters.
@@ -110,6 +142,8 @@ export function SettingsConnectors() {
         }
         patch(id, { status: res.status })
         setNotice({ ok: true, text: `Connected as ${res.status.account ?? 'your account'}.` })
+        // Connected from New Integration → Browse: show it where it now lives.
+        if (newStep) setNewStep(null)
         return true
       } catch (err) {
         setNotice({ ok: false, text: errText(err, 'Connecting failed.') })
@@ -153,14 +187,53 @@ export function SettingsConnectors() {
         setNotice({ ok: false, text: errText(err, 'Saving access failed.') })
       }
     },
+    // Optional, opt-in shared third-party OAuth app (Sprint 7.7). Reload after a
+    // change so availability ("Not set up" ↔ Connect) reflects the new setting.
+    async saveSharedApp(id, input) {
+      setNotice(null)
+      try {
+        await api.put(`/connectors/${id}/shared-app`, input)
+        await load()
+        setNotice({ ok: true, text: input.enabled ? 'Shared third-party app turned on.' : 'Shared third-party app saved (off).' })
+        return true
+      } catch (err) {
+        setNotice({ ok: false, text: errText(err, 'Saving the shared app failed.') })
+        return false
+      }
+    },
+    async removeSharedApp(id) {
+      setNotice(null)
+      try {
+        await api.del(`/connectors/${id}/shared-app`)
+        await load()
+        setNotice({ ok: true, text: 'Shared third-party app removed.' })
+        return true
+      } catch (err) {
+        setNotice({ ok: false, text: errText(err, 'Removing the shared app failed.') })
+        return false
+      }
+    },
   }
+
+  const wsDefault = mcpWorkspace || defaultWorkspace(localStorage.getItem('cc-workspace'), workspaceOptions.map(w => w.value))
+  const connected = connectedConnectors(connectors ?? [])
+  const nothingConnected =
+    connectors !== null && connected.length === 0 && builtTools.length === 0 &&
+    (mcpServers === null ? workspaceOptions.length === 0 : mcpServers.length === 0)
 
   return (
     <div className="max-w-3xl space-y-4">
-      <p className="text-[13px] leading-relaxed text-fg-2">
-        Connect your accounts so agents can work in them for you. Keys and sign-ins are stored encrypted on this
-        server and are never shown again — not here, and not to agents.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-fg-2">
+          Accounts and services agents can work in for you. Keys and sign-ins are stored encrypted on this server and
+          are never shown again — not here, and not to agents.
+        </p>
+        {!newStep && (
+          <Button variant="primary" size="sm" onClick={() => setNewStep('choose')} leftIcon={<Plus className="h-3.5 w-3.5" />}>
+            New Integration
+          </Button>
+        )}
+      </div>
 
       {notice && (
         <div aria-live="polite">
@@ -169,23 +242,67 @@ export function SettingsConnectors() {
       )}
       {loadError && <Alert tone="alarm" title="Could not load integrations">{loadError}</Alert>}
 
-      {connectors === null ? (
-        <div className="space-y-4">
-          <CardSkeleton />
-          <CardSkeleton />
-        </div>
-      ) : connectors.length === 0 && !loadError ? (
-        <EmptyState title="No integrations yet" description="This server has no integrations installed." />
+      {newStep ? (
+        <NewIntegrationPanel
+          step={newStep}
+          onStep={setNewStep}
+          onBack={() => setNewStep(null)}
+          connectors={connectors}
+          actions={actions}
+          agents={agentOptions}
+          workspaces={workspaceOptions}
+          defaultWorkspace={wsDefault}
+          isAdmin={isAdmin}
+          onMcpConnected={s => {
+            setMcpWorkspace(s.workspace)
+            setNotice({ ok: true, text: `${s.name} added to ${labelOf(s.workspace)}.` })
+          }}
+        />
       ) : (
-        connectors.map(c => (
-          <ConnectorCard
-            key={c.id}
-            connector={c}
-            actions={actions}
-            agents={agentOptions}
-            workspaces={workspaceOptions}
-          />
-        ))
+        <>
+          {nothingConnected && (
+            <EmptyState
+              title="No integrations connected yet"
+              description="Connect an account from a setup guide, add an MCP server, or have the Integrations bot build one for you."
+              action={<Button variant="primary" size="sm" onClick={() => setNewStep('choose')}>New Integration</Button>}
+            />
+          )}
+
+          {connectors === null ? (
+            <div className="space-y-4">
+              <CardSkeleton />
+            </div>
+          ) : connected.length > 0 && (
+            <section aria-labelledby="accounts-title" className="space-y-3">
+              <h3 id="accounts-title" className="pt-2 font-display text-[15px] font-semibold text-fg-0">Accounts</h3>
+              {connected.map(c => (
+                <ConnectorCard
+                  key={c.id}
+                  connector={c}
+                  actions={actions}
+                  agents={agentOptions}
+                  workspaces={workspaceOptions}
+                  isAdmin={isAdmin}
+                />
+              ))}
+            </section>
+          )}
+
+          {workspaceOptions.length > 0 && (
+            <McpServersSection
+              isAdmin={isAdmin}
+              workspaces={workspaceOptions}
+              defaultWorkspace={wsDefault}
+              showConnectButton={false}
+              onWorkspaceChange={setMcpWorkspace}
+              onServersLoaded={setMcpServers}
+            />
+          )}
+
+          {(mcpWorkspace || wsDefault) && (
+            <BuiltIntegrationsSection workspace={mcpWorkspace || wsDefault} onLoaded={setBuiltTools} />
+          )}
+        </>
       )}
       {confirmDialog}
     </div>

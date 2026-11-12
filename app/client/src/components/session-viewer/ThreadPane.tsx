@@ -7,6 +7,8 @@ import type { ObjectiveStatus } from '@operationkit/shared'
 import { ThreadTimeline } from '../ThreadTimeline'
 import { ThinkingIndicator } from '../design/primitives'
 import type { ConnState } from '../ConnStatusPill'
+import type { NeedsSecretItem } from '@operationkit/shared'
+import { ChatSecretRequests } from './ChatSecretRequest'
 
 export function ThreadPane({
   scrollRef,
@@ -19,6 +21,7 @@ export function ThreadPane({
   onConnState,
   pendingEcho,
   onEchoLanded,
+  secretRequests,
 }: {
   scrollRef: RefObject<HTMLDivElement | null>
   threadHasContent: boolean
@@ -30,6 +33,8 @@ export function ThreadPane({
   onConnState: (s: ConnState) => void
   pendingEcho: string | null
   onEchoLanded?: () => void
+  /** obj 900670 — open secret requests, rendered as masked forms in the chat. */
+  secretRequests?: { objectiveId: number; workspace: string; items: NeedsSecretItem[]; canFill: boolean }
 }) {
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto select-text">
@@ -69,6 +74,8 @@ export function ThreadPane({
             </div>
           </div>
         )}
+        {/* obj 900670 — the agent's secret request: a masked form in the chat. */}
+        {secretRequests && <ChatSecretRequests {...secretRequests} />}
         {/* Activity indicator — single thinking language across the app. */}
         {isActive && threadHasContent && (
           <div className="pb-2 pl-2 pt-1">

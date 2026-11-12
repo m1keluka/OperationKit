@@ -72,7 +72,7 @@ describe('finishing the sign-in', () => {
     const state = stateOf(url)
     const ep = tokenEndpoint(200, { access_token: FAKE_TOKEN, expires_in: 31536000, scope: 'user:inference' })
     const res = await finishClaudeLogin({ loginId, pasted: `the-code#${state}`, now: now + 1000, fetchImpl: ep.fetchImpl })
-    expect(res).toEqual({ ok: true, token: FAKE_TOKEN, expiresAt: new Date(now + 1000 + 31536000 * 1000).toISOString(), actorUserId: 7 })
+    expect(res).toEqual({ ok: true, token: FAKE_TOKEN, expiresAt: new Date(now + 1000 + 31536000 * 1000).toISOString(), actorUserId: 7, seatId: null })
 
     expect(ep.calls).toHaveLength(1)
     const sent = ep.calls[0]

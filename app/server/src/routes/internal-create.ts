@@ -6,7 +6,7 @@ import { Router } from 'express'
 import { getDb, resolveStrategyId } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
 import { logActivity } from './feed.js'
-import { getWorkspace } from '../services/workspaces.js'
+import { getWorkspace, resolveWriteWorkspace } from '../services/workspaces.js'
 import { defaultAgentForWorkspace } from './objectives-helpers.js'
 import { resolveObjectiveModel } from '../services/model-registry.js'
 import type { Objective } from '@operationkit/shared'
@@ -186,14 +186,14 @@ router.post('/objectives', async (req, res) => {
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
     if (!item.title?.trim()) continue
-    const ws = getWorkspace(item.workspace || 'example')
+    const ws = getWorkspace(resolveWriteWorkspace(item.workspace))
     if (!ws) continue
     const pool = ws.default_agent_pool
     if (!pool || pool.length === 0) continue
     // obj 708817: absent agent_context resolves through the SAME helper the
     // human route uses (workspace pool[0], else 'general'), reconciling the
     // old 'general' vs 'cto' divergence. Explicit agent_context is unchanged.
-    const agent = item.agent_context || defaultAgentForWorkspace(item.workspace || 'example')
+    const agent = item.agent_context || defaultAgentForWorkspace(resolveWriteWorkspace(item.workspace))
     if (!pool.includes(agent)) {
       res.status(400).json({
         error: `Item ${i} ('${item.title.trim()}'): agent '${agent}' not in workspace '${ws.slug}' pool (allowed: ${pool.join(', ')})`,
@@ -410,7 +410,7 @@ router.post('/objectives', async (req, res) => {
       if (!item.title?.trim()) continue
       const docsName = item.origin === 'retro' ? null : livingDocsName(item.title)
       if (docsName) {
-        const open = findOpenLivingDocsCard(db, item.workspace || 'example', docsName)
+        const open = findOpenLivingDocsCard(db, resolveWriteWorkspace(item.workspace), docsName)
         if (open) {
           deduped.push({ title: item.title.trim(), id: open.id, status: open.status, deduped: true })
           if (noteStillPending(db, open)) dedupedTouched.add(open.id)
@@ -430,13 +430,13 @@ router.post('/objectives', async (req, res) => {
       if (dupGuardOn) {
         const dup = findOpenDuplicate(db, {
           title: item.title,
-          workspace: item.workspace || 'example',
+          workspace: resolveWriteWorkspace(item.workspace),
           windowHours: dupWindowHours,
           excludeParentId: item.parent_id ?? null,
         })
         if (dup && item.force !== true) {
           duplicates.push({ title: item.title.trim(), id: dup.id, status: dup.status, deduped: true, reason: 'duplicate_24h' })
-          refusedMeta.push({ workspace: item.workspace || 'example', project: item.project || null })
+          refusedMeta.push({ workspace: resolveWriteWorkspace(item.workspace), project: item.project || null })
           console.log(`[internal] duplicate refused: "${item.title.trim()}" → open twin #${dup.id} (${dup.status})`)
           continue
         }
@@ -497,7 +497,7 @@ router.post('/objectives', async (req, res) => {
       const origin = item.origin === 'retro' ? 'retro' : itemSourceJobId != null ? 'job_reply' : 'strategy'
       const itemStrategyId = resolveStrategyId(db, null, item.parent_id ?? null)
       // project_id (obj 708808): explicit value → validate workspace; omitted + has parent → inherit.
-      const itemWorkspace = item.workspace || 'example'
+      const itemWorkspace = resolveWriteWorkspace(item.workspace)
       let itemProjectId: number | null = null
       if (item.project_id !== undefined && item.project_id !== null) {
         const prow = db.prepare('SELECT workspace FROM projects WHERE id = ?').get(item.project_id) as { workspace: string } | undefined

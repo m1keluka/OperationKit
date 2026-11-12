@@ -210,7 +210,7 @@ export function PreviewArchive({ workspaces }: { workspaces: Workspace[] }) {
                           {obj.pr_url && <span>#{obj.pr_number ?? 'PR'}</span>}
                         </div>
                       </div>
-                      <span className="shrink-0 font-mono text-[12px] text-fg-3">{relativeTime(obj.updated_at)}</span>
+                      <span className="shrink-0 pt-0.5 font-mono text-[12px] text-fg-3">{relativeTime(obj.updated_at)}</span>
                     </button>
                     <div className="mt-1.5 flex shrink-0 items-center gap-1">
                       {(obj.status === 'cancelled' || obj.status === 'done') && (

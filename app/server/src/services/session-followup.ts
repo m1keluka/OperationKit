@@ -71,6 +71,7 @@ import {
   BranchLeaseConflictError,
   SessionLeaseConflictError,
 } from './session-manager.js'
+import { resolveWriteWorkspace } from './workspaces.js'
 
 function transcriptCwd(jsonlPath: string): string | null {
   try {
@@ -462,7 +463,7 @@ export function sendFollowUp(
     })
     try {
       logActivity({
-        project: objective.project || objective.workspace || 'example',
+        project: objective.project || resolveWriteWorkspace(objective.workspace),
         workspace: objective.workspace,
         objective_id: objective.id,
         session_id: sessionId,

@@ -6,6 +6,7 @@
  * consolidates it. With both scoping flags OFF (committed default) and the
  * default ADMIN tier, the env is byte-for-byte identical to the old inline block.
  */
+import { spawnEnvFor as workspaceMcpSpawnEnv } from './workspace-mcp-servers.js'
 import type { Objective } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import {
@@ -38,6 +39,7 @@ import {
   stripServerSigningSecrets,
 } from '../lib/session-trust.js'
 import { sessionKbAccessEnabled, verifiedSenderStampsEnabled } from '../lib/session-trust.js'
+import { resolveWriteWorkspace } from './workspaces.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Spawn-env construction (obj-2202 / onboarding gate B1–B4)
@@ -474,6 +476,18 @@ export function buildSpawnEnv(opts: {
   // unauthorized_client. A connected user's grant must win as one unit.
   if (googleEnv.GOOGLE_WORKSPACE_CONNECTION === 'user') Object.assign(env, googleEnv)
 
+  // obj 900620 — remote MCP servers connected in Settings → Integrations for
+  // THIS card's workspace only: their access tokens as CC_MCP_TOKEN_<id> plus a
+  // secret-free descriptor spawnInTmux renders into the engine's MCP config.
+  // Keyed on objective.workspace, so a card in workspace A never receives
+  // workspace B's servers or tokens; a card with no workspace receives none.
+  // Never blocks a spawn.
+  try {
+    Object.assign(env, workspaceMcpSpawnEnv(objective.workspace))
+  } catch (err) {
+    console.warn('[session-manager] workspace MCP injection failed (env unchanged):', (err as Error).message)
+  }
+
   // obj 900208 — `git push` over https with the GitHub connection. GH_TOKEN alone
   // only authenticates `gh`; plain git asks a credential helper, and a session
   // (above all a jailed one, whose checkout carries no repo-local helper) has
@@ -601,7 +615,7 @@ export function applySessionTrustEnv(
       env.CC_OBJECTIVE_ID = String(objective.id)
       env.CC_SESSION_TOKEN = mintSessionToken({
         objectiveId: objective.id,
-        workspace: objective.workspace || 'example',
+        workspace: resolveWriteWorkspace(objective.workspace),
         actingUserId,
       })
     } catch (err) {

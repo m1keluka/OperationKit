@@ -70,6 +70,12 @@ const BOARD_TOOLS = [
   'list_secret_requests', 'fulfill_secret_request',
 ]
 
+// obj 900642 (card B6): the workflow tools, each a loopback adapter over /api/flows.
+const WORKFLOW_TOOLS = [
+  'list_workflows', 'get_workflow', 'create_workflow', 'draft_workflow_version',
+  'validate_workflow', 'test_workflow', 'run_workflow', 'get_workflow_run',
+]
+
 function mint(label: string, scopes?: string[], workspaces?: string[] | null): { token: string; id: number } {
   const r = createAgentKey({ id: ADMIN_ID, role: 'admin' }, { label, scopes, workspaces })
   if (!r.ok) throw new Error(r.error)
@@ -504,6 +510,8 @@ describe('board tools through a named agent key', () => {
       expect.objectContaining({ slug: 'librarian', name: 'Librarian', knowledge_folders: ['team'], tools: ['search', 'read_file'] }),
       // The built-in setup agent ships with every install (obj 900556).
       expect.objectContaining({ slug: 'kb-setup', name: 'Knowledge Base Setup', knowledge_folders: [], tools: [] }),
+      // ...and so does the Operation Kit Dev bot (obj 900672).
+      expect.objectContaining({ slug: 'operation-kit-dev', name: 'Operation Kit Dev' }),
     ])
     const one = await callTool('get_chat_agent', { slug: 'librarian' }, reader.token)
     expect(one.data.system_prompt).toBe('You organise the knowledge base.')
@@ -573,18 +581,21 @@ describe('tool table', () => {
     expect(AGENT_DISCOVERY.mcp.url).toBe('/api/mcp')
     expect(AGENT_DISCOVERY.mcp.transport).toBe('streamable-http')
     expect([...AGENT_DISCOVERY.mcp.tools].sort()).toEqual(MCP_TOOLS.map(t => t.name).sort())
-    expect([...AGENT_DISCOVERY.mcp.tools].sort()).toEqual([...KNOWLEDGE_TOOLS, ...BOARD_TOOLS, ...CHAT_AGENT_TOOLS, 'file_info', 'write_doc', 'file_answer', 'kb_related', 'kb_who_knows'].sort())
+    expect([...AGENT_DISCOVERY.mcp.tools].sort()).toEqual([...KNOWLEDGE_TOOLS, ...BOARD_TOOLS, ...CHAT_AGENT_TOOLS, ...WORKFLOW_TOOLS, 'file_info', 'write_doc', 'file_answer', 'kb_related', 'kb_who_knows'].sort())
   })
 
   it('the write set is exactly these — no merge / deploy / spend / delete tool', () => {
     expect(MCP_TOOLS.filter(t => t.access === 'write').map(t => t.name).sort())
-      .toEqual(['create_objective', 'file_answer', 'fulfill_secret_request', 'send_message', 'start_objective', 'stop_objective', 'update_objective', 'update_status', 'write_doc'])
+      .toEqual([
+        'create_objective', 'create_workflow', 'draft_workflow_version', 'file_answer', 'fulfill_secret_request', 'run_workflow',
+        'send_message', 'start_objective', 'stop_objective', 'test_workflow', 'update_objective', 'update_status', 'write_doc',
+      ])
     // obj 719065: the only secret tools are the write-only request relay pair —
     // neither can read a value (fulfill mints a one-time upload link).
     const SECRET_RELAY = new Set(['list_secret_requests', 'fulfill_secret_request'])
     for (const t of MCP_TOOLS) {
       if (SECRET_RELAY.has(t.name)) continue
-      expect(t.name).not.toMatch(/merge|deploy|delete|secret|spend|admin|shell/)
+      expect(t.name).not.toMatch(/merge|deploy|delete|secret|spend|admin|shell|publish|approv/)
     }
     expect(MCP_TOOLS.find(t => t.name === 'fulfill_secret_request')!.scope).toBe('board:secrets_request')
   })

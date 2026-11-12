@@ -9,6 +9,12 @@ vi.mock('../account-router.js', () => ({
   isAuthFailureMessage: (t: string) => /invalid authentication credentials|authentication_failed/i.test(t),
   parseResetTime: () => null,
 }))
+// Seat sign-in env (obj 900624): a seat whose label starts with "tok:" is a
+// pasted setup-token seat; everything else is a CLI-login seat (no env).
+vi.mock('../seat-credentials.js', () => ({
+  seatCredentialEnv: (s: { label?: string }) =>
+    s.label?.startsWith('tok:') ? { CLAUDE_CODE_OAUTH_TOKEN: s.label.slice(4) } : {},
+}))
 
 import {
   buildClaudeArgs,
@@ -19,7 +25,11 @@ import {
   createClaudeCliBackend,
   gatewaySlotFilter,
   BackendError,
+  isNotLoggedInMessage,
 } from './claude-cli-backend.js'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import type { AccountSlot } from '../account-router.js'
 
 const slot = (id: string): AccountSlot => ({
@@ -168,6 +178,108 @@ describe('account rotation', () => {
     const pick = vi.fn((f: (a: AccountSlot) => boolean) => [slot('a')].find(f) ?? null)
     const backend = createClaudeCliBackend({ env: {}, pick, run: vi.fn() as any })
     await expect(backend({ model: 'claude-sonnet-5', systemPrompt: '', prompt: 'x' })).rejects.toMatchObject({ kind: 'no_account' })
+  })
+})
+
+// ── obj 900624: "Not logged in" while card sessions run ──
+
+describe('"Not logged in" is a seat failure that rotates (obj 900624)', () => {
+  const okResult = { text: 'hi', usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }, stopReason: 'end_turn', costUsd: 0, ttftMs: 5 }
+  const tokSlot = (id: string, token: string): AccountSlot => ({ ...slot(id), label: `tok:${token}` })
+  let homeRoot: string
+  beforeEach(() => {
+    vi.clearAllMocks()
+    homeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ccb-900624-'))
+  })
+
+  it('recognises the CLI message in a result event and in stderr, and does not call it a dead credential', () => {
+    expect(isNotLoggedInMessage('Not logged in · Please run /login')).toBe(true)
+    expect(isNotLoggedInMessage('Invalid authentication credentials')).toBe(false)
+    expect(isNotLoggedInMessage('')).toBe(false)
+    const s: any = { text: '', sawDelta: false, fallbackText: '', usage: null, stopReason: null, costUsd: 0, resultError: null, rateLimited: null, authFailed: null, notLoggedIn: null, ttftMs: null }
+    applyStreamLine(JSON.stringify({ type: 'result', is_error: true, result: 'Not logged in · Please run /login' }), s, 0)
+    expect(s.notLoggedIn).toBeTruthy()
+    expect(s.authFailed).toBeNull() // must not park the seat
+  })
+
+  it('a pasted setup-token seat signs in with ITS OWN token, in a private HOME removed after the turn', async () => {
+    const pool = [tokSlot('s1', 'tok-one')]
+    const pick = vi.fn((f: (a: AccountSlot) => boolean) => pool.find(f) ?? null)
+    const seen: { home: string; env: Record<string, string>; existed: boolean }[] = []
+    const run = vi.fn(async (a: AccountSlot, _req: unknown, _t: number, env: Record<string, string>) => {
+      seen.push({ home: a.homeDir, env, existed: fs.existsSync(a.homeDir) })
+      return { ...okResult, slot: a.id }
+    })
+    const backend = createClaudeCliBackend({ env: {}, pick, run: run as any, homeRoot })
+    await backend({ model: 'm', systemPrompt: '', prompt: 'x' })
+    expect(seen[0].env.CLAUDE_CODE_OAUTH_TOKEN).toBe('tok-one')
+    expect(seen[0].home.startsWith(homeRoot)).toBe(true)
+    expect(seen[0].home).not.toBe('/home/ccuser-s1')
+    expect(seen[0].existed).toBe(true)
+    expect(fs.existsSync(seen[0].home)).toBe(false)
+  })
+
+  it('a CLI-login seat keeps its own HOME (its login files live there) and gets no token env', async () => {
+    const pick = vi.fn((f: (a: AccountSlot) => boolean) => [slot('b')].find(f) ?? null)
+    const run = vi.fn(async (a: AccountSlot, _r: unknown, _t: number, env: Record<string, string>) => {
+      expect(a.homeDir).toBe('/home/ccuser-b')
+      expect(env).toEqual({})
+      return { ...okResult, slot: a.id }
+    })
+    await createClaudeCliBackend({ env: {}, pick, run: run as any, homeRoot })({ model: 'm', systemPrompt: '', prompt: 'x' })
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('rotates past a seat that answers "Not logged in" to the next healthy seat', async () => {
+    const pool = [tokSlot('s1', 'tok-one'), tokSlot('s2', 'tok-two')]
+    const pick = vi.fn((f: (a: AccountSlot) => boolean) => pool.find(f) ?? null)
+    const run = vi.fn(async (a: AccountSlot) => {
+      if (a.id === 's1') throw new BackendError('auth', 'claude found no sign-in on seat s1 ("Not logged in")', 's1')
+      return { ...okResult, slot: a.id }
+    })
+    const r = await createClaudeCliBackend({ env: {}, pick, run: run as any, homeRoot })({ model: 'm', systemPrompt: '', prompt: 'x' })
+    expect(r.slot).toBe('s2')
+    expect(r.attempts).toBe(2)
+  })
+
+  it('never tries the same token twice, and uses fallback tokens only after the pool', async () => {
+    // The legacy sandbox seat IS the server token: one credential, one attempt.
+    const pool = [tokSlot('sandbox', 'server-tok')]
+    const pick = vi.fn((f: (a: AccountSlot) => boolean) => pool.find(f) ?? null)
+    const order: string[] = []
+    const run = vi.fn(async (a: AccountSlot) => {
+      order.push(a.id)
+      throw new BackendError('rate_limit', 'rl', a.id)
+    })
+    const backend = createClaudeCliBackend({
+      env: {}, pick, run: run as any, homeRoot, maxAttempts: 5,
+      preferTokens: [{ id: 'agent-chat-token', token: 'chat-tok' }],
+      fallbackTokens: [{ id: 'server-token', token: 'server-tok' }],
+    })
+    await expect(backend({ model: 'm', systemPrompt: '', prompt: 'x' })).rejects.toMatchObject({ kind: 'rate_limit' })
+    expect(order).toEqual(['agent-chat-token', 'sandbox'])
+  })
+
+  it('skips a seat whose credential is missing or is an API key, and still answers', async () => {
+    const pool = [slot('gone'), slot('apikey'), tokSlot('s3', 'tok-three')]
+    const pick = vi.fn((f: (a: AccountSlot) => boolean) => pool.find(f) ?? null)
+    const credentialEnv = (s: AccountSlot): Record<string, string> => {
+      if (s.id === 'gone') throw new Error('credential missing from the secrets store')
+      if (s.id === 'apikey') return { ANTHROPIC_API_KEY: 'k' }
+      return { CLAUDE_CODE_OAUTH_TOKEN: 'tok-three' }
+    }
+    const run = vi.fn(async (a: AccountSlot) => ({ ...okResult, slot: a.id }))
+    const r = await createClaudeCliBackend({ env: {}, pick, run: run as any, homeRoot, credentialEnv })({ model: 'm', systemPrompt: '', prompt: 'x' })
+    expect(r.slot).toBe('s3')
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('a non-seat failure (CLI crash) is not retried on another seat', async () => {
+    const pool = [slot('b'), slot('c')]
+    const pick = vi.fn((f: (a: AccountSlot) => boolean) => pool.find(f) ?? null)
+    const run = vi.fn(async () => { throw new BackendError('cli_error', 'boom', 'b') })
+    await expect(createClaudeCliBackend({ env: {}, pick, run: run as any })({ model: 'm', systemPrompt: '', prompt: 'x' })).rejects.toMatchObject({ kind: 'cli_error' })
+    expect(run).toHaveBeenCalledTimes(1)
   })
 })
 

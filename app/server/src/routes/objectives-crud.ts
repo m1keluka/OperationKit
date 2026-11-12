@@ -2,6 +2,7 @@
  * List + CRUD routes — extracted from objectives.ts (behavior frozen).
  * Registered on the same /api/objectives router. SQL and HTTP paths unchanged.
  */
+import { resolveWriteWorkspace } from '../services/workspaces.js'
 import { Router } from 'express'
 import { getDb, resolveStrategyId } from '../db/index.js'
 import { type AuthRequest } from '../middleware/auth.js'
@@ -42,6 +43,7 @@ import {
 } from './objectives-helpers.js'
 import { beginIdempotent } from '../lib/idempotency.js'
 import { startCreatedObjective } from './objectives-create-start.js'
+import { parseQueueHoldPatch, applyQueueHoldPatch } from '../lib/queue-autostart.js'
 import {
   findOpenDuplicate,
   recordDedupe,
@@ -300,13 +302,21 @@ router.post('/', async (req: AuthRequest, res) => {
   // when the body has none (obj 718417) — it used to be ignored, so a bot that
   // put the workspace in the query silently filed the card under example.
   const queryWorkspace = typeof req.query.workspace === 'string' ? req.query.workspace.trim() : ''
-  const effectiveWorkspace = workspace || queryWorkspace || 'example'
+  const effectiveWorkspace = resolveWriteWorkspace(workspace || queryWorkspace)
   if (user.role !== 'admin') {
     const userWs = getUserWorkspaces(user.id).map(w => w.workspace)
     if (!userWs.includes(effectiveWorkspace)) {
       res.status(403).json({ error: `No access to workspace '${effectiveWorkspace}'` })
       return
     }
+  }
+
+  // obj 900625: optional queue_hold / blocked_by — honoured by the queue
+  // auto-starter. Validated before any write; invalid → 400, nothing created.
+  const holdPatch = parseQueueHoldPatch(getDb(), req.body as Record<string, unknown>, { selfId: null, workspace: effectiveWorkspace })
+  if (!holdPatch.ok) {
+    res.status(400).json({ error: holdPatch.error })
+    return
   }
 
   // QW5 / audit B#9: skip_ai_review bypasses the QA gate, so enabling it is
@@ -425,6 +435,7 @@ router.post('/', async (req: AuthRequest, res) => {
     .run(title.trim(), description || '', effectiveAgent, effectiveWorkspace, project || null, effectiveProjectId, category || 'general', parent_id || null, depthForParent(db, parent_id || null), effectiveAssignedUserId, user.id, create_pr ? 1 : 0, delegate_mode ? 1 : 0, isStrategy ? 1 : 0, completion_goal || null, workflow_hint || null, effectiveEffort, resolveObjectiveModel({ model, type: effectiveType, create_pr, delegate_mode }), effectiveType, initialStatus, skip_ai_review ? 1 : 0, req.agentKey ? 'agent_api' : 'manual', resolvedStrategyId, req.agentKey?.id ?? null, req.agentKey?.label ?? null, ownerBot.value ?? null)
 
   setAssignees(Number(result.lastInsertRowid), assigneeIds)
+  applyQueueHoldPatch(db, Number(result.lastInsertRowid), holdPatch)
   if (forcedOverDuplicateId != null) {
     recordDedupe({ event: 'duplicate_forced', source: 'POST /api/objectives', title: title.trim(), workspace: effectiveWorkspace, existingId: forcedOverDuplicateId, newId: Number(result.lastInsertRowid), project: project || null })
   }
@@ -474,6 +485,17 @@ router.put('/:id', (req: AuthRequest, res) => {
   const ownerBot = validateOwnerBot((req.body as { owner_bot?: unknown }).owner_bot)
   if (!ownerBot.ok) {
     res.status(400).json({ error: ownerBot.error })
+    return
+  }
+
+  // obj 900625: queue_hold / blocked_by (queue auto-start gates). Validated
+  // against the card's FINAL workspace before any write.
+  const holdPatch = parseQueueHoldPatch(db, req.body as Record<string, unknown>, {
+    selfId: existing.id,
+    workspace: (workspace ?? existing.workspace) as string,
+  })
+  if (!holdPatch.ok) {
+    res.status(400).json({ error: holdPatch.error })
     return
   }
 
@@ -621,6 +643,8 @@ router.put('/:id', (req: AuthRequest, res) => {
     ownerBot.value !== undefined ? ownerBot.value : ((existing as { owner_bot?: string | null }).owner_bot ?? null),
     req.params.id
   )
+
+  applyQueueHoldPatch(db, existing.id, holdPatch)
 
   if (prLink.touched && prLink.ok) {
     const p = prLink.patch

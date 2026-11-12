@@ -34,6 +34,7 @@ vi.mock('@blocknote/mantine/style.css', () => ({}))
 vi.mock('./docs-page.css', () => ({}))
 vi.mock('./docs/MermaidBlock', () => ({ mermaidBlockSpec: () => ({}) }))
 vi.mock('./KnowledgeImport', () => ({ KnowledgeImportPanel: () => null, useKnowledgeImportEnabled: () => true }))
+vi.mock('./kb-wiki/KnowledgeGraphPane', () => ({ KnowledgeGraphPane: ({ workspace }: { workspace: string }) => <div data-testid="kb-graph">graph of {workspace}</div> }))
 
 const { DocsPage, pageLocation } = await import('./DocsPage')
 
@@ -65,11 +66,22 @@ describe('DocsPage — one knowledge base', () => {
     expect(container.querySelector('select')).toBeNull()
     expect(container.textContent).not.toMatch(/Source/)
     expect(container.textContent).not.toMatch(/Second brain|AI workspace|Projects/)
-    expect(container.textContent).toMatch(/Knowledge base/)
+    expect(container.textContent).toMatch(/Context/)
     expect(container.textContent).toMatch(/workspaces/)
     expect(container.textContent).toMatch(/index/)
     // A single request for the whole knowledge base — never a ?root= source switch.
     expect(calls).toEqual(['/docs/tree'])
+  })
+})
+
+describe('DocsPage — graph view (obj 900674)', () => {
+  it('opens on the workspace graph, with a pressed Graph toggle in the toolbar', async () => {
+    flushSync(() => { root.render(<DocsPage workspace="acme" />) })
+    await settle()
+    expect(container.querySelector('[data-testid="kb-graph"]')?.textContent).toBe('graph of acme')
+    const toggle = [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Graph')!
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(container.textContent).not.toMatch(/No page open/)
   })
 })
 

@@ -36,6 +36,7 @@ import { resolveFollowUpSessionId } from './objective-sessions.js'
 import { recordFollowUpInJsonl, sendFollowUp } from './session-manager.js'
 import { noteStartReason } from './session-start-reasons.js'
 import { isLockedStatus, runMachineStatusUpdate } from '../lib/status-lock.js'
+import { resolveWriteWorkspace } from './workspaces.js'
 
 export const SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{1,63}$/
 export const UPLOAD_TOKEN_TTL_MS = 15 * 60 * 1000
@@ -66,7 +67,7 @@ export function storeScopeFor(scope: SecretRequestScope, workspace: string, user
 }
 
 function cardWorkspace(objective: Pick<Objective, 'workspace'>): string {
-  return objective.workspace || 'example'
+  return resolveWriteWorkspace(objective.workspace)
 }
 
 /** Raw needs_secret column → items (tolerates both a parsed array and the JSON text). */

@@ -4,6 +4,7 @@
  * rebuilds stay in db/index.ts.
  */
 import type Database from 'better-sqlite3'
+import { canonicalWorkspaceSlugIn } from '../../services/workspaces.js'
 
 /**
  * Phase-0 DDL for Universal Development (schema doc §2.1-§2.5).
@@ -304,8 +305,11 @@ export function seedDevelopmentRegistry(db: Database.Database): void {
     ],
   ]
   for (const [workspace, name, github, repoPath, stack] of repos) {
-    if (repoExists.get(workspace, name)) continue
-    insertRepo.run(workspace, name, github, repoPath, JSON.stringify(stack))
+    // obj 900667: follow workspaces.merged_into, or the existence check misses
+    // a row the merge moved and re-seeds it into the retired workspace on boot.
+    const ws = canonicalWorkspaceSlugIn(db, workspace)
+    if (repoExists.get(ws, name)) continue
+    insertRepo.run(ws, name, github, repoPath, JSON.stringify(stack))
   }
 
   // workspace_integrations kind='development' (schema §2.6 config shape).

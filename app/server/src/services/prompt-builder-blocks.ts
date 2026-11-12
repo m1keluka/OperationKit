@@ -8,6 +8,7 @@ import fs from 'fs'
 import type { Objective, AcceptanceCriterion } from '@operationkit/shared'
 import { getDb } from '../db/index.js'
 import { isUiInjectionActive, repoHasE2eSuite } from './design-context.js'
+import { resolveWriteWorkspace } from './workspaces.js'
 
 /**
  * Delegator playbook — injected into the prompt for objectives whose
@@ -235,7 +236,7 @@ export function buildReviewerArtifactBlock(objective: Objective): string {
 }
 
 export function buildDelegatorBlock(objective: Objective): string[] {
-  const ws = objective.workspace || 'example'
+  const ws = resolveWriteWorkspace(objective.workspace)
   const id = objective.id
   const base = 'http://localhost:3002/api/internal/objectives'
   return [
@@ -335,7 +336,7 @@ export function buildDelegatorBlock(objective: Objective): string[] {
  * rather than accept/iterate/escalate. Design: strategy-layer-design.md §6.2.
  */
 export function buildStrategyBlock(objective: Objective): string[] {
-  const ws = objective.workspace || 'example'
+  const ws = resolveWriteWorkspace(objective.workspace)
   const id = objective.id
   const base = 'http://localhost:3002/api/internal/objectives'
   // obj 700030 Part B — at trust_stage<=0 the human gate is ARMED and HARD-enforced:

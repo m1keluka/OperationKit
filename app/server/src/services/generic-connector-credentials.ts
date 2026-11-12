@@ -1,7 +1,7 @@
 /**
  * Generic store for `auth_path: 'api_key'` connectors (obj 900508, Sprint
  * 7.4 catalog preload). Backs every new api-key connector
- * (Cloudflare, Airtable, ClickUp, Calendly, Cal.com, DocuSeal, Supabase, n8n,
+ * (Cloudflare, Airtable, ClickUp, Calendly, Cal.com, DocuSeal, Supabase,
  * Notion/Linear's documented fallback, Stripe's agent key) through ONE table,
  * `connector_credentials` (db/schema/generic-connectors.ts) — the same
  * encrypt-at-rest posture as `user_github_tokens`, generalized to an

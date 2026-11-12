@@ -21,6 +21,9 @@ interface ModelDbRow {
   is_default: number
   is_planner: number
   sort_order: number
+  source?: string | null
+  discovered_at?: string | null
+  last_seen_at?: string | null
 }
 
 function mapRow(r: ModelDbRow): ModelRow {
@@ -32,6 +35,9 @@ function mapRow(r: ModelDbRow): ModelRow {
     is_default: r.is_default === 1,
     is_planner: r.is_planner === 1,
     sort_order: r.sort_order,
+    source: r.source === 'provider' ? 'provider' : 'seed',
+    discovered_at: r.discovered_at ?? null,
+    last_seen_at: r.last_seen_at ?? null,
   }
 }
 

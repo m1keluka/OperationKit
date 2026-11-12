@@ -144,6 +144,49 @@ ls -ld /tmp/cc-jail-scratch/*
 | `CC_JAIL_HOME_MAX_AGE_MIN` | `120` | age after which an orphan jail home is swept |
 | `CC_JAIL_HOME_SWEEP_MS` | `600000` | floor between sweeps |
 | `SESSION_JAIL_UID` / `SESSION_JAIL_GID` | `1000` | uid:gid the jail runs as |
+| `SESSION_JAIL_TMP_SIZE` | `2g` | size of the jail's in-memory `/tmp` tmpfs (docker size syntax: `512m`, `2g`; an invalid value fails the spawn) |
+| `SESSION_JAIL_CLAUDE_TMPDIR` | off | `on` sets `CLAUDE_CODE_TMPDIR=/home/jailuser/.claude-tmp` (disk-backed jail HOME); or a path under `/home/jailuser/` |
+
+## 4. Jail `/tmp` size, and removing the OVH docker shim (obj 900402)
+
+The jail root is `--read-only`, so `/tmp` (a tmpfs) is the only writable scratch
+outside the two binds, and Claude Code keeps its own scratch in `/tmp/claude-<uid>`.
+It used to be hardcoded at `size=256m`. On 2026-11-09 AI reviews failed with
+`/tmp/claude-1000 has 0 MB free` after cloning a ~170 MB repo.
+
+It is now `SESSION_JAIL_TMP_SIZE` (default `2g`), set in `install/docker-compose.yml`
+from `JAIL_TMP_SIZE` in `client.conf` (written to the settings env by `install.sh`).
+tmpfs only uses RAM for what is written, so 2g is a ceiling, not a reservation.
+Optionally `SESSION_JAIL_CLAUDE_TMPDIR=on` (`JAIL_CLAUDE_TMPDIR="on"` in
+`client.conf`) moves Claude's scratch off RAM entirely, onto the jail HOME.
+`install.sh` / `install/update.sh` no longer need any manual `256m` → `2g` edit.
+
+**The OVH hotfix.** OVH was patched live with two things that a rebuild would lose anyway:
+a docker shim at `/usr/local/bin/docker` inside the app container that rewrote
+`size=256m` to `size=2g` on every `docker run`, and a hand edit of `session-jail.ts`.
+Before updating: `install/update.sh` refuses a repo checkout with local edits. If the hand edit was
+also made in the host checkout, drop it first (`git -C <repo> checkout -- app/server/src/services/session-jail.ts`);
+this release carries the same fix.
+
+Once this change is merged and deployed (`install/update.sh` rebuilds the image):
+
+```bash
+# 1. The shim is gone after the rebuild (the image's docker is under /usr/bin). If it
+#    is still there (container not recreated), remove it:
+docker exec -u 0 command-center sh -c 'head -c 2 /usr/local/bin/docker 2>/dev/null; echo'   # "#!" = shim
+docker exec -u 0 command-center rm -f /usr/local/bin/docker
+docker exec command-center sh -c 'command -v docker'      # expect /usr/bin/docker
+
+# 2. The setting reached the app:
+docker exec command-center sh -c 'echo $SESSION_JAIL_TMP_SIZE'   # expect 2g
+
+# 3. A new session's jail really got 2g (start any card, then):
+docker inspect --format '{{json .HostConfig.Tmpfs}}' $(docker ps -q --filter name=ok-jail- | head -1)
+#    expect {"/tmp":"rw,nosuid,nodev,size=2g"}
+```
+
+The app container is `command-center` (`install/docker-compose.yml`). The image installs docker to `/usr/bin`, and `/usr/local/bin` comes first on PATH, which is how the shim intercepted every call.
+Do the shim removal only AFTER the deploy: before it, the shim is what keeps reviews alive.
 
 ## Tests
 
@@ -153,4 +196,5 @@ ls -ld /tmp/cc-jail-scratch/*
 | 0700 homes, env-file drop, scrub, cleanup, sweeper | `app/server/src/services/jail-home.test.ts` |
 | wrapper guard, failure detection, no retry loop | `app/server/src/services/session-startup-failure.test.ts` |
 | end-to-end through the real `spawnInTmux` | `app/server/src/services/jail-no-project-card.test.ts` |
+| `/tmp` tmpfs size + `CLAUDE_CODE_TMPDIR` | `app/server/src/services/session-jail.test.ts` (obj 900402) |
 | live docker proof (rows 8-10) | `scripts/session-jail-proof.sh` |

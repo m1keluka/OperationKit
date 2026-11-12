@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { cn } from './cn'
 
 export interface TabItem {
@@ -21,8 +22,22 @@ export function Tabs({
   onChange: (key: string) => void
   className?: string
 }) {
+  // On a phone the track scrolls sideways; keep the selected segment in view so a
+  // deep link (e.g. /settings/email) does not open with no visible active tab
+  // (QA obj 900621). Only the track scrolls, never the page.
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const list = listRef.current
+    const el = list?.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (!list || !el || list.scrollWidth <= list.clientWidth) return
+    const lr = list.getBoundingClientRect()
+    const er = el.getBoundingClientRect()
+    if (er.left < lr.left) list.scrollLeft -= lr.left - er.left + 12
+    else if (er.right > lr.right) list.scrollLeft += er.right - lr.right + 12
+  }, [value])
   return (
     <div
+      ref={listRef}
       role="tablist"
       className={cn(
         'inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-line bg-surface-1 p-0.5',

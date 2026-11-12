@@ -23,6 +23,7 @@
  * created lazily (CREATE TABLE IF NOT EXISTS) so no schema migration is needed.
  */
 import type { Database } from 'better-sqlite3'
+import { resolveWorkspaceIn } from './workspaces.js'
 
 export const DEFAULT_CI_FOLLOWUP_CAP = 3
 export const CI_FOLLOWUP_WINDOW_DAYS = 30
@@ -165,9 +166,9 @@ export function noteCiFollowupCapExhausted(
     try {
       db.prepare(
         `INSERT INTO activity_log (project, workspace, objective_id, session_id, event_type, title, detail)
-         SELECT COALESCE(project, ''), COALESCE(workspace, 'example'), id, session_id, 'blocker', ?, ?
+         SELECT COALESCE(project, ''), COALESCE(workspace, ?), id, session_id, 'blocker', ?, ?
            FROM objectives WHERE id = ?`,
-      ).run(title, detail, key.objectiveId)
+      ).run(resolveWorkspaceIn(db, null), title, detail, key.objectiveId)
     } catch (err) {
       console.warn('[ci-followup-cap] activity_log write failed:', (err as Error).message)
     }

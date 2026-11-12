@@ -228,7 +228,7 @@ export function AgentsPage({ workspace, fixture, loadFile, embedded = false }: A
         <EmptyState
           icon={<Users className="h-5 w-5" />}
           title="Pick a single workspace"
-          description="The agent → skill → tool layer is defined per workspace, so this tab cannot show 'all'. Choose one workspace in the top-left selector and the layer for its projects appears here."
+          description="The agent → skill → tool layer is defined per workspace, so this tab cannot show 'all'. Choose one organization in the Org switcher in the top bar and the layer for its projects appears here."
         />
       )}
 

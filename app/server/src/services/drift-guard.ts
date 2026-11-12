@@ -176,7 +176,7 @@ export function collectGitState(repoDir: string = CC_REPO_DIR): GitState {
 /**
  * Run one drift check against the live checkout. On drift, log LOUDLY to the
  * container log and raise a high-severity alert (surfaces in the AlertBell UI;
- * dedup_key throttles to one alert per ~10min). Returns the structured result
+ * one unread item at a time; behind-only waits DRIFT_BEHIND_GRACE_MS). Returns the structured result
  * (used by GET /api/internal/drift-check). Never throws.
  */
 export function runDriftCheck(repoDir: string = CC_REPO_DIR): DriftResult {
@@ -197,7 +197,6 @@ export function runDriftCheck(repoDir: string = CC_REPO_DIR): DriftResult {
   }
 
   if (result.drifted) {
-    const summary = result.reasons.join(' ')
     console.warn(
       `\n========================================================================\n` +
         `[drift-guard] ⚠️  LIVE-CHECKOUT DRIFT DETECTED in ${repoDir}\n` +
@@ -205,18 +204,51 @@ export function runDriftCheck(repoDir: string = CC_REPO_DIR): DriftResult {
         `\n  This is UNBACKED PRODUCTION. Commit -> PR -> merge -> deploy from main.\n` +
         `========================================================================\n`,
     )
+  }
+
+  const now = Date.now()
+  behindOnlySince = nextBehindOnlySince(result, behindOnlySince, now)
+  if (shouldAlertDrift(result, behindOnlySince, now)) {
     // Fire-and-forget alert; notify() swallows its own errors.
     void notify({
       severity: 'high',
       source: 'drift-guard',
       title: 'Live checkout drift detected (unbacked production)',
-      message: summary,
+      message: result.reasons.join(' '),
       dedup_key: 'drift-guard:live-checkout',
       url: 'https://cc.example.com',
     })
   }
 
   return result
+}
+
+/**
+ * obj 900677 — how long the checkout may sit ONLY behind origin/main (clean,
+ * not ahead) before it becomes a notification. Every merge makes the checkout
+ * briefly behind until auto-deploy pulls it, so alerting at once produced a
+ * "drift" notification after nearly every merge. Two hours still catches the
+ * real failure (a checkout stuck for days, obj 705463).
+ */
+export const DRIFT_BEHIND_GRACE_MS = 2 * 60 * 60 * 1000
+
+let behindOnlySince: number | null = null
+
+function isBehindOnly(r: DriftResult): boolean {
+  return r.drifted && r.behind > 0 && r.ahead === 0 && r.dirtyServedFiles.length === 0
+}
+
+/** Start (or keep) the behind-only clock; clear it as soon as the state changes. */
+export function nextBehindOnlySince(r: DriftResult, since: number | null, now: number): number | null {
+  if (!isBehindOnly(r)) return null
+  return since ?? now
+}
+
+/** Dirty or ahead alerts at once; behind-only alerts after DRIFT_BEHIND_GRACE_MS. */
+export function shouldAlertDrift(r: DriftResult, behindOnlySinceMs: number | null, now: number): boolean {
+  if (!r.drifted) return false
+  if (!isBehindOnly(r)) return true
+  return behindOnlySinceMs !== null && now - behindOnlySinceMs >= DRIFT_BEHIND_GRACE_MS
 }
 
 let driftTimer: ReturnType<typeof setInterval> | null = null

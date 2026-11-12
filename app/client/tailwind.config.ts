@@ -40,6 +40,7 @@ export default {
           raised: 'var(--surface-1)',
           overlay: 'var(--surface-2)',
           selected: 'var(--surface-selected)',
+          inset: 'var(--surface-inset)',
         },
         fg: {
           0: 'var(--fg-0)',

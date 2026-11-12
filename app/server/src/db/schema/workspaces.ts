@@ -23,6 +23,15 @@ export function initWorkspacesSchema(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `)
+  // obj 900667: a workspace folded into another by `workspace-merge` records
+  // where it went. The row stays (archived, never deleted — see the module
+  // header of services/workspace-merge.ts); `canonicalWorkspaceSlug()` follows
+  // this pointer so a write that still names the retired slug lands on the
+  // live one instead of re-creating data in an archived org.
+  const wsCols = new Set((db.prepare('PRAGMA table_info(workspaces)').all() as { name: string }[]).map(c => c.name))
+  if (!wsCols.has('merged_into')) {
+    db.exec('ALTER TABLE workspaces ADD COLUMN merged_into TEXT')
+  }
 
   // Seed the three workspaces that were hard-coded in shared/types.ts and
   // docs.ts. Idempotent: INSERT OR IGNORE skips rows that already exist.

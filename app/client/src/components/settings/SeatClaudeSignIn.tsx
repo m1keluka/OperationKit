@@ -5,7 +5,13 @@
  * "Authentication code" Claude shows (`code#state`) and pastes it here. The
  * server exchanges it, saves the seat and runs its CLAUDE-OK test turn.
  *
- * Used for a new seat (no seatId) and to reconnect an existing one (seatId).
+ * Used for a new seat (no seatId) and to reconnect an existing one (seatId):
+ * the server binds the link to that seat and replaces its credential in place.
+ *
+ * Reliability (obj 720330): one submit at a time (a double-click or a double
+ * Enter sends ONE request), and if the reply is lost (timeout / network) the
+ * operator can press "Try again" — the server replays the first result for this
+ * link instead of exchanging the single-use code twice or adding a second seat.
  */
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../../lib/api'
@@ -17,7 +23,13 @@ interface StartResponse { ok: boolean; loginId: string; url: string; expiresAt: 
 interface FinishResponse<S> { ok: boolean; outcome: ClaudeSignInOutcome; seat: S }
 
 /** Errors after which this link is dead and only a new link helps. */
-const DEAD_LINK = new Set(['expired', 'unknown_login', 'too_many_attempts', 'not_subscription'])
+const DEAD_LINK = new Set(['expired', 'unknown_login', 'too_many_attempts', 'not_subscription', 'wrong_seat', 'seat_not_found'])
+
+/** The request may have reached the server: a timeout, a dropped connection or a gateway error. */
+function replyLost(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return true
+  return err.status === 0 || err.status === 502 || err.status === 503 || err.status === 504
+}
 
 const LINK_BUTTON =
   'inline-flex min-h-[44px] select-none items-center justify-center gap-2 rounded-md border border-transparent bg-accent px-4 ' +
@@ -58,12 +70,16 @@ export function SeatClaudeSignIn<S>({
   const [link, setLink] = useState<StartResponse | null>(null)
   const [code, setCode] = useState('')
   const [finishing, setFinishing] = useState(false)
-  const [error, setError] = useState<{ text: string; dead: boolean } | null>(null)
+  const [error, setError] = useState<{ text: string; dead: boolean; retry?: boolean } | null>(null)
   const [opened, setOpened] = useState(false)
   const alive = useRef(true)
   const generation = useRef(0)
   const onSuccessRef = useRef(onSuccess)
   onSuccessRef.current = onSuccess
+  // One request at a time, decided synchronously (state updates are too late for a double Enter).
+  const submitting = useRef(false)
+  // Held ONLY so "Try again" can resend after a lost reply; never rendered, cleared on any outcome.
+  const lastPaste = useRef('')
 
   const start = useCallback(async () => {
     const mine = ++generation.current
@@ -71,6 +87,7 @@ export function SeatClaudeSignIn<S>({
     setError(null)
     setOpened(false)
     setCode('')
+    lastPaste.current = ''
     try {
       const r = await api.post<StartResponse>('/admin/seats/claude-oauth/start', seatId ? { seatId } : {})
       if (!alive.current || mine !== generation.current) return
@@ -86,19 +103,26 @@ export function SeatClaudeSignIn<S>({
   useEffect(() => {
     alive.current = true
     void start()
-    return () => { alive.current = false }
+    return () => { alive.current = false; lastPaste.current = '' }
   }, [start])
 
   const finish = async (e: FormEvent) => {
     e.preventDefault()
     const pasted = code.trim()
-    if (!link) return
+    if (!link || submitting.current) return
     if (!pasted) {
       setError({ text: 'Paste the authentication code Claude showed you.', dead: false })
       return
     }
     // The code is single-use; drop it from state before the request goes out.
     setCode('')
+    await send(pasted)
+  }
+
+  const send = async (pasted: string) => {
+    if (!link || submitting.current) return
+    submitting.current = true
+    lastPaste.current = pasted
     setFinishing(true)
     setError(null)
     try {
@@ -107,19 +131,30 @@ export function SeatClaudeSignIn<S>({
       else if (label?.trim()) body.label = label.trim()
       // The server also runs the seat's test turn, which can take up to ~45s.
       const r = await api.post<FinishResponse<S>>('/admin/seats/claude-oauth/finish', body, { timeoutMs: 90_000 })
+      lastPaste.current = ''
       if (!alive.current) return
       onSuccessRef.current(r.seat, r.outcome)
     } catch (err) {
       if (!alive.current) return
       const b = err instanceof ApiError ? (err.body as { error?: string; code?: string } | null) : null
-      setError({ text: b?.error || (err instanceof Error ? err.message : 'Signing in failed.'), dead: DEAD_LINK.has(b?.code || '') })
+      const lost = replyLost(err) && b?.code !== 'exchange_failed'
+      if (!lost) lastPaste.current = ''
+      setError({
+        text: lost
+          ? 'We did not hear back from the server. Press Try again: it picks up the same sign-in, so it will not add a second seat.'
+          : b?.error || (err instanceof Error ? err.message : 'Signing in failed.'),
+        dead: !lost && DEAD_LINK.has(b?.code || ''),
+        retry: lost,
+      })
     } finally {
+      submitting.current = false
       if (alive.current) setFinishing(false)
     }
   }
 
   const cancel = () => {
     alive.current = false
+    lastPaste.current = ''
     if (link) void api.post('/admin/seats/claude-oauth/cancel', { loginId: link.loginId }).catch(() => {})
     onCancel()
   }
@@ -196,6 +231,8 @@ export function SeatClaudeSignIn<S>({
       <div className="flex flex-wrap gap-2">
         {error?.dead ? (
           <Button type="button" variant="primary" onClick={() => void start()}>Get a new link</Button>
+        ) : error?.retry ? (
+          <Button type="button" variant="primary" loading={finishing} onClick={() => void send(lastPaste.current)}>Try again</Button>
         ) : (
           <Button type="submit" variant="primary" loading={finishing}>{finishing ? 'Connecting…' : seatId ? 'Reconnect seat' : 'Connect seat'}</Button>
         )}

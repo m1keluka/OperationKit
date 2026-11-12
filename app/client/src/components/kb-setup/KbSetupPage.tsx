@@ -75,7 +75,7 @@ function Intro({ actions }: { actions?: ReactNode }) {
   return (
     <PageHeader
       title="Set up your knowledge base"
-      breadcrumbs={[{ label: 'Knowledge base', href: '/knowledge' }, { label: 'Setup' }]}
+      breadcrumbs={[{ label: 'Context', href: '/knowledge' }, { label: 'Setup' }]}
       description="Drop in your existing documents, spreadsheets, decks and notes. The setup agent reads each one and files what it finds into people, companies, projects, decisions, processes, products and a glossary."
       actions={actions}
     />
@@ -336,7 +336,7 @@ function UploadState({
           {status?.intake.folder && (
             <div className="mt-3 border-t border-line-soft pt-3">
               <div className="flex min-w-0 items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded-sm bg-surface-1 px-2 py-1 font-mono text-[12px] text-fg-1" title={status.intake.folder}>
+                <code className="min-w-0 flex-1 truncate rounded-sm bg-surface-inset px-2 py-1 font-mono text-[12px] text-fg-1" title={status.intake.folder}>
                   {status.intake.folder}
                 </code>
                 <CopyButton value={status.intake.folder} label="Copy path" />
@@ -367,7 +367,7 @@ function UploadState({
               ))}
             </ul>
           </div>
-          <p className="flex gap-2 rounded-md bg-surface-1 p-2.5 text-[12.5px] text-fg-2">
+          <p className="flex gap-2 rounded-md bg-surface-inset p-2.5 text-[12.5px] text-fg-2">
             <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal-amber" aria-hidden="true" />
             Passwords and API keys found inside files are removed before anything is read, and flagged so you can change them.
           </p>
@@ -453,7 +453,7 @@ function ProgressState({
               <Badge key={s} tone={ITEM_META[s].tone}>{ITEM_META[s].label} {n}</Badge>
             ))}
           </div>
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-md bg-surface-1 px-3 py-2 text-[13px]">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-md bg-surface-inset px-3 py-2 text-[13px]">
             <span className="text-fg-2">Estimated cost</span>
             <span className="font-mono font-medium text-fg-0">{formatUsd(run.est_cost_usd)}</span>
             {noCeiling ? (

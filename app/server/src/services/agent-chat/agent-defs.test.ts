@@ -103,6 +103,44 @@ describe('agent files', () => {
     }
   })
 
+  it('ships the built-in Operation Kit Dev bot with an info panel and scoped tools (obj 900672)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-defs-okdev-'))
+    try {
+      const on = loadChatAgents({ env: { AGENT_FILES_DIR: dir }, includeBuiltins: true })
+      expect(on.problems).toEqual([])
+      const dev = on.agents.find(a => a.slug === 'operation-kit-dev')!
+      expect(dev).toMatchObject({ name: 'Operation Kit Dev', source: 'builtin', version: '1.0.0' })
+      // The info panel's content travels in the file itself.
+      expect(dev.how_to_use).toMatch(/Integrations/)
+      expect(dev.how_to_use).toMatch(/Settings → Secrets/)
+      expect(dev.example_prompts.length).toBeGreaterThanOrEqual(5)
+      expect(dev.example_prompts.join(' ')).toMatch(/automate/i)
+      // It writes only its own business/ notes; everything else it can reach is read + board cards.
+      expect(dev.knowledge_folders).toContain('business')
+      expect(dev.knowledge_folders).not.toContain('people')
+      expect(dev.tools).toEqual(expect.arrayContaining(['search', 'read_file', 'write_doc', 'create_objective', 'board_briefing']))
+      expect(dev.tools).not.toContain('email')
+      expect(dev.tools).not.toContain('calendar')
+      // The four jobs it is for, plus the proactive learning brief.
+      for (const topic of ['Settings → Integrations', 'Settings → Email', 'Settings → Branding', 'Paste agent file', 'business/profile.md', 'business/automation-ideas.md']) {
+        expect(dev.system_prompt).toContain(topic)
+      }
+      expect(dev.system_prompt).toMatch(/Never ask for a secret value/)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reads optional how_to_use / example_prompts and drops bad prompts with a warning (obj 900672)', () => {
+    const ok = parseAgentText('---\nname: A\nexample_prompts: [One, Two]\nhow_to_use: |\n  Use me.\n---\nBody.\n', 'a/agent.md', 'aa')
+    expect(ok.agent).toMatchObject({ how_to_use: 'Use me.', example_prompts: ['One', 'Two'] })
+    const none = parseAgentText('name: B\nsystem_prompt: Hi\n', 'b/agent.yaml', 'bb')
+    expect(none.agent).toMatchObject({ how_to_use: '', example_prompts: [] })
+    const long = parseAgentText('name: C\nsystem_prompt: Hi\nexample_prompts:\n  - ' + 'x'.repeat(301) + '\n  - Fine\n', 'c/agent.yaml', 'cc')
+    expect(long.agent?.example_prompts).toEqual(['Fine'])
+    expect(long.warnings.join(' ')).toMatch(/longer than 300/)
+  })
+
   it('lists the built-in Knowledge Base Setup agent on every install; a file agent with the same slug replaces it (obj 900556)', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-defs-builtin-'))
     try {

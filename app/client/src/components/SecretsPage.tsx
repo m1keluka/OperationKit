@@ -203,7 +203,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
   return (
     <div className={embedded ? '' : 'h-full overflow-y-auto p-6'}>
       <div className={embedded ? '' : 'max-w-5xl mx-auto'}>
-        <div className={embedded ? 'mb-4 flex items-center justify-between' : 'mb-5 flex items-center justify-between'}>
+        <div className={embedded ? 'mb-4 flex items-center justify-between gap-4' : 'mb-5 flex items-center justify-between gap-4'}>
           <div>
             {!embedded && <h1 className="text-xl font-semibold text-fg-0">Secrets</h1>}
             <p className={embedded ? 'text-xs text-fg-3' : 'mt-1 text-xs text-fg-3'}>
@@ -218,7 +218,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
           </div>
           <button
             onClick={openCreate}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition-colors duration-fast ease-out hover:bg-accent-hover"
+            className="shrink-0 whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition-colors duration-fast ease-out hover:bg-accent-hover"
           >
             + New
           </button>

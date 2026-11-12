@@ -43,6 +43,14 @@ export interface AgentFileDef {
   schedules: AgentSchedule[]
   version: string
   author: string
+  /**
+   * Optional "how to use this bot" text for the chat page's info panel
+   * (obj 900672). Plain text: blank lines separate paragraphs, "- " lines are
+   * bullets. Omitted = the panel shows a generic explanation.
+   */
+  how_to_use?: string | null
+  /** Optional example prompts (obj 900672), offered by the info panel and an empty conversation. */
+  example_prompts?: string[]
 }
 
 export const AGENT_COLOURS = ['blue', 'pink', 'green', 'amber', 'grey'] as const
@@ -69,9 +77,15 @@ export const KNOWN_AGENT_TOOLS = [
   // knowledge base (scoped to knowledge_folders)
   'search', 'list_folders', 'read_file', 'write_doc', 'file_answer',
   // board
-  'create_objective', 'get_objective', 'list_objectives',
+  'create_objective', 'get_objective', 'list_objectives', 'board_briefing',
   // connectors (drafts only — a person presses Send)
   'email', 'calendar',
+  // the workspace's connected remote MCP servers (obj 900620)
+  'mcp',
+  // the public web (obj 900671)
+  'web_search', 'web_fetch',
+  // every tool above, including tools added later (obj 900671)
+  'all',
 ] as const
 
 export const AGENT_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,40}$/
@@ -83,8 +97,13 @@ const MAX_PROMPT = 20000
 const KNOWN_KEYS = new Set([
   'name', 'slug', 'description', 'avatar', 'colour', 'color', 'system_prompt',
   'knowledge_folders', 'tools', 'model', 'provider', 'schedules', 'version', 'author',
-  'format',
+  'format', 'how_to_use', 'example_prompts',
 ])
+
+/** Limits for the info-panel fields (obj 900672). */
+export const MAX_HOW_TO_USE = 4000
+export const MAX_EXAMPLE_PROMPTS = 8
+export const MAX_EXAMPLE_PROMPT_CHARS = 300
 
 export interface AgentFileProblem {
   field: string
@@ -515,6 +534,20 @@ export function parseAgentFile(src: string, opts: ParseOptions = {}): ParseAgent
     }
   }
 
+  // Info-panel fields (obj 900672). Both optional; they shape only what a
+  // person reads about the bot, never what it can do.
+  let howToUse: string | null = null
+  if (o.how_to_use !== undefined && o.how_to_use !== '') {
+    if (typeof o.how_to_use !== 'string') errors.push({ field: 'how_to_use', message: 'must be text (use "how_to_use: |" and indent the text below it)' })
+    else if (o.how_to_use.trim().length > MAX_HOW_TO_USE) errors.push({ field: 'how_to_use', message: `must be ${MAX_HOW_TO_USE} characters or fewer` })
+    else howToUse = o.how_to_use.trim() || null
+  }
+  const examplePrompts = asStringList(o.example_prompts, 'example_prompts', errors)
+  if (examplePrompts.length > MAX_EXAMPLE_PROMPTS) errors.push({ field: 'example_prompts', message: `list at most ${MAX_EXAMPLE_PROMPTS} example prompts` })
+  examplePrompts.forEach((ep, i) => {
+    if (ep.length > MAX_EXAMPLE_PROMPT_CHARS) errors.push({ field: `example_prompts[${i}]`, message: `must be ${MAX_EXAMPLE_PROMPT_CHARS} characters or fewer` })
+  })
+
   let version = asString(o.version)?.trim() ?? ''
   if (!version) {
     version = '0.1.0'
@@ -549,6 +582,8 @@ export function parseAgentFile(src: string, opts: ParseOptions = {}): ParseAgent
       schedules,
       version,
       author,
+      how_to_use: howToUse,
+      example_prompts: examplePrompts,
     },
   }
 }
@@ -599,6 +634,11 @@ export function serializeAgentYaml(a: AgentFileDef): string {
       out.push(...yamlBlock('prompt', s.prompt, '    '))
     }
   }
+  if (a.example_prompts?.length) {
+    out.push('example_prompts:')
+    for (const ep of a.example_prompts) out.push(`  - ${yamlScalar(ep)}`)
+  }
+  if (a.how_to_use) out.push(...yamlBlock('how_to_use', a.how_to_use))
   out.push(...yamlBlock('system_prompt', a.system_prompt))
   return out.join('\n') + '\n'
 }

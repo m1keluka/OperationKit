@@ -48,6 +48,7 @@ import {
   storeScopeFor,
   UPLOAD_TOKEN_TTL_MS,
 } from '../services/secret-requests.js'
+import { resolveWriteWorkspace } from '../services/workspaces.js'
 
 export { SECRET_NAME_RE }
 
@@ -194,7 +195,7 @@ export function ownerWriteError(req: AuthRequest, objective: Objective, scope: S
   if (req.agentKey || !authenticatedViaCookie(req) || !req.user) return denied
   if (req.user.role === 'admin') return null
   if (requireOwnership(req, objective)) return denied
-  const storeScope = storeScopeFor(scope, objective.workspace || 'example', req.user.id)
+  const storeScope = storeScopeFor(scope, resolveWriteWorkspace(objective.workspace), req.user.id)
   return canAccessScope(req.user, storeScope) ? null : `You cannot write ${scope} secrets`
 }
 

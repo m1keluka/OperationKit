@@ -15,7 +15,9 @@
  *       --vault-root /home/operator/second-brain/workspaces \
  *       --backup-dir /home/operator/backups/ws-merge --apply
  *
- * Flags: --from --to --unarchive --apply --vault-root --backup-dir
+ *   tsx server/src/scripts/workspace-merge.ts --inventory example     # read-only leftovers (obj 900667)
+ *
+ * Flags: --from --to --unarchive --inventory --apply --vault-root --backup-dir
  *        --db (default $DB_PATH or /app/data/command-center.db)
  *        --skip-vault  (DB only; the vault fold is run separately)
  *        --retire-source-vault  (rename the source tree to _archived-<slug>
@@ -31,6 +33,7 @@ import { execFileSync } from 'child_process'
 import Database from 'better-sqlite3'
 import { backupDatabase } from './db-backup.js'
 import { planMerge, applyMerge, unarchiveWorkspace } from '../services/workspace-merge.js'
+import { inventoryWorkspace, formatInventory } from '../services/workspace-leftovers.js'
 import {
   moveVaultTree,
   isAccountedFor,
@@ -42,6 +45,7 @@ export interface Args {
   from?: string
   to?: string
   unarchive?: string
+  inventory?: string
   apply: boolean
   db: string
   vaultRoot?: string
@@ -59,6 +63,7 @@ export function parseArgs(argv: string[]): Args {
     from: get('--from'),
     to: get('--to'),
     unarchive: get('--unarchive'),
+    inventory: get('--inventory'),
     apply: argv.includes('--apply'),
     db: get('--db') || process.env.DB_PATH || '/app/data/command-center.db',
     vaultRoot: get('--vault-root'),
@@ -89,6 +94,19 @@ async function main(): Promise<number> {
     return 1
   }
 
+  // ---- --inventory: read-only leftovers report (obj 900667) ----------------
+  if (a.inventory) {
+    const ro = new Database(a.db, { readonly: true, fileMustExist: true })
+    try {
+      const inv = inventoryWorkspace(ro, a.inventory)
+      if (process.argv.includes('--json')) console.log(JSON.stringify(inv, null, 2))
+      else for (const l of formatInventory(inv)) line(l)
+      return 0
+    } finally {
+      ro.close()
+    }
+  }
+
   // ---- --unarchive: surgical, and deliberately its own mode -----------------
   if (a.unarchive) {
     const db = new Database(a.db)
@@ -110,6 +128,7 @@ async function main(): Promise<number> {
   if (!a.from || !a.to) {
     console.error('usage: workspace-merge.ts --from <slug> --to <slug> [--apply]')
     console.error('       workspace-merge.ts --unarchive <slug> [--apply]')
+    console.error('       workspace-merge.ts --inventory <slug> [--json]')
     return 2
   }
 
@@ -136,6 +155,9 @@ async function main(): Promise<number> {
         (t.blocked ? `  [BLOCKED: ${t.blocked} — left on '${a.from}']` : `  move=${t.moving} conflict=${t.conflicts}`),
     )
   }
+  line(`  projects: ${plan.projectFolds.length} same-named fold(s) — ` +
+    plan.projectFolds.map(f => `${JSON.stringify(f.name)} #${f.sourceId}->#${f.targetId} (${f.objectiveIds.length} card(s))`).join(', '))
+  line(`  routine templates: ${plan.routineTemplates.length} re-pointed (${plan.routineTemplates.map(id => '#' + id).join(', ') || '-'})`)
   line(`  memberships: +${plan.memberships.added.length} added, ${plan.memberships.merged.length} merged (${plan.memberships.upgraded.length} upgraded)`)
   if (vaultPlan) {
     line(`  vault: ${vaultPlan.files} file(s) / ${vaultPlan.bytes} bytes — copy=${vaultPlan.copied}, ` +
@@ -208,6 +230,10 @@ async function main(): Promise<number> {
           table: t.table, rows: t.rows, blocked: t.blocked ?? null, conflictKeys: t.conflictKeys,
         })),
         memberships: report.memberships,
+        // Undo list for the project fold: these card ids had project_id =
+        // sourceId before the merge (obj 900667).
+        projectFolds: report.projectFolds,
+        routineTemplates: report.routineTemplates,
         vaultCollisions: vaultPlan?.collisions ?? [],
       },
       null,

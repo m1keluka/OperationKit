@@ -30,6 +30,7 @@ import { listForCaller } from './secrets-broker.js'
 import { resolveSecretNames } from './secrets-store.js'
 import { allowlistedKeys, getSessionEnvMode, sessionSubjects } from './secret-env-policy.js'
 import { githubSessionAccess, resolveActingUserId } from './session-spawn-env.js'
+import { resolveWriteWorkspace } from './workspaces.js'
 
 const MAX_LISTED = 150
 
@@ -93,7 +94,7 @@ export function companionEndpointName(name: string, available: Iterable<string>)
  * one. Unflagged — see the file header.
  */
 export function buildSecretsInventoryBlock(objective: Objective): string[] {
-  const workspace = objective.workspace || 'example'
+  const workspace = resolveWriteWorkspace(objective.workspace)
   const userId = resolveActingUserId(objective)
   const brokerEnabled = readSettingFlag(SESSION_SECRET_ACCESS_FLAG)
   let names: string[] = []
@@ -175,7 +176,7 @@ export function buildSecretsInventoryBlock(objective: Objective): string[] {
       'If a secret you need is NOT listed, do not hunt for it in files and do not bury the ask in prose (and never ask anyone to paste it into chat). Emit a request_secret event on the card, then stop that branch of work (finish anything that does not need it):',
       `  \`curl -s -X POST http://localhost:3002/api/objectives/${objective.id}/request-secret -H "X-CC-Session-Token: $CC_SESSION_TOKEN" -H "Content-Type: application/json" -d '{"name":"EXACT_NAME","reason":"what it is for","scope":"workspace"}'\``,
       'scope is a suggestion: "workspace" (this organization — the default), "global" (all of Command Center) or "workspace_user" (this organization, the owner only).',
-      'The card then shows "Needs secret: EXACT_NAME" and a masked popup in its chat; a managing agent may relay it too. When the value is stored you are restarted automatically with a message naming it — it is in your env as $EXACT_NAME. You never see the value and must never ask for it in chat.',
+      'The card then shows "Needs secret: EXACT_NAME" and a masked secret form appears in its chat for the owner; a managing agent may relay it too. When the value is stored you are restarted automatically with a message naming it — it is in your env as $EXACT_NAME. You never see the value and must never ask for it in chat.',
     )
   } else {
     lines.push(

@@ -2,6 +2,7 @@
  * Internal mid-session progress reporting — extracted from internal.ts
  * (behavior frozen). Localhost gate unchanged.
  */
+import { resolveWriteWorkspace } from '../services/workspaces.js'
 import { Router, type Request, type Response } from 'express'
 import type { Objective } from '@operationkit/shared'
 import { logActivity } from './feed.js'
@@ -56,7 +57,7 @@ router.post('/progress', (req, res) => {
 
   const event = logActivity({
     project,
-    workspace: workspace || 'example',
+    workspace: resolveWriteWorkspace(workspace),
     objective_id: objective_id || null,
     session_id: session_id || null,
     event_type: event_type || 'progress',

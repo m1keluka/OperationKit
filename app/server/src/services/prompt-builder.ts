@@ -32,6 +32,7 @@ import {
   objectiveMemoryDir,
   objectiveScratchPath,
 } from './prompt-builder-blocks.js'
+import { resolveWriteWorkspace } from './workspaces.js'
 
 export {
   COMPACTION_SESSION_SENTINEL,
@@ -130,7 +131,7 @@ export function buildPrompt(objective: Objective): string {
   // archived mid-flight never renders as "You are the undefined agent".
   const agent = resolveAgentPromptFile(objective.agent_context)
   const context = buildContext(objective)
-  const workspace = objective.workspace || 'example'
+  const workspace = resolveWriteWorkspace(objective.workspace)
   const onBehalf = resolveOnBehalfUser(objective)
 
   const parts: string[] = []

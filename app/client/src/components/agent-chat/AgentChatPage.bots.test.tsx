@@ -229,3 +229,45 @@ describe('nothing else moved (obj 900327 regressions)', () => {
     expect(dels[0].url).toBe('/api/agent-chat/agents/demo-assistant/messages')
   })
 })
+
+describe('bot settings on the bot page (obj 900671)', () => {
+  const withCatalog = () => {
+    roster = {
+      ...roster,
+      ...({
+        tool_catalog: [
+          { name: 'web_search', label: 'Web search', description: 'Search the public web.', group: 'web' },
+          { name: 'web_fetch', label: 'Read web pages', description: 'Open one public page.', group: 'web' },
+          { name: 'email', label: 'Email (drafts only)', description: 'Drafts.', group: 'connectors' },
+        ],
+        model_suggestions: { demo: ['scripted'] },
+        web: { available: true, backends: ['firecrawl'] },
+      } as object),
+    }
+  }
+
+  it('has a Settings button that opens the model and tool settings, with All tools and web tools', async () => {
+    withCatalog()
+    await mount('/chat/demo-assistant')
+    await settle()
+    const btn = byText('Settings')
+    expect(btn).toBeDefined()
+    expect(btn!.getAttribute('aria-expanded')).toBe('false')
+    btn!.click()
+    await settle()
+    const panel = host.querySelector('section[aria-label="Settings for Personal assistant (demo)"]')
+    expect(panel).not.toBeNull()
+    expect(panel!.textContent).toContain('Default model')
+    expect(panel!.textContent).toContain('All tools')
+    expect(panel!.textContent).toContain('Web search')
+    expect(panel!.textContent).toContain('Read web pages')
+    // Still no product-level "agent" wording once the panel is open.
+    expect(/\bagents?\b/i.test(readable().replace(/Personal assistant \(demo\)/g, ''))).toBe(false)
+  })
+
+  it('an older server without a tool catalog shows no Settings button', async () => {
+    await mount('/chat/demo-assistant')
+    await settle()
+    expect(byText('Settings')).toBeUndefined()
+  })
+})

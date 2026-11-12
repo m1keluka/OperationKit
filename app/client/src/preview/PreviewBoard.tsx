@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Archive, Plus, Search } from 'lucide-react'
+import { Archive, Plus, Search, Workflow } from 'lucide-react'
 import {
   OBJECTIVE_STATUSES,
   type Objective,
@@ -30,26 +30,23 @@ import {
   type ProjectSelection,
 } from '../lib/projectFilter'
 import { useProjects, ALL_ORGS } from '../hooks/useProjects'
-import { useWorkspaces, invalidateWorkspacesCache } from '../hooks/useWorkspaces'
+import { useWorkspaces } from '../hooks/useWorkspaces'
 import { ProjectFilterBar } from '../components/ProjectFilterBar'
-import { WorkspaceFilterBar } from '../components/WorkspaceFilterBar'
+import { OwnerFilterSelect } from '../components/OwnerFilterSelect'
 import { api } from '../lib/api'
 import { STATUS_META } from '../components/design/primitives'
 import { SessionViewer } from '../components/SessionViewer'
 import { ObjectiveModal } from '../components/ObjectiveModal'
 import { ObjectiveSearchPanel } from '../components/ObjectiveSearchPanel'
+import { NewWorkflowDialog } from '../components/jobs/NewWorkflowDialog'
 import { PreviewCard } from './PreviewCard'
 
 interface PreviewBoardProps {
   /** Selected org slugs. Empty = All organizations. */
   workspaces: Workspace[]
-  /** Lets the on-board org filter drive the same selection the top bar does.
-   *  Optional so existing render sites (tests, storybook) keep working — the
-   *  org row simply becomes read-only without it. */
-  onWorkspacesChange?: (next: Workspace[]) => void
 }
 
-export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardProps) {
+export function PreviewBoard({ workspaces }: PreviewBoardProps) {
   const {
     objectives, loading, error, changeStatus, connectionState,
     createObjective, updateObjective, deleteObjective,
@@ -132,10 +129,12 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
     if (!projects.some(p => p.id === projectSel)) selectProject(ALL_PROJECTS)
   }, [projects, projectSel, selectProject])
 
-  // ── Organization filter row (obj 900197) ────────────────────────────────
+  // ── Organizations (obj 900197; the switcher moved to the top bar in obj 900666)───────────────────────────────
   // Admins see every active org; a member sees only the ones they belong to.
-  const { workspaces: orgRecords, loading: orgsLoading, refresh: refreshOrgs, shortOf: orgShortOf } =
+  const { workspaces: orgRecords, shortOf: orgShortOf, labelOf: orgLabelOf } =
     useWorkspaces()
+  // "New workflow" (obj 900642, card B6): a goal → a builder card on this board.
+  const [workflowOpen, setWorkflowOpen] = useState(false)
   const isAdmin = user?.role === 'admin'
   const orgOptions = useMemo(() => {
     const memberSlugs = new Set((user?.workspaces ?? []).map(w => w.workspace))
@@ -143,16 +142,6 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
       .filter(w => isAdmin || memberSlugs.has(w.slug))
       .map(w => ({ slug: w.slug, label: w.name || w.slug }))
   }, [orgRecords, isAdmin, user?.workspaces])
-  const createOrg = useCallback(async (name: string, slug: string) => {
-    await api.post('/admin/workspaces', { slug, name })
-    // The hook caches the roster process-wide, so a fresh org is invisible
-    // until the cache is dropped.
-    invalidateWorkspacesCache()
-    await refreshOrgs()
-  }, [refreshOrgs])
-  const changeOrgs = useCallback((next: string[]) => {
-    onWorkspacesChange?.(next as Workspace[])
-  }, [onWorkspacesChange])
 
   const toggleAssignee = useCallback((token: string) => {
     setAssigneeSel(prev => {
@@ -285,25 +274,77 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2">
-        <span className="text-[12px] text-fg-2">
-          {connectionState === 'connected' ? 'Live' : connectionState === 'reconnecting' ? 'Reconnecting…' : 'Disconnected'}
-          {error ? ` · ${error}` : ''}
-        </span>
-        <div className="flex items-center gap-3">
-          <span className="text-[12px] text-fg-3">
+      {/* ── One-line board header (obj 900666) ─────────────────────────────
+          Project ▾ and Owner ▾ on the left, Search / Archive / New on the
+          right — everything on one line, then the board. The organization is
+          no longer chosen here: the top-bar switcher next to "Jump to" sets it
+          for the whole app. */}
+      <div
+        data-testid="board-header"
+        className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 md:flex-nowrap"
+      >
+        <ProjectFilterBar
+          projects={projects}
+          selection={projectSel}
+          onSelect={selectProject}
+          workspace={projectWorkspace}
+          orgOptions={orgOptions}
+          orgLabelOf={orgShortOf}
+          onCreate={(name, ws) => createProject(name, ws ? { workspace: ws } : undefined)}
+          onRename={renameProject}
+          onDelete={deleteProject}
+        />
+        <OwnerFilterSelect
+          options={assigneeOptions}
+          selected={selectedAssignees}
+          everyoneSelected={everyoneSelected}
+          currentUser={user?.username}
+          onToggle={toggleAssignee}
+          onEveryone={selectEveryone}
+        />
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* obj 900669 — the "need you" count is the Needs You column's own
+              length (same array, same filters), so the header can never report
+              fewer cards than the column shows. Cards with an agent still
+              running on them sit in Working, not here (boardColumnOf). */}
+          {grouped.review.length > 0 && (
+            <span
+              data-testid="board-needs-you-count"
+              className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] text-fg-1"
+            >
+              <span className="font-mono font-semibold text-[color:var(--accent-hover)]">{grouped.review.length}</span>
+              need you
+            </span>
+          )}
+          <span
+            className="hidden items-center gap-1.5 whitespace-nowrap text-[12px] text-fg-3 lg:inline-flex"
+            title={connectionState === 'connected' ? 'Live updates on' : 'Live updates paused'}
+          >
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 rounded-full ${
+                connectionState === 'connected' ? 'bg-[color:var(--ok-verify)]'
+                  : connectionState === 'reconnecting' ? 'bg-[color:var(--ok-amber)]'
+                  : 'bg-[color:var(--ok-alarm)]'
+              }`}
+            />
+            {connectionState === 'connected' ? '' : connectionState === 'reconnecting' ? 'Reconnecting… · ' : 'Disconnected · '}
             {filteredTopLevel.length === topLevel.length
               ? `${topLevel.length} cards`
-              : `${filteredTopLevel.length} of ${topLevel.length}`}
+              : `${filteredTopLevel.length} of ${topLevel.length} cards`}
           </span>
+          {/* The ONE card search. It is not the top bar's "Jump to" (⌘K),
+              which goes to pages; this one finds cards — so it says so. */}
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            title="Search objectives (all stages) — press /"
+            aria-label="Search cards"
+            title="Search cards — every stage, including done. Press /. (To go to a page, use Jump to ⌘K in the top bar.)"
             className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-sm text-fg-2 hover:border-line-strong hover:text-fg-1"
           >
             <Search className="h-4 w-4" />
-            <span className="hidden md:inline">Search</span>
+            <span className="hidden md:inline">Search cards</span>
             <span className="hidden font-mono text-[12px] text-fg-3 md:inline">/</span>
           </button>
           <button
@@ -315,6 +356,19 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
             <Archive className="h-4 w-4" />
             <span className="hidden md:inline">Archive</span>
           </button>
+          {orgRecords.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setWorkflowOpen(true)}
+              title="New workflow: describe a goal and a builder agent drafts and self-tests it"
+              aria-label="New workflow"
+              data-testid="board-new-workflow"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-sm text-fg-2 hover:border-line-strong hover:text-fg-1"
+            >
+              <Workflow className="h-4 w-4" />
+              <span className="hidden md:inline">Workflow</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleNewObjective}
@@ -325,73 +379,17 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
           </button>
         </div>
       </div>
-      {/* Organization filter — always on the board, so segmenting by org never
-          depends on finding a dropdown in the top bar (obj 900197). */}
-      <WorkspaceFilterBar
-        organizations={orgOptions}
-        selected={workspaces}
-        onChange={changeOrgs}
-        canCreate={!!isAdmin && !!onWorkspacesChange}
-        onCreate={createOrg}
-        loading={orgsLoading}
-      />
-      {/* Project (org subfolder) picker — also the create/rename/delete
-          surface. In a cross-org view each chip carries its org and the create
-          form gains an org picker, so "New project" works from any view. */}
-      <ProjectFilterBar
-        projects={projects}
-        selection={projectSel}
-        onSelect={selectProject}
-        workspace={projectWorkspace}
-        orgOptions={orgOptions}
-        orgLabelOf={orgShortOf}
-        onCreate={(name, ws) => createProject(name, ws ? { workspace: ws } : undefined)}
-        onRename={renameProject}
-        onDelete={deleteProject}
-      />
-      <div className="flex items-center gap-2 overflow-x-auto border-b border-line px-4 py-2">
-        <span className="shrink-0 text-[12px] font-medium uppercase tracking-[0.1em] text-fg-3">Owner</span>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={selectEveryone}
-            aria-pressed={everyoneSelected}
-            className={`whitespace-nowrap rounded-full border px-2.5 py-1 text-[12px] ${
-              everyoneSelected
-                ? 'border-accent bg-surface-2 text-fg-0'
-                : 'border-line text-fg-2 hover:border-line-strong hover:text-fg-1'
-            }`}
-          >
-            Everyone
-          </button>
-          {[{ token: UNASSIGNED_TOKEN, label: 'Unassigned' }, ...assigneeOptions.map(u => ({ token: u, label: u }))].map(opt => {
-            const active = selectedAssignees.has(opt.token)
-            return (
-              <button
-                key={opt.token}
-                type="button"
-                onClick={() => toggleAssignee(opt.token)}
-                aria-pressed={active}
-                className={`whitespace-nowrap rounded-full border px-2.5 py-1 text-[12px] ${
-                  active
-                    ? 'border-accent bg-surface-2 text-fg-0'
-                    : 'border-line text-fg-2 hover:border-line-strong hover:text-fg-1'
-                }`}
-              >
-                {opt.label}
-              </button>
-            )
-          })}
-        </div>
-      </div>
+      {error && (
+        <div className="border-b border-line px-4 py-1.5 text-[12px] text-[color:var(--ok-alarm)]">{error}</div>
+      )}
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 sm:p-4">
         {columns.map(status => (
-          <section key={status} className="cc-ws-col max-h-full w-[300px] shrink-0 overflow-hidden">
+          <section key={status} data-status={status} className="cc-ws-col max-h-full w-[300px] shrink-0 overflow-hidden">
             <div className="flex items-center px-3 py-2">
               <span className="text-[12px] font-medium uppercase tracking-[0.1em] text-fg-2">
                 {STATUS_META[status].label}
               </span>
-              <span className="ml-auto font-mono text-[12px] text-fg-3">{grouped[status].length}</span>
+              <span data-testid={`column-count-${status}`} className="ml-auto font-mono text-[12px] text-fg-3">{grouped[status].length}</span>
             </div>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-3">
               {grouped[status].map(obj => (
@@ -432,6 +430,18 @@ export function PreviewBoard({ workspaces, onWorkspacesChange }: PreviewBoardPro
           </section>
         ))}
       </div>
+
+      {/* Mounted only while open, like ObjectiveModal below: the board does not
+          render the dialog's Modal until someone asks for a workflow. */}
+      {workflowOpen && (
+        <NewWorkflowDialog
+          open
+          onClose={() => setWorkflowOpen(false)}
+          workspaces={orgOptions.map(o => o.slug)}
+          defaultWorkspace={projectWorkspace}
+          labelOf={orgLabelOf}
+        />
+      )}
 
       <ObjectiveSearchPanel
         open={searchOpen}

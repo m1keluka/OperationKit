@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   compactFilter, edgeSentence, groupPages, importProgress, itemQuery, kindLabel, radialLayout, relativePath, resolveFrom, shortTitle,
-  wikilinksToLinks, type WikiPageSummary,
+  wikilinksToLinks, matchPages, visibleGraph, type WikiPageSummary, type WorkspaceGraphResponse,
 } from './kbWiki'
 
 const pages: WikiPageSummary[] = [
@@ -121,5 +121,42 @@ describe('link graph helpers (obj 720162)', () => {
   it('shortTitle cuts long titles with an ellipsis', () => {
     expect(shortTitle('Tom Whitfield')).toBe('Tom Whitfield')
     expect(shortTitle('Hillcrest Property Management')).toBe('Hillcrest Propert…')
+  })
+})
+
+describe('workspace graph helpers (obj 900674)', () => {
+  const g: WorkspaceGraphResponse = {
+    nodes: [
+      { rel: 'people/tom.md', title: 'Tom Whitfield', kind: 'person', degree: 2 },
+      { rel: 'organizations/greenway.md', title: 'Greenway Growers', kind: 'organization', degree: 2 },
+      { rel: 'sources/call.md', title: 'Supplier call', kind: 'source', degree: 2 },
+      { rel: 'organizations/riverbend.md', title: 'Riverbend Nursery', kind: 'organization', degree: 0 },
+    ],
+    links: [
+      { a: 'organizations/greenway.md', b: 'people/tom.md', kinds: ['related'], label: 'works for', weight: 1 },
+      { a: 'people/tom.md', b: 'sources/call.md', kinds: ['cited_by'], label: null, weight: 1 },
+      { a: 'organizations/greenway.md', b: 'sources/call.md', kinds: ['cited_by'], label: null, weight: 1 },
+    ],
+    counts: { pages: 4, links: 3, isolated: 1, by_kind: { person: 1, organization: 2, source: 1 } },
+    truncated: false,
+  }
+
+  it('visibleGraph hides a kind and its links, and recounts degree', () => {
+    const v = visibleGraph(g, { hiddenKinds: new Set(['source']) })
+    expect(v.nodes.map(n => n.rel)).toEqual(['people/tom.md', 'organizations/greenway.md', 'organizations/riverbend.md'])
+    expect(v.links).toHaveLength(1)
+    expect(v.nodes.find(n => n.rel === 'people/tom.md')!.degree).toBe(1)
+  })
+
+  it('visibleGraph can drop unconnected pages', () => {
+    expect(visibleGraph(g, { showIsolated: false }).nodes.map(n => n.rel)).not.toContain('organizations/riverbend.md')
+    expect(visibleGraph(g).nodes).toHaveLength(4)
+  })
+
+  it('matchPages finds every word, best connected first', () => {
+    expect(matchPages(g.nodes, 'green').map(n => n.title)).toEqual(['Greenway Growers'])
+    expect(matchPages(g.nodes, 'organizations').map(n => n.title)).toEqual(['Greenway Growers', 'Riverbend Nursery'])
+    expect(matchPages(g.nodes, '  ')).toEqual([])
+    expect(matchPages(g.nodes, 'tom call')).toEqual([])
   })
 })

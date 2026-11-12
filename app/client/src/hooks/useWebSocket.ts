@@ -4,6 +4,27 @@ import type { ServerMessage, ClientMessage } from '@operationkit/shared'
 type MessageHandler = (msg: ServerMessage) => void
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
+/**
+ * Page-level listeners on the app's existing socket(s) (card B7). A component
+ * that needs a message type the owning hook does not handle — e.g. the workflow
+ * viewer's `flow_step` overlay — subscribes here instead of opening a second
+ * socket. With more than one socket open a message can arrive twice; listeners
+ * must be idempotent (the viewer debounces a refetch).
+ */
+const listeners = new Set<MessageHandler>()
+
+export function subscribeServerMessages(fn: MessageHandler): () => void {
+  listeners.add(fn)
+  return () => { listeners.delete(fn) }
+}
+
+/** Deliver one message to every page-level listener. Exported for tests. */
+export function dispatchServerMessage(msg: ServerMessage): void {
+  for (const fn of [...listeners]) {
+    try { fn(msg) } catch { /* one listener never breaks another */ }
+  }
+}
+
 export function useWebSocket(onMessage: MessageHandler, scope?: string) {
   const wsRef = useRef<WebSocket | null>(null)
   const [state, setState] = useState<ConnectionState>('reconnecting')
@@ -53,6 +74,7 @@ export function useWebSocket(onMessage: MessageHandler, scope?: string) {
         try {
           const msg = JSON.parse(event.data) as ServerMessage
           handlersRef.current(msg)
+          dispatchServerMessage(msg)
         } catch {
           // Ignore malformed messages
         }

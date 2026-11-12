@@ -1,0 +1,37 @@
+flowchart TD
+  classDef llm fill:#efe3ff,stroke:#7a4cc2,stroke-width:2px
+  classDef agent fill:#e3eeff,stroke:#2b5fc2,stroke-width:2px
+  classDef write fill:#fff8db,stroke:#a68500
+  classDef send fill:#ffe9e0,stroke:#c2562b,stroke-width:2px
+  classDef spend fill:#ffe3ea,stroke:#c22b55,stroke-width:2px
+  classDef succeeded stroke:#2f8f4e,stroke-width:3px
+  classDef failed stroke:#c22b2b,stroke-width:3px,stroke-dasharray:4 2
+  classDef running stroke:#2b6fc2,stroke-width:3px
+  classDef waiting stroke:#c2952b,stroke-width:3px,stroke-dasharray:2 2
+  classDef skipped fill:#f2f2f2,color:#888888,stroke:#bbbbbb
+  classDef mocked stroke:#888888,stroke-width:2px,stroke-dasharray:1 3
+  n_start(["⏰ trigger · schedule<br/>0 8 * * 1-5"])
+  n_fetch["🔧 tool · calendar-bookings-list<br/>read · 3 attempts max"]
+  subgraph n_each ["🔁 loop · for each b · max 200"]
+    direction TB
+    n_classify{{"🧠 LLM · classify<br/>model default · 1 iteration · $0.01 cap"}}
+    n_upsert_one["🔌 MCP · crm.upsert_contact<br/>write"]
+  end
+  n_upsert{"✔ check · 1 assert<br/>on fail: repair"}
+  n_notify["🔌 MCP · slack.post_message<br/>SEND · owner-approved v3"]
+  n_done(["⏹ end"])
+  n_start --> n_fetch
+  n_fetch --> n_each
+  n_classify --> n_upsert_one
+  n_each --> n_upsert
+  n_upsert --> n_notify
+  n_notify --> n_done
+  class n_classify llm
+  class n_upsert_one write
+  class n_notify send
+  class n_start succeeded
+  class n_upsert failed
+  class n_each running
+  class n_done waiting
+  class n_notify skipped
+  class n_fetch mocked

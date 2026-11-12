@@ -49,9 +49,9 @@ async function probePreviewHost(prNumber: number): Promise<PreviewProbeResult> {
   }
 }
 
-function fireAlert(severity: 'high' | 'normal', title: string, message: string, url: string | undefined, dedupKey: string): void {
+function fireAlert(severity: 'high' | 'normal', title: string, message: string, url: string | undefined, dedupKey: string, extra: { kind?: string; resolves?: string } = {}): void {
   try {
-    const alert = insertAlert({ severity, source: 'preview-health-watchdog', title, message, dedup_key: dedupKey, url })
+    const alert = insertAlert({ severity, source: 'preview-health-watchdog', ...extra, title, message, dedup_key: dedupKey, url })
     if (alert) broadcast({ type: 'alert', payload: alert })
   } catch (err) {
     console.warn('[preview-health-watchdog] failed to emit alert:', err instanceof Error ? err.message : err)
@@ -84,6 +84,7 @@ async function runCheck(): Promise<void> {
       `https://${previewHostFor(canary!.prNumber)} is reachable again (HTTP ${probe!.httpCode}).`,
       `https://${previewHostFor(canary!.prNumber)}`,
       'preview-health-watchdog-up',
+      { kind: 'recovered', resolves: 'preview-health-watchdog-down' },
     )
   }
 }

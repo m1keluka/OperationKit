@@ -115,6 +115,8 @@ export function buildClaudeCommand(opts: {
   codexProfileName?: string
   /** Grok --rules path: small vocab-shim file appended to the Grok system prompt */
   grokRulesPath?: string
+  /** Claude --disallowedTools: workspace MCP tools an admin turned off (obj 900620). */
+  disallowedTools?: string[]
 }): string {
   const { engine, budget, effortLevel, model, resumeSessionId, mcpConfigPath, settingsPath,
     codexProfileName, grokRulesPath } = opts
@@ -162,8 +164,13 @@ export function buildClaudeCommand(opts: {
   // under --dangerously-skip-permissions, blocking any isolated session from
   // editing the live checkout.
   const settingsFlag = settingsPath ? ` --settings ${JSON.stringify(settingsPath)}` : ''
+  // obj 900620: per-tool opt-outs for workspace MCP servers. Names are
+  // `mcp__<slug>__<tool>`; the slug charset is [a-z0-9-] and tool names are
+  // validated on the way in, and JSON.stringify quotes each for the shell.
+  const disallowed = (opts.disallowedTools ?? []).filter(t => /^mcp__[a-z0-9-]+__[A-Za-z0-9_.\-/]+$/.test(t))
+  const disallowedFlag = disallowed.length > 0 ? ` --disallowedTools ${disallowed.map(t => JSON.stringify(t)).join(' ')}` : ''
   // Fall DOWN to Sonnet, never up to another Opus. Omit when the requested
   // model already IS the fallback so the CLI cannot bounce between two ids.
   const fallbackFlag = model === FALLBACK_MODEL_ID ? '' : ` --fallback-model ${FALLBACK_MODEL_ID}`
-  return `${tokenPrefix}claude${resumeFlag} --print --output-format stream-json --include-partial-messages --verbose --dangerously-skip-permissions --max-budget-usd ${budget}${turnsFlag} --effort ${effortLevel}${fallbackFlag}${modelFlag}${mcpFlag}${settingsFlag}`
+  return `${tokenPrefix}claude${resumeFlag} --print --output-format stream-json --include-partial-messages --verbose --dangerously-skip-permissions --max-budget-usd ${budget}${turnsFlag} --effort ${effortLevel}${fallbackFlag}${modelFlag}${mcpFlag}${settingsFlag}${disallowedFlag}`
 }

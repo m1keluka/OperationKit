@@ -88,7 +88,7 @@ export function demoReply(req: CompletionRequest): CompletionResult {
     const r = called.get('list_objectives')
     if (!r) return call('list_objectives', {})
     const cards = (r.cards as Json[]) ?? []
-    if (cards.length === 0) return say('This chat has not put anything on the board yet.')
+    if (cards.length === 0) return say('There are no open cards on the boards you can see.')
     return say(['Here is where your board cards stand:', '', ...cards.map(c => `- **#${c.id} ${c.title}** — ${String(c.status).replace('_', ' ')}`)].join('\n'))
   }
 

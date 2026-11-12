@@ -19,6 +19,7 @@
   - [External Agents](./External-Agents)
   - [Delegator Mode](./Delegator-Mode)
   - [Token-Waste Controls](./Token-Waste-Controls)
+  - [Queue Auto-Start](./Queue-Auto-Start)
   - [Public-Web Sourcing Policy](./Public-Web-Sourcing-Policy)
 
 **Get going**

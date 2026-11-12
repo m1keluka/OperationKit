@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
  * obj 900495 (Sprint 4a) — there is no "More" section. Its items live in the
- * account dropdown: Settings + Archive for everyone, Admin → System / Agents
- * for global admins. The 390px bottom bar is ≤4 tabs with no overflow.
+ * account dropdown. obj 900686 made that one flat list: Settings for everyone,
+ * System / Agents for global admins, no Archive (the board has its own Archive
+ * button) and no "Admin" sub-heading. The 390px bottom bar is ≤4 tabs.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -50,26 +51,28 @@ describe('Layout — Sprint 4a navigation', () => {
     expect(host.querySelector('a[href="/agent-templates"]')).toBeNull()
   })
 
-  it('admin dropdown: Settings, Archive, then Admin → System, Agents, then Log out', () => {
+  it('admin dropdown: one flat list — Settings, System, Agents, then Log out (no Archive, no Admin heading)', () => {
     mount(admin)
     const menu = openAccountMenu()
-    expect(menuHrefs(menu)).toEqual(['/settings', '/archive', '/system', '/agents'])
-    expect(menu.textContent).toContain('Admin')
+    expect(menuHrefs(menu)).toEqual(['/settings', '/system', '/agents'])
+    expect(menu.textContent).not.toContain('Archive')
+    expect(menu.textContent).not.toContain('Admin')
     expect(menu.textContent).toContain('System')
     expect(menu.textContent).toContain('Log out')
   })
 
-  it('a member sees Settings and Archive only — no Admin section', () => {
+  it('a member sees Settings only — no Archive, no admin rows', () => {
     mount(member)
     const menu = openAccountMenu()
-    expect(menuHrefs(menu)).toEqual(['/settings', '/archive'])
+    expect(menuHrefs(menu)).toEqual(['/settings'])
+    expect(menu.textContent).toContain('Log out')
     expect(menu.textContent).not.toContain('Admin')
   })
 
   it('the mobile avatar opens the same menu', () => {
     mount(admin)
     const menu = openAccountMenu(1)
-    expect(menuHrefs(menu)).toEqual(['/settings', '/archive', '/system', '/agents'])
+    expect(menuHrefs(menu)).toEqual(['/settings', '/system', '/agents'])
   })
 
   it('mobile bottom bar is at most 4 tabs and has no overflow button', () => {
@@ -77,6 +80,20 @@ describe('Layout — Sprint 4a navigation', () => {
     const bar = host.querySelectorAll('nav[aria-label="Primary"]')[1] as HTMLElement
     expect(Array.from(bar.querySelectorAll('a')).map(a => a.getAttribute('href'))).toEqual(['/chat', '/', '/knowledge', '/jobs'])
     expect(bar.querySelector('button')).toBeNull()
+  })
+
+  // obj 900675 — main nav is Bots, Board, Context, Workflows; the old labels are gone.
+  it('desktop and mobile primary nav read Bots, Board, Context, Workflows', () => {
+    mount(admin)
+    const bars = Array.from(host.querySelectorAll('nav[aria-label="Primary"]')) as HTMLElement[]
+    expect(bars.length).toBe(2)
+    for (const bar of bars) {
+      // The desktop bar also carries the brand-logo link to /; the nav items are the last four.
+      const links = Array.from(bar.querySelectorAll('a')).slice(-4)
+      expect(links.map(a => a.getAttribute('href'))).toEqual(['/chat', '/', '/knowledge', '/jobs'])
+      expect(links.map(a => (a.textContent ?? '').trim())).toEqual(['Bots', 'Board', 'Context', 'Workflows'])
+      expect(bar.textContent).not.toMatch(/Knowledge|Jobs/)
+    }
   })
 
   it('Escape closes the account menu', () => {

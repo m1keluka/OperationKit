@@ -39,6 +39,8 @@ const LIST_COLUMNS_ARRAY = [
   'owner_bot',
   // obj 900372: stall watchdog flag + reason + restart counter (stalled = flag set while working).
   'stalled_at', 'stall_reason', 'stall_restarts',
+  // obj 900625: queue auto-start state (request flag, hold, dependency, launch stamp, skip note).
+  'queued_at', 'auto_start_requested_at', 'queue_hold', 'blocked_by', 'autostarted_at', 'auto_start_note',
 ]
 
 /**

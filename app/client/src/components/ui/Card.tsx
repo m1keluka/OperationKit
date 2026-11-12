@@ -38,14 +38,14 @@ export function CardHeader({
   className?: string
 }) {
   return (
-    <div className={cn('flex items-start justify-between gap-3 border-b border-line-soft px-4 py-3', className)}>
+    <div className={cn('flex flex-wrap items-start justify-between gap-3 border-b border-line-soft px-4 py-3', className)}>
       <div className="min-w-0">
         {eyebrow && (
           <div className="mb-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-fg-2">{eyebrow}</div>
         )}
         <h3 className="truncate font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">{title}</h3>
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
+      {actions && <div className="flex min-w-0 max-w-full items-center gap-1.5">{actions}</div>}
     </div>
   )
 }

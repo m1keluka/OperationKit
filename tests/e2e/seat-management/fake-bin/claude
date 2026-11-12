@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# E2E stand-in for the `claude` CLI health probe (account-probe.ts). Answers like the
+# real CLI: CLAUDE-OK for a token minted by the stub endpoint, an auth failure for the
+# stub's "expired" token, and nothing useful otherwise. Never prints the token.
+case "${CLAUDE_CODE_OAUTH_TOKEN:-}" in
+  sk-ant-oat01-e2e-expired*) echo 'API Error: 401 {"error":{"message":"OAuth token has expired."}}'; exit 1 ;;
+  sk-ant-oat01-e2e-*) echo 'CLAUDE-OK'; exit 0 ;;
+  *) echo 'not signed in'; exit 1 ;;
+esac

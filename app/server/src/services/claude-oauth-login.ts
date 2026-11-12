@@ -18,6 +18,7 @@
  * Constants are the ones the official Claude Code CLI ships (2.1.x).
  */
 import crypto from 'crypto'
+import { detectScratchInstance } from './scratch-instance.js'
 
 export const CLAUDE_OAUTH = {
   clientId: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
@@ -41,6 +42,27 @@ interface PendingLogin {
   expiresAt: number
   attempts: number
   actorUserId: number | null
+  /**
+   * The seat this link reconnects (null = a new seat). Bound at start so the
+   * code can only ever land on the seat whose Reconnect button issued the link.
+   */
+  seatId: string | null
+}
+
+/**
+ * The token endpoint. The ONLY override is for a scratch / test server (obj
+ * 900547 scratch guard) pointing at a loopback stub, so an end-to-end test can
+ * run the real flow without a real Claude account. A production server always
+ * talks to Claude: the override is ignored there, and a non-loopback override
+ * is ignored everywhere (it would hand the code + verifier to a third party).
+ */
+export function claudeTokenUrl(env: NodeJS.ProcessEnv = process.env, isScratch: () => boolean = () => detectScratchInstance().scratch): string {
+  const override = env.CC_CLAUDE_OAUTH_TOKEN_URL
+  if (!override) return CLAUDE_OAUTH.tokenUrl
+  let host = ''
+  try { host = new URL(override).hostname } catch { return CLAUDE_OAUTH.tokenUrl }
+  const loopback = host === '127.0.0.1' || host === 'localhost' || host === '[::1]'
+  return loopback && isScratch() ? override : CLAUDE_OAUTH.tokenUrl
 }
 
 const pending = new Map<string, PendingLogin>()
@@ -75,7 +97,7 @@ export interface StartedLogin {
   expiresAt: string
 }
 
-export function startClaudeLogin(opts: { actorUserId?: number | null; now?: number } = {}): StartedLogin {
+export function startClaudeLogin(opts: { actorUserId?: number | null; seatId?: string | null; now?: number } = {}): StartedLogin {
   const now = opts.now ?? Date.now()
   sweep(now)
   // Bounded: the oldest unfinished link is dropped rather than growing forever.
@@ -84,13 +106,28 @@ export function startClaudeLogin(opts: { actorUserId?: number | null; now?: numb
   const state = b64url(crypto.randomBytes(32))
   const loginId = crypto.randomBytes(16).toString('hex')
   const expiresAt = now + LOGIN_TTL_MS
-  pending.set(loginId, { state, verifier, expiresAt, attempts: 0, actorUserId: opts.actorUserId ?? null })
+  pending.set(loginId, { state, verifier, expiresAt, attempts: 0, actorUserId: opts.actorUserId ?? null, seatId: opts.seatId ?? null })
   return { loginId, url: buildAuthorizeUrl(pkceChallenge(verifier), state), expiresAt: new Date(expiresAt).toISOString() }
 }
 
 /** Drop a pending login (operator pressed Cancel). */
 export function cancelClaudeLogin(loginId: string): void {
   pending.delete(loginId)
+}
+
+/** Drop every pending link bound to a seat (the seat was removed). */
+export function cancelClaudeLoginsForSeat(seatId: string): void {
+  for (const [id, p] of pending) if (p.seatId === seatId) pending.delete(id)
+}
+
+/**
+ * Which seat a pending link was started for: null = a new seat, undefined = no
+ * such (live) link. Read-only; never exposes the state or verifier.
+ */
+export function pendingLoginSeat(loginId: string, now = Date.now()): string | null | undefined {
+  const p = typeof loginId === 'string' ? pending.get(loginId) : undefined
+  if (!p || p.expiresAt <= now) return undefined
+  return p.seatId
 }
 
 /**
@@ -127,7 +164,7 @@ export type FinishError =
   | 'exchange_failed'    // network / unexpected reply
 
 export type FinishResult =
-  | { ok: true; token: string; expiresAt: string | null; actorUserId: number | null }
+  | { ok: true; token: string; expiresAt: string | null; actorUserId: number | null; seatId: string | null }
   | { ok: false; error: FinishError; message: string }
 
 const MESSAGES: Record<FinishError, string> = {
@@ -187,7 +224,7 @@ export async function finishClaudeLogin(opts: {
   let status: number
   let body: unknown
   try {
-    const res = await doFetch(CLAUDE_OAUTH.tokenUrl, {
+    const res = await doFetch(claudeTokenUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -222,6 +259,7 @@ export async function finishClaudeLogin(opts: {
     token,
     expiresAt: Number.isFinite(expiresIn) && expiresIn > 0 ? new Date(now + expiresIn * 1000).toISOString() : null,
     actorUserId: entry.actorUserId,
+    seatId: entry.seatId,
   }
 }
 

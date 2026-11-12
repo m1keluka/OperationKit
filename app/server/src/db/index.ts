@@ -35,6 +35,10 @@ import { initAgentWebhooksSchema } from './schema/agent-webhooks.js'
 import { initEmailSchema } from './schema/email.js'
 import { initAccountabilitySchema } from './schema/accountability.js'
 import { initStallWatchdogSchema } from './schema/stall-watchdog.js'
+import { initMcpServersSchema } from './schema/mcp-servers.js'
+import { initQueueAutostartSchema } from './schema/queue-autostart.js'
+import { initFlowSchema, enableFlowsOnce } from './schema/flow.js'
+import { initRoutineRunsSchema } from './schema/routine-runs.js'
 import { installWriteScrubber } from './write-scrubber.js'
 import { redactForStorage } from '../services/secret-redaction.js'
 
@@ -686,6 +690,13 @@ export function initDb(): Database.Database {
         'UPDATE routines SET last_accounted_objective_id = (SELECT MAX(id) FROM objectives WHERE objectives.routine_id = routines.id)',
       )
     }
+    // Workflows card B4 (obj 900640, docs/design/WORKFLOWS.md §7.1): a third kind,
+    // 'flow'. A flow routine carries the cron of ONE published workflow
+    // (`flow_id` → flow_definitions.id) and each fire queues a flow run instead of
+    // a card. `last_accounted_flow_run_id` is the auto-pause watermark over that
+    // flow's runs (the flow analogue of last_accounted_objective_id).
+    add('flow_id', 'INTEGER')
+    add('last_accounted_flow_run_id', 'INTEGER')
   }
 
   initRuntimeSchema(db)
@@ -1062,6 +1073,8 @@ export function initDb(): Database.Database {
   // Stall watchdog columns + the objective_events 'stalled' trigger (obj 900372).
   // After initAgentControlSchema: the trigger inserts into objective_events.
   initStallWatchdogSchema(db)
+  // Queue auto-start columns + the queued_at / request-clearing trigger (obj 900625).
+  initQueueAutostartSchema(db)
 
   // Bot jobs (obj 900323): durable state for the bounded chat -> board -> thread
   // MVP — job origin + thread continuation, the thread-delivery outbox, the
@@ -1080,6 +1093,18 @@ export function initDb(): Database.Database {
   // additive — no existing table is altered in place and no behaviour changes
   // until a caller writes one of the new columns.
   initAccountabilitySchema(db)
+  // Sprint 7.8 (obj 900620): workspace MCP servers. Additive table only.
+  initMcpServersSchema(db)
+  // Workflow engine tables (obj 900638, docs/design/WORKFLOWS.md §4.3). Additive
+  // CREATE TABLEs + the flows_enabled kill switch (seeded OFF, then switched ON
+  // once below now that B4 has shipped). After
+  // initGatesSchema, which creates the settings table.
+  initFlowSchema(db)
+  // obj 900675: B4 shipped, so the Workflows switch goes ON once per install.
+  // Marker-guarded: a later manual flows_enabled=0 survives every restart.
+  if (enableFlowsOnce(db)) console.log('[flows] settings.flows_enabled switched on (one-time, obj 900675)')
+  // Per-run routine history (obj 900676): one row per routine fire. Additive table only.
+  initRoutineRunsSchema(db)
   // ── Secret scrubbing on persistence (obj 715532) ──────────────────────────
   // Installed LAST so migrations above run unwrapped. From here on, writes to
   // activity_log / objectives / session_events / … have known secret values and

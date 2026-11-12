@@ -4,6 +4,7 @@
  *
  * Auth is applied by the admin.ts facade. Paths are unchanged.
  */
+import { resolveWriteWorkspace } from '../services/workspaces.js'
 import { Router } from 'express'
 import type { Response } from 'express'
 import { spawn } from 'child_process'
@@ -24,6 +25,8 @@ import {
   type RoutineRow,
 } from '../services/routine-scheduler.js'
 import { autoPauseThreshold, resumeRoutine } from '../services/routine-auto-pause.js'
+import { getRoutineExecution, listRoutineExecutions, routineInfo } from '../services/routine-runs.js'
+import type { JobExecutionsResponse } from '../../../shared/job-executions.js'
 import { ASSISTANT_DIR, AI_WORKSPACE_DIR, SECOND_BRAIN_DIR, SKILLS_DIR } from '../config.js'
 import { resolveAssistantPersona } from '../services/assistant-persona.js'
 import { getSkillGraph } from '../services/skill-graph.js'
@@ -221,7 +224,7 @@ router.get('/routines', (_req: AuthRequest, res) => {
         next_run_at: next ? next.toISOString() : null,
         created_at: r.created_at,
         title: tplStr(tpl, 'title', r.name),
-        workspace: tplStr(tpl, 'workspace', 'example'),
+        workspace: resolveWriteWorkspace(tplStr(tpl, 'workspace')),
         agent_context: tplStr(tpl, 'agent_context'),
         project: tplStr(tpl, 'project') || null,
         category: tplStr(tpl, 'category', 'general'),
@@ -237,7 +240,9 @@ router.get('/routines', (_req: AuthRequest, res) => {
         expected_last_fire: health.expected_last_fire,
         last_skip_reason: health.last_skip_reason,
         // obj 64 Part B — script routines + auto-pause.
-        kind: r.kind === 'script' ? 'script' : 'ai',
+        kind: r.kind === 'script' ? 'script' : r.kind === 'flow' ? 'flow' : 'ai',
+        // obj 900640 (B4) — a kind='flow' routine carries a published workflow's cron.
+        flow_id: r.flow_id ?? null,
         script_command: r.script_command ?? null,
         alert_marker: r.alert_marker ?? null,
         last_run_status: r.last_run_status ?? null,
@@ -284,6 +289,47 @@ router.post('/routines/:id/run-now', async (req: AuthRequest, res) => {
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'run-now failed' })
   }
+})
+
+// ── Per-run execution history (obj 900676) — Jobs → Executions ──────────────
+// Every run of a routine, newest first (routine_runs + older routine cards / flow
+// runs), and one run with its log. The step log of a workflow run stays on
+// GET /api/flows/:id/runs/:runId; the session transcript of an AI run on the card.
+
+function loadRoutine(req: AuthRequest, res: Response): RoutineRow | null {
+  const raw = String(req.params.id ?? '')
+  if (!/^\d{1,12}$/.test(raw)) {
+    res.status(400).json({ error: 'routine id must be an integer' })
+    return null
+  }
+  const routine = getDb().prepare('SELECT * FROM routines WHERE id = ?').get(Number(raw)) as RoutineRow | undefined
+  if (!routine) {
+    res.status(404).json({ error: 'Routine not found' })
+    return null
+  }
+  return routine
+}
+
+router.get('/routines/:id/executions', (req: AuthRequest, res) => {
+  const routine = loadRoutine(req, res)
+  if (!routine) return
+  const limit = Number(req.query.limit) || 100
+  const body: JobExecutionsResponse = {
+    routine: routineInfo(routine, describeCron(routine.cron_expr)),
+    executions: listRoutineExecutions(getDb(), routine, limit),
+  }
+  res.json(body)
+})
+
+router.get('/routines/:id/executions/:key', (req: AuthRequest, res) => {
+  const routine = loadRoutine(req, res)
+  if (!routine) return
+  const detail = getRoutineExecution(getDb(), routine, String(req.params.key ?? ''), describeCron(routine.cron_expr))
+  if (!detail) {
+    res.status(404).json({ error: 'Execution not found for this routine' })
+    return
+  }
+  res.json(detail)
 })
 
 // obj 64 Part B — one-click resume of an auto-paused routine (Jobs board

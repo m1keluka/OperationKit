@@ -11,6 +11,12 @@
  * connector's own `oauth.{authorize_url,token_url,scopes}` (declared on its
  * `ConnectorDefinition`) plus the install's own client id/secret — nothing
  * vendor-specific is hardcoded here.
+ *
+ * Opt-in shared third-party app (Sprint 7.7, obj 900511): when an admin turned
+ * one on for this connector, the third party relays `code` + `state` back to
+ * this same route. Its state has a distinct signed shape (`kind: 'shared_app'`)
+ * so an own-app state can never be replayed as a shared one or vice versa, and
+ * the branch only runs while the opt-in is still on.
  */
 import { Router } from 'express'
 import type { Request, Response } from 'express'
@@ -21,6 +27,12 @@ import {
   getOAuthClient,
   upsert,
 } from '../services/generic-connector-oauth.js'
+import {
+  exchangeSharedAppCode,
+  getSharedAppConfig,
+  sharedAppHost,
+  verifySharedAppState,
+} from '../services/shared-oauth-app.js'
 
 const router = Router()
 
@@ -39,6 +51,26 @@ router.get('/:id/callback', async (req: Request, res: Response) => {
 
   if (oauthError) return res.redirect(settingsUrl('error', oauthError))
   if (!code || !state) return res.redirect(settingsUrl('error', 'missing_code'))
+
+  const shared = verifySharedAppState(state, connectorId)
+  if (shared) {
+    const def = await getConnector(connectorId)
+    if (!def || def.auth_path !== 'oauth_guided' || !def.oauth || !def.shared_app_eligible) {
+      return res.redirect(settingsUrl('error', 'unknown_connector'))
+    }
+    const config = getSharedAppConfig(connectorId)
+    if (!config) return res.redirect(settingsUrl('error', 'shared_app_disabled'))
+    const result = await exchangeSharedAppCode(connectorId, config, code, shared.verifier, def.oauth.scopes)
+    if (!result.ok) return res.redirect(settingsUrl('error', result.error))
+    upsert(connectorId, shared.uid, {
+      accountLabel: `via shared app: ${config.provider_label || sharedAppHost(config)}`,
+      refreshToken: result.data.refreshToken,
+      accessToken: result.data.accessToken,
+      accessTokenExpiresAt: result.data.expiresAt,
+      scopes: result.data.scopes,
+    })
+    return res.redirect(settingsUrl('connected'))
+  }
 
   const userId = verifyState(connectorId, state)
   if (userId == null) return res.redirect(settingsUrl('error', 'invalid_state'))

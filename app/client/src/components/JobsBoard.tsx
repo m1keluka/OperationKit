@@ -1,11 +1,18 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useBranding } from '../hooks/useBranding'
-import { ExternalLink, AlertCircle, Clock, Play, Pause, Inbox, CheckCircle2, Loader2, Target, Plus } from 'lucide-react'
+import { ExternalLink, AlertCircle, Clock, Play, Pause, Inbox, CheckCircle2, Loader2, Target, Plus, Workflow, History } from 'lucide-react'
 import type { Objective, ObjectiveStatus, Workspace } from '@operationkit/shared'
 import { useObjectives } from '../hooks/useObjectives'
 import { useRoutines, isAutoPaused, type RoutineSummary, type StrategyOption, type StrategyJobInput } from '../hooks/useRoutines'
 import { RoutineAutoPauseBanner } from './RoutineAutoPauseBanner'
 import { HostCronJobs } from './jobs/HostCronJobs'
+import { QueueAutostartPanel } from './settings/QueueAutostartPanel'
+import { useAuth } from '../context/AuthContext'
+import { ExecutionsPanel, type ExecutionsTarget } from './jobs/ExecutionsPanel'
+import { WorkflowsPanel, RunStatusBadge } from './jobs/WorkflowsPanel'
+import { useFlows } from '../hooks/useFlows'
+import { flowRunLane } from '../../../shared/flow/run-status'
+import type { FlowRunSummary } from '../../../shared/flow/api'
 import { HOST_CRON_ANCHOR } from '../lib/routes'
 import { useWorkspaces } from '../hooks/useWorkspaces'
 import { SessionViewer } from './SessionViewer'
@@ -52,6 +59,46 @@ const LANE_ORDER: JobLane[] = ['running', 'needs_review', 'complete']
 
 const ALL = 'all'
 
+// obj 900640 (B4) — Jobs = agent jobs ∪ workflow runs (docs/design/WORKFLOWS.md §7.1).
+// `view` switches the page between the Workflows tab (flow charts) and the Runs lanes;
+// `kind` filters routines and lanes. Both live in the query string (?view=runs,
+// ?view=workflows&flow=12, ?kind=flow) so a workflow's home card can deep-link
+// straight to its diagram.
+// obj 900675: the page is "Workflows" in the main nav and opens on the flow-chart
+// view. The lanes moved to the "Runs" tab (?view=runs; the old ?view=jobs still
+// works). A lane-only deep link (?kind=…, #host-cron) still lands on the lanes.
+type JobsView = 'runs' | 'workflows'
+type KindFilter = 'all' | 'agent' | 'flow'
+const VIEW_TABS: TabItem[] = [
+  { key: 'workflows', label: 'Workflows' },
+  { key: 'runs', label: 'Runs' },
+]
+
+export function readQuery(): { view: JobsView; kind: KindFilter; flow: number | null } {
+  const q = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
+  const hash = typeof window === 'undefined' ? '' : window.location.hash
+  const flow = Number(q.get('flow'))
+  const kind: KindFilter = q.get('kind') === 'flow' ? 'flow' : q.get('kind') === 'agent' ? 'agent' : 'all'
+  const v = q.get('view')
+  const view: JobsView =
+    v === 'workflows' ? 'workflows'
+    : v === 'runs' || v === 'jobs' ? 'runs'
+    : q.has('kind') || hash === '#' + HOST_CRON_ANCHOR ? 'runs'
+    : 'workflows'
+  return { view, kind, flow: Number.isInteger(flow) && flow > 0 ? flow : null }
+}
+
+function writeQuery(next: { view: JobsView; kind: KindFilter; flow: number | null }): void {
+  if (typeof window === 'undefined') return
+  const q = new URLSearchParams(window.location.search)
+  const set = (k: string, v: string | null) => (v ? q.set(k, v) : q.delete(k))
+  set('view', next.view === 'runs' ? 'runs' : null)
+  set('kind', next.kind === 'all' ? null : next.kind)
+  set('flow', next.view === 'workflows' && next.flow != null ? String(next.flow) : null)
+  const qs = q.toString()
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
+}
+
 /** Compact USD formatter for job cost (sub-cent runs round to $0.00). */
 function formatCost(n: number): string {
   return `$${(Number(n) || 0).toFixed(2)}`
@@ -78,10 +125,19 @@ export function JobsBoard(_props: JobsBoardProps) {
   const { objectives, loading, error, changeStatus, connectionState } = useObjectives('all')
   const { routines, routinesEnabled, strategies, runNow, createStrategyJob, resume } = useRoutines()
   const { labelOf, workspaces } = useWorkspaces()
+  const { flows, runs: flowRuns, flowsEnabled, loading: flowsLoading, runNow: runFlowNow, refresh: refreshFlows } = useFlows()
+  const initialQuery = useMemo(readQuery, [])
+  const [view, setView] = useState<JobsView>(initialQuery.view)
+  const [kindFilter, setKindFilter] = useState<KindFilter>(initialQuery.kind)
+  const [selectedFlow, setSelectedFlow] = useState<number | null>(initialQuery.flow)
+  useEffect(() => { writeQuery({ view, kind: kindFilter, flow: selectedFlow }) }, [view, kindFilter, selectedFlow])
 
   const [sessionObjective, setSessionObjective] = useState<Objective | null>(null)
   const [wsFilter, setWsFilter] = useState<string>(ALL)
   const [authoring, setAuthoring] = useState(false)
+  const isAdmin = useAuth().user?.role === 'admin'
+  // obj 900676 — the n8n-style Executions view (run list + the selected run's log).
+  const [executions, setExecutions] = useState<ExecutionsTarget | null>(null)
 
   // /settings/platform redirects to /jobs#host-cron (obj 900495): land on that section.
   useEffect(() => {
@@ -103,17 +159,63 @@ export function JobsBoard(_props: JobsBoardProps) {
     const set = new Set<string>()
     for (const r of routines) set.add(r.workspace)
     for (const j of allJobs) if (j.workspace) set.add(j.workspace)
+    for (const f of flows) set.add(f.workspace)
     return Array.from(set).sort()
-  }, [routines, allJobs])
+  }, [routines, allJobs, flows])
 
   const jobs = useMemo(
-    () => (wsFilter === ALL ? allJobs : allJobs.filter(j => j.workspace === wsFilter)),
-    [allJobs, wsFilter]
+    () => (kindFilter === 'flow' ? [] : wsFilter === ALL ? allJobs : allJobs.filter(j => j.workspace === wsFilter)),
+    [allJobs, wsFilter, kindFilter]
   )
   const visibleRoutines = useMemo(
+    () => routines
+      .filter(r => wsFilter === ALL || r.workspace === wsFilter)
+      .filter(r => kindFilter === 'all' || (kindFilter === 'flow') === (r.kind === 'flow')),
+    [routines, wsFilter, kindFilter]
+  )
+  // Auto-pause banner: every auto-paused routine of the workspace, whatever the kind filter.
+  const bannerRoutines = useMemo(
     () => (wsFilter === ALL ? routines : routines.filter(r => r.workspace === wsFilter)),
     [routines, wsFilter]
   )
+  const visibleFlows = useMemo(
+    () => (wsFilter === ALL ? flows : flows.filter(f => f.workspace === wsFilter)),
+    [flows, wsFilter]
+  )
+  const visibleFlowRuns = useMemo(
+    () => (kindFilter === 'agent' ? [] : wsFilter === ALL ? flowRuns : flowRuns.filter(r => r.workspace === wsFilter)),
+    [flowRuns, wsFilter, kindFilter]
+  )
+  const flowLanes = useMemo(() => {
+    const map: Record<JobLane, FlowRunSummary[]> = { running: [], needs_review: [], complete: [] }
+    for (const r of visibleFlowRuns) map[flowRunLane(r)].push(r)
+    return map
+  }, [visibleFlowRuns])
+  const openFlow = useCallback((flowId: number) => {
+    setSelectedFlow(flowId)
+    setView('workflows')
+  }, [])
+
+  // obj 900676 — clicking a routine, a job run or a workflow run opens its executions.
+  const openRoutineRuns = useCallback((r: RoutineSummary) => {
+    setExecutions({ type: 'routine', routineId: r.id, title: r.title })
+  }, [])
+  const openJobRun = useCallback((job: Objective) => {
+    if (job.routine_id == null) { setSessionObjective(job); return }
+    const routine = routines.find(r => r.id === job.routine_id)
+    setExecutions({ type: 'routine', routineId: job.routine_id, title: routine?.title ?? job.title, focus: { objectiveId: job.id } })
+  }, [routines])
+  const openFlowRun = useCallback((run: FlowRunSummary) => {
+    setExecutions({ type: 'flow', flowId: run.flow_id, title: run.flow_name, focus: { flowRunId: run.id } })
+  }, [])
+  const openSessionById = useCallback(async (id: number) => {
+    const known = objectives.find(o => o.id === id)
+    if (known) { setSessionObjective(known); return }
+    try {
+      const r = await fetch(`/api/objectives/${id}`, { credentials: 'include' })
+      if (r.ok) setSessionObjective((await r.json()) as Objective)
+    } catch { /* the executions view stays open */ }
+  }, [objectives])
 
   // Backlinks: objectives any job spawned via an in-thread handoff.
   const spawnedByJob = useMemo(() => {
@@ -148,14 +250,22 @@ export function JobsBoard(_props: JobsBoardProps) {
   // no per-workspace color sprawl).
   const wsTabs: TabItem[] = useMemo(
     () => [
-      { key: ALL, label: 'All', count: allJobs.length },
+      { key: ALL, label: 'All', count: allJobs.length + flowRuns.length },
       ...wsOptions.map(ws => ({
         key: ws,
         label: labelOf(ws),
-        count: allJobs.filter(j => j.workspace === ws).length,
+        count: allJobs.filter(j => j.workspace === ws).length + flowRuns.filter(r => r.workspace === ws).length,
       })),
     ],
-    [wsOptions, allJobs, labelOf]
+    [wsOptions, allJobs, flowRuns, labelOf]
+  )
+  const kindTabs: TabItem[] = useMemo(
+    () => [
+      { key: 'all', label: 'All' },
+      { key: 'agent', label: 'Agent jobs' },
+      { key: 'flow', label: 'Workflows' },
+    ],
+    []
   )
 
   const enabledCount = visibleRoutines.filter(r => r.enabled).length
@@ -175,6 +285,15 @@ export function JobsBoard(_props: JobsBoardProps) {
             aria-label={r.enabled ? 'enabled' : 'disabled'}
           />
           <span className="truncate font-medium text-fg-0" title={r.title}>{r.title}</span>
+          {r.kind === 'flow' && r.flow_id != null && (
+            <button
+              type="button"
+              className="shrink-0 text-[12px] text-accent-hover hover:underline"
+              onClick={e => { e.stopPropagation(); openFlow(r.flow_id as number) }}
+            >
+              diagram
+            </button>
+          )}
         </div>
       ),
     },
@@ -317,19 +436,56 @@ export function JobsBoard(_props: JobsBoardProps) {
     },
   ]
 
+  // ── Workflow-run lane columns (obj 900640) — the same lanes, one row per flow run. ──
+  const flowRunColumns: Column<FlowRunSummary>[] = [
+    {
+      key: 'title',
+      header: 'Workflow run',
+      cell: r => (
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Workflow className="h-3.5 w-3.5 shrink-0 text-fg-3" strokeWidth={1.75} aria-label="workflow" />
+            <span className="truncate font-medium text-fg-0" title={r.flow_name}>{r.flow_name}</span>
+          </div>
+          {r.error && (
+            <p className="mt-1 line-clamp-2 text-[12px] leading-snug text-signal-alarm">
+              {r.error.type}: {r.error.title}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    { key: 'workspace', header: 'Organization', hideOnMobile: true, cell: r => <Badge tone="neutral">{labelOf(r.workspace)}</Badge> },
+    { key: 'status', header: 'Status', cell: r => <RunStatusBadge run={r} /> },
+    { key: 'id', header: 'Run', mono: true, hideOnMobile: true, cell: r => <Badge tone="neutral" mono>run #{r.id}</Badge> },
+    { key: 'created', header: 'Age', mono: true, align: 'right', sortable: true, sortValue: r => r.created_at, cell: r => relativeTime(r.created_at) },
+    {
+      key: 'cost',
+      header: 'Cost',
+      mono: true,
+      align: 'right',
+      hideOnMobile: true,
+      cell: r => (r.spent_usd > 0 ? formatCost(r.spent_usd) : <span className="text-fg-3">—</span>),
+    },
+  ]
+
+  const workflowRunCount = visibleFlowRuns.length
+  const needsReviewCount = lanes.needs_review.length + flowLanes.needs_review.length
+
   return (
     <PageContainer width="wide">
       <PageHeader
-        title="Jobs"
-        breadcrumbs={[{ label: brandName }, { label: 'Jobs' }]}
+        title="Workflows"
+        breadcrumbs={[{ label: brandName }, { label: 'Workflows' }]}
         description={
-          `${jobs.length} automated ${jobs.length === 1 ? 'run' : 'runs'}` +
-          ` · ${visibleRoutines.length} ${visibleRoutines.length === 1 ? 'routine' : 'routines'} · ${enabledCount} active`
+          `${jobs.length + workflowRunCount} automated ${jobs.length + workflowRunCount === 1 ? 'run' : 'runs'}` +
+          ` · ${visibleRoutines.length} ${visibleRoutines.length === 1 ? 'routine' : 'routines'} · ${enabledCount} active` +
+          ` · ${visibleFlows.length} ${visibleFlows.length === 1 ? 'workflow' : 'workflows'}`
         }
         actions={
           <div className="flex items-center gap-2">
-            {lanes.needs_review.length > 0 && (
-              <Badge tone="amber">{lanes.needs_review.length} need review</Badge>
+            {needsReviewCount > 0 && (
+              <Badge tone="amber">{needsReviewCount} {needsReviewCount === 1 ? 'needs' : 'need'} review</Badge>
             )}
             {!routinesEnabled && (
               <Badge tone="alarm">
@@ -354,6 +510,12 @@ export function JobsBoard(_props: JobsBoardProps) {
         </Alert>
       )}
 
+      {/* Workflows | Runs (obj 900640; Workflows first since obj 900675) */}
+      <Toolbar
+        left={<Tabs items={VIEW_TABS} value={view} onChange={k => setView(k === 'runs' ? 'runs' : 'workflows')} />}
+        right={view === 'runs' ? <Tabs items={kindTabs} value={kindFilter} onChange={k => setKindFilter(k as KindFilter)} /> : undefined}
+      />
+
       {/* Workspace filter */}
       {wsOptions.length > 0 && (
         <Toolbar
@@ -361,8 +523,26 @@ export function JobsBoard(_props: JobsBoardProps) {
         />
       )}
 
-      {/* Auto-paused routines (K consecutive failures) with one-click Resume. */}
-      <RoutineAutoPauseBanner routines={visibleRoutines} onResume={resume} />
+      {/* Auto-paused routines (K consecutive failures) with one-click Resume —
+          agent, script and workflow routines alike. */}
+      <RoutineAutoPauseBanner routines={bannerRoutines} onResume={resume} />
+
+      {view === 'workflows' ? (
+        <WorkflowsPanel
+          flows={visibleFlows}
+          flowsEnabled={flowsEnabled}
+          loading={flowsLoading}
+          labelOf={labelOf}
+          selectedId={selectedFlow}
+          onSelect={setSelectedFlow}
+          onRunNow={runFlowNow}
+          onRunLifecycle={refreshFlows}
+          workspaces={workspaces.map(w => w.slug)}
+          defaultWorkspace={wsFilter !== ALL ? wsFilter : null}
+          onCreated={r => { void refreshFlows(); setSelectedFlow(r.flow_id) }}
+          onOpenRunLog={(f, runId) => setExecutions({ type: 'flow', flowId: f.id, title: f.name, ...(runId != null ? { focus: { flowRunId: runId } } : {}) })}
+        />
+      ) : (<>
 
       {/* ── Scheduled routines — the global DataTable. ── */}
       <section className="mb-6 space-y-2">
@@ -370,7 +550,7 @@ export function JobsBoard(_props: JobsBoardProps) {
           <Clock className="h-3.5 w-3.5" strokeWidth={1.75} /> Scheduled routines
         </h3>
         <p className="max-w-3xl text-[12.5px] leading-snug text-fg-2">
-          Recurring work the app schedules itself. Each run opens a card in the lanes below.
+          Recurring work the app schedules itself. An agent job opens a card for each run; a workflow run is a row in the lanes below, with no card and no session. Click a routine or a run to open its executions: every recorded run and what happened in it.
         </p>
         <DataTable
           columns={routineColumns}
@@ -381,7 +561,20 @@ export function JobsBoard(_props: JobsBoardProps) {
           mobileTitle={r => (
             <span className="font-medium text-fg-0" title={r.title}>{r.title}</span>
           )}
-          rowActions={r => <RunNowButton routine={r} onRunNow={runNow} />}
+          onRowClick={openRoutineRuns}
+          rowActions={r => (
+            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => openRoutineRuns(r)}
+                leftIcon={<History className="h-3.5 w-3.5" strokeWidth={1.75} />}
+              >
+                Runs
+              </Button>
+              <RunNowButton routine={r} onRunNow={runNow} />
+            </div>
+          )}
           empty={{
             icon: <Clock className="h-5 w-5" strokeWidth={1.6} />,
             title: 'No scheduled routines',
@@ -391,13 +584,17 @@ export function JobsBoard(_props: JobsBoardProps) {
       </section>
 
       {/* ── Host cron (obj 900495; was Settings → Platform). ── */}
-      <HostCronJobs />
+      {kindFilter !== 'flow' && <HostCronJobs />}
+
+      {/* ── Queue auto-start (obj 900686; the last thing that was on Settings → Platform). Admin API. ── */}
+      {kindFilter !== 'flow' && isAdmin && <QueueAutostartPanel />}
 
       {/* ── Outcome lanes — Running / Needs Review / Complete. ── */}
       {LANE_ORDER.map(lane => {
         const meta = LANE_META[lane]
         const Icon = meta.icon
         const rows = lanes[lane]
+        const runRows = flowLanes[lane]
         return (
           <section key={lane} className="mb-6 space-y-2">
             <h3
@@ -408,21 +605,27 @@ export function JobsBoard(_props: JobsBoardProps) {
             >
               <Icon className={cn('h-3.5 w-3.5', lane === 'running' && 'animate-spin')} strokeWidth={1.75} />
               {meta.label}
-              <span className="font-mono text-fg-3">{rows.length}</span>
+              <span className="font-mono text-fg-3">{rows.length + runRows.length}</span>
             </h3>
+            {kindFilter !== 'flow' && (rows.length > 0 || runRows.length === 0 || loading) && (
             <DataTable
               columns={laneColumns}
               rows={rows}
               rowKey={job => job.id}
               loading={loading}
-              onRowClick={job => setSessionObjective(job)}
+              onRowClick={openJobRun}
               mobileTitle={job => (
                 <span className="font-medium text-fg-0" title={job.title}>{job.title}</span>
               )}
               rowActions={job => (
-                <Button variant="secondary" size="sm" onClick={() => setSessionObjective(job)}>
-                  Open
-                </Button>
+                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  <Button variant="ghost" size="sm" onClick={() => openJobRun(job)}>
+                    Log
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => setSessionObjective(job)}>
+                    Open
+                  </Button>
+                </div>
               )}
               empty={{
                 icon: <Inbox className="h-5 w-5" strokeWidth={1.6} />,
@@ -430,9 +633,45 @@ export function JobsBoard(_props: JobsBoardProps) {
                 description: meta.hint,
               }}
             />
+            )}
+            {(kindFilter === 'flow' || runRows.length > 0) && (
+              <DataTable
+                columns={flowRunColumns}
+                rows={runRows}
+                rowKey={r => `flow-run-${r.id}`}
+                loading={flowsLoading}
+                onRowClick={openFlowRun}
+                mobileTitle={r => <span className="font-medium text-fg-0">{r.flow_name}</span>}
+                rowActions={r => (
+                  <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                    <Button variant="ghost" size="sm" onClick={() => openFlowRun(r)}>
+                      Log
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={() => openFlow(r.flow_id)}>
+                      Diagram
+                    </Button>
+                  </div>
+                )}
+                empty={{
+                  icon: <Workflow className="h-5 w-5" strokeWidth={1.6} />,
+                  title: `No workflow runs in ${meta.label}`,
+                  description: meta.hint,
+                }}
+              />
+            )}
           </section>
         )
       })}
+      </>)}
+
+      {executions && (
+        <ExecutionsPanel
+          target={executions}
+          onClose={() => setExecutions(null)}
+          onOpenSession={id => { void openSessionById(id) }}
+          onOpenDiagram={flowId => { setExecutions(null); openFlow(flowId) }}
+        />
+      )}
 
       {sessionObjective && (() => {
         const live = objectives.find(o => o.id === sessionObjective.id) ?? sessionObjective
@@ -652,6 +891,7 @@ function RoutineHealthBadges({ routine: r }: { routine: RoutineSummary }) {
   return (
     <div className="flex flex-wrap items-center gap-1" title={tip || undefined}>
       {r.kind === 'script' && <Badge tone="neutral" mono>script</Badge>}
+      {r.kind === 'flow' && <Badge tone="accent" mono>workflow</Badge>}
       {r.kind === 'script' && r.last_run_status && (
         <Badge tone={SCRIPT_STATUS_TONE[r.last_run_status]} mono>
           {r.last_run_status}
@@ -664,7 +904,7 @@ function RoutineHealthBadges({ routine: r }: { routine: RoutineSummary }) {
         <Badge tone="amber" mono>
           {streak}/{r.auto_pause_threshold || '∞'} failed
         </Badge>
-      ) : r.kind !== 'script' ? (
+      ) : r.kind !== 'script' && r.kind !== 'flow' ? (
         <span className="text-fg-3">—</span>
       ) : null}
     </div>

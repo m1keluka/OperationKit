@@ -10,6 +10,7 @@ import {
   type WorktreeIsolation,
   checkWorktreeViolation,
 } from './session-worktree.js'
+import { resolveWriteWorkspace } from './workspaces.js'
 
 // ── Refusal / fallback-model telemetry ──
 // Scanned from the JSONL at session end (sessions are single-turn --print
@@ -60,7 +61,7 @@ function persistFallbackMarker(objectiveId: number, sessionId: string, requested
        VALUES (?, ?, ?, ?, 'milestone', ?, ?)`
     ).run(
       row.project ?? 'operationkit',
-      row.workspace ?? 'example',
+      resolveWriteWorkspace(row.workspace),
       objectiveId,
       sessionId,
       'ran_on_fallback',

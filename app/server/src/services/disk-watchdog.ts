@@ -41,23 +41,32 @@ export interface DiskWatchdogState {
 
 let latest: DiskWatchdogState | null = null
 
-function fireAlert(severity: 'high' | 'normal', title: string, message: string, dedupKey: string): void {
+/** Last time bucket each alert family fired in (in-process throttle). */
+const lastBucket = new Map<string, number>()
+
+/**
+ * At most one alert per family per `hours`. The dedup_key is the STABLE family
+ * name (obj 900677): it used to embed the time bucket, so an unread "Disk low"
+ * gained a twin every 3h. Now the notifier keeps a family to one unread item,
+ * and it only comes back in a later bucket after it has been read.
+ */
+function fireAlert(severity: 'high' | 'normal', title: string, message: string, family: string, hours: number, kind?: string): void {
+  const bucket = Math.floor(Date.now() / (hours * 3600 * 1000))
+  if (lastBucket.get(family) === bucket) return
+  lastBucket.set(family, bucket)
   try {
     const alert = insertAlert({
       severity,
       source: 'disk-watchdog',
+      kind,
       title,
       message,
-      dedup_key: dedupKey,
+      dedup_key: family,
     })
     if (alert) broadcast({ type: 'alert', payload: alert })
   } catch (err) {
     console.warn('[disk-watchdog] failed to emit alert:', err instanceof Error ? err.message : err)
   }
-}
-
-function bucketKey(prefix: string, hours: number): string {
-  return `${prefix}-${Math.floor(Date.now() / (hours * 3600 * 1000))}`
 }
 
 function runCleanup(reason: string): void {
@@ -103,7 +112,7 @@ function tick(): void {
       'high',
       `Disk low — ${freePct(disk).toFixed(1)}% free`,
       `${summary} (under ${DISK_LOW_FREE_PCT}% free). Sweeping finished-card worktrees; check /home/operator/projects for leftovers.`,
-      bucketKey('disk-watchdog-low', 3),
+      'disk-watchdog-low', 3,
     )
     kickWorktreeSweep('low-disk')
   }
@@ -113,7 +122,7 @@ function tick(): void {
       'normal',
       `Disk ${disk.usedPct}% full`,
       `${summary}. Cleanup runs at 90%. If this keeps climbing, messages will refuse to send.`,
-      bucketKey('disk-watchdog-warn', 6),
+      'disk-watchdog-warn', 6, 'warn',
     )
     return
   }
@@ -123,7 +132,7 @@ function tick(): void {
       'high',
       action === 'block' ? 'Disk critically full — new messages will fail' : `Disk ${disk.usedPct}% full — cleaning`,
       `${summary}. Running disk-cleanup.sh.`,
-      bucketKey('disk-watchdog-clean', 1),
+      'disk-watchdog-clean', 1,
     )
     runCleanup(action)
   }

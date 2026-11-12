@@ -178,7 +178,7 @@ export function EmailSettingsPanel({ onChange, className }: EmailSettingsPanelPr
           title={<span className="flex items-center gap-2"><Mail className="h-4 w-4 text-fg-2" aria-hidden="true" />Email</span>}
           actions={<EmailStatusBadge setup={setup} />}
         />
-        <div className="space-y-3 px-4 pb-4 text-[13px] text-fg-2">
+        <div className="space-y-3 p-4 text-[13px] text-fg-2">
           <p>
             The address this site sends sign-in links, invites and password resets from. It uses <strong className="text-fg-1">your own</strong> email
             provider account — nothing is relayed through anyone else.
@@ -197,7 +197,7 @@ export function EmailSettingsPanel({ onChange, className }: EmailSettingsPanelPr
       <form onSubmit={save} className="space-y-4">
         <Card inset>
           <CardHeader eyebrow="Step 1" title="Provider" />
-          <div role="radiogroup" aria-label="Email provider" className="grid gap-2 px-4 pb-4 sm:grid-cols-3">
+          <div role="radiogroup" aria-label="Email provider" className="grid gap-2 p-4 sm:grid-cols-3">
             {PROVIDERS.map(p => {
               const active = provider === p.id
               return (
@@ -223,7 +223,7 @@ export function EmailSettingsPanel({ onChange, className }: EmailSettingsPanelPr
         {provider && (
           <Card inset>
             <CardHeader eyebrow="Step 2" title="Sender and credentials" />
-            <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2">
+            <div className="grid gap-3 p-4 sm:grid-cols-2">
               <Field label="From name" htmlFor="email-from-name" hint="Shown as the sender, e.g. your company name.">
                 <input id="email-from-name" className={inputCls} value={form.from_name} placeholder="Your company"
                   onChange={e => set({ from_name: e.target.value })} />
@@ -294,7 +294,7 @@ export function EmailSettingsPanel({ onChange, className }: EmailSettingsPanelPr
       {setup.provider && (
         <Card inset>
           <CardHeader eyebrow="Step 3" title="Send a test email" />
-          <div className="space-y-3 px-4 pb-4">
+          <div className="space-y-3 p-4">
             <div className="flex flex-col gap-2 sm:flex-row">
               <input aria-label="Send test to" type="email" className={cn(inputCls, 'sm:flex-1')} placeholder="you@yourdomain.com"
                 value={testTo} onChange={e => setTestTo(e.target.value)} />
@@ -329,7 +329,7 @@ function DnsHelpCard({ dns }: { dns: DnsHelp }) {
   return (
     <Card inset>
       <CardHeader eyebrow="DNS" title={`Records for ${dns.domain}`} />
-      <div className="space-y-4 px-4 pb-4 text-[13px] text-fg-2">
+      <div className="space-y-4 p-4 text-[13px] text-fg-2">
         <p>So inboxes trust your mail, your domain needs these records. {dns.where_to_get}</p>
         <ol className="list-decimal space-y-1 pl-5">
           {dns.steps.map(s => <li key={s}>{s}</li>)}

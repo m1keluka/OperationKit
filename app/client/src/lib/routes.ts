@@ -11,7 +11,11 @@ export const SYSTEM_ROUTE = '/system'
 /** Old System URLs. Kept as redirects so bookmarks keep working. */
 export const LEGACY_SYSTEM_ROUTES = ['/dashboard', '/costs'] as const
 
-/** The one Agents page. Tabs are addressed with `?tab=`. */
+/**
+ * The one place to manage agents AND skills (nav label "Agents & Skills").
+ * Tabs are addressed with `?tab=`. Settings no longer has its own copy
+ * (obj 900684): /settings/agents-skills redirects here.
+ */
 export const AGENTS_ROUTE = '/agents'
 export const AGENTS_TABS = ['registry', 'board', 'templates'] as const
 export type AgentsTab = typeof AGENTS_TABS[number]
@@ -31,6 +35,19 @@ export const HOST_CRON_ROUTE = `${JOBS_ROUTE}#${HOST_CRON_ANCHOR}`
 export const MODELS_SETTINGS_ROUTE = '/settings/models'
 
 /**
+ * Routes that scroll the whole page instead of a nested inner scroller
+ * (obj 900680). Settings used to scroll inside <main>, which cut off its
+ * bottom (most visibly on mobile, where the browser bar never collapses
+ * because the document itself never scrolls). App.tsx passes this to
+ * Layout's pageScroll; the page uses <PageContainer scroll="page">.
+ */
+export const PAGE_SCROLL_PREFIXES: ReadonlyArray<string> = ['/settings']
+
+export function usesPageScroll(pathname: string): boolean {
+  return PAGE_SCROLL_PREFIXES.some(p => pathname === p || pathname.startsWith(`${p}/`))
+}
+
+/**
  * Old URLs → their new homes (obj 900495). App.tsx renders exactly this table
  * as `<Navigate replace>` routes, and routes.redirects.test.tsx drives it
  * through a real router, so the two cannot drift.
@@ -40,6 +57,8 @@ export const LEGACY_REDIRECTS: ReadonlyArray<{ from: string; to: string }> = [
   { from: '/costs', to: SYSTEM_ROUTE },
   { from: '/agent-templates', to: agentsTabRoute('templates') },
   { from: '/settings/agents', to: agentsTabRoute('registry') },
+  // Settings → Agents & Skills was a second copy of the registry (obj 900684).
+  { from: '/settings/agents-skills', to: agentsTabRoute('registry') },
   { from: '/settings/platform', to: HOST_CRON_ROUTE },
 ]
 

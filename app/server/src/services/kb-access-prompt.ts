@@ -16,6 +16,7 @@
  */
 import type { Objective } from '@operationkit/shared'
 import { jailEnabled } from './session-jail.js'
+import { resolveWriteWorkspace } from './workspaces.js'
 
 export const CC_API = 'http://localhost:3002'
 
@@ -37,7 +38,7 @@ export function buildKbAccessBlock(
   objective: Pick<Objective, 'id' | 'workspace'>,
   jailed: boolean = jailEnabled(),
 ): string[] {
-  const ws = objective.workspace || 'example'
+  const ws = resolveWriteWorkspace(objective.workspace)
   if (!jailed) {
     return ['', 'Knowledge base is at ~/second-brain/ for reference.']
   }

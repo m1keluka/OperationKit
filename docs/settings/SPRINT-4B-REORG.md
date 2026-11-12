@@ -12,7 +12,7 @@ exists without changing it.
 | 1 | **Models** | Seats | global admin | The highest-traffic admin decision ("which engine/model runs this") belongs first, not buried as "Seats". Now also home for BYOK provider keys, engine failover, and the model registry. |
 | 2 | **API & MCP** | You | everyone | The two ways to reach the board from outside the browser (REST key, MCP agent keys) plus webhooks — grouped and explained, not just "You". |
 | 3 | **Integrations** | Connectors | everyone | "Connectors" was an internal name; "Integrations" says what it is (GitHub, Google Workspace, …) in the language the rest of the industry uses. |
-| 4 | **Secrets** | Secrets | workspace/global admin | Unchanged position — it's the shared-secret and test-credential store, distinct from the personal secrets on API & MCP. |
+| 4 | **Secrets** | Secrets | everyone (Shared / Test credentials sub-tabs: workspace/global admin) | Shared-secret and test-credential store. Since obj 900681 also holds personal secrets (**Mine**), moved off API & MCP — see [API-MCP-SECRETS-CLEANUP.md](./API-MCP-SECRETS-CLEANUP.md). |
 | 5 | **Org** | Org | global admin | Unchanged; now with a one-line subtitle and clearer empty state. |
 | 6 | **Agents & Skills** | Agents | global admin | Renamed to match the explanatory copy added inside it (Agents / Skills / Tools / Assignments). |
 | 7 | **Branding** | — | global admin | New reserved slot for sister sprint 3 (theme tokens / logos). Disabled "coming soon" card — contents are NOT built here. |

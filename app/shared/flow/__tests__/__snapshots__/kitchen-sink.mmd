@@ -1,0 +1,45 @@
+flowchart TD
+  classDef llm fill:#efe3ff,stroke:#7a4cc2,stroke-width:2px
+  classDef agent fill:#e3eeff,stroke:#2b5fc2,stroke-width:2px
+  classDef write fill:#fff8db,stroke:#a68500
+  classDef send fill:#ffe9e0,stroke:#c2562b,stroke-width:2px
+  classDef spend fill:#ffe3ea,stroke:#c22b55,stroke-width:2px
+  classDef succeeded stroke:#2f8f4e,stroke-width:3px
+  classDef failed stroke:#c22b2b,stroke-width:3px,stroke-dasharray:4 2
+  classDef running stroke:#2b6fc2,stroke-width:3px
+  classDef waiting stroke:#c2952b,stroke-width:3px,stroke-dasharray:2 2
+  classDef skipped fill:#f2f2f2,color:#888888,stroke:#bbbbbb
+  classDef mocked stroke:#888888,stroke-width:2px,stroke-dasharray:1 3
+  n_kick(["⏰ trigger · webhook"])
+  n_accounts["🔧 tool · accounts-list<br/>read"]
+  subgraph n_graph ["Accounts #34;A–Z#34; #35;1<br/>🔁 loop · for each acct · max 50 · 2 parallel"]
+    direction TB
+    subgraph n_subgraph ["🔁 loop · for each c · max 20"]
+      direction TB
+      n_enrich["🔌 MCP · crm.get_contact<br/>read"]
+    end
+    n_score{"🔀 branch · score"}
+    n_deep_dive[["🤖 agent session → card · deep_dive<br/>analyst · $1.5 cap"]]
+    n_tag_small["🔧 tool · crm-tag<br/>write"]
+  end
+  n_gate("⏳ wait · approval from owner")
+  n_cool_off("⏳ wait · for 15m")
+  n_file_report["🔧 tool · report-filer<br/>SPEND · approval each run"]
+  n_verify{"✔ check · filed #62; 0 rows<br/>on fail: fail"}
+  n_summarise{{"🧠 LLM · summarise<br/>3 iterations"}}
+  n_end(["⏹ end"])
+  n_kick --> n_accounts
+  n_accounts --> n_graph
+  n_subgraph --> n_score
+  n_score -->|"len(steps.subgraph.output) #62; 10"| n_deep_dive
+  n_score -->|"default"| n_tag_small
+  n_graph --> n_gate
+  n_gate --> n_cool_off
+  n_cool_off --> n_file_report
+  n_file_report --> n_verify
+  n_verify --> n_summarise
+  n_summarise --> n_end
+  class n_summarise llm
+  class n_deep_dive agent
+  class n_tag_small write
+  class n_file_report spend

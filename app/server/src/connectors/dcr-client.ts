@@ -245,7 +245,15 @@ export function pkceChallengeFromVerifier(verifier: string): string {
 
 export function buildAuthorizationUrl(
   metadata: AuthServerMetadata,
-  params: { clientId: string; redirectUri: string; scope?: string; state: string; codeChallenge?: string },
+  params: {
+    clientId: string
+    redirectUri: string
+    scope?: string
+    state: string
+    codeChallenge?: string
+    /** RFC 8707 resource indicator — the MCP server URL the token is for (obj 900620). Optional. */
+    resource?: string
+  },
 ): string {
   const q = new URLSearchParams({
     response_type: 'code',
@@ -258,6 +266,7 @@ export function buildAuthorizationUrl(
     q.set('code_challenge', params.codeChallenge)
     q.set('code_challenge_method', 'S256')
   }
+  if (params.resource) q.set('resource', params.resource)
   return `${metadata.authorization_endpoint}?${q.toString()}`
 }
 
@@ -304,7 +313,7 @@ async function postToken(
 
 export async function exchangeAuthorizationCode(
   metadata: AuthServerMetadata,
-  params: { code: string; redirectUri: string; clientId: string; clientSecret?: string; codeVerifier?: string },
+  params: { code: string; redirectUri: string; clientId: string; clientSecret?: string; codeVerifier?: string; resource?: string },
   fetchImpl: FetchLike = (i, init) => globalThis.fetch(i, init),
 ): Promise<TokenOutcome> {
   const body: Record<string, string> = {
@@ -315,12 +324,13 @@ export async function exchangeAuthorizationCode(
   }
   if (params.clientSecret) body.client_secret = params.clientSecret
   if (params.codeVerifier) body.code_verifier = params.codeVerifier
+  if (params.resource) body.resource = params.resource
   return postToken(metadata.token_endpoint, body, fetchImpl)
 }
 
 export async function refreshAccessToken(
   metadata: AuthServerMetadata,
-  params: { refreshToken: string; clientId: string; clientSecret?: string },
+  params: { refreshToken: string; clientId: string; clientSecret?: string; resource?: string },
   fetchImpl: FetchLike = (i, init) => globalThis.fetch(i, init),
 ): Promise<TokenOutcome> {
   const body: Record<string, string> = {
@@ -329,5 +339,6 @@ export async function refreshAccessToken(
     client_id: params.clientId,
   }
   if (params.clientSecret) body.client_secret = params.clientSecret
+  if (params.resource) body.resource = params.resource
   return postToken(metadata.token_endpoint, body, fetchImpl)
 }

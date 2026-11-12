@@ -1,3 +1,4 @@
+import type Database from 'better-sqlite3'
 import { getDb } from '../db/index.js'
 
 export interface WorkspaceRecord {
@@ -10,6 +11,8 @@ export interface WorkspaceRecord {
   doc_write_roots: string[]
   default_agent_pool: string[]
   archived: boolean
+  /** Slug this workspace was folded into by workspace-merge (obj 900667), or null. */
+  merged_into?: string | null
   sort_order: number
   created_at: string
   updated_at: string
@@ -25,6 +28,7 @@ interface WorkspaceRow {
   doc_write_roots: string
   default_agent_pool: string
   archived: number
+  merged_into?: string | null
   sort_order: number
   created_at: string
   updated_at: string
@@ -53,6 +57,7 @@ function rowToRecord(row: WorkspaceRow): WorkspaceRecord {
     doc_write_roots: parseJsonArray(row.doc_write_roots),
     default_agent_pool: parseJsonArray(row.default_agent_pool),
     archived: !!row.archived,
+    merged_into: row.merged_into ?? null,
     sort_order: row.sort_order,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -79,6 +84,55 @@ export function listWorkspaces(opts: { includeArchived?: boolean } = {}): Worksp
 
 export function getWorkspace(slug: string): WorkspaceRecord | undefined {
   return loadCache().get(slug)
+}
+
+/**
+ * Follow `workspaces.merged_into` to the live workspace (obj 900667).
+ *
+ * After `workspace-merge --from example --to your-org`, `example` is an archived
+ * tombstone. Anything that still names it — a hard-coded `|| 'example'` fallback,
+ * a routine template, a host script posting `workspace: 'example'` — must write to
+ * `your-org`, or the retired org slowly fills back up. Slugs that were never
+ * merged (or are unknown) come back unchanged, so an install that never ran a
+ * merge behaves exactly as before. Cycle-safe.
+ */
+export function canonicalWorkspaceSlug(slug: string): string {
+  const seen = new Set<string>([slug])
+  let cur = slug
+  for (;;) {
+    const next = loadCache().get(cur)?.merged_into
+    if (!next || seen.has(next)) return cur
+    seen.add(next)
+    cur = next
+  }
+}
+
+/** The historical hard-coded fallback slug. Never write it directly — use `defaultWorkspaceSlug()`. */
+export const LEGACY_DEFAULT_WORKSPACE = 'example'
+
+/**
+ * The workspace a write lands in when the caller named none. Historically the
+ * literal `'example'`; now that slug resolved through `canonicalWorkspaceSlug`, so
+ * it is `your-org` once the merge has run and still `'example'` otherwise.
+ */
+export function defaultWorkspaceSlug(): string {
+  try {
+    return canonicalWorkspaceSlug(LEGACY_DEFAULT_WORKSPACE)
+  } catch {
+    // No DB available (pure unit tests) — keep the historical value.
+    return LEGACY_DEFAULT_WORKSPACE
+  }
+}
+
+/** `slug` resolved through any merge, or the default when empty. */
+export function resolveWriteWorkspace(slug: string | null | undefined): string {
+  const s = typeof slug === 'string' ? slug.trim() : ''
+  if (!s) return defaultWorkspaceSlug()
+  try {
+    return canonicalWorkspaceSlug(s)
+  } catch {
+    return s
+  }
 }
 
 export function workspaceExists(slug: string): boolean {
@@ -177,4 +231,38 @@ export function archiveWorkspace(slug: string): boolean {
     .run(slug)
   invalidateWorkspacesCache()
   return result.changes > 0
+}
+
+/**
+ * `canonicalWorkspaceSlug` against an explicit handle, uncached (obj 900667).
+ * For code that runs during schema init or already holds its own `db`, where
+ * the module cache may not be safe to populate yet. Unknown slugs, a missing
+ * table/column, or a cycle all return the input unchanged.
+ */
+export function canonicalWorkspaceSlugIn(
+  db: Pick<Database.Database, "prepare">,
+  slug: string,
+): string {
+  try {
+    const stmt = db.prepare('SELECT merged_into FROM workspaces WHERE slug = ?')
+    const seen = new Set<string>([slug])
+    let cur = slug
+    for (;;) {
+      const next = (stmt.get(cur) as { merged_into?: string | null } | undefined)?.merged_into
+      if (!next || seen.has(next)) return cur
+      seen.add(next)
+      cur = next
+    }
+  } catch {
+    return slug
+  }
+}
+
+/** `resolveWriteWorkspace` against an explicit handle, uncached. */
+export function resolveWorkspaceIn(
+  db: Pick<Database.Database, "prepare">,
+  slug: string | null | undefined,
+): string {
+  const s = typeof slug === 'string' ? slug.trim() : ''
+  return canonicalWorkspaceSlugIn(db, s || LEGACY_DEFAULT_WORKSPACE)
 }

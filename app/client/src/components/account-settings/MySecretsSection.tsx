@@ -1,5 +1,6 @@
 /**
  * Per-user secrets card — extracted from AccountSettings.tsx (behavior frozen).
+ * Lives in Settings → Secrets → Mine since obj 900681 (was on API & MCP).
  *
  * Every authenticated user can manage their own `user`-scoped secrets here.
  * Values are encrypted server-side and NEVER returned — the list shows a mask,
@@ -61,7 +62,7 @@ export function MySecretsSection() {
     <section className="mt-5 rounded-lg border border-border bg-surface-raised p-5">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-fg-0">My Secrets</h2>
+          <h2 className="text-base font-semibold text-fg-0">My secrets</h2>
           <p className="mt-1 text-xs text-fg-3">
             Personal secrets scoped to you. Stored encrypted; the value is never shown again after you save it.
           </p>

@@ -78,6 +78,14 @@ export interface MergePlan {
   objectives: { from: number; to: number; expectedAfter: number }
   tables: TablePlan[]
   memberships: MembershipPlan
+  /** Same-named projects folded into the target's (obj 900667). */
+  projectFolds: ProjectFold[]
+  /**
+   * Routine ids whose JSON `objective_template` still says `"workspace": from`.
+   * A column sweep cannot see inside JSON, so without this every fire would
+   * re-file a card under the retired workspace (obj 900667).
+   */
+  routineTemplates: number[]
   warnings: string[]
 }
 
@@ -242,6 +250,8 @@ export function planMerge(db: Database.Database, from: string, to: string): Merg
     objectives: { from: objFrom, to: objTo, expectedAfter: objFrom + objTo },
     tables,
     memberships: planMemberships(db, from, to),
+    projectFolds: planProjectFolds(db, from, to),
+    routineTemplates: planRoutineTemplates(db, from),
     warnings,
   }
 }
@@ -331,6 +341,12 @@ export function applyMerge(db: Database.Database, from: string, to: string): Mer
   let report!: MergeReport
 
   db.transaction(() => {
+    // Fold same-named projects FIRST, so the cards they hold follow the
+    // target's project and the archived source row is left empty.
+    for (const f of plan.projectFolds) {
+      db.prepare('UPDATE objectives SET project_id = ? WHERE project_id = ?').run(f.targetId, f.sourceId)
+      db.prepare("UPDATE projects SET archived = 1, updated_at = datetime('now') WHERE id = ?").run(f.sourceId)
+    }
     for (const t of plan.tables) {
       if (t.blocked) continue
       const tbl = quoteIdent(t.table)
@@ -341,8 +357,18 @@ export function applyMerge(db: Database.Database, from: string, to: string): Mer
       db.prepare(`UPDATE OR IGNORE ${tbl} SET ${col} = ? WHERE ${col} = ?`).run(to, from)
     }
     mergeMemberships(db, from, to)
+    for (const id of plan.routineTemplates) {
+      db.prepare("UPDATE routines SET objective_template = json_set(objective_template, '$.workspace', ?) WHERE id = ?").run(to, id)
+    }
 
     const after = { from: countObjectives(db, from), to: countObjectives(db, to) }
+    const crossRefs = countProjectRefsAcross(db, to, from)
+    if (crossRefs > 0) {
+      throw new Error(
+        `merge verification failed: ${crossRefs} '${to}' card(s) would still point at a project in '${from}'. ` +
+          'Transaction rolled back; nothing changed.',
+      )
+    }
     const ok = after.from === 0 && after.to === plan.objectives.expectedAfter
     if (!ok) {
       throw new Error(
@@ -352,13 +378,22 @@ export function applyMerge(db: Database.Database, from: string, to: string): Mer
     }
     // Archive — never DELETE. See the module header.
     db.prepare("UPDATE workspaces SET archived = 1, updated_at = datetime('now') WHERE slug = ?").run(from)
+    // Point the tombstone at its successor so `canonicalWorkspaceSlug()`
+    // redirects late writes that still name the retired slug (obj 900667).
+    if (hasColumn(db, 'workspaces', 'merged_into')) {
+      db.prepare('UPDATE workspaces SET merged_into = ? WHERE slug = ?').run(to, from)
+    }
     report = { ...plan, applied: true, verified: { ...after, ok }, archivedSource: true }
   })()
 
   return report
 }
 
-/** Requirement 7: flip a workspace back to visible. Touches nothing else. */
+/**
+ * Requirement 7: flip a workspace back to visible. Touches nothing else except
+ * clearing its `merged_into` redirect (obj 900667) — a live workspace must not
+ * have its writes forwarded elsewhere.
+ */
 export function unarchiveWorkspace(db: Database.Database, slug: string): { slug: string; wasArchived: boolean } {
   assertWorkspaceExists(db, slug)
   const row = db.prepare('SELECT archived FROM workspaces WHERE slug = ?').get(slug) as { archived: number }
@@ -366,7 +401,15 @@ export function unarchiveWorkspace(db: Database.Database, slug: string): { slug:
   if (wasArchived) {
     db.prepare("UPDATE workspaces SET archived = 0, updated_at = datetime('now') WHERE slug = ?").run(slug)
   }
+  // An un-archived workspace is live again: stop redirecting its writes.
+  if (hasColumn(db, 'workspaces', 'merged_into')) {
+    db.prepare('UPDATE workspaces SET merged_into = NULL WHERE slug = ?').run(slug)
+  }
   return { slug, wasArchived }
+}
+
+function hasColumn(db: Database.Database, table: string, column: string): boolean {
+  return (db.prepare(`PRAGMA table_info(${quoteIdent(table)})`).all() as Array<{ name: string }>).some(c => c.name === column)
 }
 
 function countObjectives(db: Database.Database, slug: string): number {
@@ -382,4 +425,77 @@ function assertWorkspaceExists(db: Database.Database, slug: string): void {
 function quoteIdent(name: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`unsafe identifier: ${name}`)
   return `"${name}"`
+}
+
+/**
+ * A source-workspace project whose NAME the target already uses (obj 900667).
+ *
+ * `projects` carries `UNIQUE(workspace, name)`, so the generic sweep's
+ * `UPDATE OR IGNORE` leaves such a row on the source — and every card filed
+ * under it keeps a `project_id` that points into the retired org. Those cards
+ * then sit in the target board under a project the target's picker cannot
+ * show, while the archived org's project keeps surfacing. A fold repoints the
+ * cards to the target's same-named project and ARCHIVES the source project
+ * (never deletes it); `objectiveIds` is the exact undo list.
+ */
+export interface ProjectFold {
+  name: string
+  sourceId: number
+  targetId: number
+  objectiveIds: number[]
+}
+
+function hasProjects(db: Database.Database): boolean {
+  const t = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects'").get()
+  if (!t) return false
+  const cols = (db.prepare('PRAGMA table_info(objectives)').all() as Array<{ name: string }>).map(c => c.name)
+  return cols.includes('project_id')
+}
+
+/** Read-only. Source projects that collide by name with a target project. */
+export function planProjectFolds(db: Database.Database, from: string, to: string): ProjectFold[] {
+  if (!hasProjects(db)) return []
+  const pairs = db
+    .prepare(
+      `SELECT s.id AS sourceId, t.id AS targetId, s.name AS name
+         FROM projects s JOIN projects t ON t.name = s.name
+        WHERE s.workspace = ? AND t.workspace = ?
+        ORDER BY s.id`,
+    )
+    .all(from, to) as Array<{ sourceId: number; targetId: number; name: string }>
+  const ids = db.prepare('SELECT id FROM objectives WHERE project_id = ? ORDER BY id')
+  return pairs.map(p => ({ ...p, objectiveIds: (ids.all(p.sourceId) as Array<{ id: number }>).map(r => r.id) }))
+}
+
+/**
+ * Cards on `cardsIn` whose `project_id` names a project that lives in
+ * `projectsIn`. After merging `from` into `to`, (to, from) must be zero —
+ * the invariant `applyMerge` enforces. Scoped to the pair so an unrelated,
+ * pre-existing cross-org reference elsewhere can never block a merge.
+ */
+export function countProjectRefsAcross(db: Database.Database, cardsIn: string, projectsIn: string): number {
+  if (!hasProjects(db)) return 0
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) n FROM objectives o JOIN projects p ON p.id = o.project_id
+          WHERE o.workspace = ? AND p.workspace = ?`,
+      )
+      .get(cardsIn, projectsIn) as { n: number }
+  ).n
+}
+
+/** Read-only. Routines whose JSON template files cards under `slug`. */
+export function planRoutineTemplates(db: Database.Database, slug: string): number[] {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='routines'").get()) return []
+  if (!hasColumn(db, 'routines', 'objective_template')) return []
+  return (
+    db
+      .prepare(
+        `SELECT id FROM routines
+          WHERE json_valid(objective_template) AND json_extract(objective_template, '$.workspace') = ?
+          ORDER BY id`,
+      )
+      .all(slug) as Array<{ id: number }>
+  ).map(r => r.id)
 }

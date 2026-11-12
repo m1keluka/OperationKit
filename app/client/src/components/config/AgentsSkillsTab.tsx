@@ -1,23 +1,41 @@
 /**
- * Agents & Skills Settings tab — extracted from ConfigPage.tsx (behavior frozen).
+ * Roster of every agent and skill — the Registry tab of the Agents & Skills page
+ * (/agents). Extracted from ConfigPage.tsx.
+ *
+ * obj 900684: GET /admin/agents now returns every source of agents the app knows
+ * about, not just flat persona files — built-in chat agents (Knowledge Base
+ * Setup), folder-format chat agents, registry rows with no file, and starter-pack
+ * agents that are not switched on — plus sub-skills. Each row says where it comes
+ * from and, when it is not usable yet, why. See server services/agent-roster.ts.
  */
 import { useState, useEffect, useCallback } from 'react'
-import { FileCode2, Sparkles } from 'lucide-react'
+import { ExternalLink, FileCode2, Sparkles } from 'lucide-react'
 import {
   Card, Button, Badge, EmptyState, Skeleton, cn,
 } from '../ui'
 import { api } from '../../lib/api'
 import { formatBytes, formatName } from './config-form'
 
-interface AgentInfo {
+type AgentSource = 'persona' | 'chat' | 'builtin' | 'registry' | 'starter-pack'
+
+export interface AgentInfo {
+  /** `${source}:${slug}`; older servers omit it, so fall back to the slug. */
+  id?: string
   name: string
   filename: string
   slug: string
   size: number
-  modifiedAt: string
+  modifiedAt: string | null
   assignable: boolean
   kind: 'executive' | 'routing-only'
   label: string
+  source?: AgentSource
+  description?: string
+  file_path?: string | null
+  definition?: string | null
+  open_href?: string | null
+  pack?: { id: string; name: string; enabled: boolean } | null
+  note?: string | null
 }
 
 interface SkillInfo {
@@ -26,6 +44,22 @@ interface SkillInfo {
   dirname: string
   size: number
   fileCount: number
+  parent?: string | null
+}
+
+export const SOURCE_LABEL: Record<AgentSource, string> = {
+  persona: 'persona',
+  chat: 'chat agent',
+  builtin: 'built-in',
+  registry: 'no file',
+  'starter-pack': 'starter pack',
+}
+
+export const agentId = (a: AgentInfo) => a.id ?? a.slug
+
+/** The agent a slug cross-link means: the persona file first, then any other source. */
+export function agentForSlug(agents: AgentInfo[], slug: string): AgentInfo | undefined {
+  return agents.find(a => a.slug === slug && (a.source ?? 'persona') === 'persona') ?? agents.find(a => a.slug === slug)
 }
 
 // Subset of GET /admin/skill-graph — the okit-validated agent -> skill -> tool
@@ -90,10 +124,18 @@ export function AgentsSkillsTab() {
     } catch {}
   }, [])
 
-  function selectAgent(slug: string) {
-    setSelected({ type: 'agent', key: slug })
+  function selectAgent(id: string) {
+    setSelected({ type: 'agent', key: id })
     setShowFile(false)
-    loadFile(`agents/${slug}.md`)
+    const a = agents.find(x => agentId(x) === id)
+    if (a?.definition) setFileContent(a.definition)
+    else if (a?.file_path) loadFile(a.file_path)
+    else if (a && a.source && a.source !== 'persona') setFileContent('There is no definition file for this agent on this install.')
+    else loadFile(`agents/${a?.slug ?? id}.md`)
+  }
+  function selectAgentBySlug(slug: string) {
+    const a = agentForSlug(agents, slug)
+    selectAgent(a ? agentId(a) : slug)
   }
 
   function selectSkill(name: string) {
@@ -184,24 +226,31 @@ export function AgentsSkillsTab() {
           )}
           {viewMode === 'agents' && agents.map(agent => (
             <button
-              key={agent.filename}
-              onClick={() => selectAgent(agent.slug)}
+              key={agentId(agent)}
+              onClick={() => selectAgent(agentId(agent))}
               className={cn(
                 'w-full rounded-md px-3 py-2.5 text-left transition-colors',
-                selected?.type === 'agent' && selected.key === agent.slug
+                selected?.type === 'agent' && selected.key === agentId(agent)
                   ? 'bg-[var(--accent-tint)] text-accent-hover'
                   : 'text-fg-1 hover:bg-surface-3',
               )}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[13px] font-medium">{agent.label || formatName(agent.name)}</span>
-                <Badge tone={agent.kind === 'executive' ? 'accent' : 'neutral'}>
-                  {agent.kind === 'executive' ? 'executive' : 'routing-only'}
-                </Badge>
+                {agent.source && agent.source !== 'persona' ? (
+                  <Badge tone={agent.source === 'registry' ? 'verify' : 'info'}>{SOURCE_LABEL[agent.source]}</Badge>
+                ) : (
+                  <Badge tone={agent.kind === 'executive' ? 'accent' : 'neutral'}>
+                    {agent.kind === 'executive' ? 'executive' : 'routing-only'}
+                  </Badge>
+                )}
               </div>
+              {agent.source && agent.source !== 'persona' && agent.description && (
+                <div className="mt-0.5 line-clamp-2 text-[12px] text-fg-3">{agent.description}</div>
+              )}
               <div className="mt-0.5 flex items-center gap-2 font-mono text-[12px] text-fg-3">
-                <span>{formatBytes(agent.size)}</span>
-                <span>· {skillsForAgent(agent.slug).length} skills</span>
+                {agent.size > 0 && <span>{formatBytes(agent.size)}</span>}
+                <span>· {skillsForAgent(agent.slug).length} {skillsForAgent(agent.slug).length === 1 ? 'skill' : 'skills'}</span>
                 {!agent.assignable && <span className="text-flag-blocked">· not assignable</span>}
               </div>
             </button>
@@ -215,13 +264,15 @@ export function AgentsSkillsTab() {
                 onClick={() => selectSkill(skill.dirname)}
                 className={cn(
                   'w-full rounded-md px-3 py-2.5 text-left transition-colors',
+                  skill.parent && 'pl-6',
                   selected?.type === 'skill' && selected.key === skill.dirname
                     ? 'bg-[var(--accent-tint)] text-accent-hover'
                     : 'text-fg-1 hover:bg-surface-3',
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[13px] font-medium">{formatName(skill.name)}</span>
+                  <span className="text-[13px] font-medium">{formatName(skill.parent ? skill.name.slice(skill.parent.length + 1) : skill.name)}</span>
+                  {skill.parent && <Badge tone="neutral">sub-skill</Badge>}
                   {rs?.needs_improvement && <Badge tone="verify">needs work</Badge>}
                 </div>
                 {skill.description && (
@@ -248,12 +299,15 @@ export function AgentsSkillsTab() {
           />
         ) : selected.type === 'agent' ? (
           (() => {
-            const agent = agents.find(a => a.slug === selected.key)
-            const agentSkills = skillsForAgent(selected.key)
+            const agent = agents.find(a => agentId(a) === selected.key)
+            const agentSkills = skillsForAgent(agent?.slug ?? selected.key)
             return (
               <div className="p-4 space-y-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone="info">agent</Badge>
+                  {agent?.source && agent.source !== 'persona' && (
+                    <Badge tone={agent.source === 'registry' ? 'verify' : 'info'}>{SOURCE_LABEL[agent.source]}</Badge>
+                  )}
                   <Badge tone={agent?.kind === 'executive' ? 'accent' : 'neutral'}>
                     {agent?.kind === 'executive' ? 'executive' : 'routing-only / sub-agent'}
                   </Badge>
@@ -264,7 +318,21 @@ export function AgentsSkillsTab() {
                     {agent?.label || formatName(selected.key)}
                   </h3>
                 </div>
-                {agent?.kind === 'routing-only' && (
+                {agent?.description && <p className="text-[12px] leading-relaxed text-fg-2">{agent.description}</p>}
+                {agent?.note && (
+                  <p className="rounded-md border border-line bg-surface-1 p-2.5 text-[12px] leading-relaxed text-fg-2" data-testid="agent-note">
+                    {agent.note}
+                  </p>
+                )}
+                {agent?.open_href && (
+                  <a
+                    href={agent.open_href}
+                    className="inline-flex items-center gap-1 text-[12px] text-accent-hover underline-offset-2 hover:text-accent hover:underline"
+                  >
+                    Open in Bots <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+                {agent?.kind === 'routing-only' && (agent.source ?? 'persona') === 'persona' && (
                   <p className="text-[12px] text-fg-3">
                     Normally invoked via the CLAUDE.md routing table or spawned as a sub-agent.
                     Still selectable as an objective's primary agent.
@@ -322,7 +390,7 @@ export function AgentsSkillsTab() {
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
                       {consumers.map(a => (
-                        <LinkChip key={a} label={a} tone="info" onClick={() => { selectAgent(a); setViewMode('agents') }} />
+                        <LinkChip key={a} label={a} tone="info" onClick={() => { selectAgentBySlug(a); setViewMode('agents') }} />
                       ))}
                     </div>
                   )}

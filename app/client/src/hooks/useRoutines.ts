@@ -25,7 +25,9 @@ export interface RoutineSummary {
   strategy_title: string | null
   // obj 64 Part B — script routines + auto-pause. Optional so an older server
   // response (no such fields) still renders.
-  kind?: 'ai' | 'script'
+  kind?: 'ai' | 'script' | 'flow'
+  /** obj 900640 (B4) — kind 'flow': the workflow whose published cron this routine carries. */
+  flow_id?: number | null
   script_command?: string | null
   alert_marker?: string | null
   /** Result of the last script run: 'ok' | 'alert' | 'failed' (null for AI / never run). */

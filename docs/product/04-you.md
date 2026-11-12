@@ -9,7 +9,9 @@ Generate. Copy. Paste into Grok Bot or any agent as `Authorization: Bearer cc_li
 
 ## Integrations
 
-Settings → **Integrations** (renamed from **Connectors**) is where you link the outside accounts agents work in for you. Each connector shows whether it is connected, as whom, and when it was last checked.
+Settings → **Integrations** (renamed from **Connectors**) is where you link the outside accounts agents work in for you. The page lists only what is **connected** — your accounts, the workspace's MCP servers, and anything the Integrations bot built — each with whether it works, as whom, and when it was last checked.
+
+**New Integration** adds one. **Browse integrations** lists everything that comes with a step-by-step setup guide (and remote MCP servers from the catalog). **Make my own** starts the **Integrations bot** on its own board card: it asks what you want to connect, reads the API docs you link or paste, builds and tests the connection, and asks for keys in a secure masked form in the chat — never as a chat message. Admins only. See [the Integrations bot](../connectors/INTEGRATIONS-BOT.md).
 
 - **GitHub** — paste a fine-grained personal access token. Pull requests and commits on cards assigned to you use that login and email. **Check connection** re-tests it. Disconnecting here does not cancel the token on GitHub; do that there too.
 - **Google Workspace** — **Sign in with Google** covers Gmail, Calendar and Drive (including Docs and Sheets). Sessions acting as you send email and work with files as that Google account. Disconnecting cancels the sign-in at Google.

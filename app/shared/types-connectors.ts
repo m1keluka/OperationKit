@@ -91,6 +91,28 @@ export interface ConnectorOAuthSetup {
   scopes: string[]
 }
 
+/**
+ * OPTIONAL, opt-in shared third-party OAuth app (Sprint 7.7, obj 900511).
+ * Present only for connectors that MAY use one (`shared_app_eligible`);
+ * `null` everywhere else. `enabled` is false on every fresh install — there
+ * is no built-in issuer or client id, and Operation Kit runs no shared app.
+ * Using one is a dependency on the third party the admin picked.
+ */
+export interface ConnectorSharedApp {
+  /** The admin turned it on AND the config is complete. */
+  enabled: boolean
+  /** A config is saved (on or off). */
+  configured: boolean
+  issuer: string | null
+  client_id: string | null
+  redirect_uri: string | null
+  provider_label: string | null
+  /** This install's own callback — where the third party must relay `code` + `state`. */
+  install_callback_uri: string
+  /** The install has its own app for this connector, so the shared app is NOT used even if on. */
+  own_app_configured: boolean
+}
+
 export interface ConnectorSummary {
   id: string
   name: string
@@ -110,6 +132,8 @@ export interface ConnectorSummary {
   oauth_setup: ConnectorOAuthSetup | null
   /** Relative path to this connector's setup walkthrough, e.g. `docs/connectors/guides/slack.md`. */
   setup_guide: string | null
+  /** Opt-in shared third-party app state; `null` unless this connector may use one. Optional for older servers. */
+  shared_app?: ConnectorSharedApp | null
 }
 
 /** POST /api/connectors/:id/connect — either finished, or go sign in. */

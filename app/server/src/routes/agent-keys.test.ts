@@ -260,6 +260,7 @@ describe('[scope-enforcement] server-side scope guardrails', () => {
     expect(requiredScope('PUT', '/api/docs/file', {})).toEqual({ kind: 'scope', scope: 'vault:write' })
     expect(requiredScope('POST', '/api/kb-wiki/answers', {})).toEqual({ kind: 'scope', scope: 'vault:write' })
     expect(requiredScope('POST', '/api/kb-wiki/rebuild', {})).toEqual({ kind: 'off_surface' })
+    expect(requiredScope('GET', '/api/kb-wiki/graph', undefined)).toEqual({ kind: 'scope', scope: 'vault:read' })
     expect(requiredScope('GET', '/api/docs/search', undefined)).toEqual({ kind: 'scope', scope: 'vault:read' })
     expect(requiredScope('GET', '/api/secrets', undefined)).toEqual({ kind: 'off_surface' })
     expect(requiredScope('POST', '/api/internal/deploy', {})).toEqual({ kind: 'off_surface' })

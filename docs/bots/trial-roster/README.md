@@ -13,9 +13,9 @@ that install's data, never in this repo's source.
 
 | File | Bot | Purpose |
 |---|---|---|
-| `cos.agent.yaml` | General | Coordination/routing, read + write KB, no board cards |
+| `cos.agent.yaml` | General | Coordination/routing, read + write KB, web search + page reading, no board cards |
 | `cfo.agent.yaml` | CFO | Read-only finance KB, no write, no board, no connectors |
-| `cto.agent.yaml` | CTO | Board ops/PR triage/CI, files cards, no merge/deploy |
+| `cto.agent.yaml` | CTO | Board ops/PR triage/CI, files cards, web search + page reading, no merge/deploy |
 
 Each is a standard [agent file](../agent-file-format.md) and imports as-is
 under its placeholder slug. To register them under this install's own slugs,

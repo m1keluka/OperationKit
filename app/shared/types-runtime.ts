@@ -6,6 +6,7 @@
  */
 import type { MessageSender, Objective, ObjectiveStatus, SessionMessage } from './types-core.js'
 import type { Alert } from './types-surfaces.js'
+import type { FlowLiveEvent } from './flow/api.js'
 
 // ── WebSocket Messages ──
 
@@ -20,6 +21,8 @@ export type ServerMessage =
   | { type: 'alert'; payload: Alert }
   | { type: 'alert_acked'; payload: { id: number } }
   | { type: 'error'; payload: { message: string } }
+  // Workflow run progress for the live viewer overlay (card B7). Workspace-scoped.
+  | { type: 'flow_step'; payload: FlowLiveEvent }
 
 export type ClientMessage =
   | { type: 'terminal_input'; payload: { session_id: string; data: string } }

@@ -10,7 +10,7 @@ it held now lives in the account (avatar) dropdown, which is the same menu on de
 
 | Old item (in "More") | Old URL | Who saw it | New home | New URL | Old URL still works? |
 |---|---|---|---|---|---|
-| Archive | `/archive` | everyone | Account dropdown → **Archive** (everyone) | `/archive` | unchanged |
+| Archive | `/archive` | everyone | Board → **Archive** button (obj 900686 removed it from the account dropdown) | `/archive` | unchanged |
 | Agents | `/agents` | admin | Account dropdown → Admin → **Agents** (one page, tabbed) | `/agents` | unchanged |
 | Templates | `/agent-templates` | admin | **Agents** page → *Templates* tab | `/agents?tab=templates` | redirects |
 | Dashboard | `/dashboard` (+ alias `/costs`) | admin | Account dropdown → Admin → **System** | `/system` | `/dashboard` and `/costs` redirect |
@@ -33,13 +33,14 @@ The mobile bottom bar is now just those ≤4 tabs; everything else is one tap aw
 <name>  [admin]
 ──────────────
 Settings
-Archive
-ADMIN                  (global admins only)
-System
-Agents
+System                 (global admins only)
+Agents                 (global admins only)
 ──────────────
 Logout
 ```
+
+obj 900686 flattened this: Archive left the dropdown (the board's own Archive button
+already opens `/archive`) and the "ADMIN" sub-heading went with it.
 
 ## 2. Dashboard → System
 
@@ -98,4 +99,6 @@ the left edge of the screen).
 
 - The Settings tab strip still lists **Agents** and **Platform**; both now redirect out of
   Settings. 4b should drop those two tabs (and their `TAB_COPY`) when it reworks the strip.
+  *Done:* 4b (obj 900496) dropped Agents; obj 900686 dropped Platform and moved its
+  queue auto-start switch to the Jobs page.
 - Flip `MODELS_SETTINGS_ROUTE` to `/settings/models` when Seats is renamed.

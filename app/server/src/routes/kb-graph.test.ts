@@ -186,4 +186,36 @@ describe('knowledge-base link graph over MCP (sample data)', () => {
     expect(r.isError).toBe(true)
     expect(r.text).toMatch(/No page called/)
   })
+
+  it('GET /api/kb-wiki/graph returns the whole workspace graph from kb_edges (obj 900674)', async () => {
+    const res = await fetch(`${baseUrl}/api/kb-wiki/graph?workspace=${WS}`, { headers: { Authorization: `Bearer ${readerKey}` } })
+    expect(res.status).toBe(200)
+    const g = await res.json() as { nodes: Array<{ rel: string; kind: string; degree: number }>; links: Array<{ a: string; b: string; kinds: string[]; label: string | null }>; counts: { pages: number; links: number }; truncated: boolean }
+    const rels = new Set(g.nodes.map(n => n.rel))
+    expect(rels.has(`${PEOPLE}/tom-whitfield.md`)).toBe(true)
+    expect(rels.has(`${ORGS}/greenway-growers.md`)).toBe(true)
+    expect(g.truncated).toBe(false)
+    expect((g as unknown as { root: string }).root).toBe(path.resolve(KB))
+    expect(g.counts.pages).toBe(g.nodes.length)
+    // Every link joins two drawn pages, once per pair, with no self-links.
+    const pairs = new Set<string>()
+    for (const l of g.links) {
+      expect(rels.has(l.a) && rels.has(l.b)).toBe(true)
+      expect(l.a < l.b).toBe(true)
+      expect(pairs.has(`${l.a}|${l.b}`)).toBe(false)
+      pairs.add(`${l.a}|${l.b}`)
+    }
+    const tom = g.links.find(l => [l.a, l.b].includes(`${PEOPLE}/tom-whitfield.md`) && [l.a, l.b].includes(`${ORGS}/greenway-growers.md`))
+    expect(tom?.kinds).toContain('related')
+    expect(tom?.label).toBe('works for')
+    // ?limit keeps the best-connected pages and says it cut some.
+    const small = await (await fetch(`${baseUrl}/api/kb-wiki/graph?workspace=${WS}&limit=3`, { headers: { Authorization: `Bearer ${readerKey}` } })).json()
+    expect(small.nodes).toHaveLength(3)
+    expect(small.truncated).toBe(true)
+  })
+
+  it('GET /api/kb-wiki/graph needs vault:read', async () => {
+    const res = await fetch(`${baseUrl}/api/kb-wiki/graph?workspace=${WS}`, { headers: { Authorization: `Bearer ${boardOnlyKey}` } })
+    expect(res.status).toBe(403)
+  })
 })

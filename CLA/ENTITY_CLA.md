@@ -112,13 +112,13 @@ make these representations inaccurate in any respect.
 
 ## 9. General
 
-This Agreement is governed by the laws of the State of [STATE - confirm].
+This Agreement is governed by the laws of the State of Delaware.
 This Agreement is the entire agreement between You and the Company about its subject matter. If any
 provision is held unenforceable, the remaining provisions remain in effect.
 
 ## How to sign
 
-Complete the form and schedules below and send a signed copy to [LEGAL CONTACT EMAIL - confirm].
+Complete the form and schedules below and send a signed copy to legal@example.com.
 
 ```
 Legal name of entity:

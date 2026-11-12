@@ -5,7 +5,7 @@ import path from 'path'
 import Database from 'better-sqlite3'
 import { FOLDER_FOR, upsertEntityNote, type SourceRef } from '../doc-ingest/notes.js'
 import { compileWiki, loadWiki, onWikiCompiled } from './wiki.js'
-import { deriveGraph, kbRelated, kbWhoKnows, parseRelatedLine, readEdges, readNodes, syncGraph } from './graph.js'
+import { deriveGraph, kbRelated, kbWhoKnows, kbWorkspaceGraph, parseRelatedLine, readEdges, readNodes, syncGraph } from './graph.js'
 import { runLint } from './lint.js'
 import { fileAnswer } from './answers.js'
 
@@ -200,6 +200,37 @@ describe('queries', () => {
   it('kb_who_knows by exact page name, and an unknown topic returns no one', () => {
     expect(kbWhoKnows(db, WS, 'Greenway Growers').people[0].title).toBe('Tom Whitfield')
     expect(kbWhoKnows(db, WS, 'zebra crossings')).toEqual({ topic: 'zebra crossings', matched: [], people: [] })
+  })
+
+  it('kbWorkspaceGraph: every page, one link per pair of pages, degrees and isolated count (obj 900674)', () => {
+    const g = kbWorkspaceGraph(db, WS)
+    const rels = g.nodes.map(n => n.rel)
+    expect(rels).toContain(`${PEOPLE}/tom-whitfield.md`)
+    // Riverbend has no connections but is still drawn (as an isolated dot).
+    const river = g.nodes.find(n => n.rel === `${ORGS}/riverbend-nursery.md`)!
+    expect(river.degree).toBe(0)
+    expect(g.counts.isolated).toBeGreaterThanOrEqual(1)
+    expect(g.counts.pages).toBe(g.nodes.length)
+    expect(g.truncated).toBe(false)
+    // Tom → Greenway is `related` (works for) — and both are cited by the same source, which is separate pairs.
+    const tg = g.links.filter(l => l.a === `${ORGS}/greenway-growers.md` && l.b === `${PEOPLE}/tom-whitfield.md`)
+    expect(tg).toHaveLength(1)
+    expect(tg[0].kinds).toContain('related')
+    expect(tg[0].label).toBe('works for')
+    // Pairs are unique and ordered, degree matches the link list.
+    const keys = g.links.map(l => `${l.a}|${l.b}`)
+    expect(new Set(keys).size).toBe(keys.length)
+    for (const l of g.links) expect(l.a < l.b).toBe(true)
+    for (const n of g.nodes) expect(n.degree).toBe(g.links.filter(l => l.a === n.rel || l.b === n.rel).length)
+    // Sorted best-connected first, so a limit keeps the hubs and drops links to the cut pages.
+    const small = kbWorkspaceGraph(db, WS, { limit: 3 })
+    expect(small.nodes).toHaveLength(3)
+    expect(small.truncated).toBe(true)
+    expect(small.nodes.map(n => n.rel)).toEqual(g.nodes.slice(0, 3).map(n => n.rel))
+    const kept = new Set(small.nodes.map(n => n.rel))
+    for (const l of small.links) expect(kept.has(l.a) && kept.has(l.b)).toBe(true)
+    // Another workspace sees nothing.
+    expect(kbWorkspaceGraph(db, 'other').nodes).toEqual([])
   })
 })
 

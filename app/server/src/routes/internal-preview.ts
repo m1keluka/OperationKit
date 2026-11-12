@@ -2,6 +2,7 @@
  * Preview TLS check + PR-created hook — extracted from internal.ts
  * (behavior frozen). Localhost gate and SQL unchanged.
  */
+import { resolveWriteWorkspace } from '../services/workspaces.js'
 import { Router } from 'express'
 import { getDb, resolveStrategyId } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
@@ -122,7 +123,7 @@ router.post('/pr-created', (req, res) => {
         const result = db.prepare(
           `INSERT INTO objectives (title, description, status, agent_context, workspace, project, workflow_hint, parent_id, depth, model, origin, strategy_id, created_at, updated_at)
            VALUES (?, ?, 'queue', 'cto', ?, ?, 'adversarial', ?, ?, ?, 'strategy', ?, datetime('now'), datetime('now'))`
-        ).run(reviewTitle, reviewDescription, updated.workspace || 'example', updated.project, objective_id, depthForParent(db, objective_id), getDefaultModelId(), reviewStrategyId)
+        ).run(reviewTitle, reviewDescription, resolveWriteWorkspace(updated.workspace), updated.project, objective_id, depthForParent(db, objective_id), getDefaultModelId(), reviewStrategyId)
 
         const reviewObjective = db.prepare('SELECT * FROM objectives WHERE id = ?').get(result.lastInsertRowid) as Objective
         if (reviewObjective) {

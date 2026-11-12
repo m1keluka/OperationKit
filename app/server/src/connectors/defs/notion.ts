@@ -57,6 +57,7 @@ const notion: ConnectorDefinition = {
   order: 160,
   auth_path: 'dcr_mcp',
   mcp_url: ISSUER,
+  mcp_server_url: `${ISSUER}/mcp`,
   setup_guide: 'docs/connectors/guides/notion.md',
   description:
     'Lets agents read and write Notion pages and databases through the hosted Notion MCP server, as your Notion account.',

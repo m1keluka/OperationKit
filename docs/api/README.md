@@ -48,9 +48,9 @@ The key above is the **legacy full-access key**: it acts as you everywhere and k
 
   | Scope | Allows |
   | --- | --- |
-  | `board:read` | list / search / read cards, threads, briefing, workspaces, models, agents, **`/api/agent/changes`**, **`/api/agent/attention`** |
-  | `board:write` | create, edit, `/message`, `/stop`, status moves other than the two below |
-  | `board:start` | `PATCH …/status {"status":"working"}`, start/approve planning, **create with `"start": true`** (needs `board:write` too) |
+  | `board:read` | list / search / read cards, threads, briefing, workspaces, models, agents, **`/api/agent/changes`**, **`/api/agent/attention`**, workflows + their runs and self-tests (`GET /api/flows*`) |
+  | `board:write` | create, edit, `/message`, `/stop`, status moves other than the two below; **New workflow**, draft a workflow version, validate (`POST /api/flows`, `/api/flows/:id/versions`, `/api/flows/validate`) |
+  | `board:start` | `PATCH …/status {"status":"working"}`, start/approve planning, **create with `"start": true`** (needs `board:write` too); self-test or run a workflow (`POST /api/flows/:id/test`, `/api/flows/:id/runs`) |
   | `board:cancel` | `PATCH …/status {"status":"cancelled"}` — retire a duplicate (obj 718417: split out of `board:done`) |
   | `board:done` | `PATCH …/status {"status":"done"}` — the human signature |
   | `board:delete` | `DELETE /api/objectives/:id` |
@@ -149,6 +149,13 @@ Over MCP the loop is the same with typed tools: `whoami` → `get_attention` →
 | GET | `/api/agent/changes?since=` | Cursor-paged deltas (control layer) |
 | GET | `/api/agent/attention` | Compact “needs a decision” brief (control layer) |
 | POST | `/api/mcp` | Remote MCP server: knowledge + board tools in one connector ([below](#mcp-server)) |
+| GET | `/api/flows` · `/api/flows/:id` | Workflows you can see · one workflow (definition, Mermaid chart, versions, runs, publish state) — [Workflows](#workflows-okflow1) |
+| POST | `/api/flows` | **New workflow** from a goal → builder card (or store a version from okflow/1 JSON) |
+| POST | `/api/flows/validate` | Validate okflow/1 JSON without saving it (free) |
+| POST | `/api/flows/:id/versions` | Draft a new version (counts against the builder's `max_iterations`) |
+| POST | `/api/flows/:id/test` | Self-test a version (`dry` / `test`) — the engine's verdict |
+| POST | `/api/flows/:id/runs` · GET `/api/flows/:id/runs/:runId` | Run the published version now · one run + its steps |
+| GET | `/api/flows/:id/repairs` · `/api/flows/:id/repairs/:repairId` | Auto-debug repair incidents: patch, diff, safe-class verdict, replay evidence ([Repairs](#auto-debug-repairs-b8)) |
 | GET | `/api/docs/search?q=` | Second-brain search |
 | GET | `/api/docs/file?path=` | Read a vault markdown file |
 | PUT | `/api/docs/file` | Write a `.md` file |
@@ -162,6 +169,8 @@ Over MCP the loop is the same with typed tools: `whoami` → `get_attention` →
 | POST | `/api/secrets-broker/http` | One HTTPS call with `{{secret:NAME}}` injected server-side to an allowlisted host; response redacted |
 
 The vault is `/home/operator/second-brain`. Same API key as the board. Start at `workspaces/<slug>/active.md` (or `personal/active.md`), then `index.md`, then search. CoS writes **personal** memory; each company Bot writes that company’s `active.md` / `decisions/`. Nobody rewrites the vault on “what needs me?”. Do not clone the GitHub repo into Grok Bot — that copy goes stale.
+
+A key with a workspace list (`workspaces` set at creation) reaches only notes inside those workspaces on `/api/docs/*` and the MCP knowledge tools — an admin-owned key included. A path in another workspace, or in no workspace (e.g. a note at the vault root), is `403` with `code: "workspace_not_allowed"` + `allowed_workspaces`; `..` and symlinks are judged by where the file really is. A key with no workspace list is unaffected.
 
 Errors are `{ "error": "…" }` with 400 / 401 / 403 / 404 / 409 / 422 / 429. A scope refusal adds `missing_scope`; a workspace refusal adds `workspace` + `allowed_workspaces`.
 
@@ -321,6 +330,68 @@ with `403 missing_scope: board:start` (nothing is created). The response is the 
 
 On 409 the card **exists** — do not create it again. Retry with `PATCH /api/objectives/:id/status {"status":"working"}`.
 
+## Workflows (okflow/1)
+
+A **workflow** is a versioned JSON definition of typed steps that the server runs without an agent session per
+run; the model is used only where a step is an `llm` node. Design: `docs/design/WORKFLOWS.md` (the definition
+format is §3, the build loop §5.1). Everything below works for an agent key, a card session token and the
+signed-in owner alike, **except publish**.
+
+**New workflow is a goal, not JSON.** `POST /api/flows` with
+`{ "workspace": "acme", "goal": "…", "name"?: "…", "end_condition"?: { "assert": [{ "expr": "…" }] }, "builder"?: { "max_iterations": 6 } }`
+creates the workflow (no version yet) and its **builder card** — a normal card (`origin: "workflow"`, status
+`queue`) whose brief carries the goal, the end condition (or a request to propose one for the owner to confirm),
+the Tool registry the engine can run, the workspace's enabled MCP connectors and the exact loop below. Start the
+card to let a builder agent do the work, or do it yourself. While the install's kill switch
+`settings.flows_enabled` is off the card carries a `queue_hold`, so the queue never auto-starts a builder that
+cannot self-test yet. The same action is **New workflow** on the board header and on Jobs → Workflows.
+
+**The build loop:**
+
+1. `POST /api/flows/validate {definition}` — `{ ok, errors[], warnings[] }`, every issue at once. Free.
+2. `POST /api/flows/:id/versions {definition}` — stores a draft. `id` / `workspace` default to the workflow's own;
+   `version` defaults to the next number. A refusal is `400 { reason: "invalid_definition", errors[] }`.
+3. `POST /api/flows/:id/test {version, mode: "dry"}` — the engine's verdict: `self_test.status` `passed` | `failed`
+   with `failures[]`, `failing_asserts[]`, `uncovered_nodes[]`. `dry` calls nothing outside.
+4. Repeat 2–3 until `passed`. Then the owner publishes from Jobs → Workflows.
+
+**`builder.max_iterations`** (default 6, per workflow 1–20, install default `settings.flow_builder_max_iterations`):
+every draft an **agent** submits (agent key or card session) counts, accepted or refused. After that many since
+the workflow's last green self-test, the next agent draft is `409 { reason: "builder_iterations_exhausted", builder }`
+— the card goes to the owner instead of looping. A green self-test resets the count. Validate never counts; the
+owner's own drafts are never capped. Every draft answer carries `builder: { used, max, remaining, exhausted }`.
+
+**Publish is never on the agent surface.** `POST /api/flows/:id/publish` (and with it the owner's approval of the
+exact send/spend nodes) needs the owner signed in to the web app; an agent key gets `403` with
+`missing_scope: null` whatever its scopes, and there is no MCP tool for it. An outside agent can build and test a
+workflow; a human publishes anything that sends or spends. `run_workflow` runs only the published version.
+The same holds for a running workflow's owner decisions (B9): approving or rejecting a `wait.approval`
+(`POST /api/flows/:id/runs/:runId/approval`), confirming an unknown send/spend outcome (`…/outcome`), and
+releasing a `wait.event` (`POST /api/flows/:id/events`) are all off the agent-key surface (`403`, no MCP tool).
+
+### Auto-debug repairs (B8)
+
+When a **live** run fails (a node fails after its retries, a `check` with `on_fail: "repair"` fails, or the run
+ends with its goal not met) the server opens a **repair**: a repair card (`origin: "workflow"`, cost ceiling =
+`budget.repair_usd`, default $2) whose brief carries the failing node's input, the error, its attempts, its
+upstream outputs, the same node's I/O in the last good run and the definition. The card answers with
+`POST /api/flows/:id/repairs/:repairId/draft {patch, explanation}` — an RFC 6902 JSON Patch — and only that
+card's own session may call it. The server saves the result as the next version (`author: "repair:<run id>"`),
+**replays** the failed run against it (recorded outputs reused up to the failing node; read steps live,
+write/send/spend stubbed) and the engine judges the end condition. A green replay of a **safe-class** patch
+(input/argument mappings, retries, branch conditions, llm prompts, an added check or read-only step) is published
+automatically. Anything that touches `goal`, a send/spend node, approvals, the trigger, or raises a budget goes
+to **Needs Review**, as do: `budget.repairs_per_day` (default 3; the workflow is paused), the third failure with
+the same signature (node + error type) in 7 days, repair spend at `repair_usd` (paused), and 3 drafts without a
+green replay. A `127` / `ENOENT` failure is *definition rot*: it opens a repair at once and does not count
+toward the K-failure auto-pause. The owner approves (`…/approve {approve: [send/spend node ids]}`) or rejects
+(`…/reject`) signed in to the web app; neither is on the agent surface. `GET /api/flows/:id/repairs` lists
+incidents (`board:read`). Kill switch: `settings.flow_auto_repair_enabled = '0'`.
+
+**Workspaces.** A key sees the workflows of the workspaces its owner belongs to (every workspace, for an admin's
+key), narrowed to the key's allowlist. Naming another workspace — in a query, a body, or by a workflow id that lives
+there — is a `403`, never a narrowed `200`.
+
 ## Not this API
 
 | Prefix | Who |
@@ -389,6 +460,10 @@ merge, deploy, spend or delete tool.
 
 ### Parity: every REST action a bot takes → its MCP tool
 
+The workflow rows are also asserted in code: `WORKFLOW_TOOL_ROUTES` in `app/server/src/routes/agent-mcp.ts` maps each
+workflow tool to its one REST route, and `agent-mcp-workflows.test.ts` checks the route is registered, on the agent
+surface with the tool's scope, in the OpenAPI spec, and the only call the tool makes.
+
 | Bot action | REST route | MCP tool | Scope (agent key) |
 | --- | --- | --- | --- |
 | Who am I / what may I do | `GET /api/auth/me` | `whoami` | any valid key |
@@ -419,6 +494,7 @@ merge, deploy, spend or delete tool.
 | Knowledge base read | `GET /api/docs/file` | `read_file(path)` (`.md`) | vault:read |
 | Knowledge base write | `PUT /api/docs/file` | `write_doc(path, content)` | vault:write |
 | Save an answer to the wiki | `POST /api/kb-wiki/answers` | `file_answer(workspace, question, answer, sources?)`: becomes `answers/<date>-<question>.md`, linked from the pages it used | vault:write |
+| Knowledge-base graph | `GET /api/kb-wiki/graph` | (REST only) every page plus one link per connected pair (`kinds`, `label`), page degrees and counts by kind; `limit` ≤ 2000 keeps the best connected. The Knowledge base page draws this as its default graph view (obj 900674) | vault:read |
 | Knowledge-base connections | `GET /api/kb-wiki/graph/related` | `kb_related(workspace, page, depth?)`: pages linked to one page (path or name), each with kind (`related` / `mentions` / `cited_by` / `answer_used`) and label (`works for` …); depth ≤ 2 | vault:read |
 | Who knows about a topic | `GET /api/kb-wiki/graph/who-knows` | `kb_who_knows(workspace, topic, limit?)`: people linked to a topic, ranked by number of citing sources then recency | vault:read |
 | File search | `GET /api/files/search` | `search_files(q?, glob?, ext?, type?, path_prefix?, modified_*?, workspace?)` | vault:read |
@@ -426,6 +502,15 @@ merge, deploy, spend or delete tool.
 | File download | `GET /api/files/download` | `read_file(path, workspace?)`: text inline, binary base64 up to 300 KB, else metadata only | vault:read |
 | Star / starred filter | — | — | No `starred` field exists on `main`, so there is nothing to wrap |
 | Delete a card | `DELETE /api/objectives/:id` | **none on purpose** | board:delete (REST only) |
+| List workflows | `GET /api/flows` | `list_workflows(workspace?)` | board:read |
+| Read a workflow | `GET /api/flows/:id` | `get_workflow(id, version?)`: definition, Mermaid text, versions, recent runs, publish state | board:read |
+| New workflow from a goal | `POST /api/flows` | `create_workflow(workspace, goal, name?, end_condition?, max_iterations?)`: files the builder card | board:write |
+| Draft a version | `POST /api/flows/:id/versions` | `draft_workflow_version(id, definition)`: a refusal lists every validator issue | board:write |
+| Validate without saving | `POST /api/flows/validate` | `validate_workflow(definition)` (free) | board:write |
+| Self-test | `POST /api/flows/:id/test` | `test_workflow(id, version?, mode?, fixtures?)` | board:start |
+| Run now | `POST /api/flows/:id/runs` | `run_workflow(id, payload?)` | board:start |
+| Read a run | `GET /api/flows/:id/runs/:runId` | `get_workflow_run(id, run_id)` | board:read |
+| Publish a workflow / approve its send-spend nodes | `POST /api/flows/:id/publish` | **none on purpose** | not on the agent surface — the owner, signed in to the web app |
 
 **Canonical names.** `get_objective` and `search_objectives` are canonical. `get_card` and `search_cards` are
 aliases with identical output, kept because connectors were set up against them. #514's `vault_search` /

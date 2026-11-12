@@ -16,6 +16,7 @@ import {
   stopSession,
   sendFollowUp,
   spawnReviewerSession,
+  stopPlannerSession,
   reopenObjective,
   BranchLeaseConflictError,
   SessionLeaseConflictError,
@@ -52,6 +53,8 @@ import { broadcast } from '../ws/index.js'
 import { mapObjective, requireOwnership } from './objectives-helpers.js'
 import { noteStartReason } from '../services/session-start-reasons.js'
 import { sessionCapReached, SESSION_CAP_ERROR } from '../lib/session-cap.js'
+import { markAutoStartRequested } from '../lib/queue-autostart.js'
+import { workingStartAction, marksPriorSessionFailed } from '../lib/working-start.js'
 import { findRunningTwinForStart, recordDedupe, duplicateStartConflictBody, duplicateGuardWindowHours } from '../lib/objective-dedupe.js'
 
 export function registerObjectiveStatusRoutes(router: Router): void {
@@ -89,6 +92,17 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
 
   // Enforce concurrent session cap (lib/session-cap.ts — shared with create+start).
   if (status === 'working' && sessionCapReached(db)) {
+    // obj 900625: a queued card whose start hit the cap is flagged so the queue
+    // auto-starter launches it once a slot frees (where the workspace has it on).
+    if (existing.status === 'queue') {
+      const flag = markAutoStartRequested(db, existing.id)
+      res.status(409).json({
+        error: SESSION_CAP_ERROR,
+        reason: 'session_cap',
+        auto_start: { requested: flag.flagged, workspace_enabled: flag.workspaceEnabled },
+      })
+      return
+    }
     res.status(409).json({ error: SESSION_CAP_ERROR })
     return
   }
@@ -116,24 +130,29 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
 
   // Handle session lifecycle
   try {
-    const startsFromReviewLike =
-      existing.status === 'queue' ||
-      existing.status === 'review' ||
-      existing.status === 'ai_review'
+    // obj 900652: ONE classifier for every `→ working` move (lib/working-start.ts).
+    // The old inline `queue || review || ai_review` list missed `planning` (legal
+    // for type=project) and `cancelled`, which fell through to the bare `else`
+    // below: status flipped to working, no session spawned, card died at 0 tokens.
+    const startAction = status === 'working' ? workingStartAction(existing.status) : null
+    if (startAction === 'unhandled') {
+      res.status(400).json({ error: `No session start is defined from '${existing.status}'` })
+      return
+    }
 
-    if (status === 'working' && existing.status === 'done') {
+    if (startAction === 'reopen') {
       // Re-Open: resume the most recent thread in place instead of starting over.
       // ST2: if this objective was pass-gated, the reopen means the gate's pass
       // was a false pass — record it (links reopen → prior passing review).
-      recordReopenFalsePass(existing)
+      if (existing.status === 'done') recordReopenFalsePass(existing)
       noteStartReason(existing.id, (req.headers.authorization || '').startsWith('Bearer cc_live_') ? 'agent' : 'board', req.user?.username ?? null, 'reopen')
       const sessionId = await reopenObjective(existing)
       db.prepare(
         "UPDATE objectives SET status = ?, session_id = ?, updated_at = datetime('now') WHERE id = ?"
       ).run(status, sessionId, req.params.id)
-    } else if (status === 'working' && startsFromReviewLike) {
+    } else if (startAction === 'fresh_start') {
       // If reopening from a review state, record outcome as failed on last session intel
-      if (existing.status !== 'queue' && existing.session_id) {
+      if (marksPriorSessionFailed(existing.status) && existing.session_id) {
         db.prepare(
           "UPDATE session_intel SET outcome = 'failed' WHERE session_id = ? AND outcome IS NULL"
         ).run(existing.session_id)
@@ -142,8 +161,13 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
       noteStartReason(existing.id, (req.headers.authorization || '').startsWith('Bearer cc_live_') ? 'agent' : 'board', req.user?.username ?? null, null)
       const sessionId = await startSession(existing)
       db.prepare(
-        "UPDATE objectives SET status = ?, session_id = ?, updated_at = datetime('now') WHERE id = ?"
+        "UPDATE objectives SET status = ?, session_id = ?, planning_session_id = NULL, updated_at = datetime('now') WHERE id = ?"
       ).run(status, sessionId, req.params.id)
+      // Starting straight from planning skips /planning/approve, which is what
+      // normally tears the planner sub-session down — do it here instead.
+      if (existing.status === 'planning' && existing.planning_session_id) {
+        await stopPlannerSession(existing.planning_session_id).catch(() => {})
+      }
     } else if (status === 'ai_review' && existing.status === 'working') {
       // Manual override: human triggered AI review without waiting for state-poller.
       // Stop the running worker session and spawn a reviewer.

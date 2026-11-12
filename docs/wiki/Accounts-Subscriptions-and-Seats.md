@@ -4,7 +4,7 @@ OperationKit runs coding sessions through subscriptions you already pay for — 
 
 ## Two different things named "account"
 
-- **Seats** — the Claude / Codex / Grok subscription logins OperationKit spawns sessions under. Managed in **Settings → Seats** (admin only). A seat is infrastructure, not a person.
+- **Seats** — the Claude / Codex / Grok subscription logins OperationKit spawns sessions under. Managed in **Settings → Models** (admin only; the old `/settings/seats` URL redirects there). A seat is infrastructure, not a person.
 - **People** — OperationKit users. Each person connects their own GitHub (fine-grained PAT) and Google Workspace account on Settings → You, so a card assigned to them opens PRs and sends mail as themselves, not as a shared bot identity.
 
 A card's assignee is who the session acts as for GitHub/Google purposes; which seat it runs the model on is a separate, independent choice.
@@ -35,7 +35,7 @@ Codex and Grok seats are connected with the official CLI's own device login: pre
 
 ### Adding a Claude seat (no terminal)
 
-**Settings → Seats → Add Claude seat** signs in from the browser. It runs the same sign-in `claude setup-token` runs, so the result is the same one-year subscription token:
+**Settings → Models → Add Claude seat** signs in from the browser. It runs the same sign-in `claude setup-token` runs, so the result is the same one-year subscription token:
 
 1. Give the seat a label (optional). The screen shows a **Sign in with Claude** button. The server has just started a Claude OAuth sign-in with PKCE, using Claude Code's own client and the inference-only scope that `setup-token` asks for.
 2. Press it and sign in to claude.ai with the subscription account (Pro, Max or Team). Claude then shows an **Authentication code** page ("Paste this into Claude Code"). The code looks like `abc123…#xyz789…`.
@@ -47,27 +47,53 @@ Details that matter:
 - **The link works for 10 minutes and the code works once.** If the link expires, if you paste a code from a different link, or after 5 failed tries, the screen offers **Get a new link**. A mistyped code can simply be pasted again.
 - **The PKCE verifier stays on the server.** It is held in memory only, never sent to the browser, never logged and never saved. It is dropped when the sign-in finishes, expires or is cancelled. A server restart in the middle of a sign-in means you need a new link.
 - **Subscription only.** If Claude replies with anything other than a subscription token (`sk-ant-oat…`), nothing is saved. There is no API-key fallback.
-- **Reconnect** on an existing Claude seat runs the same sign-in and replaces that seat's token in place. The seat keeps its id, priority and history, and any `needs reconnect` park is cleared.
+- **Reconnect** on an existing Claude seat runs the same sign-in and replaces that seat's token in place. The seat keeps its id, label (nickname), priority and history, the token is overwritten under the same secrets-store key, any `needs reconnect` park is cleared and the `CLAUDE-OK` test runs again on the new token. See [Reconnect older seats](#reconnect-older-seats-with-sign-in-with-claude).
 - **Pasting a token still works.** Choose **Have a setup token already? Paste it instead** to paste the output of `claude setup-token` from any machine signed in to the subscription.
 
-API: `POST /api/admin/seats/claude-oauth/start` (optional `seatId` to reconnect) returns `{ loginId, url, expiresAt }`. `POST /api/admin/seats/claude-oauth/finish` takes `{ loginId, code, label?, seatId? }` and returns `{ seat, outcome }`. On failure it returns `code`: `state_mismatch`, `expired`, `unknown_login`, `bad_code`, `too_many_attempts`, `not_subscription` or `exchange_failed`. Both routes are admin only.
+API: `POST /api/admin/seats/claude-oauth/start` (optional `seatId` to reconnect) returns `{ loginId, url, expiresAt }`; the link is **bound** to that seat (or to "a new seat"). `POST /api/admin/seats/claude-oauth/finish` takes `{ loginId, code, label?, seatId? }` and returns `{ seat, outcome }` (`201` new seat, `200` reconnect; `replayed: true` when it repeats an earlier success for the same link). On failure it returns `code`: `state_mismatch`, `expired`, `unknown_login`, `bad_code`, `too_many_attempts`, `not_subscription`, `exchange_failed`, `wrong_seat` (409, the link was started for another seat) or `seat_not_found` (404, the seat was removed while you were signing in; nothing is saved). All seat routes are admin only.
 
 **The installer works the same way.** `install/claude-login.sh` (with `CLAUDE_AUTH=login`) prints the **Sign in with Claude** link and waits for you to paste the code. Typing is hidden. It then checks the token with the same `CLAUDE-OK` call. Pasting a setup token at that prompt also works, and `--token` skips the link altogether.
 
-### One place to manage seats (Settings → Seats)
+### Connecting is idempotent (obj 720330)
 
-Seats are managed only in **Settings → Seats** (to be renamed Settings → Models by Sprint 4b). The **System** page (formerly Dashboard) no longer shows seat widgets; it carries one link, *Manage AI accounts in Settings > Models* (obj 900495). There is no second "accounts" flow.
+A double-click, a double Enter, a retry after the browser timed out, or the same token pasted twice never creates a second seat and never spends a single-use code twice:
+
+- **Sign in with Claude.** The screen sends one finish request at a time. On the server, finishes for the same `loginId` share one result: a second call while the first is running waits for it, and a call after it succeeded (while the link would still be valid, 10 minutes) gets the same seat back with `replayed: true`. A failed finish is not remembered, so you can fix a mistyped code on the same link.
+- **A lost reply.** If the browser never heard back (timeout, dropped connection, gateway error), the screen says so and offers **Try again**, which resends the same code on the same link. The server replays the first result instead of exchanging the code again.
+- **Add (pasted token, Codex, Grok).** Each open Add form sends one `idempotencyKey` with `POST /api/admin/seats`; a repeat with the same key returns the seat already made (`replayed: true`) for 30 minutes.
+- **The same setup token pasted again** (any form) returns the seat that already holds it (`200`, `duplicate: true`), audited as `add_duplicate`. Only a seat whose masked last-4 already matches is ever decrypted to compare.
+- **Nicknames stick.** A rename is saved as the seat's `customLabel`; reconnecting, testing, a poll racing a rename, or a server restart keep it (old bug #718892).
+
+### Reconnect older seats with Sign in with Claude
+
+The seat summary carries `credential.source`: `oauth` (connected with Sign in with Claude), `pasted` (a pasted setup token, or an older record from before this field existed) or `cli_login` (CLI login files). Every Claude seat that is **not** on `oauth` shows **Reconnect with Sign in with Claude** (and its credential line says *pasted token*); a seat already on the in-app sign-in shows a plain **Reconnect**. Either way it is the same OAuth + PKCE flow, and the token is replaced **in place**: same seat id, label, nickname, priority, usage history and secrets-store key; the source becomes `oauth`; the `CLAUDE-OK` test runs again on the new token. The audit row is `reconnect` with `via=oauth`. A reconnect link can only land on the seat that issued it.
+
+### Removing a seat
+
+**Remove** (`DELETE /api/admin/seats/:id`) on an idle seat:
+
+1. takes it out of the pool and records its id in `removedSeatIds`, so it does not come back after a restart (even a `CC_SEAT_POOL_DEFAULTS` seed, the server-token seat or the legacy single Codex / Grok login) and its id is never handed to a new seat (a new seat can never inherit a removed seat's history);
+2. deletes its stored setup token from the secrets store (the reply carries `credentialDeleted: true`);
+3. deletes the seat's own home directory, where Codex / Grok / a host Claude login keeps its login files — only a directory the pool created for that one seat under `CC_SEAT_HOME_ROOT`; a legacy seat pointing at a shared, env-configured login dir is left alone (`loginFiles: "kept_shared"`);
+4. drops any sign-in link or device login still pending for it;
+5. writes a `seat_audit_log` row: `remove` with `credential=deleted login_files=removed`.
+
+**A seat that is running a session is drained, not removed.** Pulling its credential would break live work, so the server disables it instead (no new session starts on it; running sessions finish normally) and answers `409` `{ code: "seat_in_use", activeSessions, drained: true, seat }` with a sentence the screen shows. The refusal is audited as `remove_blocked`. The confirm dialog says this up front (**Disable and drain**). Press Remove again once its work is done.
+
+### One place to manage seats (Settings → Models)
+
+Seats are managed only in **Settings → Models** (`/settings/models`; Sprint 4b renamed Settings → Seats, and `/settings/seats` redirects there). The **System** page (formerly Dashboard) shows no seat widgets; it carries one link, *Manage AI accounts in Settings > Models* (obj 900495). There is no second "accounts" flow, in the UI or the API: the pre-v2 Dashboard write routes `POST /api/admin/accounts`, `POST /api/admin/accounts/:id/connect/{start,submit,status}` and `PUT /api/admin/accounts/:id/label` are retired and answer **410** `{ code: "seat_route_moved", manage: "/settings/models", use: "<replacement route>" }` (obj 720330). They wrote seats with no audit row, no idempotency and no jail rule. Read-only `GET /api/admin/accounts` (System page totals) and the operator escape hatches `clear-bench` / `recheck` stay.
 
 - **Every card names its engine** (`CLAUDE`, `CODEX`, `GROK`) next to the seat's label.
 - **Add** exists for every engine: **Add Claude seat**, **Add Codex seat**, **Add Grok seat**. Claude opens Sign in with Claude. Codex and Grok create the seat and start the device login.
-- **Remove** works for every seat. A seat running a session is refused with a message (disable it, let the session finish, then remove). A removed seat stays removed, even one the server would otherwise re-create: a `CC_SEAT_POOL_DEFAULTS` seed, the server-token seat, or the legacy single Codex / Grok login. The router state keeps those ids in `removedSeatIds`. Adding a new seat never reuses a removed one.
+- **Remove** works for every seat; see [Removing a seat](#removing-a-seat).
 - **Every Connect / Reconnect click shows something**: the sign-in link, or the reason it could not start.
 - **A seat with no usable sign-in says so.** It shows **Not signed in** (Codex / Grok) or **Needs a token** (Claude) instead of **Healthy**. The seat summary carries `credential.usable` for this.
 
 **Claude seats on a CLI login (older installs).** Sandboxed sessions (`SESSION_ISOLATION=docker`) cannot use a Claude CLI login: the jail never sees the seat's home directory. Those seats used to show "Connected" and then stay Unavailable. Now:
 
 - They show **Needs Sign in with Claude** and a **Reconnect with Sign in with Claude** button. Signing in converts the seat **in place** to a setup token: same id, label, priority and history. The summary flag is `credential.needsClaudeSignIn`.
-- While the jail is on, the server never creates or reconnects a Claude CLI login. The old routes `POST /api/admin/accounts` (`kind: claude`) and `POST /api/admin/accounts/:id/connect/start` (Claude seat) return **409** `{ code: "claude_cli_login_jailed", manage: "/settings/seats" }`. On a host (tmux) install without the jail, CLI-login Claude seats keep working as before.
+- The server never creates or reconnects a Claude CLI login from the app any more: the old routes that did are retired (410, above). On a host (tmux) install without the jail, existing CLI-login Claude seats keep working as before, and **Reconnect with Sign in with Claude** is offered on them too.
 
 ## How a session gets a seat
 
@@ -103,7 +129,7 @@ A timer probes Claude seats with one tiny subscription turn (never an API key) t
 
 ## Cross-engine failover (opt-in)
 
-By default a card stays on its engine and queues when all of that engine's seats are down. You can turn on failover per workspace in **Settings → Seats** with an ordered list (default Claude → Codex → Grok):
+By default a card stays on its engine and queues when all of that engine's seats are down. You can turn on failover per workspace in **Settings → Models** with an ordered list (default Claude → Codex → Grok):
 
 - A card moves to the next engine **only when every seat of its own engine is unavailable**.
 - The move is logged on the card (`seat_failover` in the activity log). The card's own engine setting does not change; the next session goes back to its own engine when a seat is free.
@@ -132,6 +158,6 @@ The failure classes and the cooldown-with-back-off approach on this page are ada
 
 ## Where to go next
 
-- [Token-Waste Controls](./Token-Waste-Controls) — per-seat 24h/7d usage, rate-limit state and the over/under-provisioned hint on Settings → Seats
+- [Token-Waste Controls](./Token-Waste-Controls) — per-seat 24h/7d usage, rate-limit state and the over/under-provisioned hint on Settings → Models
 - [Model Portability](./Model-Portability) — which engines are wired today and how routing to a provider is configured
 - [External Agents](./External-Agents) — the API key a third-party agent uses is a per-person credential, unrelated to seat pooling

@@ -42,6 +42,7 @@ export interface DeferredConnectorOptions {
   /** One plain sentence: what's missing and which sprint/card closes the gap. */
   deferred_reason: string
   mcp_url?: string
+  mcp_server_url?: string
 }
 
 export function deferredConnector(opts: DeferredConnectorOptions): ConnectorDefinition {
@@ -54,6 +55,7 @@ export function deferredConnector(opts: DeferredConnectorOptions): ConnectorDefi
     setup_guide: opts.setup_guide,
     products: opts.products,
     mcp_url: opts.mcp_url,
+    mcp_server_url: opts.mcp_server_url,
     // `kind: 'oauth'` previews the real eventual UX (a consent redirect) even
     // though `startOAuth` below always declines — matches what every one of
     // these vendors actually uses (OAuth 2.1), just not wireable without the

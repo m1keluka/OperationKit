@@ -98,7 +98,7 @@ make these representations inaccurate in any respect.
 
 ## 8. General
 
-This Agreement is governed by the laws of the State of [STATE - confirm].
+This Agreement is governed by the laws of the State of Delaware.
 This Agreement is the entire agreement between You and the Company about its subject matter. If any
 provision is held unenforceable, the remaining provisions remain in effect.
 
@@ -106,7 +106,7 @@ provision is held unenforceable, the remaining provisions remain in effect.
 
 Individual contributors sign by posting the comment requested by the CLA bot on their first pull
 request (once the CLA workflow is enabled - see [CONTRIBUTING.md](../CONTRIBUTING.md)), or by
-emailing a signed copy to [LEGAL CONTACT EMAIL - confirm].
+emailing a signed copy to legal@example.com.
 
 ```
 Full name:

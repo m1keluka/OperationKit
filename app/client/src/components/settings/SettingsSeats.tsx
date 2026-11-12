@@ -37,6 +37,8 @@ export interface SeatSummary {
   consecutiveFailures: number
   credential: {
     kind: 'setup_token' | 'cli_login'
+    /** oauth = Sign in with Claude; pasted = pasted setup token (or older record); cli_login = CLI login files. Absent on older servers. */
+    source?: 'oauth' | 'pasted' | 'cli_login'
     last4: string | null
     addedAt: string | null
     expiresAt: string | null
@@ -77,6 +79,22 @@ const TEST_COPY: Record<TestOutcome, { ok: boolean; text: string }> = {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+/**
+ * One key per open Add form / Add click. The server treats a repeat with the
+ * same key as the same request, so a double-click or a retry after a dropped
+ * reply returns the seat it already made instead of adding a second one.
+ */
+export function newIdempotencyKey(): string {
+  const c = globalThis.crypto as Crypto | undefined
+  if (c?.randomUUID) return c.randomUUID()
+  return `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`
+}
+
+/** A Claude seat not on the in-app sign-in yet (pasted token, older flows) is offered it by name. */
+export function offersClaudeSignIn(seat: Pick<SeatSummary, 'kind' | 'credential'>): boolean {
+  return seat.kind === 'claude' && seat.credential.source !== 'oauth'
+}
+
 function errText(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return (err.body as { error?: string } | null)?.error || err.message || fallback
   return err instanceof Error ? err.message : fallback
@@ -145,8 +163,10 @@ function Switch({ checked, onChange, label, disabled, busy }: {
       >
         <span
           className={cn(
-            'inline-block h-3.5 w-3.5 rounded-full bg-fg-0 transition-transform duration-base ease-out',
-            checked ? 'translate-x-[18px]' : 'translate-x-[2px]',
+            'inline-block h-3.5 w-3.5 rounded-full transition-transform duration-base ease-out',
+            // Knob in the accent-fg (Paper) on the accent track in both themes;
+            // bg-fg-0 painted an Ink knob on Ultramarine in light mode (QA obj 900621).
+            checked ? 'translate-x-[18px] bg-accent-fg' : 'translate-x-[2px] bg-fg-2',
           )}
         />
       </span>
@@ -219,6 +239,8 @@ function AddClaudeForm({ onAdded, onCancel, onNotice }: {
   const [expiresAt, setExpiresAt] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const idempotencyKey = useRef(newIdempotencyKey())
+  const sending = useRef(false)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -229,18 +251,23 @@ function AddClaudeForm({ onAdded, onCancel, onNotice }: {
       setError('Paste the setup token first.')
       return
     }
+    if (sending.current) return
+    sending.current = true
     setSaving(true)
     setError('')
     try {
-      const body: Record<string, unknown> = { kind: 'claude', credential }
+      const body: Record<string, unknown> = { kind: 'claude', credential, idempotencyKey: idempotencyKey.current }
       if (label.trim()) body.label = label.trim()
       if (expiresAt) body.expiresAt = expiresAt
-      const res = await api.post<{ ok: boolean; seat: SeatSummary }>('/admin/seats', body)
-      onNotice({ ok: true, text: `${res.seat?.label || 'Claude seat'} added.` })
+      const res = await api.post<{ ok: boolean; seat: SeatSummary; duplicate?: boolean }>('/admin/seats', body)
+      onNotice(res.duplicate
+        ? { ok: true, text: `That token is already on ${res.seat?.label || 'a Claude seat'}. Nothing new was added.` }
+        : { ok: true, text: `${res.seat?.label || 'Claude seat'} added.` })
       onAdded(res.seat)
     } catch (err) {
       setError(errText(err, 'Adding the seat failed.'))
     } finally {
+      sending.current = false
       setSaving(false)
     }
   }
@@ -317,6 +344,7 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
   const [rotateToken, setRotateToken] = useState('')
   const [rotateExpiry, setRotateExpiry] = useState('')
   const [rowError, setRowError] = useState('')
+  const [rowInfo, setRowInfo] = useState('')
   const id = encodeURIComponent(seat.id)
   const name = seat.label || `${ENGINE_NAME[seat.kind]} seat`
   const badge = seatBadge(seat)
@@ -393,20 +421,26 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
   const remove = async () => {
     const ok = await confirm({
       title: `Remove ${name}?`,
-      message: 'Sessions stop using this seat and its stored sign-in is deleted. This cannot be undone.',
-      confirmLabel: 'Remove seat',
+      message: seat.sessions.active > 0
+        ? `${name} is running ${seat.sessions.active} session${seat.sessions.active === 1 ? '' : 's'} right now. Nothing is cut off: the seat is disabled so no new work starts on it, and you can remove it once that work finishes.`
+        : 'The seat leaves the pool and its stored sign-in is deleted. Its usage history stays in the logs. This cannot be undone.',
+      confirmLabel: seat.sessions.active > 0 ? 'Disable and drain' : 'Remove seat',
       danger: true,
     })
     if (!ok) return
     setBusy('remove')
     setRowError('')
+    setRowInfo('')
     try {
       await api.del(`/admin/seats/${id}`)
       onNotice({ ok: true, text: `${name} removed.` })
       onRemoved(seat.id)
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setRowError('This seat is running sessions right now. Disable it, wait for them to finish, then remove it.')
+        const b = err.body as { error?: string; seat?: SeatSummary } | null
+        if (b?.seat) onChange(b.seat)
+        // A sentence from the server, or (older servers) a bare code → our own wording.
+        setRowInfo(b?.error && /\s/.test(b.error) ? b.error : 'This seat is running sessions right now. It is disabled so no new work starts on it; remove it when they finish.')
       } else {
         setRowError(errText(err, 'Removing the seat failed.'))
       }
@@ -479,6 +513,8 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
             <span className="font-mono">
               {cred.kind === 'setup_token' ? `Setup token ••••${cred.last4 ?? '????'}` : 'CLI login'}
             </span>
+            {isClaude && cred.source === 'oauth' && <span className="text-fg-3">via Sign in with Claude</span>}
+            {isClaude && cred.source === 'pasted' && <span className="text-fg-3">pasted token</span>}
             {added && <span className="text-fg-3">added {added}</span>}
             {expires && (
               <span
@@ -533,7 +569,7 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
           {busy === 'test' ? 'Testing…' : 'Test now'}
         </Button>
         <Button variant="secondary" onClick={() => { setRotating(r => !r); setRotateMode('signin'); setRotateToken(''); setRowError('') }} disabled={!!busy} aria-expanded={rotating}>
-          {isClaude ? 'Reconnect' : 'Sign in again'}
+          {!isClaude ? 'Sign in again' : offersClaudeSignIn(seat) && !needsSignIn ? 'Reconnect with Sign in with Claude' : 'Reconnect'}
         </Button>
         <Button variant="danger" onClick={() => void remove()} loading={busy === 'remove'} disabled={!!busy && busy !== 'remove'} className="sm:ml-auto">
           Remove
@@ -595,6 +631,7 @@ function SeatCard({ seat, onChange, onRemoved, onNotice, confirm }: {
         />
       )}
 
+      {rowInfo && <Alert tone="amber">{rowInfo}</Alert>}
       {rowError && <Alert tone="alarm">{rowError}</Alert>}
     </Card>
   )
@@ -615,18 +652,26 @@ function EngineSection({ kind, name, empty, seats, onSeat, onRemoved, onNotice, 
   const [creating, setCreating] = useState(false)
   const [loginSeat, setLoginSeat] = useState<string | null>(null)
   const [error, setError] = useState('')
+  // Kept across a failed attempt so a retry reuses it; a new one per successful add.
+  const addKey = useRef<string | null>(null)
+  const sending = useRef(false)
 
   const startAdd = async () => {
     setError('')
     if (kind === 'claude') { setAdding(true); return }
+    if (sending.current) return
+    sending.current = true
     setCreating(true)
+    addKey.current ??= newIdempotencyKey()
     try {
-      const res = await api.post<{ ok: boolean; seat: SeatSummary }>('/admin/seats', { kind })
+      const res = await api.post<{ ok: boolean; seat: SeatSummary }>('/admin/seats', { kind, idempotencyKey: addKey.current })
+      addKey.current = null
       onSeat(res.seat)
       setLoginSeat(res.seat.id)
     } catch (err) {
       setError(errText(err, `Adding the ${name} seat failed.`))
     } finally {
+      sending.current = false
       setCreating(false)
     }
   }

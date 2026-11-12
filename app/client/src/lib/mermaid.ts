@@ -9,11 +9,39 @@
 let mermaidPromise: Promise<typeof import('mermaid').default> | null = null
 let configuredFor = ''
 
+/**
+ * Mermaid's colour parser (khroma) only understands hex / rgb() / hsl(). Our
+ * theme tokens are partly `color-mix(in srgb, …)`, and handing one of those to
+ * mermaid.initialize() throws "Unsupported color format" — which silently broke
+ * EVERY diagram (the render task rejected before a placeholder was touched).
+ * Resolve any token to a concrete colour by painting one canvas pixel with it;
+ * fall back to the hardcoded palette where a canvas is unavailable (jsdom).
+ */
+export function toConcreteColor(value: string, fallback: string): string {
+  const v = value.trim()
+  if (!v) return fallback
+  if (/^#[0-9a-f]{3,8}$/i.test(v) || /^(rgb|hsl)a?\(/i.test(v)) return v
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 1
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return fallback
+    ctx.fillStyle = fallback
+    ctx.fillStyle = v // an unparseable value leaves the fallback in place
+    ctx.fillRect(0, 0, 1, 1)
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data
+    const hex = (n: number) => n.toString(16).padStart(2, '0')
+    return a === 255 ? `#${hex(r)}${hex(g)}${hex(b)}` : `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`
+  } catch {
+    return fallback
+  }
+}
+
 /** Theme tokens resolved from <html data-theme>, so diagrams follow light/dark
  * and the install's accent instead of a hardcoded dark palette (obj 900543). */
 function themeVariables(): Record<string, string> {
   const cs = getComputedStyle(document.documentElement)
-  const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback
+  const v = (name: string, fallback: string) => toConcreteColor(cs.getPropertyValue(name), fallback)
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
   return {
     darkMode: String(isDark),
@@ -79,7 +107,18 @@ async function renderMermaidInSerial(container: HTMLElement | null) {
     '.mermaid-block:not([data-mermaid-rendered])',
   )
   if (placeholders.length === 0) return
-  const mermaid = await getMermaid()
+  let mermaid: Awaited<ReturnType<typeof getMermaid>>
+  try {
+    mermaid = await getMermaid()
+  } catch (err) {
+    // Never fail silently: show why instead of an empty box.
+    const msg = err instanceof Error ? err.message : String(err)
+    for (const el of Array.from(placeholders)) {
+      el.setAttribute('data-mermaid-rendered', '1')
+      el.innerHTML = errorBlockHtml(`Mermaid could not start: ${msg}`, el.getAttribute('data-mermaid-source') || '')
+    }
+    return
+  }
 
   for (const el of Array.from(placeholders)) {
     const source = el.getAttribute('data-mermaid-source') || ''

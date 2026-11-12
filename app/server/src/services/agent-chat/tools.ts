@@ -7,9 +7,14 @@
 //      symlinks). Nothing else on disk is reachable.
 //   2. Email / calendar: draft-only. Drafts are stored; nothing is delivered
 //      until the person clicks Send in the chat (routes/agent-chat.ts).
-//   3. Board: an agent can file cards in the person's workspace and read back
-//      the cards THIS chat filed. The card then runs like any other card —
-//      sandboxed (SESSION_ISOLATION=docker) on a client install.
+//   3. Board: an agent can file cards in the person's workspace (writes are
+//      unchanged: one workspace, recorded in agent_chat_cards). READS see the
+//      real board, but only what the chatting person could see on the board UI
+//      themselves — the visibility rule of GET /api/agent/attention and the
+//      Command Center connector (lib/agent-control visibilityClause), with the
+//      role re-read from the DB on every call. Never wider. (obj 900623)
+//      The card then runs like any other card — sandboxed
+//      (SESSION_ISOLATION=docker) on a client install.
 // An agent only gets the tools its file lists under `tools:`.
 import crypto from 'crypto'
 import fs from 'fs'
@@ -26,6 +31,9 @@ import { ingestEnabled } from '../doc-ingest/service.js'
 import { fileAnswer } from '../kb-wiki/answers.js'
 import { botForAgentSlug } from '../bots/bot-registry.js'
 import { createBotJob } from '../bots/bot-jobs.js'
+import { buildAttention, oneLine, visibilityClause, type ControlUser } from '../../lib/agent-control.js'
+import { KNOWN_TOOL_NAMES, listsAllTools } from './tool-names.js'
+import { webFetch, webSearch, WebToolError, MAX_SEARCH_RESULTS, DEFAULT_SEARCH_RESULTS, type WebToolDeps } from './web-tools.js'
 
 export interface ToolSpec {
   type: 'function'
@@ -40,6 +48,8 @@ export interface ToolContext {
   kbRoot: string
   connectors: Connectors
   now?: () => Date
+  /** web_search / web_fetch plumbing (obj 900671): tests inject fetches; the engine passes the turn's abort signal. */
+  web?: WebToolDeps
 }
 
 /** What the chat UI shows for a tool call (drafts get buttons, cards get a status chip). */
@@ -53,6 +63,13 @@ export interface ToolOutcome {
 }
 
 export class ToolUseError extends Error {}
+
+const LIST_DEFAULT = 25
+const LIST_MAX = 100
+/** Columns list_objectives can filter to. 'blocked' is the blocker flag, not a status column. */
+const BOARD_STATUSES = ['planning', 'queue', 'working', 'ai_review', 'review', 'blocked', 'done', 'cancelled'] as const
+/** The live pipeline: everything but the two terminal columns. */
+const OPEN_STATUSES = ['planning', 'queue', 'working', 'ai_review', 'review']
 
 const TEXT_EXT = new Set(['.md', '.txt', '.csv', '.json', '.yaml', '.yml'])
 const WRITE_EXT = new Set(['.md', '.txt', '.csv'])
@@ -79,9 +96,27 @@ const SPECS: Record<string, ToolSpec[]> = {
     obj({ question: { type: 'string' }, answer: { type: 'string', description: 'The answer in markdown; cite pages as [[folder/page.md]]' }, sources: { type: 'array', items: { type: 'string' }, description: 'Knowledge-base paths of the pages the answer used, e.g. "people/dana-ruiz.md"' } }, ['question', 'answer']))],
   create_objective: [fn('create_objective', 'Hand a bigger job to the team board as a card. Coding tools pick it up and do the work; you can check its status later with get_objective. Use for anything that takes more than a few minutes.',
     obj({ title: { type: 'string', description: 'Short, specific title' }, description: { type: 'string', description: 'What to do, the context, and what "done" looks like' } }, ['title', 'description']))],
-  get_objective: [fn('get_objective', 'Check the status and latest result of a card this chat created.',
+  get_objective: [fn('get_objective', 'Read one board card by number: status, workspace, latest result, AI review verdict, PR link. Works for any card on a board the person can see, not only cards this chat filed.',
     obj({ id: { type: 'integer' } }, ['id']))],
-  list_objectives: [fn('list_objectives', 'List the cards this chat has created, newest first, with their status.', obj({}))],
+  list_objectives: [fn('list_objectives', 'List the real board cards the person can see (every workspace they belong to, most recently updated first). Default: the open pipeline (planning, queue, working, ai_review, review — not done/cancelled). Pass workspace to narrow to one board, status for one column ("blocked" = a blocker is raised). counts covers ALL matching cards even when the list is cut short.',
+    obj({
+      workspace: { type: 'string', description: 'Workspace slug to narrow to. Omit for every workspace the person can see.' },
+      status: { type: 'string', enum: [...BOARD_STATUSES], description: 'One column only.' },
+      limit: { type: 'integer', minimum: 1, maximum: LIST_MAX, description: `Default ${LIST_DEFAULT}` },
+    }))],
+  board_briefing: [fn('board_briefing', 'What is waiting on the person, on the boards they can see: cards in review (accept or bounce), failed AI reviews, blockers, secrets a worker needs, stuck workers — plus how many open cards sit in each column. Use for "what is waiting on me?", "what is blocked?" or a daily summary.',
+    obj({
+      workspace: { type: 'string', description: 'Workspace slug to narrow to. Omit for every workspace the person can see.' },
+      limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Most items to return. Default 20' },
+    }))],
+  // obj 900671: the public web.
+  web_search: [fn('web_search', 'Search the public web for current information (news, prices, docs, companies, people in the news). Returns titles, URLs and snippets; open a result with web_fetch to read it in full. Cite the URLs you use.',
+    obj({
+      query: { type: 'string', description: 'What to search for' },
+      limit: { type: 'integer', minimum: 1, maximum: MAX_SEARCH_RESULTS, description: `Number of results. Default ${DEFAULT_SEARCH_RESULTS}` },
+    }, ['query']))],
+  web_fetch: [fn('web_fetch', 'Read one public web page (http or https) and return its text. Use it to open a search result or a link the person gives you. Private and internal addresses cannot be read.',
+    obj({ url: { type: 'string', description: 'The full page URL, e.g. https://example.com/pricing' } }, ['url']))],
   email: [
     fn('email_list_inbox', 'List recent emails in the inbox (newest first).',
       obj({ limit: { type: 'integer', minimum: 1, maximum: 50 }, unread_only: { type: 'boolean' } })),
@@ -97,10 +132,39 @@ const SPECS: Record<string, ToolSpec[]> = {
   ],
 }
 
-/** The function specs this agent may call — only what its file lists. */
+/**
+ * Read-only board tools an agent gets because it already lists a board read
+ * (obj 900623). board_briefing reads under exactly the same visibility rule as
+ * list_objectives, so an agent file written before it existed (the trial Chief
+ * of Staff lists get_objective/list_objectives) gets it without an edit.
+ * Write tools are never implied.
+ */
+const IMPLIED_TOOLS: Record<string, string[]> = {
+  list_objectives: ['board_briefing'],
+  get_objective: ['board_briefing'],
+}
+
+/**
+ * Every agent-file tool name this agent may use: what its file (or its bot-page
+ * settings) lists, plus implied reads. `all` / `*` (obj 900671) = every tool
+ * this release knows, so an "all tools" bot gains new tools without an edit.
+ */
+export function effectiveTools(agent: Pick<ChatAgent, 'tools'>): string[] {
+  if (listsAllTools(agent.tools)) return [...KNOWN_TOOL_NAMES]
+  const out = new Set(agent.tools.filter(t => KNOWN_TOOL_NAMES.has(t)))
+  for (const t of agent.tools) for (const extra of IMPLIED_TOOLS[t] ?? []) out.add(extra)
+  return [...out]
+}
+
+/** Does this agent have one agent-file tool (e.g. 'mcp', 'web_search')? */
+export function agentHasTool(agent: Pick<ChatAgent, 'tools'>, tool: string): boolean {
+  return effectiveTools(agent).includes(tool)
+}
+
+/** The function specs this agent may call — only what its file lists (plus implied board reads). */
 export function toolSpecsFor(agent: ChatAgent): ToolSpec[] {
   const out: ToolSpec[] = []
-  for (const t of agent.tools) out.push(...(SPECS[t] ?? []))
+  for (const t of effectiveTools(agent)) out.push(...(SPECS[t] ?? []))
   return out
 }
 
@@ -286,18 +350,219 @@ function createCard(ctx: ToolContext, title: string, description: string): { id:
 
 export interface ChatCardStatus { id: number; title: string; status: string; summary: string | null; pr_url: string | null; updated_at: string; url: string }
 
-export function chatCards(userId: number, agentSlug: string, ids?: number[]): ChatCardStatus[] {
+// ── board reads (obj 900623) ──
+//
+// Before this, list_objectives / get_objective only read agent_chat_cards, so a
+// General asked "what is waiting on me?" saw zero rows and told the
+// person the board was empty while their workspace had cards in review. These
+// reads now use the board's own visibility rule (visibilityClause):
+//   admin                       → every workspace
+//   member, visibility 'all'    → every card in that workspace
+//   member, visibility 'own'    → cards they created / are assigned to there
+//   not a member                → nothing (and naming it is refused)
+// The role is re-read from the DB on each call, so a demotion or a removed
+// membership takes effect mid-conversation.
+
+/** Who is chatting, as the board's visibility rule needs them. null = no such user. */
+function boardUser(ctx: Pick<ToolContext, 'userId'>): ControlUser | null {
+  const row = getDb().prepare('SELECT id, role FROM users WHERE id = ?').get(ctx.userId) as { id: number; role: string } | undefined
+  return row ? { id: row.id, role: row.role } : null
+}
+
+/** Workspaces the person can read cards in (admins: every workspace on the install). */
+function visibleWorkspaces(user: ControlUser): string[] {
   const db = getDb()
+  const rows = user.role === 'admin'
+    ? (db.prepare('SELECT slug AS workspace FROM workspaces ORDER BY slug').all() as { workspace: string }[])
+    : (db.prepare('SELECT workspace FROM user_workspaces WHERE user_id = ? ORDER BY workspace').all(user.id) as { workspace: string }[])
+  return rows.map(r => r.workspace)
+}
+
+/** Validate an optional workspace argument against what the person may read. */
+function workspaceArg(user: ControlUser, raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined
+  const ws = String(raw).trim()
+  if (!ws || ws === 'all') return undefined
+  if (user.role === 'admin') return ws
+  const mine = visibleWorkspaces(user)
+  // Same answer whether or not the workspace exists: no existence oracle.
+  if (!mine.includes(ws)) throw new ToolUseError(`You can't see the "${ws}" board. Boards you can see: ${mine.join(', ') || '(none)'}.`)
+  return ws
+}
+
+export interface BoardCard {
+  id: number
+  title: string
+  status: string
+  workspace: string
+  has_blockers: boolean
+  ai_review_verdict: string | null
+  pr_url: string | null
+  updated_at: string
+  url: string
+  /** True when this chat filed the card. */
+  from_this_chat: boolean
+}
+
+interface BoardRow { id: number; title: string; status: string; workspace: string; has_blockers: number; ai_review_verdict: string | null; pr_url: string | null; updated_at: string; mine: number }
+
+const BOARD_ROW_SQL = `o.id, o.title, o.status, o.workspace, o.has_blockers, o.ai_review_verdict, o.pr_url, o.updated_at,
+  EXISTS (SELECT 1 FROM agent_chat_cards c WHERE c.objective_id = o.id AND c.user_id = ? AND c.agent_slug = ?) AS mine`
+
+function toBoardCard(r: BoardRow): BoardCard {
+  return {
+    id: r.id,
+    title: oneLine(r.title, 160) ?? '',
+    status: r.status,
+    workspace: r.workspace,
+    has_blockers: Number(r.has_blockers) > 0,
+    ai_review_verdict: r.ai_review_verdict ?? null,
+    pr_url: r.pr_url ?? null,
+    updated_at: r.updated_at,
+    url: cardUrl(r.id),
+    from_this_chat: Number(r.mine) > 0,
+  }
+}
+
+export interface BoardList {
+  /** What was read, in words the model can repeat. */
+  scope: string
+  workspaces: string[]
+  /** Cards per status over everything that matched (not just the returned page); `blocked` = blocker raised. */
+  counts: Record<string, number>
+  total: number
+  cards: BoardCard[]
+  truncated: boolean
+  /** True only when the board really has no matching card the person can see. */
+  empty: boolean
+  note?: string
+}
+
+/** Cards on the real board that `ctx`'s person can see. Read-only. */
+export function listBoardCards(
+  ctx: Pick<ToolContext, 'userId' | 'agent'>,
+  opts: { workspace?: unknown; status?: unknown; limit?: unknown } = {},
+): BoardList {
+  const user = boardUser(ctx)
+  if (!user) throw new ToolUseError('Your account was not found.')
+  const workspace = workspaceArg(user, opts.workspace)
+  const status = opts.status === undefined || opts.status === null || opts.status === '' ? undefined : String(opts.status)
+  if (status && !(BOARD_STATUSES as readonly string[]).includes(status)) {
+    throw new ToolUseError(`status must be one of ${BOARD_STATUSES.join(', ')}.`)
+  }
+  const n = Math.floor(Number(opts.limit))
+  const limit = Number.isFinite(n) && n > 0 ? Math.min(LIST_MAX, n) : LIST_DEFAULT
+  const workspaces = workspace ? [workspace] : visibleWorkspaces(user)
+  const what = status ? `"${status}" cards` : 'open cards (planning, queue, working, ai_review, review)'
+  const where_ = workspace ? `the ${workspace} board` : `the boards you can see (${workspaces.join(', ') || 'none'})`
+  const scope = `${what} on ${where_}`
+
+  const vis = visibilityClause(user, workspace)
+  if (!vis) {
+    return { scope, workspaces, counts: {}, total: 0, cards: [], truncated: false, empty: true, note: 'You are not a member of any workspace, so there is no board to read.' }
+  }
+  let statusSql: string
+  let statusParams: unknown[]
+  if (status === 'blocked') {
+    statusSql = `o.has_blockers = 1 AND o.status NOT IN ('done', 'cancelled')`
+    statusParams = []
+  } else if (status) {
+    statusSql = 'o.status = ?'
+    statusParams = [status]
+  } else {
+    statusSql = `o.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`
+    statusParams = OPEN_STATUSES
+  }
+  const where = `o.deleted_at IS NULL AND ${statusSql} AND ${vis.sql}`
+  const db = getDb()
+  const countRows = db
+    .prepare(`SELECT o.status AS status, COUNT(*) AS n, SUM(CASE WHEN o.has_blockers = 1 THEN 1 ELSE 0 END) AS blocked FROM objectives o WHERE ${where} GROUP BY o.status`)
+    .all(...statusParams, ...vis.params) as { status: string; n: number; blocked: number | null }[]
+  const counts: Record<string, number> = {}
+  let total = 0
+  let blocked = 0
+  for (const r of countRows) {
+    counts[r.status] = r.n
+    total += r.n
+    blocked += Number(r.blocked) || 0
+  }
+  if (blocked > 0) counts.blocked = blocked
   const rows = db
+    .prepare(`SELECT ${BOARD_ROW_SQL} FROM objectives o WHERE ${where} ORDER BY o.updated_at DESC, o.id DESC LIMIT ?`)
+    .all(ctx.userId, ctx.agent.slug, ...statusParams, ...vis.params, limit) as BoardRow[]
+  const out: BoardList = { scope, workspaces, counts, total, cards: rows.map(toBoardCard), truncated: total > rows.length, empty: total === 0 }
+  if (out.empty) out.note = `There are no ${scope}. This is the real board, not just cards from this chat.`
+  else if (out.truncated) out.note = `Showing the ${rows.length} most recently updated of ${total}. Use counts for totals; pass status or workspace to see the rest.`
+  return out
+}
+
+/** One card, only if the person could open it on the board. Read-only. */
+export function getBoardCard(
+  ctx: Pick<ToolContext, 'userId' | 'agent'>,
+  id: number,
+): BoardCard & { summary: string | null; ai_review_findings: string | null } {
+  const notFound = () => new ToolUseError(`Card #${id} is not on a board you can see.`)
+  if (!Number.isInteger(id) || id <= 0) throw new ToolUseError('id must be a card number.')
+  const user = boardUser(ctx)
+  if (!user) throw notFound()
+  const vis = visibilityClause(user)
+  if (!vis) throw notFound()
+  const row = getDb()
+    .prepare(
+      `SELECT ${BOARD_ROW_SQL}, substr(o.last_session_summary, 1, 1500) AS summary, substr(o.ai_review_findings, 1, 800) AS ai_review_findings
+         FROM objectives o WHERE o.id = ? AND o.deleted_at IS NULL AND ${vis.sql}`,
+    )
+    .get(ctx.userId, ctx.agent.slug, id, ...vis.params) as (BoardRow & { summary: string | null; ai_review_findings: string | null }) | undefined
+  // A missing card and a card in someone else's workspace read the same.
+  if (!row) throw notFound()
+  return { ...toBoardCard(row), summary: row.summary ?? null, ai_review_findings: row.ai_review_findings ?? null }
+}
+
+/** Card chips for chat messages: only cards the person can still see on the board. */
+export function visibleCardStatuses(userId: number, ids: number[]): ChatCardStatus[] {
+  if (ids.length === 0) return []
+  const user = boardUser({ userId })
+  if (!user) return []
+  const vis = visibilityClause(user)
+  if (!vis) return []
+  const rows = getDb()
     .prepare(
       `SELECT o.id, o.title, o.status, o.last_session_summary AS summary, o.pr_url, o.updated_at
-         FROM agent_chat_cards c JOIN objectives o ON o.id = c.objective_id
-        WHERE c.user_id = ? AND c.agent_slug = ?
+         FROM objectives o WHERE o.id IN (${ids.map(() => '?').join(',')}) AND o.deleted_at IS NULL AND ${vis.sql}
         ORDER BY o.id DESC`,
     )
-    .all(userId, agentSlug) as Omit<ChatCardStatus, 'url'>[]
-  const wanted = ids ? new Set(ids) : null
-  return rows.filter(r => !wanted || wanted.has(r.id)).map(r => ({ ...r, url: cardUrl(r.id) }))
+    .all(...ids, ...vis.params) as Omit<ChatCardStatus, 'url'>[]
+  return rows.map(r => ({ ...r, url: cardUrl(r.id) }))
+}
+
+/** "What is waiting on me": the board's attention brief + column counts, same visibility. */
+export function boardBriefing(
+  ctx: Pick<ToolContext, 'userId' | 'agent'> & { now?: () => Date },
+  opts: { workspace?: unknown; limit?: unknown } = {},
+) {
+  const user = boardUser(ctx)
+  if (!user) throw new ToolUseError('Your account was not found.')
+  const workspace = workspaceArg(user, opts.workspace)
+  const n = Math.floor(Number(opts.limit))
+  const limit = Number.isFinite(n) && n > 0 ? Math.min(50, n) : 20
+  const brief = buildAttention(getDb(), user, { workspace, limit, now: ctx.now?.() })
+  const board = listBoardCards(ctx, { workspace, limit: 1 })
+  return {
+    as_of: brief.as_of,
+    scope: board.scope,
+    workspaces: board.workspaces,
+    columns: board.counts,
+    open_total: board.total,
+    waiting_on_you: brief.items.map(i => ({ ...i, url: cardUrl(i.id) })),
+    waiting_counts: brief.counts,
+    truncated: brief.truncated,
+    empty: board.empty,
+    note: board.empty
+      ? board.note
+      : brief.items.length === 0
+        ? `Nothing needs a decision right now, but ${board.total} open card(s) are on the board.`
+        : undefined,
+  }
 }
 
 // ── dispatch ──
@@ -309,9 +574,32 @@ function s(args: Record<string, unknown>, key: string, required = false): string
   return ''
 }
 
+/**
+ * The engine's single entry point for a built-in tool call (obj 900671). Web
+ * tools are network calls and therefore async; everything else is the
+ * synchronous runTool below, unchanged.
+ */
+export async function runChatTool(ctx: ToolContext, fnName: string, args: Record<string, unknown>): Promise<ToolOutcome> {
+  if (fnName !== 'web_search' && fnName !== 'web_fetch') return runTool(ctx, fnName, args)
+  if (!agentHasTool(ctx.agent, fnName)) throw new ToolUseError(`Tool "${fnName}" is not allowed for this agent.`)
+  try {
+    if (fnName === 'web_search') {
+      const r = await webSearch(args.query ?? args.q, args.limit, ctx.web)
+      return { result: r, summary: `Searched the web for "${r.query}" (${r.results.length} found)` }
+    }
+    const r = await webFetch(args.url, ctx.web)
+    let host = r.final_url
+    try { host = new URL(r.final_url).host } catch { /* keep the url */ }
+    return { result: r, summary: `Read ${r.title ? `"${r.title.slice(0, 80)}" (${host})` : host}` }
+  } catch (err) {
+    if (err instanceof WebToolError) throw new ToolUseError(err.message)
+    throw err
+  }
+}
+
 export function runTool(ctx: ToolContext, fnName: string, args: Record<string, unknown>): ToolOutcome {
   const tool = owningTool(fnName)
-  if (!tool || !ctx.agent.tools.includes(tool)) throw new ToolUseError(`Tool "${fnName}" is not allowed for this agent.`)
+  if (!tool || !effectiveTools(ctx.agent).includes(tool)) throw new ToolUseError(`Tool "${fnName}" is not allowed for this agent.`)
   const now = ctx.now ?? (() => new Date())
 
   switch (fnName) {
@@ -372,13 +660,16 @@ export function runTool(ctx: ToolContext, fnName: string, args: Record<string, u
     }
     case 'get_objective': {
       const id = Number(args.id)
-      const [card] = chatCards(ctx.userId, ctx.agent.slug, [id])
-      if (!card) throw new ToolUseError(`Card #${args.id} was not created from this chat.`)
+      const card = getBoardCard(ctx, id)
       return { result: card, summary: `Checked card #${id} (${card.status})`, objective_id: id }
     }
     case 'list_objectives': {
-      const cards = chatCards(ctx.userId, ctx.agent.slug).slice(0, 20)
-      return { result: { cards }, summary: `Listed ${cards.length} card(s) from this chat` }
+      const r = listBoardCards(ctx, { workspace: args.workspace, status: args.status, limit: args.limit })
+      return { result: r, summary: r.empty ? `Board check: no ${r.scope}` : `Listed ${r.cards.length} of ${r.total} board card(s)` }
+    }
+    case 'board_briefing': {
+      const r = boardBriefing({ ...ctx, now }, { workspace: args.workspace, limit: args.limit })
+      return { result: r, summary: r.empty ? 'Board briefing: no open cards' : `Board briefing: ${r.waiting_on_you.length} waiting on you, ${r.open_total} open` }
     }
     case 'email_list_inbox': {
       const mail = ctx.connectors.mail
