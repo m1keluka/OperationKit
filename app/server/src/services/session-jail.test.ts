@@ -19,6 +19,11 @@ import {
   resolveJailNetwork,
   resolveJailCcUpstream,
   buildJailCcForwarderPrefix,
+  DEFAULT_JAIL_TMP_SIZE,
+  DEFAULT_JAIL_CLAUDE_TMPDIR,
+  resolveJailTmpSize,
+  resolveJailClaudeTmpdir,
+  buildJailClaudeTmpdirPrefix,
 } from './session-jail'
 
 const base = {
@@ -267,5 +272,92 @@ describe('session-jail CC reachability (obj 900113)', () => {
       child.kill()
       upstream.close()
     }
+  })
+})
+
+describe('jail /tmp tmpfs size + CLAUDE_CODE_TMPDIR (obj 900402)', () => {
+  const tmpfs = (argv: string[]) => argv.filter((a, i, all) => all[i - 1] === '--tmpfs')
+
+  it('defaults the /tmp tmpfs to 2g — the 256m that filled up on a repo clone is gone', () => {
+    expect(DEFAULT_JAIL_TMP_SIZE).toBe('2g')
+    expect(tmpfs(buildJailRunArgv(base))).toEqual(['/tmp:rw,nosuid,nodev,size=2g'])
+    expect(buildJailRunArgv(base).join(' ')).not.toContain('size=256m')
+  })
+
+  it('keeps exactly one nosuid,nodev tmpfs at any size', () => {
+    const argv = buildJailRunArgv({ ...base, tmpSize: '512m' })
+    expect(tmpfs(argv)).toEqual(['/tmp:rw,nosuid,nodev,size=512m'])
+    expect(argv).toContain('--read-only')
+  })
+
+  it('resolves SESSION_JAIL_TMP_SIZE (default 2g, trimmed, case-folded)', () => {
+    expect(resolveJailTmpSize({} as NodeJS.ProcessEnv)).toBe('2g')
+    expect(resolveJailTmpSize({ SESSION_JAIL_TMP_SIZE: '' } as NodeJS.ProcessEnv)).toBe('2g')
+    expect(resolveJailTmpSize({ SESSION_JAIL_TMP_SIZE: ' 4G ' } as NodeJS.ProcessEnv)).toBe('4g')
+    expect(resolveJailTmpSize({ SESSION_JAIL_TMP_SIZE: '768m' } as NodeJS.ProcessEnv)).toBe('768m')
+    expect(resolveJailTmpSize({ SESSION_JAIL_TMP_SIZE: '1073741824' } as NodeJS.ProcessEnv)).toBe('1073741824')
+  })
+
+  it('rejects a size that could inject tmpfs options or is not a size', () => {
+    for (const bad of ['2g,exec', '0', '0g', '-1g', '2gb', 'big', '50%', '2 g', '2g,uid=0']) {
+      expect(() => resolveJailTmpSize({ SESSION_JAIL_TMP_SIZE: bad } as NodeJS.ProcessEnv), bad).toThrow(/SESSION_JAIL_TMP_SIZE/)
+      expect(() => buildJailRunArgv({ ...base, tmpSize: bad }), bad).toThrow(/SESSION_JAIL_TMP_SIZE/)
+    }
+  })
+
+  it('createSessionJailSync picks the size up from SESSION_JAIL_TMP_SIZE', () => {
+    const prev = process.env.SESSION_JAIL_TMP_SIZE
+    let seen: string[] = []
+    try {
+      delete process.env.SESSION_JAIL_TMP_SIZE
+      createSessionJailSync(base, argv => { seen = argv; return 'deadbeefcafebabe\n' })
+      expect(tmpfs(seen)).toEqual(['/tmp:rw,nosuid,nodev,size=2g'])
+      process.env.SESSION_JAIL_TMP_SIZE = '3g'
+      createSessionJailSync(base, argv => { seen = argv; return 'deadbeefcafebabe\n' })
+      expect(tmpfs(seen)).toEqual(['/tmp:rw,nosuid,nodev,size=3g'])
+      // an explicit opt still wins over the env
+      createSessionJailSync({ ...base, tmpSize: '1g' }, argv => { seen = argv; return 'deadbeefcafebabe\n' })
+      expect(tmpfs(seen)).toEqual(['/tmp:rw,nosuid,nodev,size=1g'])
+    } finally {
+      if (prev === undefined) delete process.env.SESSION_JAIL_TMP_SIZE
+      else process.env.SESSION_JAIL_TMP_SIZE = prev
+    }
+  })
+
+  it('CLAUDE_CODE_TMPDIR is off by default and adds no env flag', () => {
+    expect(resolveJailClaudeTmpdir({} as NodeJS.ProcessEnv)).toBe('')
+    for (const off of ['0', 'off', 'false', ' OFF ']) {
+      expect(resolveJailClaudeTmpdir({ SESSION_JAIL_CLAUDE_TMPDIR: off } as NodeJS.ProcessEnv)).toBe('')
+    }
+    expect(buildJailRunArgv(base).some(a => a.startsWith('CLAUDE_CODE_TMPDIR='))).toBe(false)
+    expect(buildJailClaudeTmpdirPrefix('')).toBe('')
+  })
+
+  it('on → the disk-backed jail HOME; a custom path must stay under it', () => {
+    for (const on of ['1', 'on', 'true', 'home']) {
+      expect(resolveJailClaudeTmpdir({ SESSION_JAIL_CLAUDE_TMPDIR: on } as NodeJS.ProcessEnv)).toBe(`${JAIL_HOME_PATH}/.claude-tmp`)
+    }
+    expect(DEFAULT_JAIL_CLAUDE_TMPDIR.startsWith(`${JAIL_HOME_PATH}/`)).toBe(true)
+    expect(resolveJailClaudeTmpdir({ SESSION_JAIL_CLAUDE_TMPDIR: '/home/jailuser/.cache/ct/' } as NodeJS.ProcessEnv))
+      .toBe('/home/jailuser/.cache/ct')
+    for (const bad of ['/tmp/x', '/home/jailuser', '/home/jailuser/../etc', 'relative', '/home/jailuser/a b', '/home/jailuser/$(id)', '/home/jailuser/x;rm']) {
+      expect(() => resolveJailClaudeTmpdir({ SESSION_JAIL_CLAUDE_TMPDIR: bad } as NodeJS.ProcessEnv), bad).toThrow(/SESSION_JAIL_CLAUDE_TMPDIR/)
+    }
+  })
+
+  it('when set, passes CLAUDE_CODE_TMPDIR after --env-file and adds no mount', () => {
+    const argv = buildJailRunArgv({ ...base, envFilePath: '/tmp/cc-scripts/x.env', claudeTmpdir: DEFAULT_JAIL_CLAUDE_TMPDIR })
+    const envIdx = argv.indexOf(`CLAUDE_CODE_TMPDIR=${DEFAULT_JAIL_CLAUDE_TMPDIR}`)
+    expect(envIdx).toBeGreaterThan(0)
+    expect(argv[envIdx - 1]).toBe('--env')
+    expect(envIdx).toBeGreaterThan(argv.indexOf('--env-file'))
+    expect(envIdx).toBeLessThan(argv.indexOf(base.image))
+    expect(mounts(argv)).toHaveLength(2)
+    expect(() => buildJailRunArgv({ ...base, claudeTmpdir: '/tmp/claude' })).toThrow(/SESSION_JAIL_CLAUDE_TMPDIR/)
+  })
+
+  it('builds a mkdir prefix for the tmpdir so it exists, owned by the jail user', () => {
+    expect(buildJailClaudeTmpdirPrefix(DEFAULT_JAIL_CLAUDE_TMPDIR)).toBe(`mkdir -p -m 700 ${DEFAULT_JAIL_CLAUDE_TMPDIR}; `)
+    expect(() => buildJailClaudeTmpdirPrefix('/etc; id')).toThrow()
   })
 })

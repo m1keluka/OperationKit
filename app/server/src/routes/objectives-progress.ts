@@ -32,6 +32,7 @@ import { getFanoutGroup, type FanoutGroup } from '../services/fanout.js'
 import { ArtifactError, listArtifacts, readArtifact } from '../services/live-artifacts.js'
 import { getPersistedSpawnStart } from '../services/session-spawn-clock.js'
 import { toSecretRequestViews } from '../services/secret-requests.js'
+import { queueAutostartCardView, type QueueAutostartCardView } from '../lib/queue-autostart.js'
 
 export interface ProgressView {
   objective_id: number
@@ -48,6 +49,13 @@ export interface ProgressView {
   children: ChildrenRollup | null
   fanout: FanoutGroup | null
   session_starts: SessionStartRow[]
+  /** Reason of the most recent spawn/resume (mirrors the newest session_starts
+   *  row) — 'queue_autostart' when the queue auto-starter launched it (obj 900625). */
+  last_start_reason: string | null
+  last_start_at: string | null
+  /** obj 900625: queue auto-start state — workspace on/off, the card's start
+   *  request, hold, blocked_by, and why it has not started yet. */
+  queue_autostart: QueueAutostartCardView
 }
 
 const PROGRESS_PARAMS = new Set(['limit', 'before'])
@@ -104,6 +112,9 @@ export function buildProgressView(
     children: children.total > 0 ? children : null,
     fanout: getFanoutGroup(db, objective.id),
     session_starts: listSessionStarts(db, objective.id, 10),
+    last_start_reason: (objective as { last_start_reason?: string | null }).last_start_reason ?? null,
+    last_start_at: (objective as { last_start_at?: string | null }).last_start_at ?? null,
+    queue_autostart: queueAutostartCardView(db, objective),
   }
 }
 

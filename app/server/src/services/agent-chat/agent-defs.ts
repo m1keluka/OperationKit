@@ -4,7 +4,8 @@
 // front matter (the markdown body becomes the instructions when the front
 // matter has no system_prompt). Fields, shared with the agent-templates card:
 //   name, slug, description, avatar, colour (or color), system_prompt,
-//   knowledge_folders, tools, model, provider, schedules, version, author
+//   knowledge_folders, tools, model, provider, schedules, version, author,
+//   how_to_use, example_prompts (the info panel, obj 900672)
 //
 // The agents dir is AGENT_FILES_DIR, else <AI_WORKSPACE_DIR>/agents. Legacy flat
 // persona files (agents/cto.md) are not agent files and are ignored.
@@ -16,7 +17,8 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { AI_WORKSPACE_DIR } from '../../config.js'
 import { parseMiniYaml, splitFrontMatter, type YamlValue } from './mini-yaml.js'
-import { KNOWN_TOOL_NAMES } from './tool-names.js'
+import { ALL_TOOLS_TOKENS, KNOWN_TOOL_NAMES } from './tool-names.js'
+import type { BotConfig, BotFileDefaults } from './bot-config.js'
 
 export const CHAT_PROVIDERS = ['claude', 'anthropic', 'openai', 'xai', 'openai-compatible', 'demo'] as const
 export type ChatProviderId = (typeof CHAT_PROVIDERS)[number]
@@ -41,9 +43,17 @@ export interface ChatAgent {
   schedules: AgentSchedule[]
   version: string | null
   author: string | null
+  /** "How to use this bot" text for the chat page's info panel (obj 900672). Empty = generic text. */
+  how_to_use: string
+  /** Example prompts for the info panel and an empty conversation (obj 900672). */
+  example_prompts: string[]
   /** Where it came from: an agent file on disk, the built-in demo, or an agent that ships with the app (obj 900556). */
   source: AgentSource
   file: string
+  /** What the file says before an admin's bot-page overrides (obj 900671). Set by listAgents. */
+  file_defaults?: BotFileDefaults
+  /** The admin's bot-page overrides, or null when the bot is exactly its file (obj 900671). */
+  config?: BotConfig | null
 }
 
 export type AgentSource = 'file' | 'demo' | 'builtin'
@@ -134,7 +144,7 @@ export function toChatAgent(
   }
 
   const tools = strList(data.tools, 'tools', errors)
-  for (const t of tools) if (!KNOWN_TOOL_NAMES.has(t)) warnings.push(`tool "${t}" is not available in chat and will be ignored`)
+  for (const t of tools) if (!KNOWN_TOOL_NAMES.has(t) && !ALL_TOOLS_TOKENS.has(t.toLowerCase())) warnings.push(`tool "${t}" is not available in chat and will be ignored`)
 
   const providerRaw = str(data.provider).trim()
   let provider: ChatProviderId | null = null
@@ -164,6 +174,15 @@ export function toChatAgent(
     }
   }
 
+  // Info-panel fields (obj 900672): presentation only, so a bad entry is a
+  // warning and is dropped — it never makes the bot unloadable.
+  const how_to_use = str(data.how_to_use).trim().slice(0, 4000)
+  const example_prompts: string[] = []
+  for (const p of strList(data.example_prompts, 'example_prompts', warnings)) {
+    if (p.length > 300) warnings.push('an example prompt longer than 300 characters was skipped')
+    else if (example_prompts.length < 8) example_prompts.push(p)
+  }
+
   const agent: ChatAgent | null = errors.length
     ? null
     : {
@@ -180,6 +199,8 @@ export function toChatAgent(
         schedules,
         version: str(data.version).trim() || null,
         author: str(data.author).trim() || null,
+        how_to_use,
+        example_prompts,
         source: opts.source ?? 'file',
         file: opts.file,
       }

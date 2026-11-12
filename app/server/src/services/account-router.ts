@@ -31,6 +31,8 @@ export type AccountKind = SeatKind
 
 export type AuthParkReason = 'needs_admin' | 'needs_reconnect'
 
+export type SeatCredentialSource = 'oauth' | 'pasted'
+
 export interface AccountSlot {
   id: string               // stable seat id (generated; never a person or a machine)
   label: string            // default human-readable name ("Seat 1", …)
@@ -45,6 +47,10 @@ export interface AccountSlot {
   credentialRef?: string | null             // secrets-store key holding a pasted setup token — the NAME only
   credentialKind?: SeatCredentialKind | null // setup_token (pasted) | cli_login (CLI login files in homeDir)
   credentialHint?: string | null            // last 4 chars at most, for the masked summary
+  // How the current setup token got here: 'oauth' = in-app Sign in with Claude,
+  // 'pasted' = a pasted `claude setup-token` value. Absent on older records
+  // (treated as pasted). Drives the "Reconnect with Sign in with Claude" offer.
+  credentialSource?: SeatCredentialSource | null
   credentialAddedAt?: string | null         // ISO, when the credential was added/rotated
   credentialExpiresAt?: string | null       // ISO, when known
   creditsExhaustedAt?: string | null        // credits / spend cap hit — parked until a good turn / passing test
@@ -221,9 +227,13 @@ function ensureAccountHome(homeDir: string): void {
   try { fs.chmodSync(homeDir, 0o777) } catch { /* ccuser needs to write .claude / .codex / .grok */ }
 }
 
-/** Next free generated id: `s1`, `s2`, … (never a letter that implies a person or a fixed slot). */
+/**
+ * Next free generated id: `s1`, `s2`, … (never a letter that implies a person or
+ * a fixed slot). A removed seat's id is never handed out again, so a new seat
+ * cannot inherit a deleted seat's usage history, rate-limit log or audit trail.
+ */
 function nextSlotId(existing: AccountSlot[]): string {
-  const used = new Set(existing.map(a => a.id).concat([...RESERVED_IDS]))
+  const used = new Set(existing.map(a => a.id).concat([...RESERVED_IDS], state.removedSeatIds || []))
   for (let i = 1; i < 10_000; i++) {
     if (!used.has(`s${i}`)) return `s${i}`
   }
@@ -1191,7 +1201,7 @@ export function updateSeat(accountId: string, patch: SeatPatch): AccountSlot | n
  */
 export function setSeatCredential(
   accountId: string,
-  cred: { ref: string; hint: string | null; expiresAt?: string | null },
+  cred: { ref: string; hint: string | null; expiresAt?: string | null; source?: SeatCredentialSource },
 ): AccountSlot | null {
   loadState()
   const account = state.accounts.find(a => a.id === accountId)
@@ -1199,6 +1209,7 @@ export function setSeatCredential(
   account.credentialKind = 'setup_token'
   account.credentialRef = cred.ref
   account.credentialHint = cred.hint
+  account.credentialSource = cred.source ?? 'pasted'
   account.credentialAddedAt = new Date().toISOString()
   if (cred.expiresAt !== undefined) account.credentialExpiresAt = cred.expiresAt
   account.authFailedAt = null
@@ -1221,6 +1232,28 @@ export function removeSeat(accountId: string): { removed: AccountSlot | null; er
   state.removedSeatIds = [...new Set([...(state.removedSeatIds || []), accountId])]
   saveState()
   return { removed: account }
+}
+
+/**
+ * After a seat is removed, delete the CLI login files it owned (Codex / Grok /
+ * a host Claude login). Only a HOME this pool created for that one seat — a
+ * directory strictly inside SEAT_HOME_ROOT — is deleted. A legacy seat that
+ * points at a shared, env-configured login dir (the pre-v2 single Codex / Grok
+ * login, a host account HOME) is left alone: deleting it could sign out
+ * something that is not this seat. Never throws.
+ */
+export function clearSeatHome(seat: Pick<AccountSlot, 'homeDir'>, root = SEAT_HOME_ROOT): 'removed' | 'kept_shared' | 'none' | 'failed' {
+  if (!seat.homeDir) return 'none'
+  const home = path.resolve(seat.homeDir)
+  const base = path.resolve(root)
+  if (!home.startsWith(base + path.sep) || path.dirname(home) !== base) return 'kept_shared'
+  try {
+    if (!fs.existsSync(home)) return 'none'
+    fs.rmSync(home, { recursive: true, force: true })
+    return fs.existsSync(home) ? 'failed' : 'removed'
+  } catch {
+    return 'failed'
+  }
 }
 
 /** Raw seat list (server-side only — callers must mask before returning it). */

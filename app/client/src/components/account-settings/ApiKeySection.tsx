@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { useConfirm } from '../ui'
+import { Badge } from '../ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { fmtDate } from './helpers'
 import type { ApiKeyIssued, ApiKeySummary } from '@operationkit/shared'
@@ -103,9 +104,9 @@ export function ApiKeySection() {
           </p>
         </div>
         {configured && (
-          <span className="shrink-0 rounded-sm bg-status-review/20 px-1.5 py-0.5 text-[12px] uppercase tracking-wider text-status-review">
-            active
-          </span>
+          // Same green status badge as Connected / Healthy / Active elsewhere; the
+          // greige uppercase chip read as a warning (QA obj 900621).
+          <Badge tone="verify" className="shrink-0">Active</Badge>
         )}
       </div>
 

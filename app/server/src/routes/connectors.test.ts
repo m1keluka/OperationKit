@@ -119,7 +119,7 @@ describe('connectors routes', () => {
     const list = json as ConnectorSummary[]
     expect(list.map(c => c.id)).toEqual([
       'github', 'google-workspace', 'slack', 'microsoft-365', 'hubspot', 'discord', 'intercom',
-      'cloudflare', 'airtable', 'clickup', 'calendly', 'cal-com', 'docuseal', 'n8n', 'supabase',
+      'cloudflare', 'airtable', 'clickup', 'calendly', 'cal-com', 'docuseal', 'supabase',
       'notion', 'linear', 'atlassian', 'sentry', 'stripe',
     ])
     const google = list.find(c => c.id === 'google-workspace')!
@@ -260,7 +260,7 @@ describe('connector registry', () => {
     }
     expect((await listConnectors()).map(d => d.id)).toEqual([
       'github', 'google-workspace', 'slack', 'microsoft-365', 'hubspot', 'discord', 'intercom',
-      'cloudflare', 'airtable', 'clickup', 'calendly', 'cal-com', 'docuseal', 'n8n', 'supabase',
+      'cloudflare', 'airtable', 'clickup', 'calendly', 'cal-com', 'docuseal', 'supabase',
       'notion', 'linear', 'atlassian', 'sentry', 'stripe',
     ])
   })

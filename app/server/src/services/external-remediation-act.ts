@@ -275,11 +275,32 @@ export function workspaceForRepo(db: Database, repoFullName: string): string {
     // Verify the slug actually exists (workspaces are a live table, not a literal
     // union) — an unmapped/renamed workspace falls back rather than FK-failing.
     const row = db.prepare('SELECT slug FROM workspaces WHERE slug = ?').get(slug) as { slug?: string } | undefined
-    if (row?.slug) return row.slug
+    if (row?.slug) return followMergedInto(db, row.slug)
     const fb = db.prepare('SELECT slug FROM workspaces WHERE slug = ?').get(DEFAULT_TRUNK_WORKSPACE) as { slug?: string } | undefined
     return fb?.slug || slug
   } catch {
     return slug
+  }
+}
+
+/**
+ * A mapped slug that workspace-merge folded away (e.g. `example` → `your-org`)
+ * must file into its successor, never back into the archived org (obj 900667).
+ * Tolerates a DB without the `merged_into` column (pre-migration / tests).
+ */
+function followMergedInto(db: Database, slug: string): string {
+  const seen = new Set([slug])
+  let cur = slug
+  try {
+    for (;;) {
+      const r = db.prepare('SELECT merged_into FROM workspaces WHERE slug = ?').get(cur) as { merged_into?: string | null } | undefined
+      const next = r?.merged_into
+      if (!next || seen.has(next)) return cur
+      seen.add(next)
+      cur = next
+    }
+  } catch {
+    return cur
   }
 }
 

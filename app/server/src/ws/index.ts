@@ -198,6 +198,7 @@ function resolveMessageWorkspace(message: ServerMessage): string | undefined {
     case 'objective_updated': return message.payload.workspace
     case 'objective_deleted': return message.payload.workspace
     case 'activity':          return message.payload.workspace
+    case 'flow_step':         return message.payload.workspace
     case 'state_change':
     case 'session_intel_ready':
     case 'session_stuck':     return lookupObjective(message.payload.objective_id)?.workspace
@@ -259,6 +260,11 @@ function shouldDeliver(message: ServerMessage, client: ConnectedClient): boolean
         return memberOwnsRow(obj)
       }
       return true
+    }
+    case 'flow_step': {
+      // Workflow run progress (card B7): ids + status only, never step I/O.
+      // Same rule as GET /api/flows/:id for a member — workspace membership.
+      return client.workspaces.has(message.payload.workspace)
     }
     case 'terminal_output': {
       // Terminal output is only sent in response to a client subscribing to a

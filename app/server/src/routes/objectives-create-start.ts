@@ -8,7 +8,10 @@
  * card (`objective`) and a `start` block saying whether it started and why not.
  *
  *   started            → 201 { ...objective, start: { started: true } }
- *   session cap        → 409 { error, objective, start: { started: false, reason: 'session_cap' } }
+ *   session cap        → 409 { error, objective, start: { started: false, reason: 'session_cap', auto_start } }
+ *                        (obj 900625: the card is flagged auto_start_requested_at so the
+ *                        queue auto-starter launches it when a slot frees, if its
+ *                        workspace has queue auto-start on)
  *   lease conflict     → 409 { error, objective, start: { started: false, reason: 'lease_conflict' } }
  *   not startable      → 201 { ...objective, start: { started: false, reason: 'not_startable' } }
  *   spawn failure      → 201 { ...objective, start: { started: false, reason: 'start_failed' } }
@@ -29,6 +32,7 @@ import { logObjectiveAudit } from '../services/objective-audit.js'
 import { broadcast } from '../ws/index.js'
 import { mapObjective } from './objectives-helpers.js'
 import { sessionCapReached, SESSION_CAP_ERROR } from '../lib/session-cap.js'
+import { markAutoStartRequested } from '../lib/queue-autostart.js'
 
 export type StartReason = 'session_cap' | 'lease_conflict' | 'not_startable' | 'start_failed'
 
@@ -43,9 +47,15 @@ function load(db: Database.Database, id: number): Objective {
 
 export async function startCreatedObjective(db: Database.Database, id: number): Promise<StartOutcome> {
   const created = load(db, id)
-  const notStarted = (httpStatus: number, reason: StartReason, detail: string, error?: string): StartOutcome => {
+  const notStarted = (
+    httpStatus: number,
+    reason: StartReason,
+    detail: string,
+    error?: string,
+    extra: Record<string, unknown> = {},
+  ): StartOutcome => {
     const objective = mapObjective(load(db, id))
-    const start = { requested: true, started: false, status: objective.status, reason, detail }
+    const start = { requested: true, started: false, status: objective.status, reason, detail, ...extra }
     return {
       httpStatus,
       body: error ? { error, objective, start } : { ...objective, start },
@@ -63,11 +73,17 @@ export async function startCreatedObjective(db: Database.Database, id: number): 
   }
 
   if (sessionCapReached(db)) {
+    // obj 900625: the start was asked for — flag the card so the queue
+    // auto-starter launches it once a slot frees (in workspaces where it is on).
+    const flag = markAutoStartRequested(db, id)
     return notStarted(
       409,
       'session_cap',
-      'Card created and left in queue. PATCH /api/objectives/{id}/status {"status":"working"} once a slot frees.',
+      flag.workspaceEnabled
+        ? 'Card created and left in queue. It is flagged to auto-start as soon as a session slot frees — do not re-create or re-start it.'
+        : 'Card created and left in queue. PATCH /api/objectives/{id}/status {"status":"working"} once a slot frees.',
       `${SESSION_CAP_ERROR} — card #${id} created but left in queue`,
+      { auto_start: { requested: flag.flagged, workspace_enabled: flag.workspaceEnabled } },
     )
   }
 

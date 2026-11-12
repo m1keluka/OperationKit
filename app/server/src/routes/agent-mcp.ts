@@ -69,6 +69,7 @@ const SERVER_INSTRUCTIONS = [
   'An error with missing_scope means this key may not do that — tell Operator what you wanted; do not retry or route around it. An error with workspace means the card belongs to another bot\'s workspace.',
   'Every write returns a one-line confirmation plus id and card url — quote the url back to Operator.',
   'Knowledge: search (vault/docs full-text) → read_file; search_files for pptx/pdf/images; list_folders to browse. Vault entry point: workspaces/<slug>/active.md.',
+  'Workflows (okflow/1): create_workflow(goal) files a builder card; or build it yourself: draft_workflow_version → (validate_workflow is free) → test_workflow until self_test.status = passed. Publishing is the owner\'s click in the web app — no tool publishes or approves.',
 ].join('\n')
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -235,6 +236,310 @@ export async function patchStatus(rest: RestCall, id: number, status: string): P
     return { row: await rest('PATCH', `/api/objectives/${id}/status`, { status }), retried: true }
   }
 }
+
+// ── workflows (obj 900642, card B6 — docs/design/WORKFLOWS.md §7.6) ─────────
+
+/**
+ * Each workflow tool wraps exactly ONE public REST route under /api/flows, named
+ * here as data so `agent-mcp-workflows.test.ts` can assert, per tool, that the
+ * route exists on the flows router, sits on the agent surface with the tool's
+ * scope, and is the only call the tool makes. Publish has no entry — and no tool.
+ */
+export const WORKFLOW_TOOL_ROUTES = {
+  list_workflows: { method: 'GET', path: '/api/flows' },
+  get_workflow: { method: 'GET', path: '/api/flows/:id' },
+  create_workflow: { method: 'POST', path: '/api/flows' },
+  draft_workflow_version: { method: 'POST', path: '/api/flows/:id/versions' },
+  validate_workflow: { method: 'POST', path: '/api/flows/validate' },
+  test_workflow: { method: 'POST', path: '/api/flows/:id/test' },
+  run_workflow: { method: 'POST', path: '/api/flows/:id/runs' },
+  get_workflow_run: { method: 'GET', path: '/api/flows/:id/runs/:runId' },
+} as const satisfies Record<string, { method: Method; path: string }>
+export type WorkflowToolName = keyof typeof WORKFLOW_TOOL_ROUTES
+
+/** Fill a WORKFLOW_TOOL_ROUTES template (`:id`, `:runId`) and call it. */
+function flowRest(rest: RestCall, tool: WorkflowToolName, params: Record<string, number> = {}, query = '', body?: unknown): Promise<any> {
+  const r = WORKFLOW_TOOL_ROUTES[tool]
+  const path = r.path.replace(/:([a-zA-Z]+)/g, (_, k: string) => {
+    const v = params[k]
+    if (!Number.isInteger(v) || v <= 0) throw new ToolError(400, `${k === 'id' ? 'id' : k} must be a positive integer`)
+    return String(v)
+  })
+  return rest(r.method, `${path}${query}`, body)
+}
+
+function intArg(args: Args, key: string, required = false): number | undefined {
+  const v = args[key]
+  if (v === undefined || v === null || v === '') {
+    if (required) throw new ToolError(400, `${key} is required`)
+    return undefined
+  }
+  const n = Number(v)
+  if (!Number.isInteger(n) || n <= 0) throw new ToolError(400, `${key} must be a positive integer`)
+  return n
+}
+
+function objArg(args: Args, key: string, required = false): Record<string, unknown> | undefined {
+  const v = args[key]
+  if (v === undefined || v === null) {
+    if (required) throw new ToolError(400, `${key} is required`)
+    return undefined
+  }
+  if (typeof v !== 'object' || Array.isArray(v)) throw new ToolError(400, `${key} must be a JSON object`)
+  return v as Record<string, unknown>
+}
+
+/** Base URL of the web app (Jobs → Workflows deep link). */
+function appUrl(p: string): string {
+  return `${(process.env.APP_BASE_URL || 'https://cc.example.com').replace(/\/+$/, '')}${p}`
+}
+
+const FLOW_ROW = ['id', 'slug', 'name', 'workspace', 'status', 'published_version', 'latest_version', 'objective_id', 'trigger', 'node_count', 'kinds', 'updated_at'] as const
+const RUN_ROW = ['id', 'flow_id', 'version', 'mode', 'status', 'goal_met', 'spent_usd', 'trigger_source', 'created_at', 'ended_at', 'error', 'goal', 'self_test_id'] as const
+function slimFlow(f: Record<string, unknown>): Record<string, unknown> {
+  const last = f.last_run as Record<string, unknown> | null | undefined
+  return compact({
+    ...pick(f, FLOW_ROW),
+    last_run: last ? compact(pick(last, ['id', 'status', 'goal_met', 'created_at']), 200) : undefined,
+    url: appUrl(`/jobs?view=workflows&flow=${f.id}`),
+  }, 400)
+}
+
+function slimSelfTest(st: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!st) return null
+  const r = (st.result ?? null) as Record<string, unknown> | null
+  return compact({
+    ...pick(st, ['id', 'flow_id', 'version', 'mode', 'status', 'run_ids', 'created_at', 'ended_at']),
+    passed: r ? r.passed : undefined,
+    failures: r ? r.failures : undefined,
+    failing_asserts: r && Array.isArray(r.failing_asserts) && r.failing_asserts.length ? r.failing_asserts : undefined,
+    uncovered_nodes: r && Array.isArray(r.uncovered_nodes) && r.uncovered_nodes.length ? r.uncovered_nodes : undefined,
+  }, 2000)
+}
+
+/** A validator refusal, with every issue in the text the model reads. */
+function flowValidationError(err: unknown): never {
+  if (err instanceof ToolError && err.body && Array.isArray(err.body.errors) && err.body.errors.length) {
+    const issues = (err.body.errors as Record<string, unknown>[]).slice(0, 40)
+      .map(e => `[${e.code}] ${e.path ?? ''}${e.node_id ? ` (node ${e.node_id})` : ''}: ${e.message ?? ''}`)
+    const b = err.body.builder as { used?: number; max?: number; remaining?: number } | null | undefined
+    const budget = b ? ` Builder iterations used ${b.used}/${b.max} (${b.remaining} left).` : ''
+    throw new ToolError(err.status, `${err.body.reason ?? err.message}: ${err.body.errors.length} issue(s) — ${issues.join('; ')}.${budget}`, err.missingScope, err.body)
+  }
+  throw err
+}
+
+const WORKFLOW_ID_SCHEMA = { type: 'integer', description: 'Workflow (flow) id — from list_workflows or create_workflow' }
+const DEFINITION_SCHEMA = {
+  type: 'object',
+  description: 'An okflow/1 definition: {apiVersion:"okflow/1", id, name, workspace, version, goal:{statement, end_condition:{assert:[{expr}]}}, nodes:[…]}. Spec: docs/design/WORKFLOWS.md §3. Never put {{ secrets.* }} or an approvals block in it.',
+}
+
+const WORKFLOW_TOOLS: McpTool[] = [
+  {
+    name: 'list_workflows',
+    access: 'read',
+    scope: 'board:read',
+    description: 'List automated workflows (okflow/1) you can see: status, published / latest draft version, trigger, node kinds, last run. flows_enabled=false means the install\'s kill switch is off: nothing runs, but drafting and validating still work.',
+    inputSchema: { type: 'object', properties: { workspace: WS_FILTER } },
+    run: async (a, rest) => {
+      const r = await flowRest(rest, 'list_workflows', {}, qs({ workspace: strArg(a, 'workspace') }))
+      return { flows_enabled: !!r.flows_enabled, flows: (r.flows ?? []).map((f: Record<string, unknown>) => slimFlow(f)) }
+    },
+  },
+  {
+    name: 'get_workflow',
+    access: 'read',
+    scope: 'board:read',
+    description: 'One workflow: the definition of a version (default: published, else latest draft), its Mermaid flow chart text with last-run status, versions, recent runs, and the publish state (latest self-test, send/spend nodes the owner must approve, nodes missing mocks).',
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: { id: WORKFLOW_ID_SCHEMA, version: { type: 'integer', minimum: 1, description: 'Version to show (default: published, else latest)' } },
+    },
+    run: async (a, rest) => {
+      const id = idArg(a)
+      const r = await flowRest(rest, 'get_workflow', { id }, qs({ version: intArg(a, 'version') }))
+      const pub = (r.publish ?? {}) as Record<string, unknown>
+      return {
+        flows_enabled: !!r.flows_enabled,
+        flow: slimFlow(r.flow ?? {}),
+        version: r.version,
+        definition: r.definition,
+        mermaid: clip(r.mermaid, MAX_TEXT_CHARS),
+        versions: r.versions,
+        publish: compact({
+          version: pub.version,
+          nodes_requiring_approval: pub.nodes_requiring_approval,
+          nodes_missing_mocks: pub.nodes_missing_mocks,
+          self_test: slimSelfTest(pub.self_test as Record<string, unknown> | null),
+          published: r.version != null && (r.flow?.published_version ?? null) === r.version,
+        }, 2000),
+        builder: r.builder ?? undefined,
+        ...(r.version == null ? { note: 'No version yet: draft one with draft_workflow_version (or start the builder card).' } : {}),
+        runs: (r.runs ?? []).slice(0, 10).map((x: Record<string, unknown>) => compact(pick(x, RUN_ROW), 400)),
+      }
+    },
+  },
+  {
+    name: 'create_workflow',
+    access: 'write',
+    scope: 'board:write',
+    description: 'New workflow from a GOAL. Creates the workflow (no version yet) and its builder card: an objective whose brief carries the goal, the end condition (or a request to propose one), the Tool registry and the workspace\'s enabled connectors. The card lands in queue — start it with start_objective (board:start) to let a builder agent iterate, or draft versions yourself with draft_workflow_version. Read first: list_workflows, so you do not duplicate one.',
+    inputSchema: {
+      type: 'object',
+      required: ['workspace', 'goal'],
+      properties: {
+        workspace: { type: 'string', description: 'REQUIRED workspace slug (see list_workspaces)' },
+        goal: { type: 'string', description: 'What the workflow must achieve, in plain words' },
+        name: { type: 'string', description: 'Display name (default: from the goal). The slug is derived from it.' },
+        end_condition: {
+          type: 'object',
+          description: 'Optional machine-checkable end condition {assert:[{expr, why?}], judge?}. Omit and the builder proposes one for the owner to confirm.',
+        },
+        max_iterations: { type: 'integer', minimum: 1, maximum: 20, description: 'builder.max_iterations: agent draft submissions allowed before the card goes to the owner (default 6)' },
+      },
+    },
+    run: async (a, rest) => {
+      const workspace = strArg(a, 'workspace', true)!
+      const goal = strArg(a, 'goal', true)!
+      const name = strArg(a, 'name')
+      const endCondition = objArg(a, 'end_condition')
+      const max = intArg(a, 'max_iterations')
+      const r = await flowRest(rest, 'create_workflow', {}, '', {
+        workspace, goal, ...(name ? { name } : {}), ...(endCondition ? { end_condition: endCondition } : {}),
+        ...(max ? { builder: { max_iterations: max } } : {}),
+      })
+      const b = (r.builder ?? {}) as Record<string, unknown>
+      const hold = b.queue_hold ? ' It is held because workflows are switched off on this install (start_objective still starts it).' : ''
+      return compact({
+        confirmation: `Created workflow #${r.flow_id} "${r.flow?.name ?? r.slug}" in ${r.workspace} with builder card #${r.objective_id} (in ${b.status ?? 'queue'}).${hold} Next: draft_workflow_version id=${r.flow_id}, or start_objective ${r.objective_id}.`,
+        flow_id: r.flow_id,
+        slug: r.slug,
+        workspace: r.workspace,
+        objective_id: r.objective_id,
+        card_url: cardUrl(Number(r.objective_id)),
+        url: appUrl(`/jobs?view=workflows&flow=${r.flow_id}`),
+        max_iterations: b.max_iterations,
+        queue_hold: b.queue_hold,
+      }, 600)
+    },
+  },
+  {
+    name: 'draft_workflow_version',
+    access: 'write',
+    scope: 'board:write',
+    description: 'Save a new DRAFT version of a workflow from an okflow/1 definition. id/workspace default to the workflow\'s own; version defaults to the next number. A refusal lists EVERY validation error (code, path, node) — fix them all and resubmit. Each submission by an agent counts against the builder\'s max_iterations (validate_workflow does not). Drafting never publishes.',
+    inputSchema: { type: 'object', required: ['id', 'definition'], properties: { id: WORKFLOW_ID_SCHEMA, definition: DEFINITION_SCHEMA } },
+    run: async (a, rest) => {
+      const id = idArg(a)
+      const definition = objArg(a, 'definition', true)
+      let r: Record<string, any>
+      try {
+        r = await flowRest(rest, 'draft_workflow_version', { id }, '', { definition })
+      } catch (err) {
+        flowValidationError(err)
+      }
+      const b = r.builder as { used: number; max: number; remaining: number } | null
+      return compact({
+        confirmation: `${r.created ? 'Drafted' : 'Already stored:'} v${r.version} of workflow #${r.flow_id}. Next: test_workflow id=${r.flow_id} version=${r.version}.${b ? ` Builder iterations used ${b.used}/${b.max}.` : ''}`,
+        flow_id: r.flow_id,
+        version: r.version,
+        created: r.created,
+        warnings: Array.isArray(r.warnings) && r.warnings.length ? r.warnings : undefined,
+        builder: b ?? undefined,
+      }, 2000)
+    },
+  },
+  {
+    name: 'validate_workflow',
+    // Pure check — saves nothing. Scoped board:write with drafting (§7.6).
+    access: 'read',
+    scope: 'board:write',
+    description: 'Validate an okflow/1 definition WITHOUT saving it: {ok, errors[], warnings[]} with every issue at once. Free — never counts as a builder iteration. An unapproved send/spend node is a warning (the owner approves those at publish).',
+    inputSchema: { type: 'object', required: ['definition'], properties: { definition: DEFINITION_SCHEMA } },
+    run: async (a, rest) => {
+      const definition = objArg(a, 'definition', true)
+      const r = await flowRest(rest, 'validate_workflow', {}, '', { definition })
+      return { ok: !!r.ok, errors: r.errors ?? [], warnings: r.warnings ?? [], ...(r.defaults_applied?.length ? { defaults_applied: r.defaults_applied } : {}) }
+    },
+  },
+  {
+    name: 'test_workflow',
+    access: 'write',
+    scope: 'board:start',
+    description: 'Self-test a version (default: the latest) and return the ENGINE\'s verdict: status passed|failed, failures, failing end-condition asserts, uncovered nodes. mode "dry" (default) calls nothing outside — every tool/mcp/llm node uses its mock; "test" reads live and calls the model (spends). A green self-test of a version is required before the owner can publish it.',
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id: WORKFLOW_ID_SCHEMA,
+        version: { type: 'integer', minimum: 1 },
+        mode: { type: 'string', enum: ['dry', 'test'], description: 'Default dry' },
+        fixtures: { type: 'array', description: 'Optional trigger fixtures [{name?, payload}] (default: the definition\'s fixtures, else one empty payload)' },
+      },
+    },
+    run: async (a, rest) => {
+      const id = idArg(a)
+      const version = intArg(a, 'version')
+      const mode = strArg(a, 'mode')
+      if (mode && mode !== 'dry' && mode !== 'test') throw new ToolError(400, 'mode must be dry or test')
+      const fixtures = a.fixtures
+      if (fixtures !== undefined && !Array.isArray(fixtures)) throw new ToolError(400, 'fixtures must be an array')
+      const r = await flowRest(rest, 'test_workflow', { id }, '', {
+        ...(version ? { version } : {}), ...(mode ? { mode } : {}), ...(fixtures !== undefined ? { fixtures } : {}),
+      })
+      const st = slimSelfTest(r.self_test)
+      const verdict = st?.status === 'running'
+        ? 'is still running (a fixture waits out a retry backoff) — read it later with get_workflow'
+        : st?.status === 'passed' ? 'PASSED' : 'FAILED'
+      return { confirmation: `Self-test #${st?.id} of workflow #${id} v${st?.version} (${st?.mode}) ${verdict}.`, self_test: st }
+    },
+  },
+  {
+    name: 'run_workflow',
+    access: 'write',
+    scope: 'board:start',
+    description: 'Queue a LIVE run of the PUBLISHED version now (it may send or spend exactly as the owner approved). Refused with flows_disabled while the kill switch is off, and when nothing is published. Use test_workflow to try a draft.',
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: { id: WORKFLOW_ID_SCHEMA, payload: { type: 'object', description: 'Trigger payload ({{ trigger.payload.* }}), ≤ 64 KB' } },
+    },
+    run: async (a, rest) => {
+      const id = idArg(a)
+      const payload = objArg(a, 'payload') ?? {}
+      const r = await flowRest(rest, 'run_workflow', { id }, '', { payload })
+      return compact({
+        confirmation: `Queued run #${r.run_id} of workflow #${id} v${r.run?.version}. Follow it with get_workflow_run.`,
+        run_id: r.run_id,
+        run: r.run ? compact(pick(r.run, RUN_ROW), 400) : undefined,
+      }, 800)
+    },
+  },
+  {
+    name: 'get_workflow_run',
+    access: 'read',
+    scope: 'board:read',
+    description: 'One run of a workflow: status, goal verdict, spend, each step (node, attempt, status, effect, error, output preview, simulated) and the Mermaid chart with per-node status.',
+    inputSchema: {
+      type: 'object',
+      required: ['id', 'run_id'],
+      properties: { id: WORKFLOW_ID_SCHEMA, run_id: { type: 'integer', description: 'Run id (from run_workflow, a self-test\'s run_ids, or get_workflow)' } },
+    },
+    run: async (a, rest) => {
+      const id = idArg(a)
+      const runId = intArg(a, 'run_id', true)!
+      const r = await flowRest(rest, 'get_workflow_run', { id, runId })
+      return {
+        run: compact(pick(r.run ?? {}, RUN_ROW), 1000),
+        steps: (r.steps ?? []).slice(0, 200).map((x: Record<string, unknown>) => compact(x, 1000)),
+        node_status: r.node_status,
+        mermaid: clip(r.mermaid, MAX_TEXT_CHARS),
+      }
+    },
+  },
+]
 
 // ── tools ───────────────────────────────────────────────────────────────────
 
@@ -608,6 +913,10 @@ export const MCP_TOOLS: McpTool[] = [
         transcript: p.transcript ? compact(p.transcript, 800) : null,
         children: p.children,
         session_starts: (p.session_starts ?? []).slice(0, 3),
+        // obj 900625: who/what last started it ('queue_autostart' = the queue auto-starter).
+        last_start_reason: p.last_start_reason ?? null,
+        last_start_at: p.last_start_at ?? null,
+        queue_autostart: p.queue_autostart ?? null,
         // obj 719065: what the card is blocked on — relay with fulfill_secret_request.
         secret_requests: p.secret_requests ?? [],
       }, 1500)
@@ -741,6 +1050,8 @@ export const MCP_TOOLS: McpTool[] = [
         start: { type: 'boolean', description: 'Create AND start the session (queued task/bug only)' },
         idempotency_key: { type: 'string', description: 'Sent as the Idempotency-Key header: same key + same arguments within 24h returns the original card instead of a new one' },
         owner_bot: OWNER_BOT_SCHEMA,
+        queue_hold: { type: ['string', 'null'], description: 'Hold reason: the queue auto-starter never starts a held card (explicit start still works). null or "" clears.' },
+        blocked_by: { type: ['integer', 'null'], description: 'Card id (same workspace) this card waits on: queue auto-start skips it until that card is done. null clears.' },
       },
     },
     run: async (a, rest) => {
@@ -756,7 +1067,7 @@ export const MCP_TOOLS: McpTool[] = [
         throw new ToolError(400, `Unknown or inaccessible workspace '${workspace}'. Use one of: ${slugs.join(', ') || '(none)'}`)
       }
       const idem = strArg(a, 'idempotency_key')
-      const body = pick(a, ['title', 'description', 'workspace', 'project', 'type', 'agent_context', 'parent_id', 'completion_goal', 'create_pr', 'model', 'effort', 'start', 'owner_bot'])
+      const body = pick(a, ['title', 'description', 'workspace', 'project', 'type', 'agent_context', 'parent_id', 'completion_goal', 'create_pr', 'model', 'effort', 'start', 'owner_bot', 'queue_hold', 'blocked_by'])
       let row: Record<string, unknown>
       try {
         row = await rest('POST', '/api/objectives', body, idem ? { 'Idempotency-Key': idem } : undefined)
@@ -764,7 +1075,11 @@ export const MCP_TOOLS: McpTool[] = [
         // 409 on create+start = the card WAS created, the session could not start.
         if (err instanceof ToolError && err.status === 409 && err.body?.objective?.id) {
           const card = err.body.objective
-          return receipt(`Created #${card.id} "${card.title}" in ${card.workspace} but did NOT start it (${err.body.start?.reason ?? 'conflict'}): it is waiting in ${card.status}. Start it later with start_objective — do not create it again.`, card, { start: err.body.start })
+          const autoStart = err.body.start?.auto_start?.workspace_enabled === true
+          const later = autoStart
+            ? 'It is flagged to auto-start when a session slot frees — do not create or start it again.'
+            : 'Start it later with start_objective — do not create it again.'
+          return receipt(`Created #${card.id} "${card.title}" in ${card.workspace} but did NOT start it (${err.body.start?.reason ?? 'conflict'}): it is waiting in ${card.status}. ${later}`, card, { start: err.body.start })
         }
         throw err
       }
@@ -794,11 +1109,13 @@ export const MCP_TOOLS: McpTool[] = [
         model: { type: 'string' },
         effort: { type: 'string', enum: ['normal', 'high', 'ultracode'] },
         owner_bot: OWNER_BOT_SCHEMA,
+        queue_hold: { type: ['string', 'null'], description: 'Hold reason: the queue auto-starter never starts a held card (explicit start still works). null or "" clears.' },
+        blocked_by: { type: ['integer', 'null'], description: 'Card id (same workspace) this card waits on: queue auto-start skips it until that card is done. null clears.' },
       },
     },
     run: async (a, rest) => {
       const id = idArg(a)
-      const fields = pick(a, ['title', 'description', 'completion_goal', 'agent_context', 'project', 'model', 'effort', 'owner_bot'])
+      const fields = pick(a, ['title', 'description', 'completion_goal', 'agent_context', 'project', 'model', 'effort', 'owner_bot', 'queue_hold', 'blocked_by'])
       if (Object.keys(fields).length === 0) throw new ToolError(400, 'pass at least one field to change')
       const row = await rest('PUT', `/api/objectives/${id}`, fields)
       // obj 900309: owner_bot is echoed on EVERY update, not only when it was the
@@ -829,7 +1146,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: 'start_objective',
     access: 'write',
     scope: 'board:start',
-    description: 'Start (or restart) the coding session on a card in queue, planning, ai_review or review — the same as update_status(working), but retried once automatically on a transient server error and never double-started. A done/cancelled card must be reopened first (update_status queue) and only if Operator asked. 409 = session cap full, try later.',
+    description: 'Start (or restart) the coding session on a card in queue, planning, ai_review or review — the same as update_status(working), but retried once automatically on a transient server error and never double-started. A done/cancelled card must be reopened first (update_status queue) and only if Operator asked. 409 = session cap full: a queued card is then flagged to auto-start when a slot frees if its workspace has queue auto-start on (auto_start.workspace_enabled), otherwise try later.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: ID_SCHEMA } },
     run: async (a, rest) => {
       const id = idArg(a)
@@ -900,6 +1217,9 @@ export const MCP_TOOLS: McpTool[] = [
       return receipt(`Stopped #${id}; parked in review.`, { id, status: 'review' })
     },
   },
+
+  // ── workflows (card B6): every one wraps a WORKFLOW_TOOL_ROUTES entry; no publish tool ──
+  ...WORKFLOW_TOOLS,
 ]
 
 const TOOLS_BY_NAME = new Map(MCP_TOOLS.map(t => [t.name, t]))
@@ -930,7 +1250,9 @@ function restCaller(req: AuthRequest, token: string): RestCall {
   const base = process.env.CC_MCP_LOOPBACK_BASE || `http://127.0.0.1:${req.socket.localPort}`
   const fail = (status: number, json: any): never => {
     const missing = json && typeof json === 'object' && 'missing_scope' in json ? json.missing_scope : undefined
-    throw new ToolError(status, typeof json?.error === 'string' ? json.error : `HTTP ${status}`, missing, json)
+    // /api/flows answers refusals as {ok:false, reason} (e.g. not_published, flows_disabled) — surface the reason.
+    const msg = typeof json?.error === 'string' ? json.error : typeof json?.reason === 'string' ? json.reason : `HTTP ${status}`
+    throw new ToolError(status, msg, missing, json)
   }
   return async (method, path, body, extraHeaders, opts) => {
     const r = await fetch(`${base}${path}`, {

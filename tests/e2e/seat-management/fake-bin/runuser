@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# E2E stand-in for `runuser -u <user> -- <cmd…>`: the scratch server runs unprivileged,
+# so drop the user switch and run the command as-is.
+while [ $# -gt 0 ]; do case "$1" in -u) shift 2 ;; --) shift; break ;; *) break ;; esac; done
+exec "$@"

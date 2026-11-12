@@ -58,6 +58,7 @@ const linear: ConnectorDefinition = {
   order: 170,
   auth_path: 'dcr_mcp',
   mcp_url: ISSUER,
+  mcp_server_url: `${ISSUER}/mcp`,
   setup_guide: 'docs/connectors/guides/linear.md',
   description:
     'Lets agents read and manage Linear issues and projects through the hosted Linear MCP server, as your Linear account.',

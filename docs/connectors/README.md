@@ -118,3 +118,25 @@ Before tagging a NEW connector `dcr_mcp`, verify it the way
 against the vendor's own `/.well-known/oauth-authorization-server` and docs, never a
 search summary — and confirm no pre-registered app is required. If it is, use
 `oauth_guided` or `api_key` instead.
+
+## Connecting any MCP server (Sprint 7.8, obj 900620)
+
+A connector that sets `mcp_url` also shows up in the **From the catalog** list of
+Settings → Integrations → **New Integration** → **Browse integrations** (as **Add as workspace MCP
+server**). Admins can also paste any remote MCP URL there. Those connections are workspace-scoped and injected into
+card sessions and chat bots. See [MCP-SERVERS.md](./MCP-SERVERS.md).
+
+## New Integration and the Integrations bot (obj 900682)
+
+Settings → Integrations lists only connected integrations. **New Integration** opens Browse (the
+catalog above, with each `setup_guide`) or **Make my own**, which starts the Integrations bot: a card
+that asks what to connect, reads the API docs, connects an MCP server through the 900620 code path or
+scaffolds an okit Tool, and asks for keys through the masked in-chat secret form. See
+[INTEGRATIONS-BOT.md](./INTEGRATIONS-BOT.md).
+
+## Optional: shared third-party OAuth app (Sprint 7.7, obj 900511)
+
+An admin may point a named `oauth_guided` connector at a shared OAuth app run by a third party
+they choose. It is off by default and never required, and Operation Kit runs no such app. A
+connector built with `oauthGuidedConnector()` is eligible automatically (`shared_app_eligible`).
+See [`SHARED-THIRD-PARTY-OAUTH-APP.md`](SHARED-THIRD-PARTY-OAUTH-APP.md).

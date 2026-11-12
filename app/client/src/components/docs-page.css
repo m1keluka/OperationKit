@@ -43,7 +43,12 @@
 .docs-editor h4 {
   font-family: var(--font-display);
   letter-spacing: -0.01em;
+  /* Headings inherited the 1.62 body leading, so a 48px title that wrapped had a
+     72px line box with a gap between its lines (QA obj 900621). The site sets
+     display type tight. */
+  line-height: 1.2;
 }
+.docs-editor h1 { line-height: 1.12; }
 .docs-editor h1 { color: var(--fg-0); font-weight: 600; }
 .docs-editor h2 { color: var(--fg-0); font-weight: 600; }
 .docs-editor h3 { color: var(--fg-0); font-weight: 600; }

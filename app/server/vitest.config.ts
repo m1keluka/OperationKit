@@ -23,6 +23,9 @@ export default defineConfig({
     // run by the harness via runFloor, NOT by vitest — exclude them from collection
     // so the default glob doesn't try to load a fixture as a real suite.
     exclude: [...configDefaults.exclude, '**/fixtures/**'],
+    // app/shared has no test runner of its own; its pure modules (e.g. the
+    // okflow/1 validator in shared/flow/) are tested from here.
+    include: ['**/*.{test,spec}.?(c|m)[jt]s?(x)', '../shared/**/*.test.ts'],
     // Points DESIGN_REGISTRY_FILE at a committed fixture so registry-dependent
     // suites don't need a real /home/operator/projects checkout (CI-hermetic).
     setupFiles: ['./vitest.setup.ts'],

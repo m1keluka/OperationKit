@@ -65,7 +65,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
             value={query}
             onChange={e => { setQuery(e.target.value); setCursor(0) }}
             onKeyDown={handleKeyDown}
-            placeholder="Jump to…"
+            placeholder="Jump to a page…"
             className="flex-1 bg-transparent text-sm text-fg-0 placeholder-fg-3 outline-none"
           />
           <span className="font-mono text-[12px] text-fg-3">esc</span>

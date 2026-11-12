@@ -24,6 +24,7 @@ const atlassian = deferredConnector({
   ],
   auth_path: 'dcr_mcp',
   mcp_url: 'https://mcp.atlassian.com',
+  mcp_server_url: 'https://mcp.atlassian.com/v1/mcp',
   deferred_reason:
     "Atlassian's mcp.atlassian.com confirms DCR (registration_endpoint); CIMD support on that issuer is unconfirmed (#900505). Either way, connecting needs the shared DCR client (Sprint 7.3), not yet built, and no API-key fallback is documented for Rovo MCP — this entry is catalog-only until Sprint 7.3 ships.",
 })

@@ -22,6 +22,8 @@ export const SCRUBBED_TABLES = [
   'objective_reviews',
   'objective_audit',
   'alerts',
+  // obj 900676: a script routine's captured output is the likeliest place for a leaked key.
+  'routine_runs',
   // Built-in agent chat (obj 719987): a person may paste a key into a chat.
   'agent_chat_messages',
   'agent_chat_drafts',

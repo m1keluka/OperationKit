@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, type Response } from 'express'
 import fs from 'fs'
 import path from 'path'
 import { type AuthRequest } from '../middleware/auth.js'
@@ -7,6 +7,7 @@ import { getUserWorkspaces } from '../middleware/workspace.js'
 import { getDocRoots, getWorkspaceSlugs } from '../services/workspaces.js'
 import { searchKnowledge } from '../services/knowledge-search.js'
 import { allWorkspaceKbRoots, knowledgeBaseRoot, workspaceKbRoot } from '../services/doc-ingest/kb-paths.js'
+import { pathWorkspaceResolver, workspaceOfPath, type PathWorkspace } from '../lib/doc-path-workspace.js'
 
 const router = Router()
 // obj 900204: card sessions authenticate with their objective-scoped
@@ -91,6 +92,60 @@ function getWriteRoots(req: AuthRequest): string[] {
   return memberRoots(req, 'write')
 }
 
+/**
+ * obj 900021 — the workspace allowlist of the caller's named agent key, or null
+ * when nothing extra applies (cookie/JWT user, unscoped key, card session — a
+ * card session is already confined to its own workspace by obj 900204).
+ *
+ * An admin's key is limited by ITS list too: the admin roots are the whole
+ * vault, so without this a key minted for [example, operationkit] could read and
+ * write every other workspace's notes through /api/docs and MCP write_doc.
+ */
+function keyWorkspaces(req: AuthRequest): string[] | null {
+  if (sessionFileWorkspace(req)) return null
+  return req.agentKey?.workspaces ?? null
+}
+
+/** The 403 body for a path outside the key's workspaces. */
+function workspaceDenial(req: AuthRequest, r: PathWorkspace, allow: string[]) {
+  const label = req.agentKey?.label ?? 'agent key'
+  const error = r.ok
+    ? `Workspace not allowed: agent key '${label}' cannot use workspace '${r.workspace}'`
+    : r.reason === 'ambiguous'
+      ? `Workspace not allowed: this path belongs to more than one workspace (${r.workspaces.join(', ')})`
+      : 'Workspace not allowed: this path is not inside a workspace this agent key may use'
+  return {
+    error,
+    code: 'workspace_not_allowed',
+    ...(r.ok ? { workspace: r.workspace } : { reason: r.reason }),
+    allowed_workspaces: allow,
+  }
+}
+
+/**
+ * Enforce the key's workspace list on one already-root-checked path. Sends the
+ * 403 and returns false when the path is not in exactly one allowed workspace.
+ */
+function enforceKeyWorkspace(req: AuthRequest, res: Response, resolvedPath: string): boolean {
+  const allow = keyWorkspaces(req)
+  if (!allow) return true
+  const r = workspaceOfPath(resolvedPath)
+  if (r.ok && allow.includes(r.workspace)) return true
+  res.status(403).json(workspaceDenial(req, r, allow))
+  return false
+}
+
+/** Keep only the paths that resolve to exactly one workspace on the key. */
+function filterToKeyWorkspaces<T>(req: AuthRequest, items: T[], pathOf: (t: T) => string): T[] {
+  const allow = keyWorkspaces(req)
+  if (!allow) return items
+  const resolve = pathWorkspaceResolver()
+  return items.filter(i => {
+    const r = resolve(pathOf(i))
+    return r.ok && allow.includes(r.workspace)
+  })
+}
+
 /** True when `dir` is knowledge: inside the knowledge base or a workspace's knowledge folder. */
 function isKnowledgeDir(dir: string, kbRoot: string, wsKbDirs: string[]): boolean {
   return resolveUnder([kbRoot, ...wsKbDirs], dir) !== null
@@ -110,10 +165,20 @@ export function knowledgeFolders(req: AuthRequest): string[] {
   const wsKb = allWorkspaceKbRoots().map(w => path.resolve(w.dir))
   let candidates: string[]
   const sessionWs = sessionFileWorkspace(req)
+  const keyWs = keyWorkspaces(req)
   if (sessionWs) {
     // obj 900204 — exactly this card's workspace folder. No admin branch, no
     // other membership, no shared sibling folders.
     candidates = allWorkspaceKbRoots().filter(w => w.workspace === sessionWs).map(w => path.resolve(w.dir))
+  } else if (keyWs) {
+    // obj 900021 — a scoped agent key sees only its workspaces' knowledge
+    // folders (intersected with what the owning user may see), never the whole
+    // knowledge base root even when the owner is an admin.
+    const allow = new Set(keyWs)
+    const mine = req.user!.role === 'admin' ? null : new Set(getUserWorkspaces(req.user!.id).map(uw => uw.workspace))
+    candidates = filterToKeyWorkspaces(req, allWorkspaceKbRoots()
+      .filter(w => allow.has(w.workspace) && (!mine || mine.has(w.workspace)))
+      .map(w => path.resolve(w.dir)), d => d)
   } else if (req.user!.role === 'admin') {
     candidates = [kbRoot, ...wsKb]
   } else {
@@ -246,9 +311,17 @@ router.get('/search', (req: AuthRequest, res) => {
     : undefined
   const rawLimit = parseInt(String(req.query.limit ?? ''), 10)
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 20) : 8
-  const hits = searchKnowledge(q, workspace)
-    .filter(h => resolveUnder(readRoots, h.path) !== null)
-    .slice(0, limit)
+  const keyWs = keyWorkspaces(req)
+  if (keyWs && workspace && !keyWs.includes(workspace)) {
+    res.status(403).json({ error: `Workspace not allowed: agent key '${req.agentKey?.label ?? 'agent key'}' cannot use workspace '${workspace}'`, code: 'workspace_not_allowed', workspace, allowed_workspaces: keyWs })
+    return
+  }
+  // obj 900021: a scoped key's hits must each resolve to one of its workspaces.
+  const hits = filterToKeyWorkspaces(
+    req,
+    searchKnowledge(q, workspace).filter(h => resolveUnder(readRoots, h.path) !== null),
+    h => h.path,
+  ).slice(0, limit)
   res.json({ results: hits })
 })
 
@@ -258,7 +331,8 @@ router.get('/search', (req: AuthRequest, res) => {
 // `roots` is kept for older clients and always lists just the knowledge folders.
 router.get('/tree', (req: AuthRequest, res) => {
   const readRoots = getReadRoots(req)
-  const writeRoots = getWriteRoots(req)
+  // obj 900021: advertise only the write roots inside the key's workspaces.
+  const writeRoots = filterToKeyWorkspaces(req, getWriteRoots(req), r => r)
 
   if (readRoots.length === 0) {
     res.status(403).json({ error: 'No doc access for your account' })
@@ -276,6 +350,7 @@ router.get('/tree', (req: AuthRequest, res) => {
       res.status(403).json({ error: 'Not inside the knowledge base' })
       return
     }
+    if (!enforceKeyWorkspace(req, res, resolved)) return
     try {
       if (!fs.statSync(resolved).isDirectory()) {
         res.status(400).json({ error: 'Root is not a directory' })
@@ -309,6 +384,8 @@ router.get('/file', (req: AuthRequest, res) => {
     res.status(403).json({ error: 'Path not allowed' })
     return
   }
+  // obj 900021: checked before stat, so a denied path is no existence oracle.
+  if (!enforceKeyWorkspace(req, res, resolved)) return
   try {
     const stat = fs.statSync(resolved)
     if (!stat.isFile()) {
@@ -356,6 +433,9 @@ router.put('/file', (req: AuthRequest, res) => {
     res.status(403).json({ error: 'Path not allowed for writes' })
     return
   }
+  // obj 900021: the agent key's workspace list applies to every write — an
+  // admin's key included. Checked before any mkdir/write.
+  if (!enforceKeyWorkspace(req, res, resolved)) return
   if (!resolved.toLowerCase().endsWith('.md')) {
     res.status(400).json({ error: 'Only .md files may be written' })
     return

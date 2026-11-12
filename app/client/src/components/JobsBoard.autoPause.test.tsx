@@ -66,6 +66,13 @@ vi.mock('../hooks/useWorkspaces', () => ({
   useWorkspaces: () => ({ labelOf: (s: string) => s, workspaces: [{ slug: 'example', name: 'Example' }] }),
 }))
 vi.mock('./SessionViewer', () => ({ SessionViewer: () => null }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, username: 'operator', role: 'admin' } }) }))
+vi.mock('./settings/QueueAutostartPanel', () => ({ QueueAutostartPanel: () => null }))
+vi.mock('../hooks/useFlows', () => ({
+  useFlows: () => ({ flows: [], runs: [], flowsEnabled: false, loading: false, error: null, refresh: async () => {}, runNow: async () => ({ ok: true }) }),
+  useFlowDetail: () => ({ detail: null, error: null, loading: false, reload: async () => {} }),
+  fetchFlowRun: async () => { throw new Error('not in this test') },
+}))
 
 const { JobsBoard } = await import('./JobsBoard')
 

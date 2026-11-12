@@ -3,6 +3,7 @@ import type { Objective, ObjectiveStatus } from '@operationkit/shared'
 import { AgentMonogram, LiveBadge, STATUS_META } from '../components/design/primitives'
 import { PreviewWorkers } from './PreviewWorkers'
 import { relativeTime } from '../lib/time'
+import { hasLiveSession } from '../lib/boardColumns'
 
 const ACTIONS: Record<ObjectiveStatus, { label: string; target: ObjectiveStatus }[]> = {
   planning: [{ label: 'Skip planning', target: 'queue' }],
@@ -33,14 +34,18 @@ export function PreviewCard({
   /** When true (All-Organizations view), render the workspace as a prominent chip */
   showOrgChip?: boolean
 }) {
-  const isLive = objective.status === 'working' && objective.session_id != null
+  // obj 900669 — a review card with an agent still running on it is shown in
+  // Working by boardColumnOf, so label it Working too (not "Needs You").
+  const agentOnReview = objective.status === 'review' && hasLiveSession(objective)
+  const shownStatus: ObjectiveStatus = agentOnReview ? 'working' : objective.status
+  const isLive = shownStatus === 'working' && objective.session_id != null
   const hasThread =
     objective.session_id != null ||
     objective.planning_session_id != null ||
     objective.ai_review_session_id != null ||
     Number(objective.session_count) > 0
-  const meta = STATUS_META[objective.status]
-  const actions = ACTIONS[objective.status] || []
+  const meta = STATUS_META[shownStatus]
+  const actions = ACTIONS[shownStatus] || []
 
   return (
     <article className="cc-ws-card">

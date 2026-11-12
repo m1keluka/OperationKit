@@ -19,6 +19,7 @@ import {
   unionMembership,
   applyMerge,
   unarchiveWorkspace,
+  countProjectRefsAcross,
 } from './workspace-merge.js'
 
 function db(): Database.Database {
@@ -257,5 +258,82 @@ describe('unarchive is surgical', () => {
       .toEqual({ id: 707149, workspace: 'operationkit' })
     // Idempotent.
     expect(unarchiveWorkspace(d, 'operationkit')).toEqual({ slug: 'operationkit', wasArchived: false })
+  })
+})
+
+// obj 900667: the board's project picker kept showing old Example projects after
+// the merge. Two causes are covered here: a same-named project could not move
+// (UNIQUE(workspace,name)) and its cards kept pointing into the retired org;
+// and nothing recorded where the retired slug went, so late writes re-filled it.
+describe('projects follow the cards (obj 900667)', () => {
+  function withProjects(): Database.Database {
+    const d = db()
+    d.exec(`
+      ALTER TABLE workspaces ADD COLUMN merged_into TEXT;
+      ALTER TABLE objectives ADD COLUMN project_id INTEGER;
+      CREATE TABLE projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, workspace TEXT NOT NULL, name TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX idx_projects_workspace_name ON projects(workspace, name);
+      INSERT INTO projects (id, workspace, name) VALUES
+        (1, 'example', 'Outbound'),        -- collides with 3
+        (2, 'example', 'Only In Example'),    -- moves cleanly
+        (3, 'your-org', 'Outbound'),
+        (4, 'operationkit', 'Outbound'); -- other org, same name: untouched
+      INSERT INTO objectives (id, title, workspace, project_id) VALUES
+        (10, 'a1', 'example', 1), (11, 'a2', 'example', 1), (12, 'a3', 'example', 2),
+        (13, 'g1', 'your-org', 3), (14, 'ok', 'operationkit', 4);
+    `)
+    return d
+  }
+
+  it('plans a fold for each same-named project, with the exact cards it repoints', () => {
+    const plan = planMerge(withProjects(), 'example', 'your-org')
+    expect(plan.projectFolds).toEqual([{ name: 'Outbound', sourceId: 1, targetId: 3, objectiveIds: [10, 11] }])
+    expect(plan.tables.find(t => t.table === 'projects')).toMatchObject({ rows: 2, moving: 1, conflicts: 1 })
+  })
+
+  it('repoints the cards, archives (never deletes) the source project and moves the rest', () => {
+    const d = withProjects()
+    const report = applyMerge(d, 'example', 'your-org')
+    expect(report.verified.ok).toBe(true)
+    expect(d.prepare('SELECT id, workspace, project_id FROM objectives ORDER BY id').all()).toEqual([
+      { id: 10, workspace: 'your-org', project_id: 3 },
+      { id: 11, workspace: 'your-org', project_id: 3 },
+      { id: 12, workspace: 'your-org', project_id: 2 },
+      { id: 13, workspace: 'your-org', project_id: 3 },
+      { id: 14, workspace: 'operationkit', project_id: 4 },
+    ])
+    expect(d.prepare('SELECT id, workspace, archived FROM projects ORDER BY id').all()).toEqual([
+      { id: 1, workspace: 'example', archived: 1 },
+      { id: 2, workspace: 'your-org', archived: 0 },
+      { id: 3, workspace: 'your-org', archived: 0 },
+      { id: 4, workspace: 'operationkit', archived: 0 },
+    ])
+    expect(countProjectRefsAcross(d, 'your-org', 'example')).toBe(0)
+  })
+
+  it('records merged_into on the tombstone, and unarchive clears it', () => {
+    const d = withProjects()
+    applyMerge(d, 'example', 'your-org')
+    expect(d.prepare("SELECT archived, merged_into FROM workspaces WHERE slug='example'").get())
+      .toEqual({ archived: 1, merged_into: 'your-org' })
+    unarchiveWorkspace(d, 'example')
+    expect(d.prepare("SELECT archived, merged_into FROM workspaces WHERE slug='example'").get())
+      .toEqual({ archived: 0, merged_into: null })
+  })
+
+  it('is re-runnable: a second pass sweeps cards written to the retired slug after the first', () => {
+    const d = withProjects()
+    applyMerge(d, 'example', 'your-org')
+    d.prepare("INSERT INTO objectives (id, title, workspace) VALUES (20, 'late', 'example')").run()
+    const again = applyMerge(d, 'example', 'your-org')
+    expect(again.objectives).toEqual({ from: 1, to: 4, expectedAfter: 5 })
+    expect(d.prepare("SELECT COUNT(*) n FROM objectives WHERE workspace='example'").get()).toEqual({ n: 0 })
+  })
+
+  it('a DB with no projects table still merges (older installs)', () => {
+    expect(planMerge(db(), 'example', 'your-org').projectFolds).toEqual([])
   })
 })

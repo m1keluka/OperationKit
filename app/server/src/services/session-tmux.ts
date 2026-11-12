@@ -10,6 +10,8 @@ import { canonicalRootEnv } from './design-context.js'
 import { getModelEngine } from './model-registry.js'
 import { buildClaudeCommand, CODEX_HOME_DIR, codexConfigHome } from './session-spawn-command.js'
 import { writeGrokMcpConfig, writeCodexMcpProfile, writeGrokVocabShim } from './session-harness-mcp.js'
+import { parseSpawnDescriptor } from './workspace-mcp-servers.js'
+import { writeWorkspaceMcpConfig, claudeDisallowedTools } from './workspace-mcp-config.js'
 import { spawnSegmentOffset } from './session-registry.js'
 import { redactPromptForWorker } from './secret-redaction.js'
 import { installTranscriptFilter, redactEnvKeysFor, transcriptFilterEnabled } from './transcript-redact-filter.js'
@@ -23,6 +25,8 @@ import {
   buildJailCcForwarderPrefix,
   jailEnabled,
   jailImage,
+  resolveJailClaudeTmpdir,
+  buildJailClaudeTmpdirPrefix,
 } from './session-jail.js'
 import { sandboxClaudeAuthEnv } from './sandbox-claude-auth.js'
 import { JAIL_HOME_ROOT as JAIL_HOME_ROOT_CANONICAL, createJailHome, dropEnvFile } from './jail-home.js'
@@ -459,15 +463,40 @@ export function spawnInTmux(opts: {
   // (project-scoped, session-isolated via worktree). Codex loads a --profile overlay on top
   // of its base user config (preserving existing n8n-mcp, apify, getleads servers).
   // Both are skipped in jail mode — paths are not mounted inside the container.
-  const effectiveMcpPath = useJail ? undefined : (isolatedMcp ?? mcpConfigPath)
+  const baseMcpPath = useJail ? undefined : (isolatedMcp ?? mcpConfigPath)
+  // obj 900620: remote MCP servers connected in Settings → Integrations for
+  // THIS card's workspace (buildSpawnEnv put the descriptor + token env vars in
+  // `env`; nothing for another workspace is ever in it). Header values are
+  // ${CC_MCP_TOKEN_<id>} references, so the config file holds no credential.
+  // Unlike the host-path overlays above, a remote server needs nothing from the
+  // host, so in jail mode it is written into the jail's own HOME bind.
+  const workspaceMcp = parseSpawnDescriptor(env)
+  let effectiveMcpPath = baseMcpPath
+  let jailMcpGuest: string | undefined
+  if (workspaceMcp.length > 0) {
+    if (useJail) {
+      const hostPath = path.join(scriptDirHost, `${sessionId}.workspace-mcp.json`)
+      if (writeWorkspaceMcpConfig({ outPath: hostPath, servers: workspaceMcp }) === hostPath) {
+        applyJailOwnership(hostPath, 'jail-read')
+        jailMcpGuest = `${scriptDirGuest}/${sessionId}.workspace-mcp.json`
+      }
+    } else {
+      effectiveMcpPath = writeWorkspaceMcpConfig({
+        outPath: baseMcpPath ?? path.join(TMUX_SCRIPT_DIR, `${sessionId}.mcp.json`),
+        basePath: baseMcpPath,
+        servers: workspaceMcp,
+        mode: 0o666,
+      })
+    }
+  }
   const grokRulesPath = (!useJail && engine === 'grok')
     ? writeGrokVocabShim(TMUX_SCRIPT_DIR, sessionId)
     : undefined
-  if (!useJail && engine === 'grok' && effectiveMcpPath) {
-    writeGrokMcpConfig(workdirGuest, effectiveMcpPath)
+  if (!useJail && engine === 'grok' && (effectiveMcpPath || workspaceMcp.length > 0)) {
+    writeGrokMcpConfig(workdirGuest, effectiveMcpPath, workspaceMcp)
   }
   const codexProfileName = (!useJail && engine === 'codex')
-    ? writeCodexMcpProfile(codexConfigHome(homeDir || CODEX_HOME_DIR), sessionId, effectiveMcpPath)
+    ? writeCodexMcpProfile(codexConfigHome(homeDir || CODEX_HOME_DIR), sessionId, effectiveMcpPath, workspaceMcp)
     : undefined
   const claudeCmd = buildClaudeCommand({
     engine,
@@ -475,7 +504,8 @@ export function spawnInTmux(opts: {
     effortLevel,
     model,
     resumeSessionId,
-    mcpConfigPath: useJail ? undefined : effectiveMcpPath,
+    mcpConfigPath: useJail ? jailMcpGuest : effectiveMcpPath,
+    disallowedTools: claudeDisallowedTools(workspaceMcp),
     settingsPath: useJail ? undefined : settingsPath,
     codexProfileName,
     grokRulesPath,
@@ -571,6 +601,8 @@ exit $EXIT_CODE
     }
     // obj 900113: on a shared jail network, `localhost:3002` must reach the app.
     const jailNetwork = resolveJailNetwork()
+    // obj 900402: optional CLAUDE_CODE_TMPDIR on the disk-backed jail HOME.
+    const jailClaudeTmpdir = resolveJailClaudeTmpdir()
     const handle = createSessionJailSync({
       objectiveId: objectiveId!,
       sessionId,
@@ -581,8 +613,10 @@ exit $EXIT_CODE
       image: jailImage(),
       seatMount: seatMount || undefined,
       network: jailNetwork || undefined,
+      claudeTmpdir: jailClaudeTmpdir || undefined,
       command: [
         'bash', '-lc',
+        buildJailClaudeTmpdirPrefix(jailClaudeTmpdir) +
         (jailNetwork ? buildJailCcForwarderPrefix(resolveJailCcUpstream()) : '') +
         `tmux new-session -d -s ${JSON.stringify(tmuxName)} ${JSON.stringify(`bash ${scriptFileGuest}`)}; ` +
         `while tmux has-session -t ${JSON.stringify(tmuxName)} 2>/dev/null; do sleep 5; done`,

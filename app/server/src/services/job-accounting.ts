@@ -417,10 +417,24 @@ export function describeCeilingSupport(ceiling: ConfiguredCeiling): string {
  *   has no installed base to break, and the objective's requirement is explicit
  *   — a bounded start with no finite ceiling must be refused, not guessed.
  *
+ * - `queue_autostart` — the per-workspace queue auto-starter (obj 900625,
+ *   services/queue-autostart.ts). Default **enforce**: it is a new entry point
+ *   with no installed base, and it starts cards no human is watching, so an
+ *   unbudgeted card stays in queue (with the reason on the card) instead of
+ *   spending. An operator who wants it to run unbudgeted in one workspace sets
+ *   `settings.job_ceiling_policy:queue_autostart:<workspace> = 'observe'`.
+ *
+ * - `flow_run` — a workflow run spending money in an `llm` / `agent` / `spend`
+ *   node (obj 900639, card B3 of docs/design/WORKFLOWS.md §7.3,
+ *   services/flow-budget.ts). Default **enforce**: flows run unattended on a
+ *   schedule and are a new entry point. A spending node with no finite budget
+ *   anywhere (`budget.run_usd`, the node's `budget_usd`, or a job ceiling) is
+ *   refused. The flow's own `budget.run_usd` is enforced regardless of policy.
+ *
  * No numeric default is introduced by either policy. "Observe" does not invent a
  * budget; it reports that there isn't one.
  */
-export type AutoStartPath = 'delegate_child' | 'bounded'
+export type AutoStartPath = 'delegate_child' | 'bounded' | 'queue_autostart' | 'flow_run'
 
 /** `enforce` — refuse. `observe` — start, but report. `off` — guard disabled. */
 export type CeilingPolicy = 'enforce' | 'observe' | 'off'
@@ -428,6 +442,8 @@ export type CeilingPolicy = 'enforce' | 'observe' | 'off'
 const DEFAULT_POLICY: Record<AutoStartPath, CeilingPolicy> = {
   delegate_child: 'observe',
   bounded: 'enforce',
+  queue_autostart: 'enforce',
+  flow_run: 'enforce',
 }
 
 function parsePolicy(raw: string | null | undefined): CeilingPolicy | null {

@@ -114,3 +114,83 @@ describe('AgentTemplatesPage', () => {
     expect(Array.from(container.querySelectorAll('button')).some(b => b.textContent === 'Replace agent')).toBe(false)
   })
 })
+
+/** Type into a React-controlled field (no @testing-library here). */
+function typeInto(el: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  setter.call(el, value)
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+describe('paste an agent file (obj 900672)', () => {
+  const PASTED = '---\nname: Sales Follow-up\nslug: sales-follow-up\ndescription: Drafts follow-ups.\nversion: 1.0.0\nauthor: Acme\n---\nYou help Acme follow up.'
+
+  function validOnValidate() {
+    const base = (globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>)
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/agent-templates/validate') {
+        calls.push({ url, method: init?.method ?? 'GET', body: JSON.parse(String(init?.body)) })
+        return new Response(JSON.stringify({
+          ok: true, warnings: [],
+          agent: { name: 'Sales Follow-up', slug: 'sales-follow-up', description: 'Drafts follow-ups.', version: '1.0.0', author: 'Acme' },
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      if (url === '/api/agent-templates/import') {
+        calls.push({ url, method: init?.method ?? 'GET', body: JSON.parse(String(init?.body)) })
+        return new Response(JSON.stringify({ slug: 'sales-follow-up', action: 'created' }), { status: 201, headers: { 'content-type': 'application/json' } })
+      }
+      return base(url, init)
+    }))
+  }
+
+  it('is closed by default and opens from "Paste agent file"', async () => {
+    render()
+    await settle()
+    expect(container.querySelector('#paste-agent-text')).toBeNull()
+    button('Paste agent file').click()
+    await settle()
+    expect(container.querySelector('#paste-agent-text')).not.toBeNull()
+  })
+
+  it('opens straight away from ?paste=1 (the Agents page "Paste a bot file" link)', async () => {
+    root.render(<MemoryRouter initialEntries={['/agents?tab=templates&paste=1']}><AgentTemplatesPage /></MemoryRouter>)
+    await settle()
+    expect(container.querySelector('#paste-agent-text')).not.toBeNull()
+  })
+
+  it('checks pasted text as agent.md before anything is added, then adds it on confirm', async () => {
+    validOnValidate()
+    render()
+    await settle()
+    button('Paste agent file').click()
+    await settle()
+    typeInto(container.querySelector('#paste-agent-text') as HTMLTextAreaElement, PASTED)
+    await settle()
+    button('Check it').click()
+    await settle()
+    const v = calls.find(c => c.url === '/api/agent-templates/validate')!
+    expect(v.body).toMatchObject({ filename: 'agent.md', content: PASTED + '\n' })
+    // Checking added nothing.
+    expect(calls.some(c => c.url === '/api/agent-templates/import')).toBe(false)
+    expect(container.textContent).toContain('Sales Follow-up')
+    button('Add agent').click()
+    await settle()
+    const imp = calls.find(c => c.url === '/api/agent-templates/import')!
+    expect(imp.body).toMatchObject({ content: PASTED + '\n', filename: 'pasted agent.md', overwrite: false })
+    expect(container.textContent).toContain('Agent "sales-follow-up" added')
+  })
+
+  it('keeps the pasted text and shows the problems when the file is not valid', async () => {
+    render()
+    await settle()
+    button('Paste agent file').click()
+    await settle()
+    typeInto(container.querySelector('#paste-agent-text') as HTMLTextAreaElement, 'name: Broken')
+    await settle()
+    button('Check it').click()
+    await settle()
+    expect(calls.find(c => c.url === '/api/agent-templates/validate')!.body).toMatchObject({ filename: 'agent.yaml' })
+    expect(container.textContent).toContain("This file can't be imported yet")
+    expect((container.querySelector('#paste-agent-text') as HTMLTextAreaElement).value).toBe('name: Broken')
+  })
+})

@@ -86,9 +86,10 @@ With no AI account set up at all, the demo still works: replies come from a buil
 
 Chosen in this order:
 
-1. The bot's agent file `provider:` (and `model:`), if set.
-2. The install-wide default an administrator picked.
-3. Otherwise the first one that is set up: Claude subscription → Anthropic API key → OpenAI → Grok → a custom endpoint → the demo script.
+1. The bot's own setting on its page (**Settings** → AI provider / Default model), if an admin set one.
+2. The bot's agent file `provider:` (and `model:`), if set.
+3. The install-wide default an administrator picked.
+4. Otherwise the first one that is set up: Claude subscription → Anthropic API key → OpenAI → Grok → a custom endpoint → the demo script.
 
 | Provider | What has to be set up (Settings → Secrets, by name — never paste values into a conversation) |
 |---|---|
@@ -98,7 +99,35 @@ Chosen in this order:
 | Grok (xAI) | `XAI_API_KEY` |
 | Custom endpoint (e.g. a LiteLLM proxy or a local model) | `AGENT_CHAT_OPENAI_COMPAT_BASE_URL`, optional `AGENT_CHAT_OPENAI_COMPAT_API_KEY`, and a `model:` |
 
+With no model set anywhere, each provider has a built-in default: `claude-sonnet-5` for Claude and the Anthropic API, `gpt-5` for OpenAI, `grok-4` for Grok. That is why a bot whose file names no model answers on Sonnet when the Claude subscription is set up. Change it on the bot's page.
+
 Optional default models: `AGENT_CHAT_CLAUDE_MODEL`, `AGENT_CHAT_OPENAI_MODEL`, `AGENT_CHAT_XAI_MODEL`, … An administrator can pin the install default with `PUT /api/agent-chat/settings {"default_provider": "claude"}` (empty string = automatic).
+
+## A bot's settings (model and tools)
+
+Open a bot and press **Settings** in its header. Everyone can see what the bot runs on and which tools it has; only an admin signed in to the app can change them (an API key never can, so a bot cannot give itself tools).
+
+- **Default model** — any model id; the field suggests the models switched on in Settings → Models. Leave it empty to use the file's model or the provider default.
+- **AI provider** — Claude, Anthropic API, OpenAI, Grok, a custom endpoint, or automatic.
+- **Tools** — tick exactly what this bot may use: web, knowledge, board, email and calendar drafts, workspace integrations.
+- **All tools** — every tool, including tools added in later releases. Email and calendar stay draft-only and board reads stay limited to what the person can see: "All tools" changes which tools a bot has, never what a tool may do.
+
+Settings are saved on the server as an override; the agent file is not rewritten. **Reset to file** removes the override and the bot is exactly what its file says again.
+
+## Web search and reading pages
+
+A bot with `web_search` can search the public web; a bot with `web_fetch` can open one public page (http or https) and read its text. Web search needs one search key in Settings → Secrets, by name:
+
+| Search service | Secret |
+|---|---|
+| Tavily | `TAVILY_API_KEY` |
+| Brave Search | `BRAVE_SEARCH_API_KEY` |
+| Firecrawl | `FIRECRAWL_API_KEY` |
+| Exa | `EXA_API_KEY` |
+| Serper (Google results) | `SERPER_API_KEY` |
+| Your own SearXNG | `SEARXNG_URL` |
+
+With several set, they are tried in that order and a service that is out of credit or down hands the search to the next one. `AGENT_CHAT_WEB_SEARCH_PROVIDER` (one name or a comma list, e.g. `brave,firecrawl`) sets the order. Reading a page needs no key. A bot can never read a private or internal address (this server, the local network, cloud metadata): every address and redirect is checked before the connection is made.
 
 ## Adding a bot
 
@@ -128,7 +157,13 @@ Tools a bot can be given:
 | `search`, `list_folders`, `read_file`, `write_doc` | find, open and save notes inside its `knowledge_folders` |
 | `email` | read the inbox and prepare **draft** replies |
 | `calendar` | read the calendar and prepare **draft** invites |
-| `create_objective`, `get_objective`, `list_objectives` | put a job on the board and check on the cards it created |
+| `create_objective` | put a job on the board (always in the person's own workspace) |
+| `get_objective`, `list_objectives` | read the real board — every card the person could see on the board themselves, in every workspace they belong to (not just cards this bot filed). An empty answer means the board really is empty. |
+| `board_briefing` | "what is waiting on me?": cards in review, failed AI reviews, blockers, secrets a worker needs, stuck workers, plus counts per column. Any bot that lists `get_objective` or `list_objectives` gets it automatically. |
+| `web_search` | search the public web (needs a search key, see [Web search](#web-search-and-reading-pages)) |
+| `web_fetch` | open one public web page and read its text |
+| `all` | every tool above, including tools added later |
+| `mcp` | use the tools of every MCP server connected in the chat's workspace (Settings → Integrations → MCP servers). Tools appear as `mcp__<server>__<tool>`; tools an admin switched off are not offered. Servers of other workspaces are never visible. See [MCP servers](../connectors/MCP-SERVERS.md). |
 
 New or changed agent files show up the next time someone opens **Bots** — no restart. If a file has a mistake, administrators see it listed with the reason.
 
@@ -138,7 +173,9 @@ The agents folder is `AGENT_FILES_DIR` if set, otherwise `agents/` in the AI wor
 
 - Email and calendar are **draft-only**; only a person signed in to the app can press Send.
 - A bot reads and writes **only** its own knowledge folders (paths are checked after following shortcuts/symlinks).
-- A bot only gets the tools its file lists.
+- A bot only gets the tools its file lists, or the tools an admin picked on its page (the one exception: a bot that can read the board also gets the read-only `board_briefing`).
+- `web_fetch` reads public pages only: private, loopback, link-local and cloud-metadata addresses are refused at connect time, redirects included. Page text reaches the model as information; the bot is told never to treat it as instructions.
+- Board reads use the same visibility rule as the board itself (admins: every workspace; members: their own workspaces, and only their own cards there unless granted more), re-checked on every call. A bot never sees a card the person could not open themselves, and naming another workspace is refused.
 - Board cards a bot creates run like every other card — on a client install each one runs in its own locked-down sandbox (`SESSION_ISOLATION=docker`).
 - Conversations are private: nobody else (and no API key) can read your conversation with a bot — side threads included. Naming someone else's side thread, or a side thread that belongs to a different bot, is refused outright rather than quietly answered from your own conversation.
 - AI keys are read from the server's secret store by name and only sent to that AI service. They are never shown, saved with a message, or logged.
@@ -148,7 +185,8 @@ The agents folder is `AGENT_FILES_DIR` if set, otherwise `agents/` in the AI wor
 The code keeps its existing `agent` / `agent-chat` names — only the user-facing wording became "bot" (obj 900327).
 
 - Server: `app/server/src/services/agent-chat/` (agent files, providers, tools, connectors, demo) and `app/server/src/routes/agent-chat.ts` (`/api/agent-chat`).
-- Tables: `agent_chat_messages`, `agent_chat_drafts`, `agent_chat_cards`, `agent_chat_threads` (`app/server/src/db/schema/agent-chat.ts`). No migration was needed or performed for the rename.
+- Bot settings (obj 900671): `services/agent-chat/bot-config.ts` + table `agent_chat_bot_config` (one row per bot slug; NULL = the file's value), applied in `listAgents()` so the list, the bot page and a turn agree. Routes: `PUT` / `DELETE /api/agent-chat/agents/:slug/config` (admin, signed-in session only). Web tools: `services/agent-chat/web-tools.ts` (search backends with failover; `web_fetch` through `mcp-servers/safe-fetch.ts` with `allowHttp`). Tests: `services/agent-chat/web-tools.test.ts`, `services/agent-chat/bot-tools.test.ts`, `routes/agent-chat-bot-config.test.ts`, client `agent-chat/BotSettingsPanel.test.tsx`.
+- Tables: `agent_chat_messages`, `agent_chat_drafts`, `agent_chat_cards`, `agent_chat_threads`, `agent_chat_bot_config` (`app/server/src/db/schema/agent-chat.ts`). No migration was needed or performed for the rename.
 - Side threads / concurrent task lanes (obj 900370): `app/server/src/services/agent-chat/threads.ts`. A message's lane is `agent_chat_messages.thread_id` — `NULL` means the main conversation, which is why every row written before the feature existed is already in the right place. Every read and write of the message table is scoped by `lanePredicate()`, the single place a lane becomes SQL; there is deliberately no predicate that spans lanes. The in-flight slot in `engine.ts` is keyed per lane, which is what makes the lanes concurrent. Proofs: `services/agent-chat/side-threads.test.ts` (isolation, concurrency, ceiling) and `routes/agent-chat-threads.test.ts` (the HTTP boundary). The row shape follows this install's own `mentor_threads`, not a new threading model.
 - Page: `app/client/src/components/agent-chat/`, routed at `/chat` and `/chat/:slug`.
 - Plugging in a real mailbox or calendar: implement `MailConnector` / `CalendarConnector` in `connectors.ts` and return it from `resolveConnectors()`. Delivery happens only in `deliver()` / `add()`, which only the Send route calls.

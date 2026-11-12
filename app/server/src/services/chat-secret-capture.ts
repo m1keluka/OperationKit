@@ -30,6 +30,7 @@ import { getDb } from '../db/index.js'
 import { PATTERN_RULES, SECRET_NAME_RE as SECRETISH_NAME, isPlausibleSecretValue } from './secret-redaction.js'
 import { setSecret } from './secrets-store.js'
 import { logActivity } from '../routes/feed.js'
+import { resolveWriteWorkspace } from './workspaces.js'
 
 export interface PastedSecret {
   name: string
@@ -126,7 +127,7 @@ export function captureOwnerPastedSecrets(
   const { text, found } = detectPastedSecrets(message, pending)
   if (found.length === 0) return { text: message, captured: [] }
 
-  const workspace = objective.workspace || 'example'
+  const workspace = resolveWriteWorkspace(objective.workspace)
   const captured: string[] = []
   for (const f of found) {
     try {

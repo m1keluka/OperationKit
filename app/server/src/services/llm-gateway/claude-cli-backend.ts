@@ -172,7 +172,21 @@ interface StreamState {
   resultError: string | null
   rateLimited: { reset?: Date; raw: string } | null
   authFailed: string | null
+  /** The CLI found no credential at all ("Not logged in · Please run /login"). */
+  notLoggedIn: string | null
   ttftMs: number | null
+}
+
+// "Not logged in · Please run /login" — the CLI started with NO credential: no
+// CLAUDE_CODE_OAUTH_TOKEN in its env and no readable .credentials.json in its
+// HOME. Distinct from a 401 (a credential that was presented and rejected):
+// it says nothing about whether the seat's stored credential is good, so it
+// must rotate to another seat but must NOT park this one (obj 900624).
+const NOT_LOGGED_IN_PATTERN = /\bnot logged in\b|please run \/login/i
+
+/** Did the CLI start without any credential? (obj 900624) */
+export function isNotLoggedInMessage(text: string): boolean {
+  return !!text && NOT_LOGGED_IN_PATTERN.test(text)
 }
 
 /** Exported for tests: apply one stream-json line to the turn state. */
@@ -229,14 +243,15 @@ export function applyStreamLine(line: string, st: StreamState, startedAt: number
     if (ev.is_error || (typeof ev.subtype === 'string' && ev.subtype.startsWith('error'))) {
       const msg = String(ev.result ?? ev.error ?? ev.subtype ?? 'error')
       st.resultError = msg
-      if (ev.api_error_status === 401 || isAuthFailureMessage(msg)) st.authFailed = msg
+      if (isNotLoggedInMessage(msg)) st.notLoggedIn = msg
+      else if (ev.api_error_status === 401 || isAuthFailureMessage(msg)) st.authFailed = msg
       else if (isRateLimitMessage(msg)) st.rateLimited = { reset: parseResetTime(msg) ?? undefined, raw: msg.slice(0, 500) }
     }
   }
 }
 
 function newState(): StreamState {
-  return { text: '', sawDelta: false, fallbackText: '', usage: null, stopReason: null, costUsd: 0, resultError: null, rateLimited: null, authFailed: null, ttftMs: null }
+  return { text: '', sawDelta: false, fallbackText: '', usage: null, stopReason: null, costUsd: 0, resultError: null, rateLimited: null, authFailed: null, notLoggedIn: null, ttftMs: null }
 }
 
 /**
@@ -311,6 +326,11 @@ export function runClaudeTurn(
     proc.on('close', code => {
       if (lineBuf.trim()) applyStreamLine(lineBuf.trim(), st, startedAt, d => { emitted = true; if (!settled) req.onText?.(d) })
       if (settled) return
+      if (st.notLoggedIn || (!st.usage && isNotLoggedInMessage(stderr))) {
+        // No credential reached the CLI. Rotate (kind 'auth') but never park:
+        // the seat's stored credential was not even tried.
+        return fail(new BackendError('auth', `claude found no sign-in on seat ${account.id} ("Not logged in")`, account.id, emitted))
+      }
       if (st.authFailed || (!st.usage && isAuthFailureMessage(stderr))) {
         recordAuthFailure(account.id, (st.authFailed ?? stderr).slice(0, 500))
         return fail(new BackendError('auth', 'account credential rejected', account.id, emitted))
@@ -335,39 +355,153 @@ export function runClaudeTurn(
   })
 }
 
+/**
+ * A credential that is not a pool seat, e.g. the AGENT_CHAT_CLAUDE_OAUTH_TOKEN
+ * env token. Tried before (`preferTokens`) or after (`fallbackTokens`) the pool.
+ * `id` is a label for logs and errors — never the value.
+ */
+export interface TokenCandidate {
+  id: string
+  token: string
+}
+
 export interface ClaudeCliBackendOptions {
   env?: NodeJS.ProcessEnv
   pick?: (filter: (a: AccountSlot) => boolean) => AccountSlot | null
   run?: typeof runClaudeTurn
+  /** Seats this backend may use. Default: gatewaySlotFilter(env). */
+  slotFilter?: (a: AccountSlot) => boolean
+  /**
+   * The env a turn on a pool seat needs to sign in. Default seatCredentialEnv:
+   * a pasted setup-token seat → CLAUDE_CODE_OAUTH_TOKEN, a CLI-login seat → {}.
+   */
+  credentialEnv?: (seat: AccountSlot) => Record<string, string>
+  preferTokens?: TokenCandidate[]
+  fallbackTokens?: TokenCandidate[]
+  /** Max turns attempted across seats in one request (default 3). */
+  maxAttempts?: number
+  timeoutMs?: number
+  /** Where per-turn HOMEs are created (tests). Default os.tmpdir(). */
+  homeRoot?: string
+  /** Prefix for the per-turn HOME dir name. */
+  homeLabel?: string
 }
 
 /**
- * Account-pool backend: pick an allowed slot, run the turn, and on a
- * rate-limit/auth failure that happened before any text was streamed, rotate
- * to another allowed slot (max 3 attempts).
+ * A fresh, private CLI config dir for ONE token-signed turn (obj 900624). The
+ * CLI rewrites `$HOME/.claude.json` and `$HOME/.claude/` on every start, so
+ * concurrent turns sharing one HOME (agent chat's old fixed
+ * `/tmp/cc-agent-chat-home`) race on those files. A per-turn dir means no two
+ * processes ever share one. Mode 0777 so the CLI can write it after the
+ * runuser hop to ccuser; it holds no credential (the token rides in the
+ * process env only) and is removed when the turn ends.
+ */
+export function makeTurnHome(root = os.tmpdir(), label = 'cc-claude-turn'): string {
+  const dir = fs.mkdtempSync(path.join(root, `${label}-`))
+  try { fs.chmodSync(dir, 0o777) } catch { /* best effort */ }
+  return dir
+}
+
+function removeTurnHome(dir: string): void {
+  try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* best effort */ }
+}
+
+// seat-credentials pulls in the secrets store (and the DB). Loaded on first use
+// so importing this backend stays as light as before.
+let seatEnvFn: ((seat: AccountSlot) => Record<string, string>) | null = null
+async function defaultSeatEnv(seat: AccountSlot): Promise<Record<string, string>> {
+  if (!seatEnvFn) seatEnvFn = (await import('../seat-credentials.js')).seatCredentialEnv
+  return seatEnvFn(seat)
+}
+
+function tokenSlot(t: TokenCandidate): AccountSlot {
+  return {
+    id: t.id, label: t.id, priority: 0, homeDir: '', sessionsToday: 0, tokensToday: 0, costToday: 0,
+    lastRateLimit: null, rateLimitResetsAt: null, activeSessions: [], usageLog: [],
+  }
+}
+
+/**
+ * Account-pool backend: pick an allowed seat, run the turn, and on a
+ * rate-limit / auth / "Not logged in" failure that happened before any text
+ * was streamed, rotate to the next candidate (at most `maxAttempts` turns).
+ *
+ * Candidate order: preferTokens → healthy pool seats (pickAccount order) →
+ * fallbackTokens. Every pool seat signs in with ITS OWN credential
+ * (seatCredentialEnv) — before obj 900624 a pasted setup-token seat ran with
+ * no credential at all and the CLI answered "Not logged in". A token-signed
+ * turn runs in its own throwaway HOME; a CLI-login seat runs in the seat's
+ * HOME, where its login files live. One token value is never tried twice in
+ * a request (the legacy `sandbox` seat IS SESSION_JAIL_CLAUDE_OAUTH_TOKEN).
  */
 export function createClaudeCliBackend(opts: ClaudeCliBackendOptions = {}): LlmBackend {
   const pick = opts.pick ?? pickAccount
   const run = opts.run ?? runClaudeTurn
+  const credEnv = async (seat: AccountSlot) => (opts.credentialEnv ? opts.credentialEnv(seat) : defaultSeatEnv(seat))
   return async req => {
     const env = opts.env ?? process.env
-    const allowed = gatewaySlotFilter(env)
-    const timeoutMs = Number(env.LLM_GATEWAY_TIMEOUT_MS) > 0 ? Number(env.LLM_GATEWAY_TIMEOUT_MS) : 300_000
-    const tried = new Set<string>()
+    const allowed = opts.slotFilter ?? gatewaySlotFilter(env)
+    const timeoutMs = opts.timeoutMs ?? (Number(env.LLM_GATEWAY_TIMEOUT_MS) > 0 ? Number(env.LLM_GATEWAY_TIMEOUT_MS) : 300_000)
+    const maxAttempts = opts.maxAttempts ?? 3
+    const triedSeats = new Set<string>()
+    const triedTokens = new Set<string>()
     let lastErr: BackendError | null = null
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const account = pick(a => allowed(a) && !tried.has(a.id))
-      if (!account) break
-      tried.add(account.id)
+    let attempts = 0
+
+    // The result, or null when the failure is one to rotate past.
+    const attempt = async (account: AccountSlot, extraEnv: Record<string, string>): Promise<BackendResult | null> => {
+      const token = extraEnv.CLAUDE_CODE_OAUTH_TOKEN
+      if (token) {
+        if (triedTokens.has(token)) return null
+        triedTokens.add(token)
+      }
+      attempts++
+      const home = token ? makeTurnHome(opts.homeRoot, opts.homeLabel) : null
       try {
-        const r = await run(account, req, timeoutMs)
-        return { ...r, attempts: attempt }
+        const r = await run(home ? { ...account, homeDir: home } : account, req, timeoutMs, extraEnv)
+        return { ...r, attempts }
       } catch (err) {
         const be = err instanceof BackendError ? err : new BackendError('cli_error', String(err), account.id)
         lastErr = be
         if (be.emitted || (be.kind !== 'rate_limit' && be.kind !== 'auth')) throw be
+        console.warn(`[claude-cli] seat ${account.id}: ${be.kind} — rotating to the next seat`)
+        return null
+      } finally {
+        if (home) removeTurnHome(home)
       }
     }
+    const tryTokens = async (list: TokenCandidate[] | undefined): Promise<BackendResult | null> => {
+      for (const t of list ?? []) {
+        if (attempts >= maxAttempts) break
+        if (!t.token) continue
+        const r = await attempt(tokenSlot(t), { CLAUDE_CODE_OAUTH_TOKEN: t.token })
+        if (r) return r
+      }
+      return null
+    }
+
+    const preferred = await tryTokens(opts.preferTokens)
+    if (preferred) return preferred
+    while (attempts < maxAttempts) {
+      const account = pick(a => allowed(a) && !triedSeats.has(a.id))
+      if (!account) break
+      triedSeats.add(account.id)
+      let extraEnv: Record<string, string>
+      try {
+        extraEnv = await credEnv(account)
+      } catch (err) {
+        // Pasted credential gone from the store: skip this seat, keep going.
+        lastErr = new BackendError('auth', `seat ${account.id}: ${err instanceof Error ? err.message : String(err)}`, account.id)
+        continue
+      }
+      // Subscription only: a seat whose sign-in is an API key (the legacy
+      // sandbox seat with SESSION_JAIL_ANTHROPIC_API_KEY) would bill the API.
+      if (Object.keys(extraEnv).some(k => k !== 'CLAUDE_CODE_OAUTH_TOKEN')) continue
+      const r = await attempt(account, extraEnv)
+      if (r) return r
+    }
+    const fallback = await tryTokens(opts.fallbackTokens)
+    if (fallback) return fallback
     throw lastErr ?? new BackendError('no_account', 'no allowed Claude account is available')
   }
 }

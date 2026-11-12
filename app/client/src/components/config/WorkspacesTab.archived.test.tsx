@@ -23,7 +23,7 @@ async function flush() {
   }
 }
 
-// Fictional orgs — see the note in WorkspaceFilterBar.test.tsx.
+// Fictional orgs — see the note in OrgSwitcher.test.tsx.
 const ACTIVE = {
   slug: 'acme', name: 'Acme', short_label: 'AC', badge_color: null,
   vault_path: null, doc_read_roots: [], doc_write_roots: [], default_agent_pool: [],
@@ -104,6 +104,24 @@ describe('WorkspacesTab — archived organizations (obj 900197)', () => {
     await flush()
     expect(patch).toHaveBeenCalledWith('/admin/workspaces/northwind', { archived: false })
     expect(refreshWorkspaces).toHaveBeenCalled()
+  })
+
+  it('lists active orgs first and the archived group at the bottom (obj 900683)', async () => {
+    const el = await mount()
+    const active = el.querySelector('[data-testid="active-organizations"]') as HTMLElement
+    const archived = el.querySelector('[data-testid="archived-organizations"]') as HTMLElement
+    expect(active).toBeTruthy()
+    expect(archived).toBeTruthy()
+    // The archived group comes AFTER the active group in document order …
+    expect(active.compareDocumentPosition(archived) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // … and nothing follows it: it is the last thing on the page.
+    expect(archived.nextElementSibling).toBeNull()
+    // Each group is labelled, and each org sits in exactly one group.
+    expect(active.textContent).toContain('Active organizations (1)')
+    expect(active.textContent).toContain('Acme')
+    expect(active.textContent).not.toContain('Northwind')
+    expect(archived.textContent).toContain('Archived organizations (1)')
+    expect(archived.textContent).not.toContain('Acme')
   })
 
   it('does not show the archived section when every org is active', async () => {

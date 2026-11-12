@@ -101,7 +101,7 @@ export interface WatchdogDeps {
   /** Same signature as session-manager.sendFollowUp. Only called on the act-path. */
   sendFollowUp?: (sessionId: string, message: string, objective: unknown) => string
   /** Escalation sink — the notifier. Only called on the act-path. */
-  notify?: (args: { severity: string; title: string; message: string; dedup_key?: string; url?: string }) => void
+  notify?: (args: { severity: string; source?: string; title: string; message: string; dedup_key?: string; url?: string }) => void
   env?: NodeJS.ProcessEnv
   now?: () => Date
   /** Force report-only even when the flag is on. The route always passes true. */
@@ -410,6 +410,7 @@ function escalate(deps: WatchdogDeps, h: PrHealth, detail: string): void {
   const names = h.redChecks.map(c => `${c.name}${c.kind === 'cancelled' ? ' (cancelled)' : ''}`).join(', ')
   deps.notify?.({
     severity: 'high',
+    source: 'pr-health-watchdog',
     title: `Red PR with no owner: ${h.repo}#${h.number}`,
     message: `${h.title}\n\nClassification: ${h.classification}\nRed checks: ${names}\n${detail}`,
     dedup_key: `pr-health:${h.repo}:${h.number}:${h.headSha}`,

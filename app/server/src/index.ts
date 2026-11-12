@@ -62,6 +62,7 @@ import { reviewsRouter, internalReviewsRouter } from './routes/reviews.js'
 import { correctionsRouter } from './routes/corrections.js'
 import testCredentialsRouter, { internalTestCredentialsRouter } from './routes/test-credentials.js'
 import modelsRouter from './routes/models.js'
+import { startModelRefreshScheduler } from './services/model-refresh.js'
 import githubWebhookRouter from './routes/github-webhook.js'
 import changelogRouter, { internalChangelogRouter } from './routes/changelog.js'
 import publicDevRouter from './routes/public-dev.js'
@@ -72,6 +73,10 @@ import secretsRouter from './routes/secrets.js'
 import userGoogleRouter from './routes/user-google.js'
 import userDcrRouter from './routes/user-dcr.js'
 import connectorsRouter from './routes/connectors.js'
+import mcpServersRouter from './routes/mcp-servers.js'
+import integrationsBuilderRouter from './routes/integrations-builder.js'
+import flowsRouter from './routes/flows.js'
+import { startMcpTokenRefresher } from './services/workspace-mcp-servers.js'
 import connectorOAuthCallbackRouter from './routes/connector-oauth-callback.js'
 import resourceAssignmentsRouter from './routes/resource-assignments.js'
 import projectsRouter from './routes/projects.js'
@@ -93,6 +98,7 @@ import { isOllamaReachable } from './services/session-intel-summary.js'
 import { prewarmSessionOutputs } from './services/stream-parser.js'
 import { startDreamCycleScheduler } from './services/dream-cycle.js'
 import { startRoutineScheduler } from './services/routine-scheduler.js'
+import { startFlowEngine } from './services/flow-engine.js'
 import { startCanaryHarnessScheduler } from './services/canary-harness.js'
 import { startKitchenLoop } from './services/kitchen-loop.js'
 import { startBriefingNudgeScheduler } from './services/briefing-nudge.js'
@@ -287,6 +293,9 @@ app.use('/api/internal/test-credentials', internalTestCredentialsRouter)  // loc
 app.use('/api/user/github-token', userGithubTokenRouter)  // per-user GitHub PAT: link/validate/revoke (auth; encrypted at rest, masked)
 app.use('/api/user/google', userGoogleRouter)              // per-user Google Workspace OAuth: connect/callback/disconnect (auth except callback; encrypted at rest, masked)
 app.use('/api/user/dcr', userDcrRouter)                   // dcr_mcp connectors (Notion, Linear): generic DCR/CIMD OAuth callback (public; CSRF-bound by signed state, obj 900507)
+app.use('/api/flows', flowsRouter)                          // Workflows (okflow/1): list / read / create / publish / run-now / runs — hard workspace filter; off the agent-key surface until B6 (obj 900640)
+app.use('/api/mcp-servers', mcpServersRouter)              // Settings → Integrations → Connect an MCP server: workspace-scoped remote MCP servers (admin mutations; tokens in the secrets store, never returned; obj 900620)
+app.use('/api/integrations', integrationsBuilderRouter)     // Settings → Integrations → New Integration → Make my own: the Integrations bot card + its builder-only routes (obj 900682)
 app.use('/api/connectors', connectorsRouter)              // Settings → Connectors: one file per connector in connectors/defs (auth; credentials never returned, obj 720115)
 app.use('/api/user/connector-oauth', connectorOAuthCallbackRouter)  // generic oauth_guided callback for the Sprint 7.4 catalog preload (public: vendor redirect target, CSRF-bound by signed state, obj 900508)
 app.use('/api/secrets', secretsRouter)                    // native scoped secrets store: scoped CRUD + versions + rollback (auth; encrypted at rest, masked summaries only)
@@ -453,6 +462,10 @@ if (scratchVerdict.scratch) {
 
   // Start routines scheduler (cron-scheduled recurring objectives, 60s tick)
   startRoutineScheduler()
+  // Workflow engine (obj 900638, docs/design/WORKFLOWS.md §4). Arms its 2s tick here
+  // (never on a scratch instance — startFlowEngine re-checks); every tick is a
+  // heartbeat-only no-op until settings.flows_enabled = '1' (default '0' until B4).
+  startFlowEngine().catch((err) => console.error('[flows] engine start failed:', err))
   try { resumeDocIngest(getWorkspaceSlugs()) } catch (err) { console.warn('[doc-ingest] resume failed:', (err as Error).message) }
   try { resumeSetupRunsAfterRestart(getWorkspaceSlugs()) } catch (err) { console.warn('[kb-setup] resume failed:', (err as Error).message) }
   try { resumeKbWiki(getWorkspaceSlugs()) } catch (err) { console.warn('[kb-wiki] resume failed:', (err as Error).message) }
@@ -539,6 +552,9 @@ if (scratchVerdict.scratch) {
   // done/cancelled cards' clean+pushed worktrees across every repo in PROJECTS_DIR.
   // CC_WORKTREE_REAPER=false disables; CC_WORKTREE_REAPER_DRY_RUN=true logs only.
   startWorktreeReaper()
+  // Workspace MCP servers (obj 900620): refresh OAuth access tokens before they
+  // expire so a card spawns with a live token (5 min tick, network only).
+  startMcpTokenRefresher()
   // Queue drain: when a rate-limited account recovers (or a new slot is added),
   // auto-start objectives that were queued because all accounts were exhausted.
   // Reuses the internal status endpoint so the full transition logic
@@ -632,6 +648,12 @@ server.listen(PORT, () => {
   // the shipped starter agents once; never overwrites an existing agent.
   try { installStarterTemplatesFromEnv() } catch (err) {
     console.error('[startup] starter agent templates failed:', (err as Error).message)
+  }
+  // Provider model refresh (obj 900679): pull each connected provider's live
+  // model list on an interval (settings.model_refresh_interval_hours, default
+  // 24; model_refresh_auto='0' turns it off) so new models appear unaided.
+  try { startModelRefreshScheduler() } catch (err) {
+    console.error('[startup] model refresh scheduler failed:', (err as Error).message)
   }
   // Re-queue any sessions that completed while summarizer was broken (LiteLLM era)
   requeueParsedSessions()

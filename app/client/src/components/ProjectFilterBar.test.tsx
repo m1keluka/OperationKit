@@ -68,7 +68,12 @@ describe('ProjectFilterBar — the org subfolder picker (obj 708826)', () => {
       />
     ))
     await flush()
-    return container.querySelector('[data-testid="project-filter-bar"]') as HTMLElement
+    const bar = container.querySelector('[data-testid="project-filter-bar"]') as HTMLElement
+    // obj 900666: the list lives in a dropdown — open it the way a user would.
+    flushSync(() => bar.querySelector('[data-dropdown-trigger]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    await flush()
+    return bar
   }
 
   function click(el: Element | null | undefined) {
@@ -195,7 +200,12 @@ describe('ProjectFilterBar — cross-organization view (obj 900197)', () => {
       />
     ))
     await flush()
-    return container.querySelector('[data-testid="project-filter-bar"]') as HTMLElement
+    const bar = container.querySelector('[data-testid="project-filter-bar"]') as HTMLElement
+    // obj 900666: the list lives in a dropdown — open it the way a user would.
+    flushSync(() => bar.querySelector('[data-dropdown-trigger]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    await flush()
+    return bar
   }
 
   it('renders instead of disappearing, and prefixes each chip with its org', async () => {
@@ -237,5 +247,29 @@ describe('ProjectFilterBar — cross-organization view (obj 900197)', () => {
   it('hides create when there is no organization to create into', async () => {
     const bar = await mountCross([])
     expect([...bar.querySelectorAll('button')].some(b => b.textContent?.includes('New project'))).toBe(false)
+  })
+})
+
+describe('ProjectFilterBar — closed trigger (obj 900666)', () => {
+  it('is one compact control that names the open project', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    flushSync(() => root.render(
+      <ProjectFilterBar
+        projects={PROJECTS}
+        selection={8}
+        onSelect={onSelect}
+        workspace="example"
+        onCreate={onCreate}
+        onRename={onRename}
+        onDelete={onDelete}
+      />
+    ))
+    await flush()
+    const trigger = container.querySelector('[data-dropdown-trigger]') as HTMLElement
+    expect(trigger.textContent).toContain('Billing')
+    // Closed: no option list is in the DOM until the user opens it.
+    expect(container.querySelector('[role="group"]')).toBeNull()
   })
 })

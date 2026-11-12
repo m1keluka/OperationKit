@@ -29,6 +29,9 @@ export const AGENT_OPENAPI = {
       'The same surface is a remote MCP server at POST /api/mcp (Streamable HTTP, stateless); each tool call is checked exactly like its REST route.',
       'WebSocket /ws is cookie-only; agents should poll list + /output instead.',
       'While a card runs, GET /api/objectives/{id}/progress answers "how is it going" (worker snapshots, transcript fallback, children roll-up); /artifacts lists partial outputs.',
+      // Workflows (obj 900642, card B6)
+      'Workflows (okflow/1, tag workflows): POST /api/flows {workspace, goal} files a builder card; draft with POST /api/flows/{id}/versions, check with POST /api/flows/validate (free), self-test with POST /api/flows/{id}/test.',
+      'Publishing a workflow (and approving its send/spend nodes) is the owner\'s click in the web app: POST /api/flows/{id}/publish is not on the agent surface.',
     ].join(' '),
   },
   servers: [
@@ -45,6 +48,7 @@ export const AGENT_OPENAPI = {
     { name: 'files', description: 'Read-only, workspace-scoped search/stat/download of non-markdown files (pptx, pdf, key, images…), plus redacted system configs/logs/crontabs' },
     { name: 'secrets-broker', description: 'Use secrets without seeing them: list names, proxy an HTTPS call with server-side {{secret:NAME}} injection to an allowlisted host' },
     { name: 'control', description: 'Orchestrator polling: changes feed + attention brief' },
+    { name: 'workflows', description: 'Automated workflows (okflow/1): build from a goal, draft, validate, self-test, run. Publish is owner-only in the web app.' },
   ],
   security: [{ bearerAuth: [] }],
   components: {
@@ -1187,6 +1191,17 @@ export const AGENT_OPENAPI = {
         responses: { '201': { description: '{ rel, title }' }, '404': { description: 'Knowledge base switched off' } },
       },
     },
+    '/api/kb-wiki/graph': {
+      get: {
+        tags: ['vault'],
+        summary: 'The whole knowledge base as one graph (obj 900674): every page, and one link per pair of connected pages with how they connect (vault:read)',
+        parameters: [
+          { name: 'workspace', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 2000, default: 2000 }, description: 'Keep at most this many pages, best connected first' },
+        ],
+        responses: { '200': { description: '{ root, nodes: [{ rel, title, kind, degree }], links: [{ a, b, kinds, label, weight }], counts: { pages, links, isolated, by_kind }, truncated }' }, '404': { description: 'Knowledge base switched off' } },
+      },
+    },
     '/api/kb-wiki/graph/related': {
       get: {
         tags: ['vault'],
@@ -1210,6 +1225,139 @@ export const AGENT_OPENAPI = {
           { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 50, default: 10 } },
         ],
         responses: { '200': { description: '{ topic, matched: [{ rel, title, kind }], people: [{ rel, title, sources, latest, links, cited_in }] }' } },
+      },
+    },
+    // ── Workflows (obj 900642, card B6 — docs/design/WORKFLOWS.md §7.6) ──
+    // Every path here is also an MCP tool (agent-mcp.ts WORKFLOW_TOOL_ROUTES).
+    // POST /api/flows/{id}/publish is deliberately absent: owner-only, cookie session.
+    '/api/flows': {
+      get: {
+        tags: ['workflows'],
+        summary: 'List workflows (MCP list_workflows)',
+        description: 'Workflows in the workspaces this key can see (its owner\'s memberships ∩ the key allowlist). flows_enabled=false = the install kill switch is off: nothing runs; drafting, validating and reading still work. Scope board:read.',
+        parameters: [{ name: 'workspace', in: 'query', schema: { type: 'string' } }],
+        responses: { '200': { description: '{ flows_enabled, flows: [FlowSummary] }' }, '403': { description: 'Workspace outside the key allowlist' } },
+      },
+      post: {
+        tags: ['workflows'],
+        summary: 'New workflow from a goal (MCP create_workflow) — or store a version from okflow/1 JSON',
+        description:
+          'With goal (no definition): creates the workflow with no version yet and its BUILDER CARD (status queue, origin workflow) whose brief carries the goal, ' +
+          'the end condition (or a request to propose one), the Tool registry, the workspace\'s enabled MCP connectors and builder.max_iterations (default 6). ' +
+          'While settings.flows_enabled is off the card carries a queue_hold so it is not auto-started. With definition: stores that okflow/1 version (a draft). Scope board:write.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  workspace: { type: 'string' },
+                  goal: { type: 'string', maxLength: 4000, description: 'New workflow: what it must achieve' },
+                  name: { type: 'string', maxLength: 120 },
+                  end_condition: { type: 'object', description: '{ assert: [{ expr, why? }], judge? } — omit and the builder proposes one' },
+                  builder: { type: 'object', properties: { max_iterations: { type: 'integer', minimum: 1, maximum: 20 } } },
+                  definition: { type: 'object', description: 'okflow/1 JSON (instead of goal)' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '201': { description: 'Goal: { ok, flow_id, slug, workspace, objective_id, builder: { objective_id, status, max_iterations, queue_hold }, flow }. Definition: { ok, flow_id, version, created, objective_id, flow }' },
+          '400': { description: 'Validation — a refused definition carries every issue in errors[]' },
+          '403': { description: 'Workspace forbidden, or missing_scope board:write' },
+        },
+      },
+    },
+    '/api/flows/validate': {
+      post: {
+        tags: ['workflows'],
+        summary: 'Validate okflow/1 JSON without saving it (MCP validate_workflow)',
+        description: 'Every issue at once. Free: never counts as a builder iteration. An unapproved send/spend node is a warning (the owner approves at publish). Scope board:write.',
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['definition'], properties: { definition: { type: 'object' } } } } } },
+        responses: { '200': { description: '{ ok, errors: [{ code, severity, path, message, node_id? }], warnings: [...] }' } },
+      },
+    },
+    '/api/flows/{id}': {
+      get: {
+        tags: ['workflows'],
+        summary: 'One workflow: definition, versions, Mermaid chart, runs, publish state (MCP get_workflow)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }, { name: 'version', in: 'query', schema: { type: 'integer' } }],
+        responses: { '200': { description: 'FlowDetailResponse' }, '403': { description: 'Other workspace' }, '404': { description: 'Not found' } },
+      },
+    },
+    '/api/flows/{id}/versions': {
+      post: {
+        tags: ['workflows'],
+        summary: 'Draft a new version (MCP draft_workflow_version)',
+        description:
+          'id / workspace default to the workflow\'s own (and must match it); version defaults to the next number. ' +
+          'An agent\'s draft (agent key or card session) counts against builder.max_iterations: after that many submissions since the last green self-test ' +
+          'the next one is 409 builder_iterations_exhausted. Human drafts are never capped. Scope board:write.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['definition'], properties: { definition: { type: 'object' } } } } } },
+        responses: {
+          '201': { description: '{ ok, flow_id, version, created, warnings, builder: { used, max, remaining, exhausted } | null, flow }' },
+          '400': { description: '{ reason: invalid_definition | flow_id_mismatch | workspace_mismatch, errors: [...], builder }' },
+          '409': { description: 'version_immutable, flow_archived, or builder_iterations_exhausted' },
+        },
+      },
+    },
+    '/api/flows/{id}/test': {
+      post: {
+        tags: ['workflows'],
+        summary: 'Self-test a version — the engine\'s verdict (MCP test_workflow)',
+        description: 'mode dry (default) calls nothing outside; test reads live and calls the model. 409 flows_disabled while the kill switch is off. Scope board:start.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }],
+        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { version: { type: 'integer' }, mode: { type: 'string', enum: ['dry', 'test'] }, fixtures: { type: 'array' } } } } } },
+        responses: { '200': { description: '{ ok, self_test: { id, status: passed|failed, result: { passed, failures, failing_asserts, uncovered_nodes } } }' }, '202': { description: 'Still running (poll GET /api/flows/{id}/tests/{testId})' }, '409': { description: 'flows_disabled' } },
+      },
+    },
+    '/api/flows/{id}/tests': {
+      get: { tags: ['workflows'], summary: 'Self-tests of a workflow', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }, { name: 'version', in: 'query', schema: { type: 'integer' } }], responses: { '200': { description: '{ self_tests }' } } },
+    },
+    '/api/flows/{id}/tests/{testId}': {
+      get: {
+        tags: ['workflows'],
+        summary: 'One self-test',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }, { name: 'testId', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { '200': { description: '{ self_test }' } },
+      },
+    },
+    // Card B8 (obj 900644, §5.3): auto-debug repair incidents are readable on the agent surface.
+    // Drafting a repair is the repair card's own session only; approve / reject are the owner's click.
+    '/api/flows/{id}/repairs': {
+      get: { tags: ['workflows'], summary: 'Auto-debug repair incidents of a workflow (latest first)', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }], responses: { '200': { description: '{ repairs }: status open | applied | needs_review | rejected, signature, patch, diff, safe-class verdict, replay evidence' } } },
+    },
+    '/api/flows/{id}/repairs/{repairId}': {
+      get: { tags: ['workflows'], summary: 'One repair incident', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }, { name: 'repairId', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: '{ repair }' }, '404': { description: 'No such repair on this workflow' } } },
+    },
+    '/api/flows/{id}/runs': {
+      get: { tags: ['workflows'], summary: 'Runs of a workflow', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }], responses: { '200': { description: '{ runs }' } } },
+      post: {
+        tags: ['workflows'],
+        summary: 'Run the published version now (MCP run_workflow)',
+        description: 'Queues a LIVE run; it may send/spend exactly as the owner approved at publish. 409 flows_disabled / not published. Scope board:start.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }],
+        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { payload: { type: 'object' } } } } } },
+        responses: { '201': { description: '{ ok, run_id, run }' }, '409': { description: 'flows_disabled, or nothing published' } },
+      },
+    },
+    '/api/flows/{id}/runs/{runId}': {
+      get: {
+        tags: ['workflows'],
+        summary: 'One run with its step rows and Mermaid overlay (MCP get_workflow_run)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Workflow (flow) id' }, { name: 'runId', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { '200': { description: 'FlowRunDetailResponse' }, '404': { description: 'Not found' } },
+      },
+    },
+    '/api/flows/runs': {
+      get: {
+        tags: ['workflows'],
+        summary: 'Recent live runs across workflows',
+        parameters: [{ name: 'workspace', in: 'query', schema: { type: 'string' } }, { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 500 } }],
+        responses: { '200': { description: '{ flows_enabled, runs }' } },
       },
     },
     '/api/mcp': {
@@ -1260,6 +1408,7 @@ export const AGENT_DISCOVERY = {
     seats: 'GET /api/agent/seats — which subscription seats can take work and when the next resets (board:read)',
     idempotency: 'Idempotency-Key header on POST /api/objectives and /api/objectives/{id}/message — 24h, per key',
     create_and_start: 'POST /api/objectives {"start": true} (board:write + board:start)',
+    workflows: 'POST /api/flows {workspace, goal} → builder card; POST /api/flows/{id}/versions → POST /api/flows/{id}/test. Publish is owner-only (web app).',
     default_list_limit: 50,
   },
   note: 'This is the remote PM API. /api/internal/* is localhost-only (sessions on the VPS). Admin/secrets/shell are not part of this surface.',
@@ -1278,6 +1427,9 @@ export const AGENT_DISCOVERY = {
       'get_chat_agent', 'create_objective',
       'update_objective', 'update_status', 'start_objective', 'send_message', 'list_secret_requests',
       'fulfill_secret_request', 'stop_objective',
+      // obj 900642 (card B6): workflows. No publish tool — publish is owner-only in the web app.
+      'list_workflows', 'get_workflow', 'create_workflow', 'draft_workflow_version', 'validate_workflow',
+      'test_workflow', 'run_workflow', 'get_workflow_run',
     ],
     aliases: { get_card: 'get_objective', search_cards: 'search_objectives' },
   },

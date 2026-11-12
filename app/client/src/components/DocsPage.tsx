@@ -1,11 +1,12 @@
-// Knowledge base (served at /knowledge; /docs redirects here). Reads and edits the
+// Context — the knowledge base (served at /knowledge; /docs redirects here; labelled Context since obj 900675). Reads and edits the
 // markdown folders the server exposes through /api/docs.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Menu, Save, Upload } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Menu, Network, Save, Upload } from 'lucide-react'
 import { api } from '../lib/api'
 import { Button, EmptyState, SkeletonText } from './ui'
 import { KnowledgeImportPanel, useKnowledgeImportEnabled } from './KnowledgeImport'
 import { KbSetupStep } from './kb-setup/KbSetupStep'
+import { KnowledgeGraphPane } from './kb-wiki/KnowledgeGraphPane'
 import { useNavigate } from '../context/nav'
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -251,6 +252,10 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
   const importOn = useKnowledgeImportEnabled()
   const [importing, setImporting] = useState(false)
   const [treeVersion, setTreeVersion] = useState(0)
+  // The graph of how every page connects (obj 900674) is the page's default
+  // view: shown until a page is opened, and again from the toolbar's Graph toggle.
+  const [graphOn, setGraphOn] = useState(true)
+  const showGraph = importOn && graphOn && !importing
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const navigate = useNavigate()
@@ -284,6 +289,7 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
     setPendingMarkdown(null)
     setDrawerOpen(false)
     setImporting(false)
+    setGraphOn(false)
     try {
       const data = await api.get<FileResponse>(`/docs/file?path=${encodeURIComponent(p)}`)
       setFile(data)
@@ -335,14 +341,14 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
 
   const breadcrumb = useMemo(() => {
     if (!file) return null
-    return { rootLabel: 'Knowledge base', rel: pageLocation(file.path, kbRoot, folders) }
+    return { rootLabel: 'Context', rel: pageLocation(file.path, kbRoot, folders) }
   }, [file, kbRoot, folders])
 
   const sidebar = (
     <div className="flex h-full w-64 flex-col border-r border-line bg-surface-1">
       {/* One knowledge base — no source picker (obj 720348) */}
       <div className="flex items-center justify-between gap-2 border-b border-line-soft p-3">
-        <h1 className="px-0.5 text-[15px] font-semibold tracking-[-0.01em] text-fg-0">Knowledge base</h1>
+        <h1 className="px-0.5 text-[15px] font-semibold tracking-[-0.01em] text-fg-0">Context</h1>
         {/* Knowledge Base Setup (obj 900556) */}
         <a
           href="/knowledge/setup"
@@ -411,6 +417,8 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
             </button>
             {importing ? (
               <div className="text-xs font-medium text-fg-0">Import files</div>
+            ) : showGraph ? (
+              <div className="text-xs font-medium text-fg-0">Graph</div>
             ) : breadcrumb ? (
               <div className="min-w-0 truncate text-xs">
                 <span className="text-fg-2">{breadcrumb.rootLabel}</span>
@@ -422,6 +430,18 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {importOn && (
+              <Button
+                size="sm"
+                variant={showGraph ? 'primary' : 'secondary'}
+                aria-pressed={showGraph}
+                onClick={() => { setImporting(false); setGraphOn(g => (file ? !g : true)) }}
+                leftIcon={<Network className="h-3.5 w-3.5" aria-hidden="true" />}
+                title={showGraph && file ? 'Back to the open page' : 'See how every page connects'}
+              >
+                Graph
+              </Button>
+            )}
             {importOn && !importing && (
               <Button size="sm" onClick={() => setImporting(true)} leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />}>
                 Import files
@@ -446,7 +466,7 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
             {pendingMarkdown !== null && saveState === 'idle' && file?.writable && (
               <span className="text-[12px] text-fg-3">Unsaved</span>
             )}
-            {!importing && <button
+            {!importing && !showGraph && <button
               onClick={handleManualSave}
               disabled={!file?.writable || pendingMarkdown === null || saveState === 'saving'}
               className="inline-flex items-center gap-1.5 rounded-sm bg-accent px-3 py-1 text-xs font-medium text-accent-fg transition hover:bg-accent-hover active:bg-accent-press disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-3"
@@ -467,6 +487,8 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
           <div className="flex flex-1 items-center justify-center text-sm text-fg-3">
             Loading file…
           </div>
+        ) : showGraph ? (
+          <KnowledgeGraphPane workspace={workspace} onOpenPath={p => { void selectFile(p) }} refreshKey={treeVersion} />
         ) : file ? (
           <EditorPane key={file.path} file={file} onContentChange={handleContentChange} />
         ) : (

@@ -82,6 +82,10 @@ services:
       # Per-session sandbox (app/server/src/services/session-jail.ts).
       SESSION_ISOLATION: ${OK_SESSION_ISOLATION:-docker}
       SESSION_JAIL_IMAGE: ok-jail:local
+      # Sandbox /tmp tmpfs size (obj 900402; was a hardcoded 256m) and optional
+      # CLAUDE_CODE_TMPDIR on the disk-backed sandbox HOME. Replaces the OVH docker shim.
+      SESSION_JAIL_TMP_SIZE: ${OK_JAIL_TMP_SIZE:-2g}
+      SESSION_JAIL_CLAUDE_TMPDIR: ${OK_JAIL_CLAUDE_TMPDIR:-}
       SESSION_JAIL_HOST_PATH_MAP: /tmp=${OK_STATE}/tmp,/app/data=${OK_STATE}/data,${OK_APP_HOME}=${OK_STATE}/home
       # Sandboxes reach this app over the ok-jails network (see header, obj 900113).
       SESSION_JAIL_NETWORK: ok-jails

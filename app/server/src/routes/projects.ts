@@ -89,6 +89,10 @@ router.get('/', (req: AuthRequest, res) => {
     res.status(403).json({ error: 'No access to one or more of the requested workspaces' })
     return
   }
+  // `include_archived=1` also brings back projects of an ARCHIVED organization.
+  // Without it they are hidden like an archived project is (obj 900667): an
+  // org retired by workspace-merge is invisible to /api/workspaces, so its
+  // leftover projects must not keep surfacing in the board's project picker.
   const includeArchived = req.query.include_archived === '1'
   const db = getDb()
 
@@ -118,7 +122,8 @@ router.get('/', (req: AuthRequest, res) => {
              ON o.project_id = p.id AND o.deleted_at IS NULL
      WHERE 1 = 1
        ${where}
-       ${includeArchived ? '' : 'AND p.archived = 0'}
+       ${includeArchived ? '' : `AND p.archived = 0
+       AND p.workspace NOT IN (SELECT slug FROM workspaces WHERE archived = 1)`}
      GROUP BY p.id
      ORDER BY p.workspace ASC, p.sort_order ASC, p.name ASC
   `).all(...params) as Record<string, unknown>[]
@@ -147,6 +152,18 @@ router.post('/', (req: AuthRequest, res) => {
   }
 
   const db = getDb()
+  // An archived (e.g. merged-away) organization takes no new projects — the
+  // picker cannot show them, so they would be created invisible (obj 900667).
+  const wsRow = db.prepare('SELECT archived, merged_into FROM workspaces WHERE slug = ?').get(workspace) as
+    | { archived: number; merged_into: string | null }
+    | undefined
+  if (wsRow && Number(wsRow.archived) > 0) {
+    res.status(409).json({
+      error: `Workspace '${workspace}' is archived${wsRow.merged_into ? ` (merged into '${wsRow.merged_into}')` : ''}`,
+      merged_into: wsRow.merged_into ?? null,
+    })
+    return
+  }
   // Check for uniqueness (workspace, name) upfront for a clear error.
   const existing = db.prepare('SELECT id FROM projects WHERE workspace = ? AND name = ?').get(workspace, name)
   if (existing) {

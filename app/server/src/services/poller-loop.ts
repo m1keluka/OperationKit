@@ -105,6 +105,7 @@ import {
   writeHygieneDigest,
   sweepZeroTokenReview,
 } from './poller-hygiene.js'
+import { sweepQueueAutostart } from './queue-autostart.js'
 import {
   knowledgeScanOffsets,
   scopeScanOffsets,
@@ -312,8 +313,10 @@ export async function pollActiveSessions(): Promise<void> {
 
   // Safety net: recover objectives orphaned in 'working' with no session
   // (invisible to the poll query below, which requires session_id IS NOT NULL).
+  // obj 900652: AWAITED — a card that never got a worker is retried once here
+  // (a fresh startSession) before it can ever be parked in review.
   try {
-    sweepOrphanedWorkingSessions()
+    await sweepOrphanedWorkingSessions()
   } catch (err) {
     console.error('[state-poller] sweepOrphanedWorkingSessions failed:', err)
   }
@@ -393,6 +396,14 @@ export async function pollActiveSessions(): Promise<void> {
   } catch (err) {
     console.error('[state-poller] sweepTopLevelQueueStarter failed:', err)
   }
+  // obj 900625 — per-workspace queue auto-start: queued task/bug cards start when
+  // a session slot and a seat are free. OFF unless a workspace is listed in
+  // settings.queue_autostart_workspaces / CC_QUEUE_AUTOSTART_WORKSPACES.
+  try {
+    await sweepQueueAutostart()
+  } catch (err) {
+    console.error('[state-poller] sweepQueueAutostart failed:', err)
+  }
   try {
     await sweepAutoAcceptOnPass()
   } catch (err) {
@@ -446,6 +457,16 @@ export async function pollActiveSessions(): Promise<void> {
       }
       const clear = db.prepare('UPDATE objectives SET session_id = NULL WHERE id = ?')
       db.transaction(() => { for (const id of plan.clear) clear.run(id) })()
+      // obj 900669 — the board shows a review card with a session_id in Working
+      // (an agent is still on it). Push the cleared row so it drops into Needs
+      // You live instead of waiting for the next full refetch.
+      if (plan.clear.length > 0) {
+        const read = db.prepare('SELECT * FROM objectives WHERE id = ?')
+        for (const id of plan.clear) {
+          const row = read.get(id) as Objective | undefined
+          if (row) broadcast({ type: 'objective_updated', payload: row })
+        }
+      }
     } catch (err) {
       console.error('[state-poller] review session_id sweep failed:', err)
     }

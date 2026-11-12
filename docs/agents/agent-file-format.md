@@ -44,17 +44,41 @@ agent's instructions.
 | `schedules` | no | Jobs the agent runs on a timetable (see below). |
 | `version` | yes for sharing | The file's version, like `1.0.0`. Raise it when you change the agent. |
 | `author` | yes for sharing | Who made it — a person or a company. |
+| `how_to_use` | no | Text for the bot's **info panel** (the "i" button in its conversation): how to use it. Blank lines start a new paragraph; lines starting with `- ` are bullets. Up to 4,000 characters. |
+| `example_prompts` | no | Up to 8 example prompts (300 characters each). The info panel and an empty conversation offer them; picking one puts it in the message box without sending it. |
 
 ### Tool names
 
 | Tool | What it allows |
 |---|---|
 | `search`, `list_folders`, `read_file`, `write_doc` | Search, browse, read and write the knowledge base — only inside `knowledge_folders`. |
-| `create_objective`, `get_objective`, `list_objectives` | Create board cards for the coding tools, and check on them. |
+| `create_objective`, `get_objective`, `list_objectives`, `board_briefing` | Create board cards for the coding tools, check on them, and summarise what is waiting on the person. |
 | `email`, `calendar` | Read mail and calendar and prepare **drafts**. Nothing is sent until a person presses Send. |
+| `web_search`, `web_fetch` | Search the public web and read public pages. Search needs a search key on the install (see `docs/product/09-agent-chat.md`). |
+| `all` | Every built-in tool, including ones added in later releases. |
+| `mcp` | Use the tools of the MCP servers connected in the chat's workspace (Settings → Integrations). See `docs/connectors/MCP-SERVERS.md`. |
 
 Other names are allowed (for connectors a client adds), but the importer will
 point out that they are not built in.
+
+### Info panel (`how_to_use`, `example_prompts`)
+
+Every bot's conversation has an **i** button that opens an info panel: what the
+bot is for, how to use it, example prompts, and what it can reach (worked out from
+`knowledge_folders` and `tools`). Add `how_to_use` and `example_prompts` to give
+your bot its own words; without them the panel shows a short generic guide and
+prompts based on the bot's tools.
+
+```yaml
+example_prompts:
+  - Who is waiting on a reply from me?
+  - Draft a thank-you note to today's new client
+how_to_use: |
+  Ask me who needs a follow-up and I will draft the emails.
+
+  - Nothing is sent until you press Send.
+  - I only read the clients folder.
+```
 
 ### Schedules
 
@@ -128,6 +152,10 @@ that already exists is left alone.
   file. The file is checked first; any problem is listed by field with what to
   fix, and nothing changes until you click **Add agent**. If an agent with the
   same slug already exists you are asked before it is replaced.
+- **Paste it:** Agents → Templates → **Paste agent file**, paste the whole file
+  (for example one the **Operation Kit Dev** bot wrote for you in chat) and press
+  **Check it**. The same checks run, and nothing is added until you click
+  **Add agent**. The Agents page's "Paste a bot file" link opens this box.
 - **From a folder on the server:** on the same page, type the path. For safety
   only a few folders are allowed (the page lists them) — copy the file into the
   `agent-imports` folder first.

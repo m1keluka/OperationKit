@@ -13,6 +13,7 @@ import { runMachineStatusUpdate } from '../lib/status-lock.js'
 import { delegatorBackstopDecision } from './poller-decisions.js'
 import { DELEGATOR_BACKSTOP_MS } from '../config.js'
 import { insertAlert } from './notifier.js'
+import { handleRunnerFailure, RUNNER_FAILURE_START_REASON, type RunnerFailureOutcome } from './runner-failure.js'
 import {
   classifyBackstopProgress,
   computeProgressSig,
@@ -181,7 +182,45 @@ export function reconcileDelegators(): void {
 let lastOrphanSweep = 0
 const ORPHAN_SWEEP_INTERVAL_MS = 60 * 1000
 
-export function sweepOrphanedWorkingSessions(): void {
+/** Test-only: let the next sweepOrphanedWorkingSessions call run immediately. */
+export function __resetOrphanSweepThrottle(): void {
+  lastOrphanSweep = 0
+}
+
+/** Production wiring for {@link handleRunnerFailure}. The session layer is imported
+ *  lazily, the same way the stall watchdog wires it, so this module stays light. */
+async function handleRunnerFailureInProduction(objectiveId: number): Promise<RunnerFailureOutcome> {
+  const [starter, reasons] = await Promise.all([
+    import('./session-start.js'),
+    import('./session-start-reasons.js'),
+  ])
+  const db = getDb()
+  return handleRunnerFailure(objectiveId, {
+    db,
+    now: () => Date.now(),
+    start: (objective) => starter.startSession(objective),
+    noteStartReason: (id, detail) => reasons.noteStartReason(id, RUNNER_FAILURE_START_REASON, 'orphan-sweep', detail),
+    notify: (row, reason) => {
+      insertAlert({
+        severity: 'high',
+        source: 'runner-failure',
+        title: `Card #${row.id}: runner failure — no worker session was launched`,
+        message: `${row.title}\n${reason}\nThe one automatic retry is spent or failed; the card is parked in review with a blocked verdict.`,
+        dedup_key: `runner-failure:${row.id}`,
+        url: `/objectives/${row.id}`,
+      })
+    },
+    broadcast: (id) => {
+      const updated = db.prepare('SELECT * FROM objectives WHERE id = ?').get(id) as Objective | undefined
+      if (updated) broadcast({ type: 'objective_updated', payload: updated })
+    },
+    log: (m) => console.warn(m),
+  })
+}
+
+export async function sweepOrphanedWorkingSessions(
+  opts: { handleRunnerFailure?: (objectiveId: number) => Promise<RunnerFailureOutcome> } = {},
+): Promise<void> {
   const now = Date.now()
   if (now - lastOrphanSweep < ORPHAN_SWEEP_INTERVAL_MS) return
   lastOrphanSweep = now
@@ -193,7 +232,18 @@ export function sweepOrphanedWorkingSessions(): void {
     )
     .all() as Objective[]
 
+  const onRunnerFailure = opts.handleRunnerFailure ?? handleRunnerFailureInProduction
   for (const obj of orphans) {
+    // obj 900652 — a card that NEVER ran (0 sessions, 0 tokens, no summary) is a
+    // runner failure, not work awaiting review: retry it once, or flag it visibly.
+    // Anything that did run keeps the plain park-in-review below.
+    try {
+      const outcome = await onRunnerFailure(obj.id)
+      if (outcome !== 'not_runner_failure') continue
+    } catch (err) {
+      console.error(`[state-poller] runner-failure handling failed for #${obj.id}:`, (err as Error)?.message ?? err)
+    }
+
     runMachineStatusUpdate(
       db,
       "UPDATE objectives SET status = 'review', updated_at = datetime('now') WHERE id = ?",

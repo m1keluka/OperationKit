@@ -12,6 +12,7 @@ import { Badge, Button, Card } from '../ui'
 import { AccessEditor } from './AccessEditor'
 import { fmtDate } from '../account-settings/helpers'
 import { GuidedOAuthWizard } from './GuidedOAuthWizard'
+import { SharedOAuthAppPanel, type SharedAppInput } from './SharedOAuthAppPanel'
 
 function StateBadge({ status, available }: { status: ConnectorStatus; available: boolean }) {
   if (status.state === 'connected') return <Badge tone="verify">Connected</Badge>
@@ -33,6 +34,9 @@ export interface ConnectorActions {
   check: (id: string) => Promise<void>
   disconnect: (c: ConnectorSummary) => Promise<void>
   saveAccess: (id: string, access: ConnectorAccess) => Promise<void>
+  /** Optional, opt-in shared third-party OAuth app (Sprint 7.7). Admin only; resolves true on success. */
+  saveSharedApp?: (id: string, input: SharedAppInput) => Promise<boolean>
+  removeSharedApp?: (id: string) => Promise<boolean>
 }
 
 export function ConnectorCard({
@@ -40,11 +44,13 @@ export function ConnectorCard({
   actions,
   agents,
   workspaces,
+  isAdmin = false,
 }: {
   connector: ConnectorSummary
   actions: ConnectorActions
   agents: { value: string; label: string }[]
   workspaces: { value: string; label: string }[]
+  isAdmin?: boolean
 }) {
   const [fields, setFields] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<'connect' | 'check' | 'disconnect' | null>(null)
@@ -190,6 +196,15 @@ export function ConnectorCard({
             </form>
           )}
         </div>
+
+        {c.shared_app && (
+          <SharedOAuthAppPanel
+            connector={c}
+            isAdmin={isAdmin}
+            onSave={actions.saveSharedApp ? input => actions.saveSharedApp!(c.id, input) : undefined}
+            onRemove={actions.removeSharedApp ? () => actions.removeSharedApp!(c.id) : undefined}
+          />
+        )}
 
         <div className="border-t border-line-soft">
           <button

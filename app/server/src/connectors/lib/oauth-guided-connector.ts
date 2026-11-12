@@ -7,8 +7,15 @@
  * install owner supplies their own app's client id/secret via
  * Settings → Secrets (see each connector's setup_guide.md) — never a shared
  * Example-run app (Sprint 7 proposal §2a).
+ *
+ * Optional, opt-in (Sprint 7.7, obj 900511): when the install has NO app of
+ * its own for this connector AND an admin explicitly turned on a shared
+ * third-party app for it (services/shared-oauth-app.ts), the connector can
+ * sign in through that third party instead. With the toggle off — the
+ * default — nothing below differs from the pre-7.7 behavior.
  */
 import * as store from '../../services/generic-connector-oauth.js'
+import { getSharedAppConfig, sharedAppHost, startSharedAppOAuth } from '../../services/shared-oauth-app.js'
 import { NOT_CONNECTED, type ConnectorDefinition, type ConnectorOAuthEndpoints } from '../types.js'
 import type { ConnectorProduct, ConnectorStatus } from '@operationkit/shared'
 
@@ -48,21 +55,28 @@ export function oauthGuidedConnector(opts: OAuthGuidedConnectorOptions): Connect
     oauth: opts.oauth,
     connect: { kind: 'oauth', button_label: opts.button_label ?? `Connect ${opts.name}` },
 
+    shared_app_eligible: true,
+
     availability() {
-      return store.getOAuthClient(opts.id)
-        ? { ok: true }
-        : {
-            ok: false,
-            reason: `${opts.name} is not set up on this server yet. An admin needs to add the ${opts.id.toUpperCase().replace(/-/g, '_')}_OAUTH_CLIENT_ID / _OAUTH_CLIENT_SECRET pair in Settings → Secrets — see ${opts.setup_guide}.`,
-          }
+      if (store.getOAuthClient(opts.id)) return { ok: true }
+      // Opt-in only: null unless an admin explicitly turned it on for this connector.
+      if (getSharedAppConfig(opts.id)) return { ok: true }
+      return {
+        ok: false,
+        reason: `${opts.name} is not set up on this server yet. An admin needs to add the ${opts.id.toUpperCase().replace(/-/g, '_')}_OAUTH_CLIENT_ID / _OAUTH_CLIENT_SECRET pair in Settings → Secrets — see ${opts.setup_guide}.`,
+      }
     },
 
     status: ctx => toStatus(opts.id, ctx.userId),
 
     async startOAuth(ctx) {
       const client = store.getOAuthClient(opts.id)
-      if (!client) return { ok: false, error: `${opts.name} is not set up on this server yet.` }
-      return { ok: true, redirectUrl: store.buildAuthUrl(opts.id, ctx.userId, opts.oauth, client) }
+      // The install's own app always wins; a shared app is only ever a fallback.
+      if (client) return { ok: true, redirectUrl: store.buildAuthUrl(opts.id, ctx.userId, opts.oauth, client) }
+      const shared = getSharedAppConfig(opts.id)
+      if (!shared) return { ok: false, error: `${opts.name} is not set up on this server yet.` }
+      console.log(`[connectors] ${opts.id}: signing in via opt-in shared app at ${sharedAppHost(shared)}`)
+      return startSharedAppOAuth(opts.id, ctx.userId, shared, opts.oauth.scopes)
     },
 
     async disconnect(ctx) {

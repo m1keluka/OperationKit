@@ -120,10 +120,22 @@ export interface ConnectorDefinition {
    * `${mcp_url}/.well-known/oauth-authorization-server` against it.
    */
   mcp_url?: string
+  /**
+   * The MCP endpoint itself, when it differs from `mcp_url` (which doubles as
+   * the OAuth issuer base, e.g. `https://mcp.example.com` vs `…/mcp`). Used by
+   * Settings → Integrations → "Connect an MCP server" → catalog (obj 900620).
+   */
+  mcp_server_url?: string
   /** OAuth scope string requested during the DCR/CIMD authorization-code flow, for `auth_path: 'dcr_mcp'`. */
   dcr_scope?: string
   /** OAuth endpoints/scopes, for `auth_path: 'oauth_guided'`. */
   oauth?: ConnectorOAuthEndpoints
+  /**
+   * This connector MAY be pointed at an optional, opt-in shared third-party
+   * OAuth app (Sprint 7.7, services/shared-oauth-app.ts). Only connectors that
+   * set this can be named in that config; it never turns anything on by itself.
+   */
+  shared_app_eligible?: boolean
   /** Extra key fields a wizard would prompt for, for `auth_path: 'api_key'`. */
   api_key_fields?: ConnectorApiKeyField[]
   /** Sort position in Settings (lower first). */

@@ -62,7 +62,12 @@ interface AccountsData {
 }
 
 interface SystemData {
-  cpu: { cores: number; model: string; usagePercent: number; loadAvg: number[] }
+  cpu: {
+    cores: number; model: string; usagePercent: number; loadAvg: number[]
+    // obj 900685 — optional so an older server's payload still renders.
+    avg1mPercent?: number | null; peak1mPercent?: number | null; windowSeconds?: number
+    breakdown?: { sessions: number; kernel: number; other: number } | null
+  }
   memory: { total: number; used: number; free: number; usagePercent: number }
   disk: { total: number; used: number; available: number; usagePercent: number }
   uptime: number
@@ -139,6 +144,24 @@ function UsageBar({ percent }: { percent: number }) {
         className={cn('h-2 rounded-full transition-[width] duration-slow ease-out', barFill(percent))}
         style={{ width: `${Math.min(percent, 100)}%` }}
       />
+    </div>
+  )
+}
+
+// obj 900685 — the CPU number is host-wide (every session, every container).
+// Say over what window, how bad the last minute got, and who used it, so a
+// spike from worker sessions is not read as the server itself being maxed.
+export function CpuDetail({ cpu }: { cpu: SystemData['cpu'] }) {
+  const parts: string[] = []
+  if (cpu.windowSeconds != null) parts.push(`${cpu.windowSeconds}s avg`)
+  if (cpu.avg1mPercent != null) parts.push(`1-min avg ${cpu.avg1mPercent}%`)
+  if (cpu.peak1mPercent != null) parts.push(`peak ${cpu.peak1mPercent}%`)
+  const b = cpu.breakdown
+  if (parts.length === 0 && !b) return null
+  return (
+    <div data-testid="cpu-detail" className="mt-1 font-mono text-xs text-fg-3">
+      {parts.length > 0 && <div>{parts.join(' · ')}</div>}
+      {b && <div>Sessions {b.sessions}% · Kernel {b.kernel}% · Server/other {b.other}%</div>}
     </div>
   )
 }
@@ -330,6 +353,7 @@ export function SystemPage() {
                   <div className="mt-1.5 font-mono text-xs text-fg-3">
                     {system.cpu.cores} cores &middot; Load {system.cpu.loadAvg.join(' / ')}
                   </div>
+                  <CpuDetail cpu={system.cpu} />
                 </div>
                 <div>
                   <div className="mb-2 flex items-baseline justify-between">

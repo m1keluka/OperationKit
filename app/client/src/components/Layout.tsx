@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useMemo, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
-import { Check, Moon, Sun } from 'lucide-react'
+import { Moon, Sun } from 'lucide-react'
 import { useBoardTheme } from '../preview/BoardShell'
 import { useBranding } from '../hooks/useBranding'
 import { BrandLogo } from './BrandLogo'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from '../context/nav'
-import { useWorkspaces } from '../hooks/useWorkspaces'
+import { useWorkspaces, invalidateWorkspacesCache } from '../hooks/useWorkspaces'
+import { api } from '../lib/api'
+import { OrgSwitcher } from './OrgSwitcher'
 import type { Workspace } from '@operationkit/shared'
 import { CommandPalette } from './CommandPalette'
 import { AlertBell } from './AlertBell'
@@ -18,6 +20,13 @@ interface LayoutProps {
   /** Selected workspace slugs. An empty array means "All Workspaces". */
   selectedWorkspaces: Workspace[]
   onWorkspacesChange: (ws: Workspace[]) => void
+  /**
+   * Page-scroll mode (obj 900680): the DOCUMENT scrolls instead of <main>.
+   * The shell grows with its content, both top bars stick to the top, and
+   * <main> no longer clips. Routes opt in through usesPageScroll() in
+   * lib/routes.ts. Off = the fixed-height shell the board needs.
+   */
+  pageScroll?: boolean
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -26,12 +35,14 @@ interface LayoutProps {
    Two places, one model each:
 
      • NAV_GROUPS — the primary bar: Bots (when the chat page is in the build),
-       Board, Knowledge base, Jobs. The desktop top bar and the 390px bottom
+       Board, Context (the knowledge base), Workflows (formerly Jobs; obj 900675). The desktop top bar and the 390px bottom
        bar render the same ≤4 items. There is no "More" group any more.
      • ACCOUNT_MENU — the avatar dropdown, the same menu on desktop and mobile:
-       Settings and Archive for everyone, then an Admin section (System,
-       Agents) for global admins. Everything that used to sit under "More"
-       lives here; the old → new table is docs/navigation/sprint-4a-navigation.md.
+       one flat list — Settings for everyone, then System and Agents for global
+       admins, then Log out. obj 900686 dropped Archive (the board's own Archive
+       button already gets you there) and the "Admin" sub-heading, which made a
+       two-item menu read as a form. The old → new table is
+       docs/navigation/sprint-4a-navigation.md.
 
    The unfinished surfaces (Contacts, Strategies, Development, Notes, Status,
    Feed) were removed in obj 900543; their old URLs redirect to the board
@@ -65,9 +76,11 @@ const NAV_GROUPS: NavGroup[] = [
       // the build. The href stays /chat (obj 900327): the label was renamed, the URL is a bookmark.
       { href: '/chat',      label: 'Bots',           icon: 'chat',  aliases: [],        gate: 'chat' },
       { href: '/',          label: 'Board',          icon: 'board', aliases: [] },
-      { href: '/knowledge', label: 'Knowledge base', shortLabel: 'Knowledge', icon: 'docs', aliases: ['/docs'] },
-      // Worst case (admin) is Bots, Board, Knowledge base, Jobs = 4 tabs at 390px.
-      { href: JOBS_ROUTE,   label: 'Jobs',           icon: 'jobs',  aliases: [],        gate: 'admin' },
+      // obj 900675: labels renamed (Knowledge base → Context, Jobs → Workflows). The URLs stay
+      // /knowledge and /jobs — they are bookmarks and deep-link targets.
+      { href: '/knowledge', label: 'Context',        icon: 'docs',  aliases: ['/docs'] },
+      // Worst case (admin) is Bots, Board, Context, Workflows = 4 tabs at 390px.
+      { href: JOBS_ROUTE,   label: 'Workflows',      icon: 'jobs',  aliases: [],        gate: 'admin' },
     ],
   },
 ]
@@ -79,22 +92,33 @@ export interface AccountMenuItem {
   icon: NavIconName
   /** Other paths that should light this row up (old URLs that redirect here). */
   aliases: string[]
-  /** 'admin' rows render under an "Admin" label, for global admins only. */
+  /** 'admin' rows are shown to global admins only. */
   section: 'account' | 'admin'
 }
 
 export const ACCOUNT_MENU: AccountMenuItem[] = [
   { href: '/settings',   label: 'Settings', icon: 'config',    aliases: [],                          section: 'account' },
-  { href: '/archive',    label: 'Archive',  icon: 'archive',   aliases: [],                          section: 'account' },
   { href: SYSTEM_ROUTE,  label: 'System',   icon: 'dashboard', aliases: [...LEGACY_SYSTEM_ROUTES],    section: 'admin' },
-  { href: AGENTS_ROUTE,  label: 'Agents',   icon: 'system',    aliases: ['/agent-templates'],         section: 'admin' },
+  { href: AGENTS_ROUTE,  label: 'Agents & Skills', icon: 'system',    aliases: ['/agent-templates'],         section: 'admin' },
 ]
 
 
-export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: LayoutProps) {
+/**
+ * Pages that read the org selection, and so show the top-bar org switcher
+ * (obj 900666): the board family plus Knowledge, Jobs and Agents.
+ */
+export function isOrgScopedPath(path: string): boolean {
+  return path === '/' || path === '/archive'
+    || /^\/w\/[\w-]+\/?$/.test(path)
+    || /^\/o\/\d+\/?$/.test(path)
+    || path === '/knowledge' || path.startsWith('/knowledge/')
+    || path === JOBS_ROUTE || path === AGENTS_ROUTE
+}
+
+export function Layout({ children, selectedWorkspaces, onWorkspacesChange, pageScroll = false }: LayoutProps) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const { slugs: wsSlugs, labelOf, shortOf } = useWorkspaces()
+  const { workspaces: orgRecords, loading: orgsLoading, refresh: refreshOrgs, shortOf } = useWorkspaces()
   const currentPath = window.location.pathname
 
   // Intercept plain left-clicks on nav anchors → in-app navigation (no reload).
@@ -111,10 +135,12 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   const isAdmin = user?.role === 'admin'
   const { theme, toggleTheme } = useBoardTheme()
   const brandName = useBranding().name
-  const showWorkspace =
-    currentPath === '/' || currentPath === '/archive'
-    || /^\/w\/[\w-]+\/?$/.test(currentPath)
-    || /^\/o\/\d+\/?$/.test(currentPath)
+  // The org switcher sits in the top bar next to "Jump to" and scopes the
+  // whole app (obj 900666). It shows on every page that reads the selection:
+  // the board family (/, /w/<org>, /o/<id>, /archive) plus Knowledge, Jobs
+  // and Agents, which take the single selected org from App.tsx. Settings and
+  // admin pages do not read it, so a control there would do nothing.
+  const showWorkspace = isOrgScopedPath(currentPath)
 
   const canSeeSettings = useMemo(() => {
     if (isAdmin) return true
@@ -146,56 +172,48 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
     currentPath === item.href || currentPath.startsWith(item.href + '/') || item.aliases.includes(currentPath)
   const menuActive = [...accountRows, ...adminRows].some(isMenuActive)
 
-  const availableWorkspaces = useMemo(() => {
-    if (isAdmin) return ['all', ...wsSlugs] as Workspace[]
-    const userWs = (user?.workspaces?.map(w => w.workspace) || []) as Workspace[]
-    return userWs.length > 1 ? ['all' as Workspace, ...userWs] : userWs
-  }, [isAdmin, user?.workspaces, wsSlugs])
-
-  const hideWorkspaceSelector = availableWorkspaces.length <= 1
-
-  // Toggleable workspace options (the 'all' sentinel is rendered separately).
-  const wsOptions = useMemo(
-    () => availableWorkspaces.filter(w => w !== 'all'),
-    [availableWorkspaces],
-  )
-  const isAllSelected = selectedWorkspaces.length === 0
-  const selectionLabel = isAllSelected
-    ? shortOf('all')
-    : selectedWorkspaces.length === 1
-      ? shortOf(selectedWorkspaces[0])
-      : selectedWorkspaces.length === 2
-        ? selectedWorkspaces.map(shortOf).join(' + ')
-        : `${selectedWorkspaces.length} spaces`
-
-  function toggleWorkspace(ws: Workspace) {
-    const next = selectedWorkspaces.includes(ws)
-      ? selectedWorkspaces.filter(w => w !== ws)
-      : [...selectedWorkspaces, ws]
-    onWorkspacesChange(next)
+  // Organizations this caller may switch between. Admins see every org; a
+  // member only the ones they belong to.
+  const orgChoices = useMemo(() => {
+    const memberSlugs = new Set((user?.workspaces ?? []).map(w => w.workspace))
+    return (orgRecords ?? [])
+      .filter(w => isAdmin || memberSlugs.has(w.slug))
+      .map(w => ({ slug: w.slug, label: w.name || w.slug, short: shortOf(w.slug) }))
+    // shortOf reads orgRecords, which is already a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgRecords, isAdmin, user?.workspaces])
+  // A member of exactly one org has nothing to switch to. Admins always get the
+  // switcher — it is also where they create an organization (obj 900197 was
+  // the bug where it vanished for an admin with a single org).
+  const hideWorkspaceSelector = !isAdmin && orgChoices.length <= 1
+  const createOrg = async (name: string, slug: string) => {
+    await api.post('/admin/workspaces', { slug, name })
+    // The roster is cached process-wide; drop it so the new org appears.
+    invalidateWorkspacesCache()
+    await refreshOrgs()
   }
-  function selectAllWorkspaces() {
-    onWorkspacesChange([])
-    setWsDropdownOpen(false)
+  const orgSwitcherProps = {
+    organizations: orgChoices,
+    selected: selectedWorkspaces as string[],
+    onChange: (next: string[]) => onWorkspacesChange(next as Workspace[]),
+    canCreate: isAdmin,
+    onCreate: createOrg,
+    loading: orgsLoading,
   }
 
   const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [wsDropdownOpen, setWsDropdownOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const userMenuMobileRef = useRef<HTMLDivElement>(null)
-  const wsRef = useRef<HTMLDivElement>(null)
-  const wsMobileRef = useRef<HTMLDivElement>(null)
 
   // Outside-click + Escape close the open menus.
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       const t = e.target as Node
       if (userMenuRef.current && !userMenuRef.current.contains(t) && userMenuMobileRef.current && !userMenuMobileRef.current.contains(t)) setUserMenuOpen(false)
-      if (wsRef.current && !wsRef.current.contains(t) && wsMobileRef.current && !wsMobileRef.current.contains(t)) setWsDropdownOpen(false)
     }
     function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { setUserMenuOpen(false); setWsDropdownOpen(false) }
+      if (e.key === 'Escape') setUserMenuOpen(false)
     }
     document.addEventListener('mousedown', handleClick)
     document.addEventListener('keydown', handleKey)
@@ -246,15 +264,9 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       {accountRows.map(item => (
         <AccountMenuRow key={item.href} item={item} active={isMenuActive(item)} rowClass={rowClass} onClick={onNavClick(item.href)} />
       ))}
-      {adminRows.length > 0 && (
-        <>
-          <div className="my-1 border-t border-line-soft" />
-          <div className="px-3 pb-0.5 pt-1 text-[12px] uppercase tracking-[0.12em] text-fg-3 font-semibold tracking-[0.06em]">Admin</div>
-          {adminRows.map(item => (
-            <AccountMenuRow key={item.href} item={item} active={isMenuActive(item)} rowClass={rowClass} onClick={onNavClick(item.href)} />
-          ))}
-        </>
-      )}
+      {adminRows.map(item => (
+        <AccountMenuRow key={item.href} item={item} active={isMenuActive(item)} rowClass={rowClass} onClick={onNavClick(item.href)} />
+      ))}
       <div className="my-1 border-t border-line-soft" />
       <button
         role="menuitem"
@@ -269,9 +281,17 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
   return (
     // overflow-x-hidden: platform-wide guarantee that no route can introduce a
     // horizontal scrollbar at 390px (the W8 mobile-clean shell constraint).
-    <div className="flex h-full flex-col overflow-x-hidden bg-surface-0">
+    // In page-scroll mode it is overflow-x-clip instead: same guarantee, but
+    // clip does not make this div a scroll container, so the document scrolls
+    // and the sticky top bars stick to the viewport.
+    <div
+      data-scroll-mode={pageScroll ? 'page' : 'container'}
+      className={pageScroll
+        ? 'flex min-h-full flex-col overflow-x-clip bg-surface-0'
+        : 'flex h-full flex-col overflow-x-hidden bg-surface-0'}
+    >
       {/* ── Desktop top bar ── */}
-      <header className="hidden items-center justify-between border-b border-line bg-surface-0 px-5 py-2 sm:flex">
+      <header className={`${pageScroll ? 'sticky top-0 z-30 ' : ''}hidden items-center justify-between border-b border-line bg-surface-0 px-5 py-2 sm:flex`}>
         {/* Left: brand + primary nav */}
         <nav aria-label="Primary" className="flex items-center gap-0.5">
           <a href="/" aria-label={`${brandName} home`} onClick={onNavClick('/')} className="mr-3 flex min-w-0 items-center rounded-md">
@@ -296,61 +316,26 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
           })}
         </nav>
 
-        {/* Center: ⌘K trigger + workspace dropdown */}
+        {/* Center: ⌘K "Jump to page" + the global org switcher (obj 900666).
+            "Jump to" goes to PAGES; finding a CARD is the board's "Search
+            cards" (/). Both labels say which is which. */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => setPaletteOpen(true)}
             className="inline-flex items-center gap-2 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-xs text-fg-2 outline-none transition-colors duration-fast ease-out hover:border-line-strong hover:text-fg-1 focus-visible:ring-2 focus-visible:ring-accent/60"
-            aria-label="Open command palette"
+            aria-label="Jump to a page (command palette)"
+            title="Jump to a page or setting. To find a card, use Search cards on the board (/)."
           >
             <NavIcon name="search" className="h-3.5 w-3.5" />
-            <span>Jump to…</span>
+            <span>Jump to page…</span>
             <span className="font-mono text-[12px] text-fg-3">⌘K</span>
           </button>
           {showWorkspace && !hideWorkspaceSelector && (
-            <div ref={wsRef} className="relative">
-              <button
-                onClick={() => setWsDropdownOpen(!wsDropdownOpen)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-xs text-fg-1 outline-none transition-colors duration-fast ease-out hover:border-line-strong focus-visible:ring-2 focus-visible:ring-accent/60"
-              >
-                <span className="font-medium text-accent">{selectionLabel}</span>
-                <NavIcon name="chevron" className="h-3 w-3 text-fg-3" />
-              </button>
-              {wsDropdownOpen && (
-                <div className="absolute left-1/2 top-full z-50 mt-1.5 w-52 -translate-x-1/2 rounded-md border border-line bg-surface-1 py-1 shadow-pop">
-                  <button
-                    onClick={selectAllWorkspaces}
-                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition-colors duration-fast ease-out ${
-                      isAllSelected ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
-                    }`}
-                  >
-                    <span>{labelOf('all')}</span>
-                    {isAllSelected && <Check className="h-3.5 w-3.5 text-accent" />}
-                  </button>
-                  <div className="my-1 border-t border-line-soft" />
-                  {wsOptions.map(ws => {
-                    const selected = selectedWorkspaces.includes(ws)
-                    return (
-                      <button
-                        key={ws}
-                        onClick={() => toggleWorkspace(ws)}
-                        aria-pressed={selected}
-                        className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition-colors duration-fast ease-out ${
-                          selected ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
-                        }`}
-                      >
-                        <span>{labelOf(ws)}</span>
-                        {selected && <Check className="h-3.5 w-3.5 text-accent" />}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+            <OrgSwitcher {...orgSwitcherProps} triggerClassName="text-xs" />
           )}
         </div>
 
-        {/* Right: notifications, theme, avatar menu (Settings, Archive, Admin → System / Agents) */}
+        {/* Right: notifications, theme, avatar menu (Settings, then System / Agents for admins) */}
         {user && (
           <div className="flex items-center gap-1">
             <AlertBell />
@@ -395,7 +380,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       </header>
 
       {/* ── Mobile top bar (minimal) ── */}
-      <header className="flex items-center justify-between border-b border-line bg-surface-0 px-3 py-2 sm:hidden"
+      <header className={`${pageScroll ? 'sticky top-0 z-30 ' : ''}flex items-center justify-between border-b border-line bg-surface-0 px-3 py-2 sm:hidden`}
         style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top))' }}
       >
         <a href="/" aria-label={`${brandName} home`} onClick={onNavClick('/')} className="flex min-w-0 items-center rounded-md">
@@ -403,45 +388,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
         </a>
 
         {showWorkspace && !hideWorkspaceSelector && (
-          <div ref={wsMobileRef} className="relative">
-            <button
-              onClick={() => setWsDropdownOpen(!wsDropdownOpen)}
-              className="inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-2.5 py-1 text-sm text-fg-1"
-            >
-              <span className="font-medium text-accent">{selectionLabel}</span>
-              <NavIcon name="chevron" className="h-3 w-3 text-fg-3" />
-            </button>
-            {wsDropdownOpen && (
-              <div className="absolute left-1/2 top-full z-50 mt-1 w-48 -translate-x-1/2 rounded-md border border-line bg-surface-1 py-1 shadow-pop">
-                <button
-                  onClick={selectAllWorkspaces}
-                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${
-                    isAllSelected ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
-                  }`}
-                >
-                  <span>{labelOf('all')}</span>
-                  {isAllSelected && <Check className="h-3.5 w-3.5 text-accent" />}
-                </button>
-                <div className="my-1 border-t border-line-soft" />
-                {wsOptions.map(ws => {
-                  const selected = selectedWorkspaces.includes(ws)
-                  return (
-                    <button
-                      key={ws}
-                      onClick={() => toggleWorkspace(ws)}
-                      aria-pressed={selected}
-                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${
-                        selected ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
-                      }`}
-                    >
-                      <span>{labelOf(ws)}</span>
-                      {selected && <Check className="h-3.5 w-3.5 text-accent" />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          <OrgSwitcher {...orgSwitcherProps} triggerClassName="text-xs py-1 max-w-[11rem]" />
         )}
 
         {user && (
@@ -484,7 +431,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange }: Lay
       </header>
 
       {/* ── Main content ── */}
-      <main className="flex-1 overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-0">{children}</main>
+      <main className={`flex-1 ${pageScroll ? '' : 'overflow-hidden '}pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-0`}>{children}</main>
 
       {/* ── Mobile bottom tab bar (≤4 tabs; the rest lives in the avatar menu) ── */}
       <nav

@@ -198,7 +198,8 @@ describe('Settings → Seats', () => {
     })
     await render()
     const card = container.querySelector('[data-testid="seat-seat-1"]') as HTMLElement
-    button('Reconnect', card)!.click()
+    // A pasted-token seat is offered the in-app sign-in by name (obj 720330).
+    button('Reconnect with Sign in with Claude', card)!.click()
     await flush()
     expect(apiMock.post).toHaveBeenCalledWith('/admin/seats/claude-oauth/start', { seatId: 'seat-1' })
     setValue(card.querySelector('#claude-code-seat-1') as HTMLInputElement, 'c#st8')
@@ -227,7 +228,7 @@ describe('Settings → Seats', () => {
     await flush()
     button('Add seat')!.click()
     await flush()
-    expect(apiMock.post).toHaveBeenCalledWith('/admin/seats', { kind: 'claude', credential: 'fake-setup-token-value', label: 'Seat 9' })
+    expect(apiMock.post).toHaveBeenCalledWith('/admin/seats', { kind: 'claude', credential: 'fake-setup-token-value', label: 'Seat 9', idempotencyKey: expect.any(String) })
     expect(container.innerHTML).not.toContain('fake-setup-token-value')
     expect(container.querySelector('#seat-claude-token')).toBeNull()
     expect(section('claude').textContent).toContain('Seat 9')

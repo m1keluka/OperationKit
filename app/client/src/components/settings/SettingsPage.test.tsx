@@ -53,20 +53,20 @@ describe('SettingsPage tabs', () => {
     })
   }
 
-  it('shows Models / API & MCP / Integrations / Secrets / Org / Agents & Skills / Branding / Email / Platform for a global admin', () => {
+  it('shows Models / API & MCP / Integrations / Secrets / Org / Branding / Email for a global admin — no Agents & Skills copy (obj 900684), no Platform (obj 900686)', () => {
     mount('/settings/api-mcp')
     const labels = Array.from(container.querySelectorAll('[role="tab"]')).map(t => t.textContent)
     expect(labels).toEqual([
-      'Models', 'API & MCP', 'Integrations', 'Secrets', 'Org', 'Agents & Skills', 'Branding', 'Email', 'Platform',
+      'Models', 'API & MCP', 'Integrations', 'Secrets', 'Org', 'Branding', 'Email',
     ])
     expect(container.textContent).toContain('api-mcp-pane')
   })
 
-  it('hides secrets/models/org/agents/branding/email/platform for a member: API & MCP and Integrations only', () => {
+  it('hides models/org/agents/branding/email/platform for a member: API & MCP, Integrations and Secrets (Mine) only', () => {
     auth.user = { id: 2, username: 'member', role: 'member', workspaces: [{ role: 'member' }] }
     mount('/settings/api-mcp')
     const labels = Array.from(container.querySelectorAll('[role="tab"]')).map(t => t.textContent)
-    expect(labels).toEqual(['API & MCP', 'Integrations'])
+    expect(labels).toEqual(['API & MCP', 'Integrations', 'Secrets'])
   })
 
   it('shows the running build commit from /api/health in the footer (obj 720210)', async () => {
@@ -86,11 +86,17 @@ describe('SettingsPage tabs', () => {
     expect(container.textContent).toContain('models-pane')
   })
 
-  it('keeps Secrets from a workspace admin who is not a global admin', () => {
+  it('keeps Secrets for a workspace admin who is not a global admin', () => {
     auth.user = { id: 3, username: 'wsadmin', role: 'member', workspaces: [{ role: 'admin' }] }
     mount('/settings/api-mcp')
     const labels = Array.from(container.querySelectorAll('[role="tab"]')).map(t => t.textContent)
     expect(labels).toEqual(['API & MCP', 'Integrations', 'Secrets'])
+  })
+
+  it('lets a plain member open /settings/secrets (their own secrets live there now, obj 900681)', () => {
+    auth.user = { id: 2, username: 'member', role: 'member', workspaces: [{ role: 'member' }] }
+    mount('/settings/secrets')
+    expect(container.textContent).toContain('secrets-pane')
   })
 
   it('redirects the old /settings/you bookmark to /settings/api-mcp', async () => {

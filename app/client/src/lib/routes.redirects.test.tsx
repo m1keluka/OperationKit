@@ -43,6 +43,7 @@ describe('legacy redirects (obj 900495)', () => {
     ['/costs', '/system'],
     ['/agent-templates', '/agents?tab=templates'],
     ['/settings/agents', '/agents?tab=registry'],
+    ['/settings/agents-skills', '/agents?tab=registry'],
     ['/settings/platform', '/jobs#host-cron'],
   ])('%s → %s', async (from, to) => {
     expect(await landOn(from)).toBe(to)

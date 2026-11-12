@@ -170,6 +170,8 @@ describe('serializeAgentYaml', () => {
       schedules: [{ name: 'Daily', cron: '0 8 * * 1-5', prompt: 'Do the thing.\nThen the other.' }],
       version: '2.0.0',
       author: 'Example Partners',
+      how_to_use: 'Ask me about: clients.\n\n- One bullet\n- Another # not a comment',
+      example_prompts: ['What changed this week?', 'Draft a "thank you" note: short'],
     }
     const text = serializeAgentYaml(def)
     const back = parseAgentFile(text, { filename: 'agents/round-trip/agent.yaml' })
@@ -178,6 +180,43 @@ describe('serializeAgentYaml', () => {
       expect(back.agent).toEqual(def)
       expect(back.warnings).toEqual([])
     }
+  })
+})
+
+describe('info-panel fields (obj 900672)', () => {
+  const base = '---\nname: Helper\nslug: helper\ndescription: Helps.\nversion: 1.0.0\nauthor: Me\n'
+
+  it('are optional: a file without them parses with no warnings and empty defaults', () => {
+    const r = parseAgentFile(base + '---\nDo things.\n', { filename: 'helper/agent.md' })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.agent.how_to_use).toBeNull()
+      expect(r.agent.example_prompts).toEqual([])
+      expect(r.warnings).toEqual([])
+    }
+  })
+
+  it('accepts how_to_use block text and an example_prompts list without "unknown field" warnings', () => {
+    const r = parseAgentFile(base + 'example_prompts:\n  - First ask\n  - Second ask\nhow_to_use: |\n  Line one.\n\n  - a bullet\n---\nDo things.\n', { filename: 'helper/agent.md' })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.agent.example_prompts).toEqual(['First ask', 'Second ask'])
+      expect(r.agent.how_to_use).toBe('Line one.\n\n- a bullet')
+      expect(r.warnings).toEqual([])
+    }
+  })
+
+  it('refuses too many or too long example prompts, and non-text how_to_use', () => {
+    const many = Array.from({ length: 9 }, (_, i) => `  - Ask ${i}`).join('\n')
+    const r1 = parseAgentFile(base + 'example_prompts:\n' + many + '\n---\nX\n', { filename: 'helper/agent.md' })
+    expect(r1.ok).toBe(false)
+    if (!r1.ok) expect(r1.errors.map(e => e.field)).toContain('example_prompts')
+    const r2 = parseAgentFile(base + 'example_prompts:\n  - ' + 'x'.repeat(301) + '\n---\nX\n', { filename: 'helper/agent.md' })
+    expect(r2.ok).toBe(false)
+    if (!r2.ok) expect(r2.errors.map(e => e.field)).toContain('example_prompts[0]')
+    const r3 = parseAgentFile(base + 'how_to_use:\n  - not text\n---\nX\n', { filename: 'helper/agent.md' })
+    expect(r3.ok).toBe(false)
+    if (!r3.ok) expect(r3.errors.map(e => e.field)).toContain('how_to_use')
   })
 })
 

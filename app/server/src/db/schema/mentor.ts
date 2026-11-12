@@ -4,6 +4,7 @@
  */
 import type Database from 'better-sqlite3'
 import { AGENTS_DIR, SECOND_BRAIN_DIR } from '../../config.js'
+import { resolveWorkspaceIn } from '../../services/workspaces.js'
 
 export function initMentorSchema(db: Database.Database): void {
   // Alerts — ingested from cron scripts and external monitors
@@ -156,7 +157,7 @@ export function initMentorSchema(db: Database.Database): void {
         const manualPath = promptFile.startsWith('/')
           ? promptFile
           : `${AGENTS_DIR}/${promptFile.endsWith('.md') ? promptFile : `${promptFile}.md`}`
-        const ownerWorkspace = process.env.ASSISTANT_OWNER_WORKSPACE || 'example'
+        const ownerWorkspace = resolveWorkspaceIn(db, process.env.ASSISTANT_OWNER_WORKSPACE)
         const existing = db
           .prepare('SELECT 1 FROM assistant_configs WHERE user_id = ? AND workspace = ?')
           .get(owner.id, ownerWorkspace)

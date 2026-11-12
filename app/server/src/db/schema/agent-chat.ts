@@ -83,6 +83,19 @@ export function initAgentChatSchema(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_chat_cards_user ON agent_chat_cards(user_id, agent_slug);
+
+    -- Per-bot settings edited on the bot's page (obj 900671): an admin's
+    -- override of the agent file's provider, model and tools. NULL = use the
+    -- file's value; deleting the row resets the bot to its file.
+    CREATE TABLE IF NOT EXISTS agent_chat_bot_config (
+      slug TEXT PRIMARY KEY,
+      provider TEXT,
+      model TEXT,
+      tools TEXT,
+      all_tools INTEGER NOT NULL DEFAULT 0,
+      updated_by TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `)
 
   // The side-thread column on the existing message table (obj 900370).

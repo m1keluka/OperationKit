@@ -23,6 +23,7 @@ const sentry = deferredConnector({
   ],
   auth_path: 'dcr_mcp',
   mcp_url: 'https://mcp.sentry.dev',
+  mcp_server_url: 'https://mcp.sentry.dev/mcp',
   deferred_reason:
     "Sentry's mcp.sentry.dev supports OAuth 2.1 DCR/CIMD with no pre-registration (verified #900505), but connecting through it needs the shared DCR client (Sprint 7.3), not yet built. The documented fallback (CLI login) is a local/stdio mode, not applicable to this remote connector.",
 })

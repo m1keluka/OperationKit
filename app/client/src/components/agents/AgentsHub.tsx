@@ -8,6 +8,11 @@
  * They are now tabs of /agents (`?tab=registry|board|templates`); the two old
  * URLs redirect here (App.tsx). The tab bodies are the same components, so no
  * behaviour moved — only where you find them.
+ *
+ * obj 900684 finished the job: Settings still carried its own "Agents & Skills"
+ * tab rendering the same registry, so there were two places to manage agents.
+ * That tab is gone (/settings/agents-skills redirects here) and this page is
+ * titled "Agents & Skills" in the nav and header — the one place.
  */
 import type { Workspace } from '@operationkit/shared'
 import { useSearchParams } from 'react-router-dom'
@@ -16,6 +21,7 @@ import { AgentsPage } from '../AgentsPage'
 import { AgentTemplatesPage } from '../AgentTemplatesPage'
 import { SettingsAgents } from '../settings/SettingsAgents'
 import { AGENTS_TABS, type AgentsTab } from '../../lib/routes'
+import { CreateAgentGuide } from './CreateAgentGuide'
 
 const TABS: TabItem[] = [
   { key: 'registry', label: 'Registry' },
@@ -24,7 +30,7 @@ const TABS: TabItem[] = [
 ]
 
 const COPY: Record<AgentsTab, string> = {
-  registry: 'Every agent and skill on this install, who can use them, and how they connect.',
+  registry: 'Every agent and skill on this install — including built-in and starter-pack agents — who can use them, and how they connect.',
   board: 'Which agent, skill and tool files a project’s sessions actually run on.',
   templates: 'Add a starter agent, or import and export agent files.',
 }
@@ -47,11 +53,13 @@ export function AgentsHub({ workspace }: { workspace: Workspace }) {
 
   return (
     <PageContainer width="wide">
-      <PageHeader title="Agents" description={COPY[tab]} />
+      <PageHeader title="Agents & Skills" description={COPY[tab]} />
+      {/* One clear way in to creating something, on every tab (obj 900672). */}
+      <CreateAgentGuide />
       <div className="mb-5">
         <Tabs items={TABS} value={tab} onChange={select} />
       </div>
-      {tab === 'registry' && <SettingsAgents />}
+      {tab === 'registry' && <SettingsAgents showSetupPrompt={false} />}
       {tab === 'board' && <AgentsPage workspace={workspace} embedded />}
       {tab === 'templates' && <AgentTemplatesPage embedded />}
     </PageContainer>

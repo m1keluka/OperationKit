@@ -122,6 +122,77 @@ export function buildJailCcForwarderPrefix(upstream: { host: string; port: numbe
   return `node -e '${js}' >/tmp/jail-cc-forwarder.log 2>&1 & `
 }
 
+/**
+ * obj 900402 — size of the jail's in-memory `/tmp` (tmpfs).
+ *
+ * The jail root is `--read-only`, so `/tmp` is the only writable scratch outside
+ * the two binds. It used to be hardcoded `size=256m`; Claude Code puts its own
+ * scratch at `/tmp/claude-<uid>`, and an AI review that clones a ~170 MB repo
+ * filled it ("/tmp/claude-1000 has 0 MB free", 2026-11-09). The OVH install was
+ * hotfixed with a docker shim that rewrote 256m → 2g on every spawn; this env
+ * knob (default 2g) replaces that shim.
+ *
+ * tmpfs pages only count against RAM/swap when actually written, so the cap is
+ * a ceiling, not a reservation. `SESSION_JAIL_TMP_SIZE` takes docker/tmpfs size
+ * syntax: a positive integer with an optional k/m/g suffix. Anything else
+ * throws — a typo must fail loudly, never silently mount something else.
+ */
+export const DEFAULT_JAIL_TMP_SIZE = '2g'
+const TMPFS_SIZE = /^[1-9][0-9]*[kmg]?$/
+
+function assertTmpSize(size: string): void {
+  if (!TMPFS_SIZE.test(size)) {
+    throw new Error(`SESSION_JAIL_TMP_SIZE must be a positive size like 512m or 2g, got ${JSON.stringify(size)}`)
+  }
+}
+
+export function resolveJailTmpSize(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = (env.SESSION_JAIL_TMP_SIZE || '').trim().toLowerCase()
+  if (!raw) return DEFAULT_JAIL_TMP_SIZE
+  assertTmpSize(raw)
+  return raw
+}
+
+/**
+ * obj 900402 — optional `CLAUDE_CODE_TMPDIR` inside the jail.
+ *
+ * Points Claude Code's scratch at the disk-backed per-session HOME instead of
+ * the RAM-backed `/tmp` tmpfs, so a big clone cannot exhaust it at all.
+ * `SESSION_JAIL_CLAUDE_TMPDIR`:
+ *   unset / `0` / `off` / `false`  → not set (Claude uses `/tmp`, sized above)
+ *   `1` / `on` / `true` / `home`   → `/home/jailuser/.claude-tmp`
+ *   an absolute path under `/home/jailuser/` → that path
+ * Anything else throws. The path is always inside the session's own HOME bind,
+ * so this never adds a mount.
+ */
+export const DEFAULT_JAIL_CLAUDE_TMPDIR = `${JAIL_HOME_PATH}/.claude-tmp`
+
+function assertClaudeTmpdir(dir: string): void {
+  if (!dir.startsWith(`${JAIL_HOME_PATH}/`) || !/^\/[A-Za-z0-9_./-]+$/.test(dir) || dir.split('/').includes('..')) {
+    throw new Error(`SESSION_JAIL_CLAUDE_TMPDIR must be on/off or a path under ${JAIL_HOME_PATH}/, got ${JSON.stringify(dir)}`)
+  }
+}
+
+export function resolveJailClaudeTmpdir(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = (env.SESSION_JAIL_CLAUDE_TMPDIR || '').trim()
+  const lc = raw.toLowerCase()
+  if (!raw || lc === '0' || lc === 'off' || lc === 'false') return ''
+  if (lc === '1' || lc === 'on' || lc === 'true' || lc === 'home') return DEFAULT_JAIL_CLAUDE_TMPDIR
+  const dir = raw.replace(/\/+$/, '')
+  assertClaudeTmpdir(dir)
+  return dir
+}
+
+/**
+ * Shell prefix (ends with `; `) that creates the Claude tmpdir as the jail user
+ * before anything else starts. '' when the feature is off.
+ */
+export function buildJailClaudeTmpdirPrefix(dir: string): string {
+  if (!dir) return ''
+  assertClaudeTmpdir(dir)
+  return `mkdir -p -m 700 ${dir}; `
+}
+
 /** Flags that would defeat the jail. Asserted against in the unit tests. */
 export const FORBIDDEN_RUN_FLAGS = [
   '--privileged',
@@ -191,6 +262,13 @@ export interface CreateJailOpts {
   seatMount?: { source: string; target: string }
   /** obj 900113: user-defined docker network to join. Absent = default bridge. */
   network?: string
+  /** obj 900402: tmpfs size for the jail's /tmp. Default DEFAULT_JAIL_TMP_SIZE (2g). */
+  tmpSize?: string
+  /**
+   * obj 900402: in-jail CLAUDE_CODE_TMPDIR (a path under the jail HOME). Absent /
+   * '' = not set. The caller must create the dir (buildJailClaudeTmpdirPrefix).
+   */
+  claudeTmpdir?: string
 }
 
 /** Ordered `[containerPrefix, hostPrefix]` pairs; first (longest) match wins. */
@@ -276,6 +354,8 @@ export function buildJailRunArgv(opts: CreateJailOpts): string[] {
     hostPathMap = [],
     seatMount,
     network,
+    tmpSize = DEFAULT_JAIL_TMP_SIZE,
+    claudeTmpdir,
   } = opts
   const name = jailName(objectiveId)
   assertJailId(sessionId)
@@ -286,6 +366,8 @@ export function buildJailRunArgv(opts: CreateJailOpts): string[] {
   if (user.split(':')[0] === '0' || user === 'root') {
     throw new Error('jail user must be non-root')
   }
+  assertTmpSize(tmpSize)
+  if (claudeTmpdir) assertClaudeTmpdir(claudeTmpdir)
 
   const argv = [
     'run',
@@ -298,7 +380,7 @@ export function buildJailRunArgv(opts: CreateJailOpts): string[] {
     '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges',
     '--read-only',
-    '--tmpfs', '/tmp:rw,nosuid,nodev,size=256m',
+    '--tmpfs', `/tmp:rw,nosuid,nodev,size=${tmpSize}`,
     '--mount', `type=bind,source=${toHostPath(worktreePath, hostPathMap)},target=${JAIL_WORKSPACE_PATH},bind-propagation=rprivate`,
     '--mount', `type=bind,source=${toHostPath(homePath, hostPathMap)},target=${JAIL_HOME_PATH},bind-propagation=rprivate`,
   ]
@@ -317,6 +399,8 @@ export function buildJailRunArgv(opts: CreateJailOpts): string[] {
     argv.push('--network', network)
   }
   if (envFilePath) argv.push('--env-file', envFilePath)
+  // After --env-file so it wins over any inherited value.
+  if (claudeTmpdir) argv.push('--env', `CLAUDE_CODE_TMPDIR=${claudeTmpdir}`)
   argv.push('-w', JAIL_WORKSPACE_PATH, image)
   if (command?.length) argv.push(...command)
   return argv
@@ -364,7 +448,12 @@ export function createSessionJailSync(
   runner: SyncDockerRunner = defaultSyncRunner,
 ): JailHandle {
   const image = opts.image || jailImage()
-  const argv = buildJailRunArgv({ ...opts, image, hostPathMap: opts.hostPathMap ?? resolveHostPathMap() })
+  const argv = buildJailRunArgv({
+    ...opts,
+    image,
+    hostPathMap: opts.hostPathMap ?? resolveHostPathMap(),
+    tmpSize: opts.tmpSize ?? resolveJailTmpSize(),
+  })
 
   if (opts.env && opts.envFilePath) {
     fs.mkdirSync(path.dirname(opts.envFilePath), { recursive: true })

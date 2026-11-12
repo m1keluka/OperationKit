@@ -3,41 +3,21 @@
  * settings reorg, obj 900496 — see docs/settings/SPRINT-4B-REORG.md).
  *
  * Per-user surface — renders for EVERY authenticated user (not admin-gated).
- * Cards: "API key" (the API — full access, acts as you), "Agent keys" (MCP —
- * scoped, per-bot access), "Agent webhooks", an API-docs + copy-paste
- * reference, an Integrations pointer card, and "My Secrets". GitHub and
- * Google Workspace moved to Settings → Integrations (obj 720115, renamed
- * from Connectors in obj 900496); a pointer card links there.
+ * Cards: "Connect a coding agent" (one copy-paste setup prompt, obj 900681),
+ * "API key" (the API — full access, acts as you), "Agent keys" (MCP —
+ * scoped, per-bot access), "Agent webhooks", and an API-docs reference.
+ *
+ * obj 900681 (Operator's Operation Kit Feedback, 7:21–7:44): this page is only
+ * about reaching the board from outside. The GitHub / Google Workspace pointer
+ * card is gone (those live in Settings → Integrations, the next tab over), and
+ * "My Secrets" moved to Settings → Secrets → Mine. See
+ * docs/settings/API-MCP-SECRETS-CLEANUP.md.
  */
-import { useNavigate } from '../context/nav'
 import { ApiKeySection } from './account-settings/ApiKeySection'
 import { AgentKeysSection } from './account-settings/AgentKeysSection'
 import { AgentWebhooksSection } from './account-settings/AgentWebhooksSection'
 import { ApiMcpDocs } from './account-settings/ApiMcpDocs'
-import { MySecretsSection } from './account-settings/MySecretsSection'
-
-function IntegrationsPointer() {
-  const navigate = useNavigate()
-  return (
-    <section className="mt-6 rounded-lg border border-line bg-surface-2 p-5">
-      <h2 className="text-base font-semibold text-fg-0">GitHub and Google Workspace</h2>
-      <p className="mt-1 text-xs text-fg-3">
-        Linking your GitHub and Google accounts now lives in Integrations, together with who can use them.
-      </p>
-      <a
-        href="/settings/integrations"
-        onClick={e => {
-          if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-          e.preventDefault()
-          navigate('/settings/integrations')
-        }}
-        className="mt-3 inline-flex min-h-[44px] items-center rounded-md border border-line bg-surface-1 px-4 text-[13px] font-medium text-fg-1 transition-colors duration-fast ease-out hover:border-line-strong hover:bg-surface-3 hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[36px]"
-      >
-        Open Integrations
-      </a>
-    </section>
-  )
-}
+import { CodingAgentSetup } from './account-settings/CodingAgentSetup'
 
 export function AccountSettings({ embedded = false }: { embedded?: boolean }) {
   const body = (
@@ -48,6 +28,8 @@ export function AccountSettings({ embedded = false }: { embedded?: boolean }) {
           <p className="mt-1 text-xs text-fg-3">Your personal settings.</p>
         </div>
         )}
+
+        <CodingAgentSetup />
 
         <p className="mb-4 max-w-prose text-[12.5px] leading-relaxed text-fg-2">
           Two ways to reach the board from outside the browser: <span className="text-fg-1">the API</span> (plain
@@ -70,10 +52,6 @@ export function AccountSettings({ embedded = false }: { embedded?: boolean }) {
         <AgentWebhooksSection />
 
         <ApiMcpDocs />
-
-        <IntegrationsPointer />
-
-        <MySecretsSection />
     </>
   )
 

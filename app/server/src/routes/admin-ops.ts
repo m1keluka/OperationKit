@@ -14,12 +14,11 @@ import type { AuthRequest } from '../middleware/auth.js'
 import { scheduleRestart } from '../services/restart-guard.js'
 import {
   AI_WORKSPACE_DIR,
-  AGENTS_DIR,
-  SKILLS_DIR,
   TRANSCRIPT_DIR,
 } from '../config.js'
-import { getAgent } from '../services/agent-registry.js'
+import { buildAgentRoster, buildSkillRoster } from '../services/agent-roster.js'
 import { readMemory, readDisk, readProcessCount, detectContainer } from '../services/host-stats.js'
+import { readCpuUsage } from '../services/cpu-sampler.js'
 
 const router = Router()
 
@@ -28,22 +27,12 @@ router.get('/system', async (_req: AuthRequest, res) => {
   const cpus = os.cpus()
   const uptime = os.uptime()
 
-  // CPU usage sampled over a short interval. os.cpus() reports CUMULATIVE times
-  // since boot, so (1 - idle/total) on a single read is the average utilisation
-  // *since boot* — on a long-lived box that reads near-idle (e.g. 13%) even when
-  // the machine is currently pegged, which hid real CPU pressure and made it look
-  // like we had headroom. Diff two snapshots ~500ms apart for CURRENT usage.
-  // Only `idle` is subtracted, so niced session work correctly counts as busy.
-  const snapshot = () => os.cpus().reduce((acc, c) => {
-    const total = Object.values(c.times).reduce((a, b) => a + b, 0)
-    return { idle: acc.idle + c.times.idle, total: acc.total + total }
-  }, { idle: 0, total: 0 })
-  const s1 = snapshot()
-  await new Promise(resolve => setTimeout(resolve, 500))
-  const s2 = snapshot()
-  const idleDelta = s2.idle - s1.idle
-  const totalDelta = s2.total - s1.total
-  const cpuUsage = totalDelta > 0 ? (1 - idleDelta / totalDelta) * 100 : 0
+  // Host-wide CPU (every core, every container) as CURRENT usage — never the
+  // since-boot average a single os.cpus() read gives. A one-off 500ms snapshot
+  // swung 17%→59% within a minute on the OVH host and read as "maxed out"; the
+  // sampler reports a ~10s average plus the minute's avg/peak and a
+  // sessions/kernel/other split. See services/cpu-sampler.ts (obj 900685).
+  const cpu = await readCpuUsage()
 
   // Memory (MemAvailable), disk (statfs with df's math) and process count
   // (/proc) are read from the kernel with no shell. See services/host-stats.ts
@@ -59,7 +48,11 @@ router.get('/system', async (_req: AuthRequest, res) => {
     cpu: {
       cores: cpus.length,
       model: cpus[0]?.model || 'unknown',
-      usagePercent: Math.round(cpuUsage * 10) / 10,
+      usagePercent: cpu.usagePercent,
+      avg1mPercent: cpu.avg1mPercent,
+      peak1mPercent: cpu.peak1mPercent,
+      breakdown: cpu.breakdown,
+      windowSeconds: cpu.windowSeconds,
       loadAvg: loadAvg.map(l => Math.round(l * 100) / 100),
     },
     memory,
@@ -101,65 +94,13 @@ router.post('/restart', (_req: AuthRequest, res) => {
   res.json({ ok: true, message: 'Restarting in 1 second...' }) // Container auto-restarts
 })
 
-// List agents and skills
+// List agents and skills — the one roster (obj 900684). Every source of agents
+// the app knows about (persona files, chat/built-in agents such as Knowledge
+// Base Setup, registry rows with no file, starter-pack agents not switched on)
+// plus top-level skills AND sub-skills. See services/agent-roster.ts.
 router.get('/agents', (_req: AuthRequest, res) => {
   try {
-    // Read agent files
-    const agentFiles = fs.readdirSync(AGENTS_DIR).filter(f => f.endsWith('.md'))
-    const agents = agentFiles.map(filename => {
-      const stat = fs.statSync(path.join(AGENTS_DIR, filename))
-      const slug = filename.replace('.md', '')
-      // Persona intent classification. A persona present on disk but absent from
-      // the registry is shown as routing-only + non-assignable so nothing is
-      // silently mislabeled (e.g. an unregistered new persona file).
-      const meta = getAgent(slug)
-      return {
-        name: slug.replace(/-/g, ' '),
-        filename,
-        slug,
-        size: stat.size,
-        modifiedAt: stat.mtime.toISOString(),
-        assignable: meta ? meta.assignable : false,
-        kind: meta ? meta.kind : 'routing-only',
-        label: meta ? meta.label : slug,
-      }
-    })
-
-    // Read skill directories
-    const skillDirs = fs.readdirSync(SKILLS_DIR).filter(d => {
-      try { return fs.statSync(path.join(SKILLS_DIR, d)).isDirectory() } catch { return false }
-    })
-    const skills = skillDirs.map(dirname => {
-      const skillFile = path.join(SKILLS_DIR, dirname, 'SKILL.md')
-      let description = ''
-      let size = 0
-      try {
-        const stat = fs.statSync(skillFile)
-        size = stat.size
-        const content = fs.readFileSync(skillFile, 'utf-8')
-        // Parse YAML frontmatter description
-        const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/)
-        if (fmMatch) {
-          const descMatch = fmMatch[1].match(/description:\s*(.+)/)
-          if (descMatch) description = descMatch[1].trim()
-        }
-      } catch {}
-      // Count sub-files
-      let fileCount = 0
-      try {
-        const walk = (dir: string) => {
-          for (const entry of fs.readdirSync(dir)) {
-            const full = path.join(dir, entry)
-            if (fs.statSync(full).isDirectory()) walk(full)
-            else fileCount++
-          }
-        }
-        walk(path.join(SKILLS_DIR, dirname))
-      } catch {}
-      return { name: dirname, description, dirname, size, fileCount }
-    })
-
-    res.json({ agents, skills })
+    res.json({ agents: buildAgentRoster(), skills: buildSkillRoster() })
   } catch (err) {
     res.status(500).json({ error: 'Failed to read workspace' })
   }

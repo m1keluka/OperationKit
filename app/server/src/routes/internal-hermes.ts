@@ -19,9 +19,11 @@ import {
   sendFollowUp,
   getSessionOutput,
   reopenObjective,
+  stopPlannerSession,
   BranchLeaseConflictError,
   SessionLeaseConflictError,
 } from '../services/session-manager.js'
+import { workingStartAction, marksPriorSessionFailed } from '../lib/working-start.js'
 import { recordReopenFalsePass } from '../services/false-pass.js'
 import { logObjectiveAudit, checkHumanTerminalReactivation } from '../services/objective-audit.js'
 import { releaseBranchLeasesForObjective } from '../services/branch-lease.js'
@@ -383,22 +385,26 @@ router.patch('/objectives/:id/status', async (req, res) => {
   }
 
   try {
-    const startsFromReviewLike =
-      existing.status === 'queue' ||
-      existing.status === 'review' ||
-      existing.status === 'ai_review'
+    // obj 900652: ONE classifier for every `→ working` move (lib/working-start.ts),
+    // shared with the public PATCH route. `planning` and `cancelled` used to fall
+    // through to the bare `else`: status flipped, no session spawned.
+    const startAction = status === 'working' ? workingStartAction(existing.status) : null
     if (status === 'working' && isLockedStatus(existing.status)) {
       res.json({ status: existing.status, skipped: true, reason: 'locked_status' })
       return
     }
-    if (status === 'working' && existing.status === 'done') {
+    if (startAction === 'unhandled') {
+      res.status(400).json({ error: `No session start is defined from '${existing.status}'` })
+      return
+    }
+    if (startAction === 'reopen') {
       // Re-Open: resume the most recent thread in place instead of starting over.
       // ST2: pass-gated reopen ⇒ false pass; record it before the state changes.
-      recordReopenFalsePass(existing)
+      if (existing.status === 'done') recordReopenFalsePass(existing)
       noteStartReason(existing.id, typeof req.body?.reason === 'string' && req.body.reason ? String(req.body.reason).slice(0, 40) : 'agent', typeof req.body?.actor === 'string' ? String(req.body.actor).slice(0, 80) : 'internal-api', 'reopen')
       const sessionId = await reopenObjective(existing)
       db.prepare("UPDATE objectives SET status = ?, session_id = ?, updated_at = datetime('now') WHERE id = ?").run(status, sessionId, req.params.id)
-    } else if (status === 'working' && startsFromReviewLike) {
+    } else if (startAction === 'fresh_start') {
       // Human-terminal guard (obj 700415, FIX B). This localhost-only, unauthed
       // endpoint is the PRIMARY machine revive of a parked objective (deliverable
       // A pathway #4) AND the target of the queue-drain callback (index.ts, #5).
@@ -412,12 +418,17 @@ router.patch('/objectives/:id/status', async (req, res) => {
         res.json({ status: existing.status, skipped: true, reason: 'terminal_by_human' })
         return
       }
-      if (existing.status !== 'queue' && existing.session_id) {
+      if (marksPriorSessionFailed(existing.status) && existing.session_id) {
         db.prepare("UPDATE session_intel SET outcome = 'failed' WHERE session_id = ? AND outcome IS NULL").run(existing.session_id)
       }
       noteStartReason(existing.id, typeof req.body?.reason === 'string' && req.body.reason ? String(req.body.reason).slice(0, 40) : 'agent', typeof req.body?.actor === 'string' ? String(req.body.actor).slice(0, 80) : 'internal-api', null)
       const sessionId = await startSession(existing)
-      db.prepare("UPDATE objectives SET status = ?, session_id = ?, updated_at = datetime('now') WHERE id = ?").run(status, sessionId, req.params.id)
+      db.prepare("UPDATE objectives SET status = ?, session_id = ?, planning_session_id = NULL, updated_at = datetime('now') WHERE id = ?").run(status, sessionId, req.params.id)
+      // Starting straight from planning skips /planning/approve, which normally
+      // tears the planner sub-session down — do it here instead.
+      if (existing.status === 'planning' && existing.planning_session_id) {
+        await stopPlannerSession(existing.planning_session_id).catch(() => {})
+      }
     } else if (status === 'done') {
       // GUARD (single chokepoint): this endpoint is unauthenticated (localhost-only)
       // and ANY agent session can call it. A human-tracked objective (top-level,
@@ -805,8 +816,10 @@ router.post('/objectives/:id/job-disposition', (req, res) => {
     res.status(404).json({ error: 'Objective not found' })
     return
   }
-  if (objective.routine_id == null) {
-    res.status(400).json({ error: 'Objective is not a job (no routine_id); disposition does not apply' })
+  // obj 900645 (B9): a workflow `agent` node's child card (origin 'workflow') records
+  // its disposition the same way; the flow engine resumes on it (services/flow-agent.ts).
+  if (objective.routine_id == null && objective.origin !== 'workflow') {
+    res.status(400).json({ error: 'Objective is not a job (no routine_id) or a workflow card; disposition does not apply' })
     return
   }
 

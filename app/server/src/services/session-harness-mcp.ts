@@ -12,12 +12,17 @@
  */
 import fs from 'fs'
 import path from 'path'
+import type { WorkspaceMcpSpawnServer } from './workspace-mcp-servers.js'
+import { workspaceServersToToml } from './workspace-mcp-config.js'
 
 interface McpServerDef {
   command?: string
   url?: string
   args?: string[]
   env?: Record<string, string>
+  // Remote servers (obj 900620) may also carry `type` and `headers`; header
+  // values are ${VAR} templates Codex/Grok would not expand, so they are not
+  // rendered here — workspace servers are rendered from their descriptor.
 }
 
 interface McpConfigJson {
@@ -57,10 +62,22 @@ function serverToToml(name: string, def: McpServerDef): string {
   return lines.join('\n')
 }
 
-function mcpJsonToToml(mcpServers: Record<string, McpServerDef>): string {
-  return Object.entries(mcpServers)
+function mcpJsonToToml(mcpServers: Record<string, McpServerDef>, workspaceServers: WorkspaceMcpSpawnServer[] = []): string {
+  // The Claude JSON already holds workspace servers merged in by
+  // writeWorkspaceMcpConfig (url + ${VAR} headers). Render those from their
+  // descriptor instead, so Codex/Grok get env-var NAMES for auth. A platform
+  // server with the same key (different url) always wins and is kept as-is.
+  const ours = new Set(
+    workspaceServers
+      .filter(w => !Object.prototype.hasOwnProperty.call(mcpServers, w.key) || mcpServers[w.key]?.url === w.url)
+      .map(w => w.key),
+  )
+  const base = Object.entries(mcpServers)
+    .filter(([name]) => !ours.has(name))
     .map(([name, def]) => serverToToml(name, def))
-    .join('\n\n')
+  const extra = workspaceServers.filter(w => ours.has(w.key))
+  if (extra.length > 0) base.push(workspaceServersToToml(extra))
+  return base.filter(Boolean).join('\n\n')
 }
 
 /**
@@ -72,11 +89,12 @@ function mcpJsonToToml(mcpServers: Record<string, McpServerDef>): string {
 export function writeGrokMcpConfig(
   workdir: string,
   mcpConfigPath: string | undefined,
+  workspaceServers: WorkspaceMcpSpawnServer[] = [],
 ): string | undefined {
-  if (!mcpConfigPath) return undefined
-  const parsed = parseMcpJson(mcpConfigPath)
-  if (!parsed || Object.keys(parsed.mcpServers).length === 0) return undefined
-  const toml = mcpJsonToToml(parsed.mcpServers)
+  const parsed = mcpConfigPath ? parseMcpJson(mcpConfigPath) : null
+  const servers = parsed?.mcpServers ?? {}
+  if (Object.keys(servers).length === 0 && workspaceServers.length === 0) return undefined
+  const toml = mcpJsonToToml(servers, workspaceServers)
   const grokDir = path.join(workdir, '.grok')
   try {
     fs.mkdirSync(grokDir, { recursive: true })
@@ -99,11 +117,12 @@ export function writeCodexMcpProfile(
   codexHomeDir: string,
   profileName: string,
   mcpConfigPath: string | undefined,
+  workspaceServers: WorkspaceMcpSpawnServer[] = [],
 ): string | undefined {
-  if (!mcpConfigPath) return undefined
-  const parsed = parseMcpJson(mcpConfigPath)
-  if (!parsed || Object.keys(parsed.mcpServers).length === 0) return undefined
-  const toml = mcpJsonToToml(parsed.mcpServers)
+  const parsed = mcpConfigPath ? parseMcpJson(mcpConfigPath) : null
+  const servers = parsed?.mcpServers ?? {}
+  if (Object.keys(servers).length === 0 && workspaceServers.length === 0) return undefined
+  const toml = mcpJsonToToml(servers, workspaceServers)
   const profilePath = path.join(codexHomeDir, `${profileName}.config.toml`)
   try {
     fs.mkdirSync(codexHomeDir, { recursive: true })

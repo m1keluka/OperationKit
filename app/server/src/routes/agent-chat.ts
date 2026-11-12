@@ -2,6 +2,7 @@ import { Router, type Response } from 'express'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import {
   ChatBusyError,
+  ChatUnavailableError,
   clearChat,
   findAgent,
   installDefaultProvider,
@@ -14,8 +15,12 @@ import {
   type ChatMessageRow,
 } from '../services/agent-chat/engine.js'
 import { CHAT_PROVIDERS, type ChatAgent } from '../services/agent-chat/agent-defs.js'
-import { availableProviders, chooseProviderId, DEFAULT_MODELS } from '../services/agent-chat/providers.js'
-import { chatCards } from '../services/agent-chat/tools.js'
+import { availableProviders, chooseProviderId, DEFAULT_MODELS, resolveModel } from '../services/agent-chat/providers.js'
+import { effectiveTools, visibleCardStatuses } from '../services/agent-chat/tools.js'
+import { TOOL_CATALOG } from '../services/agent-chat/tool-names.js'
+import { webSearchStatus } from '../services/agent-chat/web-tools.js'
+import { BotConfigError, clearBotConfig, hasAllTools, setBotConfig } from '../services/agent-chat/bot-config.js'
+import { listEnabledModels } from '../services/model-registry.js'
 import {
   getDraft,
   listDrafts,
@@ -55,6 +60,8 @@ import {
  *   POST   /drafts/:id/send            the person's Send / Add to calendar click
  *   POST   /drafts/:id/discard
  *   PUT    /settings                   admin: demo on/off, install default provider
+ *   PUT    /agents/:slug/config        admin: this bot's default model / provider / tools / all tools (obj 900671)
+ *   DELETE /agents/:slug/config        admin: reset the bot to exactly what its agent file says
  *
  * Every chat is strictly per person: a caller only ever reads or writes their
  * own messages and drafts. Sending a draft needs a signed-in browser session —
@@ -84,14 +91,53 @@ function publicAgent(a: ChatAgent, withPrompt = false) {
     provider: a.provider,
     version: a.version,
     author: a.author,
+    how_to_use: a.how_to_use,
+    example_prompts: a.example_prompts,
     source: a.source,
+    // obj 900671: what the bot can actually call, and where each setting comes from.
+    all_tools: hasAllTools(a),
+    effective_tools: effectiveTools(a),
+    file_defaults: a.file_defaults ?? { provider: a.provider, model: a.model, tools: a.tools },
+    config: a.config
+      ? { provider: a.config.provider, model: a.config.model, tools: a.config.tools, all_tools: a.config.all_tools, updated_by: a.config.updated_by, updated_at: a.config.updated_at }
+      : null,
     ...(withPrompt ? { system_prompt: a.system_prompt, schedules: a.schedules } : {}),
   }
 }
 
 function providerFor(a: ChatAgent) {
   const id = chooseProviderId(a, installDefaultProvider())
-  return { id, model: a.model || DEFAULT_MODELS[id] || null }
+  return { id, model: resolveModel(id, a) || null }
+}
+
+/**
+ * Model ids the bot page offers per provider (obj 900671). Suggestions only:
+ * the field is free text, because a provider ships models faster than this
+ * list. Claude ids come from the install's own model registry (Settings →
+ * Models), so a model switched off there is not suggested here.
+ */
+function modelSuggestions(): Record<string, string[]> {
+  let registry: { id: string; engine: string }[] = []
+  try { registry = listEnabledModels() } catch { /* no registry table → defaults only */ }
+  const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))]
+  const claude = uniq([...registry.filter(m => m.engine === 'claude').map(m => m.id), DEFAULT_MODELS.claude])
+  return {
+    claude,
+    anthropic: claude,
+    openai: uniq([DEFAULT_MODELS.openai]),
+    xai: uniq([...registry.filter(m => m.engine === 'grok').map(m => m.id), DEFAULT_MODELS.xai]),
+    'openai-compatible': [],
+    demo: [DEFAULT_MODELS.demo],
+  }
+}
+
+/** Only a signed-in admin may change what a bot runs on — never an API key (a bot must not grant itself tools). */
+function adminSessionOr403(req: AuthRequest, res: Response): boolean {
+  if (req.user?.role !== 'admin' || req.authVia !== 'session') {
+    res.status(403).json({ error: 'Only an admin signed in to Command Center can change a bot\'s model or tools.' })
+    return false
+  }
+  return true
 }
 
 /** Drafts + card statuses referenced by these messages, so the UI can render them. */
@@ -99,7 +145,7 @@ function attachments(userId: number, slug: string, messages: ChatMessageRow[]) {
   const draftIds = new Set(messages.map(m => m.meta?.draft_id).filter((x): x is number => typeof x === 'number'))
   const cardIds = [...new Set(messages.map(m => m.meta?.objective_id).filter((x): x is number => typeof x === 'number'))]
   const drafts = listDrafts(userId, slug).filter(d => draftIds.has(d.id))
-  const cards = cardIds.length ? chatCards(userId, slug, cardIds) : []
+  const cards = visibleCardStatuses(userId, cardIds)
   return { drafts, cards }
 }
 
@@ -139,8 +185,39 @@ router.get('/agents', (req: AuthRequest, res) => {
     demo: isDemoOn(),
     providers: availableProviders(),
     default_provider: installDefaultProvider(),
+    // obj 900671: the bot page's tool picker, model field and web-search status.
+    tool_catalog: TOOL_CATALOG,
+    model_suggestions: modelSuggestions(),
+    default_models: DEFAULT_MODELS,
+    web: webSearchStatus(),
     ...(req.user?.role === 'admin' ? { problems } : {}),
   })
+})
+
+router.put('/agents/:slug/config', (req: AuthRequest, res) => {
+  if (!adminSessionOr403(req, res)) return
+  const a = agentOr404(req, res)
+  if (!a) return
+  try {
+    setBotConfig(a.slug, (req.body ?? {}) as Record<string, unknown>, req.user!.username)
+  } catch (err) {
+    if (err instanceof BotConfigError) {
+      res.status(err.status).json({ error: err.message })
+      return
+    }
+    throw err
+  }
+  const updated = findAgent(a.slug)!
+  res.json({ agent: { ...publicAgent(updated, true), answered_by: providerFor(updated) } })
+})
+
+router.delete('/agents/:slug/config', (req: AuthRequest, res) => {
+  if (!adminSessionOr403(req, res)) return
+  const a = agentOr404(req, res)
+  if (!a) return
+  clearBotConfig(a.slug)
+  const updated = findAgent(a.slug)!
+  res.json({ agent: { ...publicAgent(updated, true), answered_by: providerFor(updated) } })
 })
 
 router.get('/agents/:slug', (req: AuthRequest, res) => {
@@ -258,6 +335,13 @@ router.post('/agents/:slug/messages', async (req: AuthRequest, res) => {
   } catch (err) {
     if (err instanceof ChatBusyError) {
       res.status(409).json({ error: err.message })
+      return
+    }
+    if (err instanceof ChatUnavailableError) {
+      // No seat could answer (obj 900624): a real error status the UI shows as
+      // "message not sent", not a 200 with an error row in the transcript.
+      res.setHeader('Retry-After', '30')
+      res.status(err.status).json({ error: err.message, code: 'ai_unavailable', reason: err.reason, messages: err.messages })
       return
     }
     console.error('[agent-chat] turn failed:', err instanceof Error ? err.message : err)

@@ -1,3 +1,4 @@
+import { resolveWriteWorkspace } from './workspaces.js'
 import { getDb, resolveStrategyId } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
 import { getDefaultModelId } from './model-registry.js'
@@ -16,9 +17,13 @@ import {
 import {
   classifyAiFireResult,
   reconcileAiRunOutcomes,
+  reconcileFlowRunOutcomes,
   recordRoutineFailure,
   recordRoutineSuccess,
 } from './routine-auto-pause.js'
+import { startFlowRunForRoutine } from './flow-routines.js'
+import { beginRoutineRun, finishScriptRun, settleRoutineRun } from './routine-runs.js'
+import { flowsEnabled } from './flow-engine.js'
 import { findOpenDuplicate, recordDedupe, isDuplicateGuardEnabled } from '../lib/objective-dedupe.js'
 import { internalApiHeaders } from '../lib/internal-api-headers.js'
 
@@ -72,6 +77,10 @@ export interface RoutineRow {
   auto_paused_at?: string | null
   auto_pause_reason?: string | null
   last_accounted_objective_id?: number | null
+  // obj 900640 (B4) — kind 'flow': the routine carries a published workflow's
+  // cron; a fire queues a flow run (services/flow-routines.ts), not a card.
+  flow_id?: number | null
+  last_accounted_flow_run_id?: number | null
 }
 
 // ── Minimal 5-field cron matcher ──────────────────────────────────────────
@@ -319,6 +328,8 @@ export interface FireResult {
   ok: boolean
   reason?: string
   objective_id?: number
+  /** kind='flow' only: the queued flow run. */
+  flow_run_id?: number
 }
 
 /**
@@ -560,10 +571,10 @@ async function fireAiRoutine(
   // queue-depth guard above owns those. 'run-now' (explicit) and script escalations
   // are not guarded. last_run_at is already stamped, so a refusal skips this slot.
   if (source !== 'run-now' && !escalation && isDuplicateGuardEnabled(db)) {
-    const dup = findOpenDuplicate(db, { title, workspace: str('workspace') || 'example', excludeRoutineId: routine.id, excludeParentId: parentId })
+    const dup = findOpenDuplicate(db, { title, workspace: resolveWriteWorkspace(str('workspace')), excludeRoutineId: routine.id, excludeParentId: parentId })
     if (dup) {
       const reason = `duplicate guard: open card #${dup.id} ("${dup.title}", ${dup.status}) has the same title`
-      recordDedupe({ event: 'duplicate_refused', source: `routine-scheduler:${routine.id}`, title, workspace: str('workspace') || 'example', existingId: dup.id, project: str('project') })
+      recordDedupe({ event: 'duplicate_refused', source: `routine-scheduler:${routine.id}`, title, workspace: resolveWriteWorkspace(str('workspace')), existingId: dup.id, project: str('project') })
       lastSkipReason.set(routine.id, reason)
       return { ok: false, reason }
     }
@@ -579,7 +590,7 @@ async function fireAiRoutine(
     title,
     (str('description') || '') + (escalation?.descriptionSuffix ?? ''),
     str('agent_context') || 'general',
-    str('workspace') || 'example',
+    resolveWriteWorkspace(str('workspace')),
     str('project'),
     str('category') || 'general',
     str('completion_goal'),
@@ -626,6 +637,52 @@ export function isScriptRoutine(routine: Pick<RoutineRow, 'kind'>): boolean {
   return routine.kind === 'script'
 }
 
+export function isFlowRoutine(routine: Pick<RoutineRow, 'kind'>): boolean {
+  return routine.kind === 'flow'
+}
+
+/**
+ * obj 900640 (B4) — fire a `kind='flow'` routine: queue one run of its published
+ * workflow (the flow engine's tick executes it). Same over-fire guard and
+ * last_run_at stamp as the other kinds; the run's terminal outcome feeds the
+ * auto-pause streak via reconcileFlowRunOutcomes, and a fire that could not even
+ * queue a run (flow missing, invalid published version …) counts as a failure.
+ * Benign refusals (kill switch off, flow inactive, a run still in flight) are
+ * neutral, exactly like the AI routine guards.
+ */
+async function fireFlowRoutine(routine: RoutineRow, source: 'cron' | 'run-now'): Promise<FireResult> {
+  const db = getDb()
+  try {
+    await reconcileFlowRunOutcomes(routine.id)
+  } catch (err) {
+    console.warn(`[routines] '${routine.name}' flow outcome reconcile failed:`, err instanceof Error ? err.message : err)
+  }
+  if (source !== 'run-now') {
+    const fresh = db.prepare('SELECT last_run_at, enabled FROM routines WHERE id = ?').get(routine.id) as
+      | { last_run_at: string | null; enabled: number }
+      | undefined
+    // The reconcile above may have just auto-paused it: a scheduled fire stops here.
+    if (fresh && !fresh.enabled) return { ok: false, reason: 'flow inactive: routine is paused' }
+    const reason = overFireGuardReason(routine.cron_expr, fresh?.last_run_at ?? routine.last_run_at)
+    if (reason) {
+      lastSkipReason.set(routine.id, reason)
+      return { ok: false, reason }
+    }
+  }
+  const res = startFlowRunForRoutine(db, routine, source)
+  if (res.ok) {
+    db.prepare('UPDATE routines SET last_run_at = ? WHERE id = ?').run(new Date().toISOString(), routine.id)
+    console.log(`[routines] flow '${routine.name}' fired (${source}) → flow run ${res.flow_run_id} queued`)
+    return { ok: true, flow_run_id: res.flow_run_id }
+  }
+  if (classifyAiFireResult(res) === 'failure') {
+    // Stamp the slot so a broken flow is retried on its cadence, not every tick.
+    db.prepare('UPDATE routines SET last_run_at = ? WHERE id = ?').run(new Date().toISOString(), routine.id)
+    await recordRoutineFailure(routine.id, res.reason ?? 'flow run not started')
+  }
+  return { ok: false, reason: res.reason }
+}
+
 export interface FireOptions {
   /**
    * Script routines only: start the script and return immediately instead of
@@ -645,7 +702,11 @@ export interface ScriptRunResult extends FireResult {
  * count toward the auto-pause streak. On `ok` no card is created and no model
  * is called. Never throws.
  */
-async function runScriptRoutine(routine: RoutineRow, source: 'cron' | 'run-now'): Promise<ScriptRunResult> {
+async function runScriptRoutine(
+  routine: RoutineRow,
+  source: 'cron' | 'run-now',
+  historyRunId: number | null = null,
+): Promise<ScriptRunResult> {
   const db = getDb()
   const command = (routine.script_command ?? '').trim()
   const timeoutSec =
@@ -695,10 +756,20 @@ async function runScriptRoutine(routine: RoutineRow, source: 'cron' | 'run-now')
     if (!fire.ok) console.warn(`[routines] script '${routine.name}' escalation skipped: ${fire.reason}`)
   }
 
+  const reason = [outcome.reason, escalationNote].filter(Boolean).join('; ')
+  // obj 900676 — this run's history row: outcome, exit code and the captured output.
+  finishScriptRun(db, historyRunId, {
+    status: outcome.status,
+    reason,
+    exit_code: exec.exitCode,
+    output: exec.output || '',
+    duration_ms: exec.durationMs,
+    objective_id: objectiveId ?? null,
+  })
+
   if (outcome.isFailure) await recordRoutineFailure(routine.id, outcome.reason)
   else recordRoutineSuccess(routine.id)
 
-  const reason = [outcome.reason, escalationNote].filter(Boolean).join('; ')
   return {
     ok: !outcome.isFailure,
     reason,
@@ -719,6 +790,33 @@ export async function fireRoutine(
   source: 'cron' | 'run-now',
   opts: FireOptions = {},
 ): Promise<FireResult> {
+  // obj 900676 — every fire leaves a routine_runs row (Jobs → Executions), including
+  // a fire a guard refused. A script run closes its own row when the script exits
+  // (it may still be running in the background when this returns).
+  const db = getDb()
+  const historyRunId = beginRoutineRun(db, routine, source)
+  try {
+    const res = await fireRoutineUnrecorded(routine, source, opts, historyRunId)
+    if (historyRunId == null || !scriptOwnedRuns.has(historyRunId)) settleRoutineRun(db, historyRunId, res)
+    return res
+  } catch (err) {
+    settleRoutineRun(db, historyRunId, { ok: false, reason: `fire crashed: ${err instanceof Error ? err.message : String(err)}` })
+    throw err
+  } finally {
+    if (historyRunId != null) scriptOwnedRuns.delete(historyRunId)
+  }
+}
+
+/** History rows a script run has taken over: it closes them itself, with its output. */
+const scriptOwnedRuns = new Set<number>()
+
+async function fireRoutineUnrecorded(
+  routine: RoutineRow,
+  source: 'cron' | 'run-now',
+  opts: FireOptions,
+  historyRunId: number | null,
+): Promise<FireResult> {
+  if (isFlowRoutine(routine)) return fireFlowRoutine(routine, source)
   if (!isScriptRoutine(routine)) {
     // Count any already-finished runs first so the streak is current.
     try {
@@ -751,10 +849,13 @@ export async function fireRoutine(
   // Stamp before the (possibly long) run so the double-fire / over-fire guards hold.
   db.prepare('UPDATE routines SET last_run_at = ? WHERE id = ?').run(new Date().toISOString(), routine.id)
 
-  const run = runScriptRoutine(routine, source)
+  if (historyRunId != null) scriptOwnedRuns.add(historyRunId)
+  const run = runScriptRoutine(routine, source, historyRunId)
     .catch((err): ScriptRunResult => {
       console.error(`[routines] script '${routine.name}' run crashed:`, err)
-      return { ok: false, reason: `script run crashed: ${err instanceof Error ? err.message : String(err)}` }
+      const crashed = { ok: false, reason: `script run crashed: ${err instanceof Error ? err.message : String(err)}` }
+      settleRoutineRun(db, historyRunId, crashed)
+      return crashed
     })
     .finally(() => runningScripts.delete(routine.id))
 
@@ -796,7 +897,11 @@ function recordTickHeartbeat(now: Date): void {
 async function alertOnStalledRoutines(now: Date): Promise<void> {
   const db = getDb()
   const routines = db.prepare('SELECT * FROM routines WHERE enabled = 1').all() as RoutineRow[]
+  // A flow routine is dark by design while the workflows kill switch is off
+  // (obj 900640): it is refused every slot, which is not a stall worth paging on.
+  const flowsOn = flowsEnabled(db)
   for (const routine of routines) {
+    if (isFlowRoutine(routine) && !flowsOn) continue
     const health = computeRoutineHealth(routine, now)
     if (!health.overdue) continue
     const reason = health.last_skip_reason ? ` Last skip: ${health.last_skip_reason}.` : ''
@@ -809,13 +914,12 @@ async function alertOnStalledRoutines(now: Date): Promise<void> {
         `Expected fire at ${health.expected_last_fire}; last actual run ${health.last_run_at ?? 'never'}.${reason} ` +
         `Check the board for a stranded card filling its queue slot, or the scheduler logs.`,
       dedup_key: `routine-overdue-${routine.id}`,
-      url: '/jobs',
+      url: '/jobs?view=runs',
     })
   }
 }
 
-async function tick(): Promise<void> {
-  const now = new Date()
+async function tick(now: Date = new Date()): Promise<void> {
   const db = getDb()
   recordTickHeartbeat(now)
 
@@ -835,6 +939,19 @@ async function tick(): Promise<void> {
       await reconcileAiRunOutcomes(r.id)
     } catch (err) {
       console.warn(`[routines] '${r.name}' outcome reconcile failed:`, err instanceof Error ? err.message : err)
+    }
+  }
+
+  // obj 900640 (B4) — same for flow routines: count finished flow runs first.
+  const enabledFlows = db.prepare("SELECT id, name FROM routines WHERE enabled = 1 AND kind = 'flow'").all() as {
+    id: number
+    name: string
+  }[]
+  for (const r of enabledFlows) {
+    try {
+      await reconcileFlowRunOutcomes(r.id)
+    } catch (err) {
+      console.warn(`[routines] '${r.name}' flow outcome reconcile failed:`, err instanceof Error ? err.message : err)
     }
   }
 
@@ -870,6 +987,11 @@ async function tick(): Promise<void> {
   } catch (err) {
     console.error('[routines] stall-alert sweep failed:', err)
   }
+}
+
+/** One scheduler pass at `now` (tests drive the real tick through this). */
+export function runRoutineTickForTests(now: Date = new Date()): Promise<void> {
+  return tick(now)
 }
 
 export function startRoutineScheduler(): void {

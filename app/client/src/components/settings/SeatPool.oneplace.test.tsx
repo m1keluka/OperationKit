@@ -129,7 +129,7 @@ describe('SeatPool (shared by Settings → Seats and the Dashboard)', () => {
     })
     button('Add Codex seat')!.click()
     await flush()
-    expect(apiMock.post).toHaveBeenCalledWith('/admin/seats', { kind: 'codex' })
+    expect(apiMock.post).toHaveBeenCalledWith('/admin/seats', { kind: 'codex', idempotencyKey: expect.any(String) })
     expect(apiMock.post.mock.calls.some(c => c[0] === '/admin/seats/s4/login/start')).toBe(true)
     expect(section('codex').textContent).toContain('ABCD-1234')
   })
@@ -141,7 +141,7 @@ describe('SeatPool (shared by Settings → Seats and the Dashboard)', () => {
     apiMock.post.mockImplementation((url: string) => {
       if (url === '/admin/seats/claude-oauth/start') return Promise.resolve(LINK)
       if (url === '/admin/seats/claude-oauth/finish') {
-        return Promise.resolve({ ok: true, outcome: 'healthy', seat: seat({ id: 's1', label: 'Operator@ biz', credential: { kind: 'setup_token', last4: 'zz99', addedAt: null, expiresAt: null, expiry: null, usable: true, needsClaudeSignIn: false } }) })
+        return Promise.resolve({ ok: true, outcome: 'healthy', seat: seat({ id: 's1', label: 'Operator@ biz', credential: { kind: 'setup_token', source: 'oauth', last4: 'zz99', addedAt: null, expiresAt: null, expiry: null, usable: true, needsClaudeSignIn: false } }) })
       }
       return Promise.reject(new Error(`unexpected ${url}`))
     })

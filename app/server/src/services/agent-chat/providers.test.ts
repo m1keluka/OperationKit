@@ -5,7 +5,7 @@ import type { ToolSpec } from './tools.js'
 
 const agent: ChatAgent = {
   slug: 'pa', name: 'PA', description: '', avatar: 'P', colour: 'green', system_prompt: 'Be helpful.',
-  knowledge_folders: [], tools: ['search'], model: null, provider: null, schedules: [], version: null, author: null, source: 'file', file: 'x',
+  knowledge_folders: [], tools: ['search'], model: null, provider: null, schedules: [], version: null, author: null, how_to_use: '', example_prompts: [], source: 'file', file: 'x',
 }
 const tools: ToolSpec[] = [{ type: 'function', function: { name: 'search', description: 'Search', parameters: { type: 'object', properties: { q: { type: 'string' } } } } }]
 const none = { hasPoolAccount: () => false }

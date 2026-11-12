@@ -3,7 +3,9 @@
  *
  * Purely presentational: links to the live API contract instead of forking a
  * stale copy of it, plus an MCP config snippet and a REST curl example an
- * agent (or the person pasting into one) can copy straight in. Does not
+ * agent (or the person pasting into one) can copy straight in. The
+ * "have your agent set this up" prompt moved to CodingAgentSetup.tsx at the
+ * top of the page (obj 900681). Does not
  * change any key scope, default, or permission.
  */
 import { useMemo } from 'react'
@@ -41,11 +43,6 @@ export function ApiMcpDocs() {
   )
 
   const curlExample = `curl -s ${origin}/api/agent/attention \\\n  -H "Authorization: Bearer cc_live_…"`
-
-  const setupPrompt =
-    `Add this MCP server (${origin}) to your config (the token is one of my agent keys from ` +
-    `Settings → API & MCP → Agent keys, not pasted here):\n\n${mcpConfig}\n\n` +
-    `Set CC_AGENT_KEY in your environment to the key value, then call the "whoami" tool to confirm it connected.`
 
   return (
     <Card inset className="mt-6" aria-labelledby="api-mcp-docs-heading">
@@ -97,18 +94,6 @@ export function ApiMcpDocs() {
             cards that need a decision (<code className="font-mono">board:read</code>).
           </p>
           <Snippet code={curlExample} />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-[13px] font-semibold text-fg-0">“Have your agent set this up” prompt</h3>
-            <CopyButton value={setupPrompt} label="Copy prompt" />
-          </div>
-          <p className="text-[12px] text-fg-3">
-            Paste this into Claude / Grok / whatever agent you're setting up — it hands the agent the MCP config and
-            tells it how to verify the connection, without you touching JSON by hand.
-          </p>
-          <Snippet code={setupPrompt} />
         </div>
       </CardBody>
     </Card>

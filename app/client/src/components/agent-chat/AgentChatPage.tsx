@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
 import { useFileDrop, filesFromClipboard } from '../../hooks/useFileDrop'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { Alert, Button, EmptyState, IconButton, Skeleton, SkeletonText, cn, useConfirm } from '../ui'
 import { ThinkingIndicator } from '../design/primitives'
 import { AgentAvatar, AssistantBubble, CardChip, DraftCard, ErrorLine, ToolLine, UserBubble } from './ChatItems'
+import { AgentInfoPanel } from './AgentInfoPanel'
 import { collectImages, humanSize, toWireImages, type PendingImage } from './attachments'
+import { BotSettingsPanel } from './BotSettingsPanel'
 import {
   ACCEPTED_IMAGE_TYPES,
   COLOUR_CLASSES,
@@ -46,7 +49,9 @@ import {
 
 const OPEN_CARD = new Set(['planning', 'queue', 'working', 'ai_review'])
 
-function suggestionsFor(a: ChatAgentInfo): string[] {
+export function suggestionsFor(a: ChatAgentInfo): string[] {
+  // A bot file that lists its own example prompts (obj 900672) knows best.
+  if (a.example_prompts?.length) return a.example_prompts
   const has = (t: string) => a.tools.includes(t)
   // The demo knows its made-up people; a real agent gets generic openers.
   if (a.source === 'demo') {
@@ -182,10 +187,36 @@ function LaneStrip({
 
 // ── one lane of one bot: the main conversation, or one side thread ──
 
-function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => void }) {
+function Conversation({
+  agent,
+  onBack,
+  initialText = '',
+  meta,
+  isAdmin = false,
+  onAgentChanged,
+}: {
+  agent: ChatAgentInfo
+  onBack: () => void
+  initialText?: string
+  /** The bot list's install-wide data: tool catalog, model suggestions, web status (obj 900671). */
+  meta?: AgentsResponse
+  isAdmin?: boolean
+  onAgentChanged?: (a: ChatAgentInfo) => void
+}) {
   const [thread, setThread] = useState<ThreadResponse | null>(null)
+  // obj 900671: the bot's settings panel (model, provider, tools) on its own page.
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  // The "i" panel (obj 900672): how to use this bot + example prompts.
+  const [infoOpen, setInfoOpen] = useState(false)
+  // A deep link (/chat/<slug>?prompt=…) pre-fills the box once; it never sends.
+  // Captured at mount and applied by a mount-only effect declared AFTER the
+  // reset effect below, so it survives StrictMode's double effect run and a
+  // later lane switch still starts with an empty box.
+  const prefill = useRef(initialText)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [text, setText] = useState('')
+  // The long placeholder wrapped and was clipped in the one-line box at phone width (QA obj 900621).
+  const narrow = useMediaQuery('(max-width: 639px)')
   const [images, setImages] = useState<PendingImage[]>([])
   const [pending, setPending] = useState<{ text: string; images: PendingImage[] } | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
@@ -236,6 +267,10 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
     setSendError(null)
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (prefill.current) setText(prefill.current)
+  }, [])
 
   const openLane = async () => {
     setLaneBusy(true)
@@ -438,6 +473,29 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
             </Button>
           </>
         )}
+        {meta?.tool_catalog && (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={settingsOpen}
+            aria-label={`${settingsOpen ? 'Hide' : 'Show'} settings for ${agent.name} (model and tools)`}
+            onClick={() => setSettingsOpen(o => !o)}
+            className="min-h-[44px] sm:min-h-0"
+          >
+            Settings
+          </Button>
+        )}
+        <IconButton
+          label={infoOpen ? `Hide how to use ${agent.name}` : `How to use ${agent.name}: info and example prompts`}
+          aria-expanded={infoOpen}
+          aria-controls="agent-info-panel"
+          onClick={() => setInfoOpen(o => !o)}
+          className={cn(infoOpen && 'bg-surface-3 text-fg-0')}
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+          </svg>
+        </IconButton>
         <Button
           variant="ghost"
           size="sm"
@@ -453,6 +511,30 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
           {activeThread ? 'Clear side thread' : 'Clear conversation'}
         </Button>
       </header>
+
+      {settingsOpen && meta?.tool_catalog && (
+        <BotSettingsPanel
+          agent={agent}
+          meta={meta}
+          isAdmin={isAdmin}
+          onSaved={a => onAgentChanged?.(a)}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {infoOpen && (
+        <AgentInfoPanel
+          id="agent-info-panel"
+          agent={agent}
+          prompts={suggestionsFor(agent)}
+          onClose={() => setInfoOpen(false)}
+          onUsePrompt={p => {
+            setText(p)
+            setInfoOpen(false)
+            input.current?.focus()
+          }}
+        />
+      )}
 
       <LaneStrip threads={threads} lane={lane} maxOpen={maxOpen} busy={laneBusy} onPick={setLane} onOpen={() => void openLane()} />
 
@@ -490,6 +572,15 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
                   </button>
                 ))}
               </div>
+              {!activeThread && (
+                <button
+                  type="button"
+                  onClick={() => setInfoOpen(true)}
+                  className="text-[12.5px] text-accent-hover underline-offset-2 hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                >
+                  How to use {agent.name}
+                </button>
+              )}
               {agent.source === 'demo' && <p className="text-[12px] text-fg-2">Demo bot: the inbox, calendar and notes are made-up sample data.</p>}
             </div>
           )}
@@ -584,7 +675,7 @@ function Conversation({ agent, onBack }: { agent: ChatAgentInfo; onBack: () => v
               onChange={e => setText(e.target.value)}
               onKeyDown={onKey}
               onPaste={onPaste}
-              placeholder={activeThread ? `Write a message in "${activeThread.title}"` : 'Write a message, or paste a screenshot'}
+              placeholder={narrow ? 'Write a message…' : activeThread ? `Write a message in "${activeThread.title}"` : 'Write a message, or paste a screenshot'}
               disabled={!!pending}
               className="max-h-40 min-h-[44px] flex-1 resize-none rounded-lg border border-line bg-surface-0 px-3.5 py-2.5 text-[16px] text-fg-0 placeholder:text-fg-3 transition-colors duration-fast hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60 sm:text-[14px]"
             />
@@ -640,6 +731,21 @@ function MessageRow({
 export function AgentChatPage() {
   const { slug } = useParams<{ slug?: string }>()
   const navigate = useNavigate()
+  // ?prompt= pre-fills the message box (obj 900672) — e.g. the Agents page's
+  // "Ask the Dev bot" links. Read once, then dropped from the URL
+  // so a reload does not put it back.
+  const [params, setParams] = useSearchParams()
+  const pendingPrompt = useRef<{ slug: string; text: string } | null>(null)
+  const promptParam = params.get('prompt')
+  if (promptParam && slug) pendingPrompt.current = { slug, text: promptParam.slice(0, 2000) }
+  useEffect(() => {
+    if (!params.has('prompt')) return
+    setParams(p => {
+      const next = new URLSearchParams(p)
+      next.delete('prompt')
+      return next
+    }, { replace: true })
+  }, [params, setParams])
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const [data, setData] = useState<AgentsResponse | null>(null)
@@ -670,6 +776,11 @@ export function AgentChatPage() {
   }
 
   const active = data?.agents.find(a => a.slug === slug) ?? null
+  // The conversation read the prompt when it mounted; forget it so coming back
+  // to this bot later does not type it in again.
+  useEffect(() => {
+    if (active && pendingPrompt.current?.slug === active.slug) pendingPrompt.current = null
+  }, [active])
   const pick = (s: string) => navigate(`/chat/${s}`)
 
   if (error && !data) {
@@ -709,7 +820,17 @@ export function AgentChatPage() {
       </aside>
       <main className={cn('h-full min-w-0 flex-1', active ? 'block' : 'hidden md:block')}>
         {active ? (
-          <Conversation key={active.slug} agent={active} onBack={() => navigate('/chat')} />
+          <Conversation
+            key={active.slug}
+            agent={active}
+            onBack={() => navigate('/chat')}
+            initialText={pendingPrompt.current?.slug === active.slug ? pendingPrompt.current.text : ''}
+            meta={data}
+            isAdmin={isAdmin}
+            onAgentChanged={a =>
+              setData(d => (d ? { ...d, agents: d.agents.map(x => (x.slug === a.slug ? { ...x, ...a } : x)) } : d))
+            }
+          />
         ) : (
           <div className="flex h-full items-center justify-center px-6">
             <EmptyState

@@ -16,6 +16,7 @@
  *   POST /api/kb-wiki/lint/run?workspace=              run the cleanup now
  *   PUT  /api/kb-wiki/lint/settings                    admin only
  *   POST /api/kb-wiki/rebuild?workspace=               admin only, body {confirm: true}
+ *   GET  /api/kb-wiki/graph?workspace=&limit=           every page + every connection (workspace graph view, obj 900674)
  *   GET  /api/kb-wiki/graph/related?workspace=&page=&depth=   pages connected to one page (link graph, obj 720162)
  *   GET  /api/kb-wiki/graph/who-knows?workspace=&topic=      people linked to a topic, best-sourced first
  *
@@ -38,7 +39,7 @@ import { getWorkspace, getWorkspaceSlugs } from '../services/workspaces.js'
 import { workspaceKbRoot } from '../services/doc-ingest/kb-paths.js'
 import { ingestEnabled, startDrain } from '../services/doc-ingest/service.js'
 import { generatedPagePath, onWikiCompiled, readPage, scanWiki } from '../services/kb-wiki/wiki.js'
-import { MAX_RELATED_DEPTH, kbRelated, kbWhoKnows, syncGraph } from '../services/kb-wiki/graph.js'
+import { MAX_RELATED_DEPTH, MAX_WORKSPACE_GRAPH_NODES, kbRelated, kbWhoKnows, kbWorkspaceGraph, syncGraph } from '../services/kb-wiki/graph.js'
 import { fileAnswer } from '../services/kb-wiki/answers.js'
 import { LINT_LAST, type LintReport } from '../services/kb-wiki/lint.js'
 import { runLintForWorkspace, startWikiLintScheduler } from '../services/kb-wiki/scheduler.js'
@@ -141,6 +142,17 @@ function intArg(v: unknown, dflt: number, min: number, max: number): number {
   const n = Number(v)
   return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.floor(n))) : dflt
 }
+
+router.get('/graph', (req: AuthRequest, res) => {
+  const ws = resolveWorkspace(req, res); if (!ws) return
+  try {
+    const db = getDb()
+    const root = workspaceKbRoot(ws)
+    syncGraph(db, ws, root)
+    // root: the folder the page paths are relative to, so the Knowledge base page can open one in its editor.
+    res.json({ root, ...kbWorkspaceGraph(db, ws, { limit: intArg(req.query.limit, MAX_WORKSPACE_GRAPH_NODES, 1, MAX_WORKSPACE_GRAPH_NODES) }) })
+  } catch (err) { fail(res, err, 500) }
+})
 
 router.get('/graph/related', (req: AuthRequest, res) => {
   const ws = resolveWorkspace(req, res); if (!ws) return

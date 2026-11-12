@@ -5,11 +5,18 @@ import { useMemo, useState, type ClipboardEvent, type Dispatch, type RefObject, 
 import { KeyRound, Paperclip } from 'lucide-react'
 import { Badge, Button } from '../ui'
 import { filesFromClipboard, useFileDrop } from '../../hooks/useFileDrop'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { detectSecrets, redactValue, type SecretCandidate } from '../../lib/secretDetect'
-import { AddSecretModal } from './AddSecretModal'
+import { SecretForm } from './ChatSecretRequest'
 import { formatFileSize, type UploadedFile } from './types'
 
-/** obj 719065: in-chat secret affordances. Omitted → no "+ Add secret", no paste prompt. */
+/**
+ * obj 719065 → 900670: the composer's only secret affordance is the paste
+ * guard (a key typed/pasted into the message is offered to the store instead).
+ * The "+ Add secret" button and its modal are gone: agents ask for a secret and
+ * the masked form appears in the chat (ChatSecretRequest.tsx). Omitted → no
+ * paste prompt.
+ */
 export interface ComposerSecrets {
   objectiveId: number
   workspace: string
@@ -55,8 +62,11 @@ export function Composer({
   secrets?: ComposerSecrets
 }) {
   const canAttach = !inputDisabled && !uploading
+  // At phone width the attach / secret / Stop / Send controls leave the textarea
+  // ~140px, so the long placeholder wrapped onto three lines (QA obj 900621).
+  const narrow = useMediaQuery('(max-width: 639px)')
   const { isDragging, dropProps } = useFileDrop(handleUpload, canAttach)
-  const [secretModal, setSecretModal] = useState<{ candidate?: SecretCandidate } | null>(null)
+  const [secretForm, setSecretForm] = useState<SecretCandidate | null>(null)
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
   const [savedNote, setSavedNote] = useState<string | null>(null)
   const pendingKey = secrets?.pendingNames.join(',') ?? ''
@@ -67,10 +77,10 @@ export function Composer({
   const candidate = candidates[0]
 
   function onSecretSaved(name: string) {
-    const value = secretModal?.candidate?.value
+    const value = secretForm?.value
     if (value) setMessage(m => redactValue(m, value, name))
-    setSecretModal(null)
-    setSavedNote(`${name} saved. The session was told it is available.`)
+    setSecretForm(null)
+    setSavedNote(`${name} saved. The value is hidden for good; the session was told the name.`)
   }
 
   function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>) {
@@ -101,7 +111,7 @@ export function Composer({
           </div>
         )}
         {/* obj 719065 — a pasted key: offer to save it instead of sending it */}
-        {candidate && !secretModal && (
+        {candidate && !secretForm && (
           <div role="alert" className="cc-pop-in mb-2 flex flex-col gap-2 rounded-md border border-status-human/30 bg-status-human/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-2 text-[12.5px] text-fg-1">
               <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-human" aria-hidden />
@@ -111,8 +121,27 @@ export function Composer({
             </div>
             <div className="flex shrink-0 gap-1.5">
               <Button size="sm" variant="ghost" className="min-h-[44px] sm:min-h-0" onClick={() => setDismissed(d => new Set(d).add(candidate.value))}>Keep as text</Button>
-              <Button size="sm" variant="primary" className="min-h-[44px] sm:min-h-0" onClick={() => setSecretModal({ candidate })}>Save as secret</Button>
+              <Button size="sm" variant="primary" className="min-h-[44px] sm:min-h-0" onClick={() => setSecretForm(candidate)}>Save as secret</Button>
             </div>
+          </div>
+        )}
+        {/* obj 900670 — same masked form the agent's request uses, inline. */}
+        {secrets && secretForm && (
+          <div className="cc-pop-in mb-2 space-y-2 rounded-md border border-status-human/30 bg-status-human/5 px-3 py-2.5">
+            <div className="flex items-center gap-2 text-[12.5px] text-fg-1">
+              <KeyRound className="h-3.5 w-3.5 shrink-0 text-status-human" aria-hidden />
+              <span>Save as a secret — your message keeps a [REDACTED] marker in its place.</span>
+            </div>
+            <SecretForm
+              objectiveId={secrets.objectiveId}
+              workspace={secrets.workspace}
+              initialName={secretForm.suggestedName ?? ''}
+              initialValue={secretForm.value}
+              mode="add"
+              idPrefix={`composer-secret-${secrets.objectiveId}`}
+              onSaved={onSecretSaved}
+              onCancel={() => setSecretForm(null)}
+            />
           </div>
         )}
         {savedNote && (
@@ -153,18 +182,6 @@ export function Composer({
           >
             <Paperclip className={`h-4 w-4 ${uploading ? 'animate-pulse' : ''}`} />
           </button>
-          {secrets && (
-            <button
-              type="button"
-              onClick={() => setSecretModal({})}
-              className="flex h-11 min-w-[44px] shrink-0 items-center justify-center gap-1 rounded-md px-2 text-[12.5px] font-medium text-fg-2 transition-[background-color,color,transform] duration-base hover:bg-surface-3 hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 active:scale-95 sm:h-9"
-              title="Add a secret — saved encrypted, never shown in chat"
-              aria-label="Add secret"
-            >
-              <KeyRound className="h-4 w-4" aria-hidden />
-              <span className="hidden whitespace-nowrap sm:inline">+ Add secret</span>
-            </button>
-          )}
           <textarea
             ref={messageRef}
             value={message}
@@ -179,13 +196,15 @@ export function Composer({
             placeholder={
               isDragging
                 ? 'Drop files to attach…'
-                : isActive
-                  ? 'Send follow-up message...'
-                  : 'Send follow-up to start new session...'
+                : narrow
+                  ? 'Message…'
+                  : isActive
+                    ? 'Send follow-up message…'
+                    : 'Send follow-up to start new session…'
             }
             disabled={inputDisabled}
             rows={1}
-            className="flex-1 resize-none bg-transparent py-1.5 font-mono text-base text-fg-0 placeholder-fg-3 focus:outline-none disabled:opacity-50 sm:text-sm"
+            className="min-w-0 flex-1 resize-none bg-transparent py-1.5 font-sans text-base text-fg-0 placeholder-fg-3 focus:outline-none disabled:opacity-50 sm:text-sm"
           />
           <div className="flex shrink-0 items-center gap-1.5">
             {isActive && (
@@ -210,17 +229,6 @@ export function Composer({
           </div>
         </div>
       </div>
-      {secrets && secretModal && (
-        <AddSecretModal
-          objectiveId={secrets.objectiveId}
-          workspace={secrets.workspace}
-          initialName={secretModal.candidate?.suggestedName ?? ''}
-          initialValue={secretModal.candidate?.value ?? ''}
-          fromPaste={!!secretModal.candidate}
-          onClose={() => setSecretModal(null)}
-          onSaved={onSecretSaved}
-        />
-      )}
     </div>
   )
 }

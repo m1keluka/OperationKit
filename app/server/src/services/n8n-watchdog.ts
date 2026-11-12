@@ -150,11 +150,12 @@ function attemptRestart(n8n: ContainerState, n8nDb: ContainerState): { success: 
   }
 }
 
-function fireAlert(severity: 'high' | 'normal', title: string, message: string, dedupKey: string): void {
+function fireAlert(severity: 'high' | 'normal', title: string, message: string, dedupKey: string, extra: { kind?: string; resolves?: string } = {}): void {
   try {
     const alert = insertAlert({
       severity,
       source: 'n8n-watchdog',
+      ...extra,
       title,
       message,
       dedup_key: dedupKey,
@@ -231,6 +232,7 @@ async function runCheck(): Promise<void> {
       'n8n recovered',
       `n8n is back up (n8n=${n8n.status}/${n8n.health}, n8n-db=${n8nDb.status}/${n8nDb.health}).`,
       'n8n-watchdog-up',
+      { kind: 'recovered', resolves: 'n8n-watchdog-down' },
     )
   }
 }

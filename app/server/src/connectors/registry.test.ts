@@ -69,7 +69,6 @@ describe('connector registry', () => {
       calendly: 'api_key',
       'cal-com': 'api_key',
       docuseal: 'api_key',
-      n8n: 'api_key',
       supabase: 'api_key',
       // Sprint 7.5-verified: own auth server supports DCR/CIMD, but the shared
       // DCR client (Sprint 7.3) is out of scope for this card — see

@@ -57,6 +57,9 @@
   --surface-2: var(--ok-paper);
   --surface-3: color-mix(in srgb, var(--ok-shell) 78%, var(--ok-putty));
   --surface-4: color-mix(in srgb, var(--ok-shell) 45%, var(--ok-putty));
+  /* Recessed well inside a Paper card (path chips, cost box). surface-1 is Paper
+     in light, the same as the card, so those wells vanished (QA obj 900621). */
+  --surface-inset: var(--ok-shell);
   /* selected rows / nav items: an accent wash on Paper (11%) plus the 3px
      accent bar on the row. 16% read as a lavender pill (QA r2 #1), 7% was
      too faint to spot the selection (QA r3 #4). Derived from the install
@@ -147,6 +150,7 @@
   color-scheme: dark;
   --surface-0: var(--ok-ink);
   --surface-1: var(--ok-ink-800);
+  --surface-inset: var(--ok-ink-800);
   /* cards one step clearer of the Ink ground than raw Ink-700 (QA r1 #6) */
   --surface-2: color-mix(in srgb, var(--ok-ink-700) 70%, var(--ok-ink-600));
   --surface-3: color-mix(in srgb, var(--ok-ink-700) 35%, var(--ok-ink-600));
@@ -210,7 +214,7 @@
 @media (prefers-color-scheme: dark) {
   :root[data-theme="auto"] {
     color-scheme: dark;
-    --surface-0: var(--ok-ink); --surface-1: var(--ok-ink-800); --surface-2: color-mix(in srgb, var(--ok-ink-700) 70%, var(--ok-ink-600));
+    --surface-0: var(--ok-ink); --surface-1: var(--ok-ink-800); --surface-inset: var(--ok-ink-800); --surface-2: color-mix(in srgb, var(--ok-ink-700) 70%, var(--ok-ink-600));
     --surface-3: color-mix(in srgb, var(--ok-ink-700) 35%, var(--ok-ink-600)); --surface-4: var(--ok-ink-600); --surface-lane: color-mix(in srgb, var(--ok-ink) 50%, var(--ok-ink-800));
     --surface-selected: color-mix(in srgb, var(--accent-text) 24%, var(--ok-ink-800));
     --fg-0: var(--ok-shell); --fg-1: color-mix(in srgb, var(--ok-shell) 35%, var(--ok-ink-300)); --fg-2: color-mix(in srgb, var(--ok-ink-300) 75%, var(--ok-shell)); --fg-3: color-mix(in srgb, var(--ok-ink-300) 75%, var(--ok-shell));

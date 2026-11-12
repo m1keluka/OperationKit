@@ -6,3 +6,26 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 Contributions are accepted under the Contributor License Agreements in the
 CLA/ directory (see CONTRIBUTING.md). Contributors keep the copyright in their
 own contributions.
+
+Third-party material
+--------------------
+
+app/server/src/__fixtures__/open-workflow/v1.0.3/workflow.yaml is the Open
+Workflow (Serverless Workflow) DSL JSON Schema, tag v1.0.3, from
+https://github.com/open-workflow-specification/specification, licensed under
+the Apache License, Version 2.0 (copy in the same directory). It is used by
+tests only.
+
+The read-only workflow viewer (app/client/src/components/jobs/FlowCanvas.tsx,
+app/client/src/lib/flow-graph.ts) bundles the following npm packages into the
+built client. Each is licensed under the MIT License; the full licence text
+ships inside each package under node_modules/<package>/LICENSE.
+
+  @xyflow/react, @xyflow/system   Copyright (c) 2019-2025 webkid GmbH
+                                  https://github.com/xyflow/xyflow
+  @dagrejs/dagre, @dagrejs/graphlib
+                                  Copyright (c) 2012-2014 Chris Pettitt
+                                  https://github.com/dagrejs (the dagre layout
+                                  library, published under the @dagrejs scope)
+  zustand                         Copyright (c) 2019 Paul Henschel
+  classcat                        Copyright (c) Jorge Bucaran

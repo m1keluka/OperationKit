@@ -586,8 +586,16 @@ export function rollbackSecret(
  * Settings → Secrets) but never resolved into a spawn env or the broker.
  */
 export const SERVER_ONLY_SECRET_PREFIX = 'CC_AGENT_WEBHOOK_KEY_'
+/**
+ * obj 900620: credentials of a workspace MCP server (access/refresh token, API
+ * key, DCR client secret). The server hands a session only the ONE access token
+ * its workspace's MCP config references (services/workspace-mcp-servers.ts) —
+ * never the refresh token or client secret — so the bulk resolvers and the
+ * broker must not hand these out by name either.
+ */
+export const MCP_SERVER_SECRET_PREFIX = 'CC_MCP_SERVER_'
 export function isServerOnlySecretKey(key: string): boolean {
-  return key.startsWith(SERVER_ONLY_SECRET_PREFIX)
+  return key.startsWith(SERVER_ONLY_SECRET_PREFIX) || key.startsWith(MCP_SERVER_SECRET_PREFIX)
 }
 
 export interface ResolveOptions {

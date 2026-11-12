@@ -436,3 +436,70 @@ export function kbWhoKnows(db: Database.Database, workspace: string, topic: stri
     b.sources - a.sources || (b.latest ?? '').localeCompare(a.latest ?? '') || b.links.length - a.links.length || a.title.localeCompare(b.title))
   return { topic, matched: matched.map(n => g.ref(n.rel)), people: people.slice(0, limit) }
 }
+
+// ── Whole-workspace graph (obj 900674) ───────────────────────────────────────
+
+/** One page in the workspace graph. `degree` = how many other pages it links with. */
+export interface WorkspaceGraphNode extends NodeRef { degree: number }
+
+/**
+ * One line in the workspace graph: every kb_edges row between the same two
+ * pages folded together (either direction), so the drawing shows one line per
+ * pair. `kinds` lists how they connect; `label` is the first relation label.
+ */
+export interface WorkspaceGraphLink { a: string; b: string; kinds: EdgeKind[]; label: string | null; weight: number }
+
+export interface WorkspaceGraphResult {
+  nodes: WorkspaceGraphNode[]
+  links: WorkspaceGraphLink[]
+  counts: { pages: number; links: number; isolated: number; by_kind: Record<string, number> }
+  /** True when the page count was over `limit` and the least-connected pages were left out. */
+  truncated: boolean
+}
+
+export const MAX_WORKSPACE_GRAPH_NODES = 2000
+
+/**
+ * The whole knowledge base as one graph — every page and every connection
+ * from kb_edges — for the Obsidian-style overview. Self-links are dropped and
+ * edges are folded to one link per pair of pages. Over `limit` pages, the
+ * best-connected are kept (isolated pages go first).
+ */
+export function kbWorkspaceGraph(db: Database.Database, workspace: string, opts: { limit?: number } = {}): WorkspaceGraphResult {
+  const g = GraphView.load(db, workspace)
+  const limit = Math.max(1, Math.min(MAX_WORKSPACE_GRAPH_NODES, Math.floor(opts.limit ?? MAX_WORKSPACE_GRAPH_NODES)))
+
+  const pairs = new Map<string, WorkspaceGraphLink>()
+  for (const e of g.edges) {
+    if (e.from_rel === e.to_rel) continue
+    const [a, b] = e.from_rel < e.to_rel ? [e.from_rel, e.to_rel] : [e.to_rel, e.from_rel]
+    const key = `${a}\0${b}`
+    let link = pairs.get(key)
+    if (!link) { link = { a, b, kinds: [], label: null, weight: 0 }; pairs.set(key, link) }
+    link.weight++
+    if (!link.kinds.includes(e.kind)) link.kinds.push(e.kind)
+    if (!link.label && e.label) link.label = e.label
+  }
+
+  const degree = new Map<string, number>()
+  for (const l of pairs.values()) for (const end of [l.a, l.b]) degree.set(end, (degree.get(end) ?? 0) + 1)
+  // Every page, plus any link end that has no node row (a generated page, say).
+  const rels = new Set<string>([...g.nodes.keys(), ...degree.keys()])
+  const all: WorkspaceGraphNode[] = [...rels].map(rel => ({ ...g.ref(rel), degree: degree.get(rel) ?? 0 }))
+  all.sort((x, y) => y.degree - x.degree || x.rel.localeCompare(y.rel))
+  const nodes = all.slice(0, limit)
+  const kept = new Set(nodes.map(n => n.rel))
+  const links = [...pairs.values()]
+    .filter(l => kept.has(l.a) && kept.has(l.b))
+    .map(l => ({ ...l, kinds: [...l.kinds].sort() }))
+    .sort((x, y) => x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
+
+  const by_kind: Record<string, number> = {}
+  for (const n of all) by_kind[n.kind] = (by_kind[n.kind] ?? 0) + 1
+  return {
+    nodes,
+    links,
+    counts: { pages: all.length, links: pairs.size, isolated: all.filter(n => n.degree === 0).length, by_kind },
+    truncated: all.length > nodes.length,
+  }
+}

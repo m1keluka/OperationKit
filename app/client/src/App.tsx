@@ -14,7 +14,7 @@ import { PreviewBoard } from './preview/PreviewBoard'
 import { PreviewArchive } from './preview/PreviewArchive'
 import { PreviewWorkspace } from './preview/PreviewWorkspace'
 import { HAS_CHAT_PAGE } from './lib/optional-pages'
-import { SYSTEM_ROUTE, AGENTS_ROUTE, LEGACY_REDIRECTS, REMOVED_ROUTES } from './lib/routes'
+import { SYSTEM_ROUTE, AGENTS_ROUTE, LEGACY_REDIRECTS, REMOVED_ROUTES, usesPageScroll } from './lib/routes'
 import type { Workspace } from '@operationkit/shared'
 
 // Route-level code-splitting (obj 700585): the board is the landing surface
@@ -30,8 +30,6 @@ const SettingsSecrets = lazy(() => import('./components/settings/SettingsSecrets
 const SettingsConnectors = lazy(() => import('./components/settings/SettingsConnectors').then(m => ({ default: m.SettingsConnectors })))
 const SettingsSeats = lazy(() => import('./components/settings/SettingsSeats').then(m => ({ default: m.SettingsSeats })))
 const SettingsOrg = lazy(() => import('./components/settings/SettingsOrg').then(m => ({ default: m.SettingsOrg })))
-const SettingsAgents = lazy(() => import('./components/settings/SettingsAgents').then(m => ({ default: m.SettingsAgents })))
-const SettingsPlatform = lazy(() => import('./components/settings/SettingsPlatform').then(m => ({ default: m.SettingsPlatform })))
 // obj 900497: onboarding checklist (Sprint 4b mounts the Email panel route below).
 const SetupPage = lazy(() => import('./components/setup/SetupPage').then(m => ({ default: m.SetupPage })))
 const SettingsBranding = lazy(() => import('./components/settings/SettingsBranding').then(m => ({ default: m.SettingsBranding })))
@@ -193,12 +191,12 @@ function AppContent() {
   return (
     <NavContext.Provider value={navigate}>
     <BoardThemeProvider>
-    <Layout selectedWorkspaces={selectedWorkspaces} onWorkspacesChange={handleWorkspacesChange}>
+    <Layout selectedWorkspaces={selectedWorkspaces} onWorkspacesChange={handleWorkspacesChange} pageScroll={usesPageScroll(pathname)}>
       <PageTransition routeKey={routeKey}>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route path="/" element={<BoardShell><PreviewBoard workspaces={selectedWorkspaces} onWorkspacesChange={handleWorkspacesChange} /></BoardShell>} />
-          <Route path="/w/:ws" element={<BoardShell><PreviewBoard workspaces={selectedWorkspaces} onWorkspacesChange={handleWorkspacesChange} /></BoardShell>} />
+          <Route path="/" element={<BoardShell><PreviewBoard workspaces={selectedWorkspaces} /></BoardShell>} />
+          <Route path="/w/:ws" element={<BoardShell><PreviewBoard workspaces={selectedWorkspaces} /></BoardShell>} />
           <Route path="/archive" element={<BoardShell><PreviewArchive workspaces={selectedWorkspaces} /></BoardShell>} />
           <Route path="/o/:id" element={<BoardShell><PreviewWorkspace workspaces={selectedWorkspaces} /></BoardShell>} />
           <Route path="/preview/o/:id" element={<PreviewObjectiveRedirect />} />
@@ -237,10 +235,8 @@ function AppContent() {
             <Route path="secrets" element={<SettingsSecrets />} />
             <Route path="integrations" element={<SettingsConnectors />} />
             <Route path="org" element={<SettingsOrg />} />
-            <Route path="agents-skills" element={<SettingsAgents />} />
             <Route path="branding" element={<SettingsBranding />} />
             <Route path="email" element={<SettingsEmail />} />
-            <Route path="platform" element={<SettingsPlatform />} />
             {/* Old bookmarks (pre sprint-4b-reorg, obj 900496), plus older ones before that.
                 SettingsPage itself does the real redirect; these just need to match so the
                 router mounts SettingsPage at all for these URLs. */}

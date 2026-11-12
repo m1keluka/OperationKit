@@ -5,13 +5,28 @@ import { Alert, Card, CardBody, CardHeader, Tabs } from '../ui'
 import { CleanupPanel } from './CleanupPanel'
 import { ImportsPanel } from './ImportsPanel'
 import { WikiBrowser } from './WikiBrowser'
+import { WorkspaceGraph } from './WorkspaceGraph'
 import { wikiApi, wsQuery } from './wikiApi'
 
-type Tab = 'wiki' | 'imports' | 'cleanup'
+type Tab = 'graph' | 'wiki' | 'imports' | 'cleanup'
+
+const TAB_KEY = 'cc.kbWiki.tab'
+const TABS: Tab[] = ['graph', 'wiki', 'imports', 'cleanup']
+
+/** The tab last used on this browser; the graph on a first visit (obj 900674). */
+function initialTab(): Tab {
+  try {
+    const t = window.localStorage.getItem(TAB_KEY) as Tab | null
+    return t && TABS.includes(t) ? t : 'graph'
+  } catch {
+    return 'graph'
+  }
+}
 
 /* WikiSection (obj 720117) — the knowledge base as a linked wiki, mounted under
-   the import panel's Ask/Files grid. Three tabs: browse the wiki, import chats &
-   calls, and the cleanup pass. Pages open in the panel's own note viewer. */
+   the import panel's Ask/Files grid. Four tabs: the graph of how every page
+   connects (the default, obj 900674), the page list, import chats & calls, and
+   the cleanup pass. Pages open in the panel's own note viewer. */
 export function WikiSection({
   workspace,
   onOpenNote,
@@ -26,7 +41,12 @@ export function WikiSection({
   refreshKey?: number
 }) {
   const { user } = useAuth()
-  const [tab, setTab] = useState<Tab>('wiki')
+  const [tab, setTabState] = useState<Tab>(initialTab)
+  const setTab = (t: Tab) => {
+    setTabState(t)
+    // codeql[js/clear-text-storage-of-sensitive-data] -- persists a UI tab id ('graph' | 'wiki' | 'imports' | 'cleanup'), never a secret
+    try { window.localStorage.setItem(TAB_KEY, t) } catch { /* private mode */ }
+  }
   const [data, setData] = useState<WikiPagesResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,17 +82,19 @@ export function WikiSection({
         <p className="max-w-[72ch] text-[13px] leading-relaxed text-fg-2">
           Everything you upload or import is turned into linked pages — one per person, company and topic — each
           fact pointing back to where it came from. Answers you save become pages too, and a regular cleanup keeps
-          the links tidy.
+          the links tidy. The graph shows how every page connects.
         </p>
         <Tabs
           items={[
-            { key: 'wiki', label: 'Wiki', count: pageCount },
+            { key: 'graph', label: 'Graph' },
+            { key: 'wiki', label: 'Pages', count: pageCount },
             { key: 'imports', label: 'Import chats & calls' },
             { key: 'cleanup', label: 'Cleanup' },
           ]}
           value={tab}
           onChange={k => setTab(k as Tab)}
         />
+        {tab === 'graph' && <WorkspaceGraph workspace={workspace} onOpenNote={onOpenNote} refreshKey={refreshKey + localKey} />}
         {error && tab === 'wiki' && <Alert tone="alarm" title="Couldn't load the wiki">{error}</Alert>}
         {tab === 'wiki' && (
           <WikiBrowser

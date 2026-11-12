@@ -400,3 +400,32 @@ describe('objective_count on project list', () => {
     expect(proj!.objective_count).toBe(2)
   })
 })
+
+// obj 900667: an organization retired by workspace-merge is archived and hidden
+// from /api/workspaces, but its leftover projects kept surfacing in the board's
+// project picker because /api/projects never looked at the org's archived flag.
+describe('archived organizations (obj 900667)', () => {
+  it('hides projects of an archived org from the picker unless include_archived=1', async () => {
+    const db = getDb()
+    db.exec(`INSERT OR IGNORE INTO workspaces (slug, name) VALUES ('ws-old', 'Old Org')`)
+    db.exec(`INSERT OR IGNORE INTO user_workspaces (user_id, workspace) VALUES (1, 'ws-old')`)
+    const { status, json: p } = await req('POST', '/api/projects', { workspace: 'ws-old', name: 'Legacy Folder' })
+    expect(status).toBe(201)
+    db.prepare("UPDATE workspaces SET archived = 1, merged_into = 'ws-a' WHERE slug = 'ws-old'").run()
+
+    const all = (await req('GET', '/api/projects')).json as { id: number }[]
+    expect(all.map(x => x.id)).not.toContain(p.id)
+    const one = (await req('GET', '/api/projects?workspace=ws-old')).json as { id: number }[]
+    expect(one.map(x => x.id)).not.toContain(p.id)
+    const withArchived = (await req('GET', '/api/projects?include_archived=1')).json as { id: number }[]
+    expect(withArchived.map(x => x.id)).toContain(p.id)
+    // Live orgs are unaffected.
+    expect((all as { workspace?: string }[]).some(x => x.workspace === 'ws-a')).toBe(true)
+  })
+
+  it('refuses to create a project in an archived org and names its successor', async () => {
+    const { status, json } = await req('POST', '/api/projects', { workspace: 'ws-old', name: 'Another' })
+    expect(status).toBe(409)
+    expect(json.merged_into).toBe('ws-a')
+  })
+})

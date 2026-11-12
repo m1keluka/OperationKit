@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Card, CardHeader, CardBody } from '../ui/Card'
 import { Button } from '../ui/Button'
+import { CopyButton } from '../ui/CopyButton'
 import type { Branding, BrandTokens } from '../../hooks/useBranding'
 import { invalidateBranding } from '../../hooks/useBranding'
 import { BrandLogo } from '../BrandLogo'
@@ -320,13 +321,7 @@ export function BrandingPanel() {
             <pre className="flex-1 whitespace-pre-wrap rounded-md border border-line bg-surface-1 p-3 font-mono text-[12px] text-fg-1">
               {brandingAgentPrompt(websiteUrl)}
             </pre>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => { void navigator.clipboard?.writeText(brandingAgentPrompt(websiteUrl)) }}
-            >
-              Copy
-            </Button>
+            <CopyButton size="sm" value={brandingAgentPrompt(websiteUrl)} />
           </div>
           <p className="text-[12px] text-fg-3">
             Paste this into Claude Code (or any coding agent) pointed at this repo. Full reference: docs/branding.md.

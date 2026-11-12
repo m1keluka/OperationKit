@@ -733,6 +733,12 @@ export interface CreateObjectiveRequest {
    *  server never infers it from the calling credential. Validated by
    *  validateOwnerBot (trimmed, max OWNER_BOT_MAX_LENGTH, safe charset) → 400. */
   owner_bot?: string | null
+  /** obj 900625: hold the card out of queue auto-start. A reason string holds it;
+   *  null or "" clears (true/false also accepted). An explicit start still works. */
+  queue_hold?: string | boolean | null
+  /** obj 900625: id of a card in the same workspace this one waits on — the queue
+   *  auto-starter skips it until that card is done. null clears. */
+  blocked_by?: number | null
 }
 
 export interface UpdateObjectiveRequest {
@@ -774,6 +780,12 @@ export interface UpdateObjectiveRequest {
   /** obj 900270: set or change the owning bot. null (or "") clears it (unowned);
    *  omitted leaves it unchanged. Same validation as on create. */
   owner_bot?: string | null
+  /** obj 900625: hold the card out of queue auto-start. A reason string holds it;
+   *  null or "" clears (true/false also accepted). An explicit start still works. */
+  queue_hold?: string | boolean | null
+  /** obj 900625: id of a card in the same workspace this one waits on — the queue
+   *  auto-starter skips it until that card is done. null clears. */
+  blocked_by?: number | null
 }
 
 // ── Owner bot (obj 900270) ───────────────────────────────────────────────────

@@ -155,25 +155,31 @@ describe('a Claude CLI-login seat while sessions run sandboxed', () => {
     expect(router.listSeatRecords().filter(s => s.kind === 'claude')).toHaveLength(1)
   })
 
-  it('the old Dashboard routes refuse to create or reconnect a Claude CLI login (409, points at Seats)', async () => {
-    process.env.SESSION_ISOLATION = 'docker'
-    const add = await call('POST', '/api/admin/accounts', { label: 'New', kind: 'claude' })
-    expect(add.status).toBe(409)
-    expect(add.json).toMatchObject({ code: 'claude_cli_login_jailed', manage: '/settings/seats' })
-    expect(router.listSeatRecords()).toHaveLength(0)
+  // obj 720330: ONE place to manage seats. The pre-v2 Dashboard write routes
+  // are retired (410 → Settings → Models), jailed or not, and change nothing.
+  for (const jail of [true, false]) {
+    it(`the old Dashboard seat-write routes are retired (410, point at Settings → Models) — jail ${jail ? 'on' : 'off'}`, async () => {
+      if (jail) process.env.SESSION_ISOLATION = 'docker'
+      const add = await call('POST', '/api/admin/accounts', { label: 'New', kind: 'claude' })
+      expect(add.status).toBe(410)
+      expect(add.json).toMatchObject({ code: 'seat_route_moved', manage: '/settings/models' })
+      expect(router.listSeatRecords()).toHaveLength(0)
 
-    const seat = cliLoginClaudeSeat('Old')
-    execCalls.length = 0
-    const connect = await call('POST', `/api/admin/accounts/${seat.id}/connect/start`)
-    expect(connect.status).toBe(409)
-    expect(connect.json.code).toBe('claude_cli_login_jailed')
-    expect(execCalls.some(c => c.includes('tmux new-session'))).toBe(false)
-  })
-
-  it('without the jail the old add route still works (host installs unchanged)', async () => {
-    const add = await call('POST', '/api/admin/accounts', { label: 'Host', kind: 'claude' })
-    expect(add.status).toBe(201)
-  })
+      const seat = cliLoginClaudeSeat('Old')
+      execCalls.length = 0
+      for (const step of ['start', 'submit', 'status']) {
+        const r = await call('POST', `/api/admin/accounts/${seat.id}/connect/${step}`, { code: 'x' })
+        expect(r.status).toBe(410)
+        expect(r.json.code).toBe('seat_route_moved')
+      }
+      expect(execCalls.some(c => c.includes('tmux new-session'))).toBe(false)
+      const rename = await call('PUT', `/api/admin/accounts/${seat.id}/label`, { label: 'Renamed elsewhere' })
+      expect(rename.status).toBe(410)
+      expect(router.getAccountById(seat.id)?.customLabel).toBe('Old')
+      // The read-only status the System page uses still answers.
+      expect((await call('GET', '/api/admin/accounts')).status).toBe(200)
+    })
+  }
 })
 
 describe('Remove sticks', () => {
@@ -211,11 +217,21 @@ describe('Remove sticks', () => {
     fs.rmSync(LEGACY_CODEX, { recursive: true, force: true })
   })
 
-  it('a seat with a live session is refused with 409, not silently kept', async () => {
+  it('a seat with a live session is drained (disabled, work keeps running), not removed; Remove works once it is free', async () => {
     const added = await call('POST', '/api/admin/seats', { kind: 'claude', credential: TOKEN })
-    router.recordSessionStart(added.json.seat.id, 'sess-1')
-    const del = await call('DELETE', `/api/admin/seats/${added.json.seat.id}`)
+    const id = added.json.seat.id
+    router.recordSessionStart(id, 'sess-1')
+    const del = await call('DELETE', `/api/admin/seats/${id}`)
     expect(del.status).toBe(409)
-    expect(del.json.error).toBe('seat_in_use')
+    expect(del.json).toMatchObject({ code: 'seat_in_use', activeSessions: 1, drained: true })
+    expect(del.json.error).toMatch(/running 1 session.*disabled.*keeps going/)
+    // Still there, still holding its credential (the live session needs it), but nothing new lands on it.
+    const seat = router.getAccountById(id)!
+    expect(seat.enabled).toBe(false)
+    expect(seat.activeSessions).toEqual(['sess-1'])
+    expect(creds.seatCredentialStored(seat.credentialRef)).toBe(true)
+    router.recordSessionEnd(id, 'sess-1', 10, 0)
+    expect((await call('DELETE', `/api/admin/seats/${id}`)).status).toBe(200)
+    expect(creds.seatCredentialStored(seat.credentialRef)).toBe(false)
   })
 })

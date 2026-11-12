@@ -146,6 +146,14 @@ TIMEZONE="America/New_York"
 # runs in its own locked-down container that can only see its own work folder.
 SESSION_ISOLATION="docker"
 
+# Size of each sandbox's in-memory /tmp. Leave at "2g": the old 256m filled up
+# when an AI review cloned a large repo. It only uses RAM for what is written.
+JAIL_TMP_SIZE="2g"
+
+# Put Claude's scratch files on disk (the sandbox's own home folder) instead of
+# the in-memory /tmp. Leave empty for off; "on" to enable.
+JAIL_CLAUDE_TMPDIR=""
+
 # Address sandboxes use to reach the app from the default Docker bridge. Leave
 # empty: the installer detects docker0's gateway (normally 172.17.0.1). Must be a
 # private address — the app is never published on the server's public address.

@@ -261,7 +261,16 @@ export function WorkspacesTab() {
   }
 
   const metaBySlug = config?.workspaces ?? {}
-  const workspaces: Array<[string, MergedWorkspace]> = canonicalWorkspaces.map(w => {
+  // Archived orgs are invisible to /api/workspaces, so they come from the
+  // admin list — which is the only place they can be seen or restored.
+  const archivedWorkspaces = Object.values(adminRecords)
+    .filter(r => r.archived)
+    .sort((a, b) => a.sort_order - b.sort_order || a.slug.localeCompare(b.slug))
+  const archivedSlugs = new Set(archivedWorkspaces.map(r => r.slug))
+
+  // Active first, archived at the bottom (obj 900683): never let an archived
+  // org leak into the active group even if a stale roster still carries it.
+  const workspaces: Array<[string, MergedWorkspace]> = canonicalWorkspaces.filter(w => !archivedSlugs.has(w.slug)).map(w => {
     const meta = metaBySlug[w.slug]
     return [w.slug, {
       name: meta?.name ?? w.name,
@@ -271,12 +280,6 @@ export function WorkspacesTab() {
       context: meta?.context ?? null,
     }]
   })
-
-  // Archived orgs are invisible to /api/workspaces, so they come from the
-  // admin list — which is the only place they can be seen or restored.
-  const archivedWorkspaces = Object.values(adminRecords)
-    .filter(r => r.archived)
-    .sort((a, b) => a.sort_order - b.sort_order || a.slug.localeCompare(b.slug))
 
   function draftFor(slug: string) {
     return repoDraft[slug] || { name: '', github: '', stack: '' }
@@ -353,36 +356,15 @@ export function WorkspacesTab() {
         </Card>
       )}
 
-      {/* Archived organizations (admin) — obj 900197. Without this an archived
-          org is unreachable from the UI entirely. */}
-      {isAdmin && archivedWorkspaces.length > 0 && (
-        <Card inset data-testid="archived-organizations">
-          <CardHeader title="Archived organizations" eyebrow="Hidden from the board" />
-          <div className="divide-y divide-line">
-            {archivedWorkspaces.map(r => (
-              <div key={r.slug} className="flex items-center gap-2 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-display text-[14px] font-semibold text-fg-2">{r.name || r.slug}</h3>
-                    <Badge mono>{r.slug}</Badge>
-                    <Badge tone="neutral">archived</Badge>
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
-                  disabled={wsBusy === r.slug}
-                  onClick={() => restoreWorkspace(r.slug)}
-                >
-                  {wsBusy === r.slug ? 'Restoring…' : 'Restore'}
-                </Button>
-              </div>
-            ))}
-          </div>
-        </Card>
+      {/* Active organizations — always listed before the archived group
+          (obj 900683). The label only shows when there is an archived group to
+          contrast with, so a board with no archived orgs looks unchanged. */}
+      <div data-testid="active-organizations" className="space-y-4">
+      {isAdmin && archivedWorkspaces.length > 0 && workspaces.length > 0 && (
+        <div className="px-1 text-[12px] font-medium uppercase tracking-wider text-fg-3">
+          Active organizations ({workspaces.length})
+        </div>
       )}
-
       {workspaces.map(([key, ws]) => {
         const dbRepos = repos[key] || []
         const isOpen = expanded === key
@@ -396,7 +378,7 @@ export function WorkspacesTab() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-display text-[14px] font-semibold text-fg-0">{ws.name}</h3>
                     <Badge mono>{key}</Badge>
-                    <Badge tone="neutral">{ws.projects.length + dbRepos.length} repos</Badge>
+                    <Badge tone="neutral">{ws.projects.length + dbRepos.length} {ws.projects.length + dbRepos.length === 1 ? 'repo' : 'repos'}</Badge>
                   </div>
                   {ws.description && <p className="mt-0.5 truncate text-[12px] text-fg-3">{ws.description}</p>}
                 </div>
@@ -561,6 +543,38 @@ export function WorkspacesTab() {
           </Card>
         )
       })}
+      </div>
+
+      {/* Archived organizations (admin) — obj 900197. Without this an archived
+          org is unreachable from the UI entirely. Rendered LAST (obj 900683):
+          active orgs lead and archived ones sit at the bottom as their own group. */}
+      {isAdmin && archivedWorkspaces.length > 0 && (
+        <Card inset data-testid="archived-organizations">
+          <CardHeader title={`Archived organizations (${archivedWorkspaces.length})`} eyebrow="Hidden from the board" />
+          <div className="divide-y divide-line">
+            {archivedWorkspaces.map(r => (
+              <div key={r.slug} className="flex items-center gap-2 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-display text-[14px] font-semibold text-fg-2">{r.name || r.slug}</h3>
+                    <Badge mono>{r.slug}</Badge>
+                    <Badge tone="neutral">archived</Badge>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
+                  disabled={wsBusy === r.slug}
+                  onClick={() => restoreWorkspace(r.slug)}
+                >
+                  {wsBusy === r.slug ? 'Restoring…' : 'Restore'}
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   )
 }
@@ -671,7 +685,7 @@ function GithubConnect({ slug, integration, onChange, onRepoAdded }: {
             <Badge mono>{integration?.org}</Badge>
             {integration?.token_last4 && <Badge tone="neutral" mono>token {integration.token_last4}</Badge>}
             {typeof integration?.repo_count === 'number' && (
-              <span className="text-fg-3">{integration.repo_count} repos</span>
+              <span className="text-fg-3">{integration.repo_count} {integration.repo_count === 1 ? 'repo' : 'repos'}</span>
             )}
           </div>
           <div className="flex flex-wrap gap-2">

@@ -153,3 +153,64 @@ Nothing in this procedure deletes vault data, so step 3 is always a rename.
 The conflict log records **identifiers only** — table names, unique-key columns,
 secret *names*, user ids, relative file paths. No secret value and no file
 content is printed to the console or written to the log.
+
+---
+
+## Finishing the Example migration (obj 900667)
+
+PR #641 shipped the tool; the cutover itself was never run, and three leaks kept
+the old Example projects in the board's **Project** picker even if it had been. The
+full leftover inventory is `.evidence/900667/inventory.md`. What this follow-up
+adds to the tool:
+
+| Leak | Fix |
+|---|---|
+| `GET /api/projects` returned projects of **archived** orgs | hidden unless `include_archived=1`; `POST` into an archived org → 409 with `merged_into` |
+| same-named project stuck on the source (`UNIQUE(workspace,name)`), its cards pointing into the retired org | **project fold**: cards repointed to the target's same-named project, source project **archived** (kept); undo list in the conflict log; post-merge invariant rolls back otherwise |
+| `routines.objective_template` JSON still saying `"workspace":"example"` | re-pointed in the same transaction |
+| `|| 'example'` fallbacks and the `example-platform → example` CI-remediation map re-filing cards into the archived org | `workspaces.merged_into` (set by `--apply`, cleared by `--unarchive`) + `resolveWriteWorkspace()` / `canonicalWorkspaceSlug()` redirect writes to the successor |
+
+The redirect is the identity on an install that never merged, so shipping the code
+changes nothing until the cutover runs.
+
+### Cutover (Operator — production)
+
+Prerequisite: this PR merged **and** on the box (live runs `m1keluka/OperationKit`;
+check `GET /api/health` `commit` after the upstream sync + `update.sh`). The boot
+migration adds the nullable `workspaces.merged_into` column — additive, no rebuild.
+
+```bash
+# 0. Inventory — read-only. Save it; it is the "before".
+docker exec command-center tsx /app/server/src/scripts/workspace-merge.ts --inventory example | tee ~/ws-merge-before.txt
+
+# 1. Dry run. Check: cards line, "projects: N same-named fold(s)", "routine templates: N".
+docker exec command-center tsx /app/server/src/scripts/workspace-merge.ts \
+  --from example --to your-org --vault-root /home/operator/second-brain/workspaces
+
+# 2. Apply (takes its own integrity-checked DB snapshot + vault tar first).
+docker exec command-center tsx /app/server/src/scripts/workspace-merge.ts \
+  --from example --to your-org --vault-root /home/operator/second-brain/workspaces \
+  --backup-dir /home/operator/backups/ws-merge-$(date +%F) --apply
+
+# 3. The workspaces cache is per-process: restart the Node server so the
+#    merged_into redirect and the archived flag are read fresh.
+bash scripts/self-deploy.sh backend
+
+# 4. Verify — "after". Expect TOTAL 0 apart from BLOCKED granola rows and logged
+#    secret conflicts; the picker in All Organizations shows no Example chips.
+docker exec command-center tsx /app/server/src/scripts/workspace-merge.ts --inventory example
+```
+
+The command is **re-runnable**: if anything is written to `example` between the
+first apply and the restart, run step 2 again — it sweeps only what is left.
+
+`--retire-source-vault` (rename `workspaces/example/` → `_archived-example/`) is
+optional and can be done later; it never deletes. Leave it off until the
+`.from-example` collisions in the conflict log have been looked at.
+
+### Reverse
+
+Restore the DB snapshot from step 2 and un-tar the vault archive. For a partial
+undo of just the project fold, the conflict log's `projectFolds[]` lists every
+`objectiveIds` → `sourceId`; `--unarchive example --apply` re-shows the org and
+clears `merged_into`.

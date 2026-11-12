@@ -51,7 +51,7 @@ What the CLA does, in plain words (the CLA text is what counts):
 **How to sign:** once the CLA check is enabled, a bot comments on your first pull request.
 Reply with the exact sentence it asks for and the check turns green. Your signature is recorded
 in this repository. Entities sign by sending the completed Entity CLA to
-[LEGAL CONTACT EMAIL - confirm].
+legal@example.com.
 
 **DCO is not used.** This project uses a CLA instead of the Developer Certificate of Origin.
 You do not need `Signed-off-by:` lines in your commits.
@@ -72,7 +72,10 @@ only the default `GITHUB_TOKEN` (no personal tokens, apps or secrets) and record
 It ships **disabled**. The job only runs when the repository variable `CLA_ENABLED` is `true`.
 To turn it on:
 
-1. Fill the remaining `[...]` placeholders in `CLA/*.md` and this file (state, legal contact email).
+1. Check the CLA text. No company placeholders remain: governing law is Delaware and the
+   legal contact is legal@example.com in `CLA/INDIVIDUAL_CLA.md`, `CLA/ENTITY_CLA.md` and
+   this file. The signer form blanks and the `[named here]` instruction stay blank on
+   purpose; contributors fill those in when they sign.
 2. Create the `cla-signatures` branch (from `main`) and leave it unprotected, so the
    action can commit signatures to it.
 3. Settings -> Secrets and variables -> Actions -> Variables -> New repository variable:

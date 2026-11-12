@@ -35,6 +35,8 @@
 import { getDb } from '../db/index.js'
 import { logActivity } from '../routes/feed.js'
 import { notify } from './notifier.js'
+import { classifyFlowRun } from './flow-routines.js'
+import { defaultWorkspaceSlug, resolveWriteWorkspace } from './workspaces.js'
 
 export const DEFAULT_AUTO_PAUSE_FAILURES = 5
 export const AUTO_PAUSE_SETTING_KEY = 'routine_auto_pause_failures'
@@ -82,6 +84,10 @@ const BENIGN_SKIP_PREFIXES = [
   'concurrency guard',
   'duplicate guard',
   'script already running',
+  // obj 900640 (B4): flow routines — the kill switch is off, or the workflow is
+  // not active. The schedule was refused; nothing ran.
+  'flows disabled',
+  'flow inactive',
 ]
 
 export type FireClassification = 'failure' | 'neutral'
@@ -98,11 +104,11 @@ export function classifyAiFireResult(res: { ok: boolean; reason?: string }): Fir
 function workspaceOf(routine: AutoPauseRoutineFields): string {
   try {
     const tpl = JSON.parse(routine.objective_template || '{}') as { workspace?: unknown }
-    if (typeof tpl.workspace === 'string' && tpl.workspace) return tpl.workspace
+    if (typeof tpl.workspace === 'string' && tpl.workspace) return resolveWriteWorkspace(tpl.workspace)
   } catch {
     /* fall through */
   }
-  return 'example'
+  return defaultWorkspaceSlug()
 }
 
 /** Auto-pause reason string shown on the Jobs board. */
@@ -161,9 +167,9 @@ export async function recordRoutineFailure(routineId: number, error: string): Pr
     title: `Routine '${r.name}' auto-paused`,
     message:
       `Routine '${r.name}' (#${r.id}) failed ${count} runs in a row and was disabled. ${reason}. ` +
-      `Fix the cause, then press Resume on the Jobs board.`,
+      `Fix the cause, then press Resume on Workflows → Runs.`,
     dedup_key: `routine-auto-paused-${r.id}`,
-    url: '/jobs',
+    url: '/jobs?view=runs',
   })
   return { consecutive_failures: count, threshold: k, paused: true }
 }
@@ -245,6 +251,54 @@ export async function reconcileAiRunOutcomes(routineId: number): Promise<void> {
     else {
       const why = o.ai_review_verdict === 'fail' ? 'AI review verdict fail' : `status ${o.status}`
       await recordRoutineFailure(r.id, `run objective #${o.id} ended failed (${why})`)
+    }
+  }
+}
+
+/**
+ * obj 900640 (B4) — the flow analogue of reconcileAiRunOutcomes for a
+ * `kind='flow'` routine. Walks the flow's LIVE runs past
+ * `last_accounted_flow_run_id` in id order and stops at the first run still in
+ * flight (queued / running / waiting / repairing). A succeeded run resets the
+ * streak; failed / cancelled (or succeeded with goal_met = 0) counts one failure,
+ * so K failing runs auto-pause the routine and raise the same banner + alert.
+ * Manual run-nows of the same flow count too: they exercise the same published
+ * version the schedule runs.
+ */
+export async function reconcileFlowRunOutcomes(routineId: number): Promise<void> {
+  const db = getDb()
+  const r = db.prepare('SELECT id, kind, flow_id, last_accounted_flow_run_id FROM routines WHERE id = ?').get(routineId) as
+    | { id: number; kind: string | null; flow_id: number | null; last_accounted_flow_run_id: number | null }
+    | undefined
+  if (!r || r.kind !== 'flow' || r.flow_id == null) return
+  const hasRuns = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'flow_runs'").get()
+  if (!hasRuns) return
+  const rows = db
+    .prepare(
+      `SELECT id, status, goal_met, error_json FROM flow_runs
+        WHERE flow_id = ? AND mode = 'live' AND id > ? ORDER BY id LIMIT 50`,
+    )
+    .all(r.flow_id, r.last_accounted_flow_run_id ?? 0) as {
+    id: number
+    status: string
+    goal_met: number | null
+    error_json: string | null
+  }[]
+  for (const run of rows) {
+    const outcome = classifyFlowRun(run)
+    if (outcome === 'pending') break
+    db.prepare('UPDATE routines SET last_accounted_flow_run_id = ? WHERE id = ?').run(run.id, r.id)
+    if (outcome === 'success') recordRoutineSuccess(r.id)
+    else if (outcome === 'neutral') continue // B8: definition rot opens a repair, it is not a K failure
+    else {
+      let why = run.status === 'succeeded' ? 'goal not met' : `status ${run.status}`
+      try {
+        const e = run.error_json ? (JSON.parse(run.error_json) as { type?: string; title?: string }) : null
+        if (e?.type || e?.title) why = `${e.type ?? 'error'}: ${e.title ?? ''}`.trim()
+      } catch {
+        /* keep the status reason */
+      }
+      await recordRoutineFailure(r.id, `flow run #${run.id} ended failed (${why})`)
     }
   }
 }

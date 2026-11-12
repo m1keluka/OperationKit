@@ -1,3 +1,4 @@
+import { defaultWorkspaceSlug, resolveWriteWorkspace } from '../services/workspaces.js'
 import { Router } from 'express'
 import { getDb } from '../db/index.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
@@ -25,7 +26,7 @@ function checkFeedWorkspace(req: AuthRequest, workspace: string): string | null 
 
 router.get('/projects/:project/feed', requireAuth, (req: AuthRequest, res) => {
   const project = req.params.project as string
-  const workspace = (req.query.workspace as string) || 'example'
+  const workspace = (req.query.workspace as string) || defaultWorkspaceSlug()
   const err = checkFeedWorkspace(req, workspace)
   if (err) {
     res.status(403).json({ error: err })
@@ -88,7 +89,7 @@ router.get('/projects/:project/feed', requireAuth, (req: AuthRequest, res) => {
 
 router.get('/projects/:project/feed/live', requireAuth, (req: AuthRequest, res) => {
   const project = req.params.project as string
-  const workspace = (req.query.workspace as string) || 'example'
+  const workspace = (req.query.workspace as string) || defaultWorkspaceSlug()
   const err = checkFeedWorkspace(req, workspace)
   if (err) {
     res.status(403).json({ error: err })
@@ -115,7 +116,7 @@ router.get('/projects/:project/feed/live', requireAuth, (req: AuthRequest, res) 
 // Cross-project feed — everything recent
 
 router.get('/feed/all', requireAuth, (req: AuthRequest, res) => {
-  const workspace = (req.query.workspace as string) || 'example'
+  const workspace = (req.query.workspace as string) || defaultWorkspaceSlug()
   const err = checkFeedWorkspace(req, workspace)
   if (err) {
     res.status(403).json({ error: err })
@@ -158,7 +159,7 @@ export function logActivity(event: {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     event.project,
-    event.workspace || 'example',
+    resolveWriteWorkspace(event.workspace),
     event.objective_id || null,
     event.task_id || null,
     event.session_id || null,

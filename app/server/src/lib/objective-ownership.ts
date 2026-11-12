@@ -23,6 +23,7 @@
  * identity to attribute them to.
  */
 import type { Database } from 'better-sqlite3'
+import { resolveWorkspaceIn } from '../services/workspaces.js'
 
 export interface InheritedOwnership {
   created_by: number | null
@@ -59,7 +60,7 @@ export function inheritedOwnership(
         }
       | undefined
     if (!row) return NO_OWNERSHIP
-    if ((row.workspace || 'example') !== (childWorkspace || 'example')) return NO_OWNERSHIP
+    if (resolveWorkspaceIn(db, row.workspace) !== resolveWorkspaceIn(db, childWorkspace)) return NO_OWNERSHIP
     return {
       created_by: row.created_by ?? null,
       assigned_user_id: row.assigned_user_id ?? null,

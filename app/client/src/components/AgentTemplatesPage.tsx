@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAgents } from '../hooks/useAgents'
 import {
@@ -202,6 +203,11 @@ export function AgentTemplatesPage({ embedded = false }: { embedded?: boolean } 
   const [pending, setPending] = useState<Pending | null>(null)
   const [serverPath, setServerPath] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
+  // Paste an agent file as text (obj 900672): the built-in Dev bot writes
+  // a complete file in chat, and this is where it goes. ?paste=1 opens it.
+  const [params] = useSearchParams()
+  const [pasteOpen, setPasteOpen] = useState(() => params.get('paste') === '1')
+  const [pasteText, setPasteText] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -240,6 +246,24 @@ export function AgentTemplatesPage({ embedded = false }: { embedded?: boolean } 
       const content = await readText(file)
       const result = await api.post<ValidateResult>('/agent-templates/validate', { content, filename: file.name })
       setPending({ filename: file.name, content, result })
+    } catch (err) {
+      setNotice({ tone: 'alarm', text: errorProblems(err).message })
+    }
+  }
+
+  const checkPasted = async () => {
+    const content = pasteText.trim()
+    if (!content) return
+    setNotice(null)
+    // Front matter means agent.md; anything else is read as agent.yaml.
+    const filename = content.startsWith('---') ? 'agent.md' : 'agent.yaml'
+    try {
+      const result = await api.post<ValidateResult>('/agent-templates/validate', { content: content + '\n', filename })
+      setPending({ filename: `pasted ${filename}`, content: content + '\n', result })
+      if (result.ok) {
+        setPasteOpen(false)
+        setPasteText('')
+      }
     } catch (err) {
       setNotice({ tone: 'alarm', text: errorProblems(err).message })
     }
@@ -294,6 +318,9 @@ export function AgentTemplatesPage({ embedded = false }: { embedded?: boolean } 
         aria-label="Choose an agent file to import"
         onChange={e => { void onFile(e.target.files?.[0]); e.target.value = '' }}
       />
+      <Button variant="secondary" onClick={() => setPasteOpen(o => !o)} aria-expanded={pasteOpen} aria-controls="paste-agent-file">
+        Paste agent file
+      </Button>
       <Button variant="primary" onClick={() => fileInput.current?.click()}>Import agent file</Button>
     </>
   )
@@ -310,7 +337,7 @@ export function AgentTemplatesPage({ embedded = false }: { embedded?: boolean } 
       ) : (
         <PageHeader
           title="Agent templates"
-          breadcrumbs={[{ label: 'Agents', href: '/agents' }, { label: 'Templates' }]}
+          breadcrumbs={[{ label: 'Agents & Skills', href: '/agents' }, { label: 'Templates' }]}
           description="Each agent is one file you can copy, share and re-import. Add a starter agent, import a file someone sent you, or export an agent to share it."
           actions={importActions}
         />
@@ -321,6 +348,33 @@ export function AgentTemplatesPage({ embedded = false }: { embedded?: boolean } 
           {notice.text}
           {notice.errors && <ProblemList items={notice.errors} tone="alarm" />}
         </Alert>
+      )}
+
+      {pasteOpen && (
+        <Card className="mb-6">
+          <CardBody>
+            <form id="paste-agent-file" onSubmit={e => { e.preventDefault(); void checkPasted() }}>
+              <label htmlFor="paste-agent-text" className="block font-display text-[15px] font-semibold text-fg-0">Paste an agent file</label>
+              <p className="mt-1 max-w-3xl text-[12.5px] leading-relaxed text-fg-2">
+                Paste the whole file — for example one a bot wrote for you in chat, starting at the first <span className="font-mono">---</span>.
+                It is checked before anything is added.
+              </p>
+              <textarea
+                id="paste-agent-text"
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                rows={10}
+                spellCheck={false}
+                placeholder={'---\nname: Sales Follow-up\nslug: sales-follow-up\n...\n---\nYou help ...'}
+                className="mt-3 w-full rounded-md border border-line bg-surface-0 px-3 py-2 font-mono text-[12.5px] text-fg-0 placeholder:text-fg-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="submit" variant="primary" disabled={!pasteText.trim()}>Check it</Button>
+                <Button type="button" variant="ghost" onClick={() => { setPasteOpen(false); setPasteText('') }}>Cancel</Button>
+              </div>
+            </form>
+          </CardBody>
+        </Card>
       )}
 
       {pending && (

@@ -9,13 +9,15 @@
  * credentials additionally get the secrets store's own audit rows.
  */
 import { Router } from 'express'
-import { execSync } from 'child_process'
+import { execSync, spawnSync } from 'child_process'
 import fs from 'fs'
 import type { AuthRequest } from '../middleware/auth.js'
 import { getDb } from '../db/index.js'
 import {
   addAccountSlot,
   clearAuthFailure,
+  clearSeatHome,
+  listSeatRecords,
   getAccountById,
   getRateLimitHistory,
   getRouterStatus,
@@ -25,8 +27,17 @@ import {
   updateSeat,
 } from '../services/account-router.js'
 import { checkSlot } from '../services/account-health-check.js'
-import { cancelClaudeLogin, finishClaudeLogin, startClaudeLogin, type FinishError } from '../services/claude-oauth-login.js'
-import { deleteSeatCredential, maskSeat, storeSeatCredential, type SeatSummary } from '../services/seat-credentials.js'
+import {
+  LOGIN_TTL_MS,
+  cancelClaudeLogin,
+  cancelClaudeLoginsForSeat,
+  finishClaudeLogin,
+  pendingLoginSeat,
+  startClaudeLogin,
+  type FinishError,
+} from '../services/claude-oauth-login.js'
+import { deleteSeatCredential, findSeatWithCredential, maskSeat, storeSeatCredential, type SeatSummary } from '../services/seat-credentials.js'
+import { createOnce, parseIdempotencyKey } from '../services/seat-idempotency.js'
 import { getWorkspaceFailover, setWorkspaceFailover } from '../services/seat-assign.js'
 import { computeSeatUsage, RATE_LIMIT_HISTORY_SCAN, type ProvisioningHint, type SeatUsageView } from '../services/seat-usage.js'
 import { normalizeOrder, parseCardFailover, SEAT_KINDS, type SeatKind } from '../services/seat-pool.js'
@@ -115,20 +126,52 @@ router.get('/seats', (_req: AuthRequest, res) => {
  * browser sign-in under /seats/claude-oauth/*. Codex / Grok: the seat is created
  * empty and the client then calls /login/start to run the CLI's own device login into its HOME.
  */
-router.post('/seats', (req: AuthRequest, res) => {
+/** A finished seat write, replayable: HTTP status + the masked body only (never a credential). */
+interface SeatWrite { status: number; body: Record<string, unknown> }
+const isSuccess = (w: SeatWrite) => w.status < 300
+
+// Same key → one write. Add keys live as long as a form is plausibly open;
+// sign-in keys exactly as long as the sign-in link (claude-oauth-login.ts).
+const addOnce = createOnce<SeatWrite>(30 * 60 * 1000)
+const finishOnce = createOnce<SeatWrite>(LOGIN_TTL_MS)
+
+/** Test hook: forget remembered seat writes. */
+export function __resetSeatWriteMemory(): void {
+  addOnce.clear()
+  finishOnce.clear()
+}
+
+async function sendWrite(res: import('express').Response, run: Promise<{ value: SeatWrite; replayed: boolean }>): Promise<void> {
+  const { value, replayed } = await run
+  res.status(value.status).json(replayed && isSuccess(value) ? { ...value.body, replayed: true } : value.body)
+}
+
+router.post('/seats', async (req: AuthRequest, res) => {
+  // A client-generated key (one per open Add form) makes a double-click or a
+  // retry after a dropped response return the SAME seat instead of a second one.
+  const key = parseIdempotencyKey(req.body?.idempotencyKey)
+  const run = () => Promise.resolve(addSeat(req))
+  if (!key) return sendWrite(res, run().then(value => ({ value, replayed: false })))
+  return sendWrite(res, addOnce.run(`add:${req.user?.id ?? 0}:${key}`, run, isSuccess))
+})
+
+function addSeat(req: AuthRequest): SeatWrite {
   const kind = parseKind(req.body?.kind)
-  if (!kind) {
-    res.status(400).json({ error: 'kind must be claude, codex or grok' })
-    return
-  }
+  if (!kind) return { status: 400, body: { error: 'kind must be claude, codex or grok' } }
   const credential = credentialFrom(req.body)
   if (kind === 'claude' && !credential) {
-    res.status(400).json({ error: 'paste the setup token for a Claude seat (from `claude setup-token`)' })
-    return
+    return { status: 400, body: { error: 'paste the setup token for a Claude seat (from `claude setup-token`)' } }
   }
   if (kind !== 'claude' && credential) {
-    res.status(400).json({ error: `${kind} seats sign in with the CLI login flow, not a pasted token` })
-    return
+    return { status: 400, body: { error: `${kind} seats sign in with the CLI login flow, not a pasted token` } }
+  }
+  if (credential) {
+    // The same token pasted twice is the same subscription: hand back that seat.
+    const existing = findSeatWithCredential(listSeatRecords(), credential, req.user?.id)
+    if (existing) {
+      auditSeat(req.user?.id, 'add_duplicate', existing.id, 'kind=claude credential=setup_token')
+      return { status: 200, body: { ok: true, duplicate: true, seat: summaryOf(existing.id) } }
+    }
   }
   const expiresAt = parseExpiry(req.body?.expiresAt)
   const seat = addAccountSlot({
@@ -140,11 +183,11 @@ router.post('/seats', (req: AuthRequest, res) => {
   })
   if (credential) {
     const stored = storeSeatCredential(seat.id, credential, req.user?.id)
-    setSeatCredential(seat.id, { ...stored, expiresAt: expiresAt ?? null })
+    setSeatCredential(seat.id, { ...stored, expiresAt: expiresAt ?? null, source: 'pasted' })
   }
   auditSeat(req.user?.id, 'add', seat.id, `kind=${kind}${credential ? ' credential=setup_token' : ''}`)
-  res.status(201).json({ ok: true, seat: summaryOf(seat.id) })
-})
+  return { status: 201, body: { ok: true, seat: summaryOf(seat.id) } }
+}
 
 // ── Claude sign-in from the browser (obj 720330) ────────────────────────────
 // The same OAuth + PKCE flow `claude setup-token` runs (claude-oauth-login.ts):
@@ -164,18 +207,27 @@ const FINISH_STATUS: Record<FinishError, number> = {
   exchange_failed: 502,
 }
 
+/** A Claude seat by id, or the error that stops a sign-in for it. */
+function claudeSeatError(seatId: string): SeatWrite | null {
+  const seat = getAccountById(seatId)
+  if (!seat) return { status: 404, body: { error: 'This seat no longer exists. Nothing was saved.', code: 'seat_not_found' } }
+  if ((seat.kind || 'claude') !== 'claude') return { status: 400, body: { error: 'Only Claude seats sign in with Claude', code: 'not_claude' } }
+  return null
+}
+
 router.post('/seats/claude-oauth/start', (req: AuthRequest, res) => {
   const seatId = typeof req.body?.seatId === 'string' ? req.body.seatId : null
   if (seatId) {
-    const seat = seatOr404(seatId, res)
-    if (!seat) return
-    if ((seat.kind || 'claude') !== 'claude') {
-      res.status(400).json({ error: 'Only Claude seats sign in with Claude' })
+    const err = claudeSeatError(seatId)
+    if (err) {
+      res.status(err.status).json(err.body)
       return
     }
   }
-  const started = startClaudeLogin({ actorUserId: req.user?.id ?? null })
-  auditSeat(req.user?.id, 'oauth_start', seatId, 'kind=claude')
+  // The link is bound to this seat (or to "a new seat"): the pasted code can
+  // only ever land where the operator pressed the button.
+  const started = startClaudeLogin({ actorUserId: req.user?.id ?? null, seatId })
+  auditSeat(req.user?.id, 'oauth_start', seatId, seatId ? 'kind=claude mode=reconnect' : 'kind=claude mode=add')
   res.json({ ok: true, ...started })
 })
 
@@ -184,24 +236,47 @@ router.post('/seats/claude-oauth/cancel', (req: AuthRequest, res) => {
   res.json({ ok: true })
 })
 
+/**
+ * Finish a sign-in. Idempotent per link: a double-click or a retry after a
+ * dropped response joins / replays the first call (one exchange, one seat),
+ * because the code is single-use and a second exchange would fail anyway.
+ */
 router.post('/seats/claude-oauth/finish', async (req: AuthRequest, res) => {
-  const seatId = typeof req.body?.seatId === 'string' ? req.body.seatId : null
-  if (seatId) {
-    const seat = seatOr404(seatId, res)
-    if (!seat) return
-    if ((seat.kind || 'claude') !== 'claude') {
-      res.status(400).json({ error: 'Only Claude seats sign in with Claude' })
-      return
+  const loginId = typeof req.body?.loginId === 'string' ? req.body.loginId : ''
+  const run = () => finishSignIn(req, loginId)
+  if (!loginId) return sendWrite(res, run().then(value => ({ value, replayed: false })))
+  return sendWrite(res, finishOnce.run(`finish:${loginId}`, run, isSuccess))
+})
+
+async function finishSignIn(req: AuthRequest, loginId: string): Promise<SeatWrite> {
+  const askedSeat = typeof req.body?.seatId === 'string' ? req.body.seatId : null
+  // Which seat this link was started for (bound at /start). A live link always
+  // wins over the body; a mismatch is refused rather than guessed at.
+  const bound = pendingLoginSeat(loginId)
+  if (bound !== undefined && askedSeat && askedSeat !== bound) {
+    auditSeat(req.user?.id, 'oauth_failed', askedSeat, 'error=wrong_seat')
+    return {
+      status: 409,
+      body: { error: 'This sign-in link was started for a different seat. Get a new link from this seat\'s Reconnect button.', code: 'wrong_seat' },
     }
   }
+  const seatId = bound !== undefined ? bound : askedSeat
+  if (seatId) {
+    const err = claudeSeatError(seatId)
+    if (err) return err
+  }
   const result = await finishClaudeLogin({
-    loginId: typeof req.body?.loginId === 'string' ? req.body.loginId : '',
+    loginId,
     pasted: typeof req.body?.code === 'string' ? req.body.code : '',
   })
   if (!result.ok) {
     auditSeat(req.user?.id, 'oauth_failed', seatId, `error=${result.error}`)
-    res.status(FINISH_STATUS[result.error]).json({ error: result.message, code: result.error })
-    return
+    return { status: FINISH_STATUS[result.error], body: { error: result.message, code: result.error } }
+  }
+  // The seat may have been removed while the operator was on claude.ai.
+  if (seatId && !getAccountById(seatId)) {
+    auditSeat(req.user?.id, 'oauth_failed', seatId, 'error=seat_not_found')
+    return { status: 404, body: { error: 'This seat was removed while you were signing in. Nothing was saved.', code: 'seat_not_found' } }
   }
   let id = seatId
   if (!id) {
@@ -214,14 +289,17 @@ router.post('/seats/claude-oauth/finish', async (req: AuthRequest, res) => {
     })
     id = seat.id
   }
+  // In place: same seat id, label, nickname, priority and history. Only the
+  // credential (same secrets-store key, overwritten) and its metadata change.
   const stored = storeSeatCredential(id, result.token, req.user?.id)
-  setSeatCredential(id, { ...stored, expiresAt: result.expiresAt })
-  auditSeat(req.user?.id, seatId ? 'rotate' : 'add', id, 'kind=claude credential=setup_token via=oauth')
+  setSeatCredential(id, { ...stored, expiresAt: result.expiresAt, source: 'oauth' })
+  auditSeat(req.user?.id, seatId ? 'reconnect' : 'add', id, 'kind=claude credential=setup_token via=oauth')
   // Same proof as the installer: one tiny subscription turn before we call it healthy.
   const outcome = await checkSlot(id)
   auditSeat(req.user?.id, 'test', id, `outcome=${outcome}`)
-  res.status(seatId ? 200 : 201).json({ ok: true, outcome, seat: summaryOf(id) })
-})
+  return { status: seatId ? 200 : 201, body: { ok: true, outcome, seat: summaryOf(id) } }
+}
+
 
 router.patch('/seats/:id', (req: AuthRequest, res) => {
   const id = req.params.id as string
@@ -257,7 +335,7 @@ router.post('/seats/:id/rotate', (req: AuthRequest, res) => {
     return
   }
   const stored = storeSeatCredential(id, credential, req.user?.id)
-  setSeatCredential(id, { ...stored, expiresAt: parseExpiry(req.body?.expiresAt) ?? null })
+  setSeatCredential(id, { ...stored, expiresAt: parseExpiry(req.body?.expiresAt) ?? null, source: 'pasted' })
   auditSeat(req.user?.id, 'rotate', id, 'credential=setup_token')
   res.json({ ok: true, seat: summaryOf(id) })
 })
@@ -271,16 +349,52 @@ router.post('/seats/:id/test', async (req: AuthRequest, res) => {
   res.json({ ok: true, outcome, seat: summaryOf(id) })
 })
 
+/**
+ * Remove a seat: out of the pool, its stored credential deleted, its own login
+ * files deleted, its pending sign-ins dropped, tombstoned so it does not come
+ * back on restart, audited.
+ *
+ * A seat with a running session is NOT removed (that would pull the credential
+ * out from under live work). It is DRAINED instead: disabled so nothing new
+ * starts on it, while the running sessions finish normally. The reply says so,
+ * and Remove works once they are done.
+ */
 router.delete('/seats/:id', (req: AuthRequest, res) => {
   const id = req.params.id as string
-  const result = removeSeat(id)
-  if (!result.removed) {
-    res.status(result.error === 'seat_in_use' ? 409 : 404).json({ error: result.error })
+  const seat = seatOr404(id, res)
+  if (!seat) return
+  const active = seat.activeSessions.length
+  if (active > 0) {
+    const wasEnabled = seat.enabled !== false
+    if (wasEnabled) updateSeat(id, { enabled: false })
+    auditSeat(req.user?.id, 'remove_blocked', id, `active_sessions=${active} drained=${wasEnabled ? 'now' : 'already'}`)
+    res.status(409).json({
+      error: `This seat is running ${active} session${active === 1 ? '' : 's'}. It is now disabled, so no new work starts on it, and the running work keeps going. Remove it again when they finish.`,
+      code: 'seat_in_use',
+      activeSessions: active,
+      drained: true,
+      seat: summaryOf(id),
+    })
     return
   }
-  deleteSeatCredential(result.removed.credentialRef, req.user?.id)
-  auditSeat(req.user?.id, 'remove', id, `kind=${result.removed.kind || 'claude'}`)
-  res.json({ ok: true })
+  const result = removeSeat(id)
+  if (!result.removed) {
+    // Lost a race with a session starting on it: same answer as above, nothing removed.
+    res.status(result.error === 'seat_in_use' ? 409 : 404).json({ error: result.error, code: result.error })
+    return
+  }
+  const removed = result.removed
+  const credentialStillStored = deleteSeatCredential(removed.credentialRef, req.user?.id)
+  const loginFiles = clearSeatHome(removed)
+  cancelClaudeLoginsForSeat(id)
+  try { spawnSync('tmux', ['kill-session', '-t', `seat-login-${id}`], { timeout: 5000, stdio: 'ignore' }) } catch { /* no login running */ }
+  auditSeat(
+    req.user?.id,
+    'remove',
+    id,
+    `kind=${removed.kind || 'claude'} credential=${removed.credentialRef ? (credentialStillStored ? 'delete_failed' : 'deleted') : 'none'} login_files=${loginFiles}`,
+  )
+  res.json({ ok: true, removed: { id, credentialDeleted: !credentialStillStored, loginFiles } })
 })
 
 // ── CLI login flow (Codex / Grok) ───────────────────────────────────────────

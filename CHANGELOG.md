@@ -8,6 +8,92 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Settings → Models: editable default + provider model refresh (obj 900679)
+
+**What changed.** Settings → Models now has a **Default model** and **Planner model**
+dropdown at the top, and a **Refresh from providers** button. Refresh calls each
+connected provider's model-list API (Anthropic `GET /v1/models`, OpenAI and xAI
+`GET /v1/models`, plus any custom OpenAI-compatible endpoint saved under API key
+providers) and adds any model the registry doesn't have yet, **switched off**, so
+a new model appears without a code change. Each provider gets its own status line:
+updated (N listed, N new), not connected, or failed with the HTTP status and the
+provider's error message.
+
+**What the operator should know.**
+- The server also refreshes on its own, once every 24h by default (host instance
+  only, never on a scratch server). `settings.model_refresh_interval_hours` changes
+  the interval; `settings.model_refresh_auto = '0'` turns it off.
+- Credentials, in order: the API key saved under Settings → Models → API key
+  providers (`PROVIDER_API_KEY__ANTHROPIC|OPENAI|XAI`), then the server env
+  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, …), then for Anthropic a
+  Claude subscription OAuth token in the env. A rejected key falls through to the
+  next one. Only the credential's name is stored in the report.
+- New models arrive disabled because a fresh id can need a newer CLI. Enable one
+  (or pick it as default, which enables it) to make it selectable on cards.
+- Models the provider stops listing are flagged "Not listed by provider", never
+  disabled automatically.
+- `models` gains three columns (`source`, `discovered_at`, `last_seen_at`), added
+  on boot. No rebuild needed.
+
+### One Agents & Skills page; the roster shows the knowledge base agents (obj 900684)
+
+Settings → Agents & Skills was a second copy of the registry on `/agents`. It is gone; `/settings/agents-skills` redirects to `/agents?tab=registry`, and the page and nav are now called **Agents & Skills**. The roster (`GET /api/admin/agents`, `services/agent-roster.ts`) used to list only flat `agents/*.md` persona files, so the built-in **Knowledge Base Setup** agent, folder-format chat agents, registry rows with no file, starter-pack agents (the **Librarian**) and sub-skills were invisible. They are now listed with their source and, where they are not usable yet, the reason. See `docs/agents/roster.md`.
+
+### Security: an agent key's workspace list now applies to `/api/docs` and MCP `write_doc` / `read_file` / `list_folders` / `search` (obj 900627, redo of 900021)
+
+**Severity: high. A scoped agent key could read and write other workspaces' notes.**
+
+**What was wrong.** The docs router checked a path only against the CALLER's doc
+roots. For an admin-owned agent key those are the admin roots, i.e. the whole
+vault, and the router never looked at the key's `workspaces` list. A key with
+`vault:write` and `workspaces = [example, operationkit]` could write
+`workspaces/your-org/zz-scope-test.md` through `PUT /api/docs/file` or MCP
+`write_doc`, and read any other workspace's notes the same way. Board routes and
+`/api/files` already enforced the list; the doc routes did not.
+
+**What changed.**
+
+- New `lib/doc-path-workspace.ts` (`workspaceOfPath`) resolves a path to exactly
+  ONE workspace. It canonicalises first (realpath of the nearest existing
+  ancestor), so `..` and symlinks are judged by where the bytes really are. A
+  path inside no workspace, or one two workspaces could claim (e.g. a
+  `workspaces/example/` folder nested inside `your-org`), resolves to no
+  workspace.
+- `GET /api/docs/file`, `PUT /api/docs/file`, `GET /api/docs/tree` (including
+  `?root=`) and `GET /api/docs/search` now return **403
+  `code: workspace_not_allowed`** for an agent key with a workspace list when the
+  path is not in exactly one of its workspaces. Admin-owned keys are included.
+  The check runs before any stat, mkdir or write, so a refused path is not an
+  existence oracle and nothing is created. The tree lists only the key's
+  workspace folders and `writeRoots`; search drops hits outside them.
+- MCP `write_doc`, `read_file`, `list_folders` and `search` forward to these
+  routes with the same bearer key, so they are covered too.
+- Unchanged: keys with no workspace list (`workspaces = null`), cookie/JWT
+  logins, and card sessions (`CC_SESSION_TOKEN`, already confined to their own
+  workspace by obj 900204). `/api/files/*`, `/api/kb-wiki/answers` and the
+  kb-wiki graph already enforced the key's list; confirmed, no change.
+
+**Behaviour change to know about.** A key WITH a workspace list can no longer
+read or write vault notes that sit outside every workspace (e.g. a note at the
+vault root such as `inbox.md`). This is deliberate: those notes belong to no
+workspace the key was granted. Use a key with no workspace list (or a cookie
+login) for vault-root notes.
+
+**Operator action:** none. Deploy as a normal backend change (`self-deploy.sh
+backend`). Tests: `app/server/src/routes/docs-agent-key-scope.test.ts`.
+
+### Sandbox `/tmp` is 2g and configurable; remove the OVH docker shim after deploy (obj 900402)
+
+`session-jail.ts` hardcoded the jail's `/tmp` tmpfs at `size=256m`, and AI reviews that
+cloned a ~170 MB repo failed with `/tmp/claude-1000 has 0 MB free` (2026-11-09). It is now
+`SESSION_JAIL_TMP_SIZE` (default `2g`; `JAIL_TMP_SIZE` in `client.conf`). An invalid value
+fails the spawn rather than mounting something else. Optional `SESSION_JAIL_CLAUDE_TMPDIR=on`
+(`JAIL_CLAUDE_TMPDIR`) sets `CLAUDE_CODE_TMPDIR` to the disk-backed jail HOME.
+
+**Operator action (OVH):** after deploying, remove the live hotfix shim at
+`/usr/local/bin/docker` in the app container if it survived, and confirm a new jail shows
+`size=2g`. Steps: `docs/runbooks/session-sandbox-workspace-and-secrets.md` §4.
+
 ### `install/claude-login.sh` accepts the pasted code; real error messages (obj 900541)
 
 A fresh install reported every pasted Authentication code as *"from a different sign-in

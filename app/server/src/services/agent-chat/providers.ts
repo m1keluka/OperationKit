@@ -5,9 +5,13 @@
 // converts at its edge. Every reply records which provider + model answered,
 // and the chat UI shows it under the message.
 //
-//   claude             Claude subscription. Client install: the one token the
-//                      installer stores (SESSION_JAIL_CLAUDE_OAUTH_TOKEN). Operator
-//                      host: the account pool the LLM gateway already uses.
+//   claude             Claude subscription, through the seat pool (obj 900624):
+//                      AGENT_CHAT_CLAUDE_OAUTH_TOKEN first when set, then every
+//                      healthy Claude seat (each signed in with ITS OWN credential,
+//                      in a private per-turn HOME), then the installer's
+//                      SESSION_JAIL_CLAUDE_OAUTH_TOKEN as the last resort. A seat
+//                      that is rate-limited, rejected or "Not logged in" is skipped
+//                      and the next one answers.
 //   anthropic          Anthropic API key (ANTHROPIC_API_KEY or SESSION_JAIL_ANTHROPIC_API_KEY)
 //   openai             OPENAI_API_KEY
 //   xai                Grok — XAI_API_KEY
@@ -19,9 +23,6 @@
 // Keys are read from the server env (hydrated from Settings → Secrets) by NAME.
 // They are only ever sent to their own provider's API, never logged, never
 // stored with a message.
-import os from 'os'
-import path from 'path'
-import fs from 'fs'
 import {
   translateRequest,
   parseAssistantOutput,
@@ -30,7 +31,7 @@ import {
   type OAIToolCall,
   type OAITool,
 } from '../llm-gateway/translate.js'
-import { createClaudeCliBackend, runClaudeTurn, gatewaySlotFilter, type LlmBackend } from '../llm-gateway/claude-cli-backend.js'
+import { BackendError, createClaudeCliBackend, gatewaySlotFilter, type LlmBackend, type TokenCandidate } from '../llm-gateway/claude-cli-backend.js'
 import { pickAccount, type AccountSlot } from '../account-router.js'
 import { CHAT_PROVIDERS, type ChatAgent, type ChatProviderId } from './agent-defs.js'
 import type { ToolSpec } from './tools.js'
@@ -114,6 +115,18 @@ export function extractImages(messages: ChatMessage[]): { messages: ChatMessage[
 
 export class ProviderError extends Error {}
 
+/**
+ * No AI account could take the turn: every Claude seat is busy, rate-limited
+ * or signed out (obj 900624). The engine turns this into an HTTP 503 with this
+ * message instead of a 200 carrying an error row, so the person sees a clear
+ * "try again" and their message is not stored half-answered.
+ */
+export class ProviderUnavailableError extends ProviderError {
+  constructor(message: string, readonly reason: 'no_seat' | 'rate_limited' | 'signed_out') {
+    super(message)
+  }
+}
+
 type FetchFn = typeof fetch
 
 export const DEFAULT_MODELS: Record<ChatProviderId, string> = {
@@ -146,12 +159,15 @@ function anthropicKey(env: NodeJS.ProcessEnv): string {
   return env1(env, 'SESSION_JAIL_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY')
 }
 function claudeToken(env: NodeJS.ProcessEnv): string {
-  return env1(env, 'SESSION_JAIL_CLAUDE_OAUTH_TOKEN', 'AGENT_CHAT_CLAUDE_OAUTH_TOKEN')
+  return env1(env, 'AGENT_CHAT_CLAUDE_OAUTH_TOKEN', 'SESSION_JAIL_CLAUDE_OAUTH_TOKEN')
 }
-/** Pool slots chat may use: the gateway's allowlist, minus the env-token 'sandbox' slot. */
+/**
+ * Pool seats chat may use: AGENT_CHAT_SLOTS, else the gateway's allowlist
+ * (LLM_GATEWAY_SLOTS, default every non-reserve Claude seat). The legacy
+ * 'sandbox' seat is included: it signs in with its own token now.
+ */
 function poolFilter(env: NodeJS.ProcessEnv): (a: AccountSlot) => boolean {
-  const g = gatewaySlotFilter(env)
-  return a => a.id !== 'sandbox' && g(a)
+  return gatewaySlotFilter({ LLM_GATEWAY_SLOTS: env.AGENT_CHAT_SLOTS ?? env.LLM_GATEWAY_SLOTS })
 }
 
 export interface ProviderDeps {
@@ -201,10 +217,20 @@ export function chooseProviderId(agent: ChatAgent, installDefault: string | null
   return 'demo'
 }
 
+/**
+ * The model one bot runs on with one provider: the bot's model (its file, or
+ * the bot-page override, obj 900671), else AGENT_CHAT_<PROVIDER>_MODEL, else
+ * DEFAULT_MODELS. Exported so the bot list shows the SAME model a turn uses —
+ * the list used to skip the env step and could name a model the bot was not on.
+ */
+export function resolveModel(id: ChatProviderId, agent: Pick<ChatAgent, 'model'>, env: NodeJS.ProcessEnv = process.env): string {
+  return agent.model || env1(env, `AGENT_CHAT_${id.toUpperCase().replace(/-/g, '_')}_MODEL`) || DEFAULT_MODELS[id]
+}
+
 export function createProvider(id: ChatProviderId, agent: ChatAgent, deps: ProviderDeps = {}): ChatProvider {
   const env = deps.env ?? process.env
   const f = deps.fetch ?? fetch
-  const model = agent.model || env1(env, `AGENT_CHAT_${id.toUpperCase().replace(/-/g, '_')}_MODEL`) || DEFAULT_MODELS[id]
+  const model = resolveModel(id, agent, env)
   const label = LABELS[id]
   switch (id) {
     case 'demo':
@@ -239,16 +265,52 @@ export function createProvider(id: ChatProviderId, agent: ChatAgent, deps: Provi
 
 // ── claude (subscription, via the Claude Code CLI the gateway already drives) ──
 
+/**
+ * The Claude backend chat uses (obj 900624). Before this, a client install with
+ * SESSION_JAIL_CLAUDE_OAUTH_TOKEN ran every chat turn on that ONE token in ONE
+ * shared HOME (/tmp/cc-agent-chat-home) and never looked at the seat pool,
+ * while the pool path ran setup-token seats with no credential at all — the CLI
+ * answered "Not logged in" and nothing rotated. Now every candidate signs in
+ * with its own credential in a private per-turn HOME, and a failed seat hands
+ * the turn to the next one.
+ */
+export function chatClaudeBackendOptions(env: NodeJS.ProcessEnv): Parameters<typeof createClaudeCliBackend>[0] {
+  const tok = (n: string): TokenCandidate[] => {
+    const v = env1(env, n)
+    return v ? [{ id: n === 'AGENT_CHAT_CLAUDE_OAUTH_TOKEN' ? 'agent-chat-token' : 'server-token', token: v }] : []
+  }
+  const attempts = Number(env.AGENT_CHAT_MAX_SEAT_ATTEMPTS)
+  const timeout = Number(env.AGENT_CHAT_TIMEOUT_MS)
+  return {
+    env,
+    slotFilter: poolFilter(env),
+    // A dedicated chat token is the operator's explicit choice for chat.
+    preferTokens: tok('AGENT_CHAT_CLAUDE_OAUTH_TOKEN'),
+    // The installer's single server token: last resort when no seat answers.
+    fallbackTokens: tok('SESSION_JAIL_CLAUDE_OAUTH_TOKEN'),
+    maxAttempts: attempts > 0 ? attempts : 4,
+    timeoutMs: timeout > 0 ? timeout : 180_000,
+    homeLabel: 'cc-agent-chat',
+  }
+}
+
 function claudeBackendFor(env: NodeJS.ProcessEnv): LlmBackend {
-  const token = claudeToken(env)
-  if (!token) return createClaudeCliBackend({ env: { ...env, LLM_GATEWAY_SLOTS: env.AGENT_CHAT_SLOTS ?? env.LLM_GATEWAY_SLOTS }, pick: f => pickAccount(a => f(a) && a.id !== 'sandbox') })
-  // Client install: one long-lived token handed to the CLI as env, in a scratch HOME.
-  const home = path.join(os.tmpdir(), 'cc-agent-chat-home')
-  fs.mkdirSync(home, { recursive: true, mode: 0o777 })
-  try { fs.chmodSync(home, 0o777) } catch { /* best effort */ }
-  const slot = { id: 'sandbox', homeDir: home } as AccountSlot
-  const timeout = Number(env.AGENT_CHAT_TIMEOUT_MS) > 0 ? Number(env.AGENT_CHAT_TIMEOUT_MS) : 180_000
-  return async req => ({ ...(await runClaudeTurn(slot, req, timeout, { CLAUDE_CODE_OAUTH_TOKEN: token })), attempts: 1 })
+  return createClaudeCliBackend(chatClaudeBackendOptions(env))
+}
+
+/** A backend failure that means "no seat could answer" → a clear, retryable error. */
+export function unavailableFromBackend(err: unknown): ProviderUnavailableError | null {
+  if (!(err instanceof BackendError) || err.emitted) return null
+  if (err.kind === 'no_account') {
+    return new ProviderUnavailableError('No Claude seat is free to answer right now: every seat is cooling down, parked, or not set up. Try again in a few minutes; an admin can check Settings → Seats.', 'no_seat')
+  }
+  if (err.kind === 'rate_limit') {
+    return new ProviderUnavailableError('Every Claude seat is at its usage limit right now. Try again in a few minutes.', 'rate_limited')
+  }
+  if (err.kind === 'auth') {
+    return new ProviderUnavailableError('No Claude seat could sign in to answer this message. Try again in a minute; if it keeps happening, an admin should check Settings → Seats.', 'signed_out')
+  }
+  return null
 }
 
 /**
@@ -276,13 +338,18 @@ async function claudeComplete(backend: LlmBackend, model: string, req: Completio
     messages: [{ role: 'system', content: req.system }, ...messages],
     tools: req.tools as OAITool[],
   })
-  const r = await backend({
-    model,
-    systemPrompt: t.systemPrompt,
-    prompt: t.prompt,
-    ...(images.length ? { images: images.slice(-CLAUDE_MAX_IMAGES) } : {}),
-    signal: req.signal,
-  })
+  let r
+  try {
+    r = await backend({
+      model,
+      systemPrompt: t.systemPrompt,
+      prompt: t.prompt,
+      ...(images.length ? { images: images.slice(-CLAUDE_MAX_IMAGES) } : {}),
+      signal: req.signal,
+    })
+  } catch (err) {
+    throw unavailableFromBackend(err) ?? err
+  }
   const parsed = parseAssistantOutput(r.text, t.toolNames)
   return { content: parsed.content, toolCalls: parsed.toolCalls }
 }

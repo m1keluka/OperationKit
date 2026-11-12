@@ -9,20 +9,29 @@
  *   POST   /api/connectors/:id/check    → re-test the stored connection → { status }
  *   PUT    /api/connectors/:id/access   → { agents, workspaces } (null = all) → { access }
  *   DELETE /api/connectors/:id          → disconnect → { status }
+ *   PUT    /api/connectors/:id/shared-app → admin: opt in/out of a third-party shared OAuth app (Sprint 7.7) → { shared_app }
+ *   DELETE /api/connectors/:id/shared-app → admin: forget that config entirely → { shared_app }
  *
  * Responses never contain a credential, only summaries (ConnectorStatus).
  * Changes need a signed-in person in the browser: API keys may read, not change.
  */
 import { Router } from 'express'
 import type { Request, Response } from 'express'
-import type { ConnectorSummary } from '@operationkit/shared'
-import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import type { ConnectorSharedApp, ConnectorSummary } from '@operationkit/shared'
+import { requireAuth, requireAdmin, type AuthRequest } from '../middleware/auth.js'
 import { listConnectors, getConnector } from '../connectors/registry.js'
 import { getAccess, setAccess, parseAccessBody } from '../connectors/access.js'
 import { NOT_CONNECTED, type ConnectorDefinition, type ConnectOutcome } from '../connectors/types.js'
 import { buildClientMetadataDocument } from '../connectors/dcr-client.js'
 import { dcrRedirectUri } from '../connectors/dcr-routes.js'
-import { redirectUriFor } from '../services/generic-connector-oauth.js'
+import { getOAuthClient, redirectUriFor } from '../services/generic-connector-oauth.js'
+import {
+  clearSharedAppConfig,
+  getSharedAppConfig,
+  getStoredSharedAppConfig,
+  setSharedAppConfig,
+  validateSharedAppInput,
+} from '../services/shared-oauth-app.js'
 import { redirectUriFor as googleRedirectUriFor } from '../services/user-google-connections.js'
 
 /** Google Workspace's callback lives at a different, older route than the generic oauth_guided store. */
@@ -72,6 +81,22 @@ function writerId(req: AuthRequest, res: Response): number | null {
   return id
 }
 
+/** Opt-in shared-app summary (Sprint 7.7). Public values only — there is no secret in this config. */
+function sharedAppSummary(def: ConnectorDefinition): ConnectorSharedApp | null {
+  if (!def.shared_app_eligible || def.auth_path !== 'oauth_guided') return null
+  const stored = getStoredSharedAppConfig(def.id)
+  return {
+    enabled: getSharedAppConfig(def.id) !== null,
+    configured: stored !== null,
+    issuer: stored?.issuer ?? null,
+    client_id: stored?.client_id ?? null,
+    redirect_uri: stored?.redirect_uri ?? null,
+    provider_label: stored?.provider_label ?? null,
+    install_callback_uri: redirectUriFor(def.id),
+    own_app_configured: getOAuthClient(def.id) !== null,
+  }
+}
+
 async function summarize(def: ConnectorDefinition, userId: number): Promise<ConnectorSummary> {
   const avail = def.availability ? def.availability() : { ok: true as const }
   let status = NOT_CONNECTED
@@ -97,6 +122,7 @@ async function summarize(def: ConnectorDefinition, userId: number): Promise<Conn
         ? { redirect_uri: oauthRedirectUriFor(def.id), scopes: def.oauth.scopes }
         : null,
     setup_guide: def.setup_guide ?? null,
+    shared_app: sharedAppSummary(def),
   }
 }
 
@@ -196,6 +222,42 @@ router.put('/:id/access', async (req: AuthRequest, res: Response) => {
     return
   }
   res.json({ access: setAccess(def.id, userId, parsed) })
+})
+
+// ── Opt-in shared third-party OAuth app (Sprint 7.7, obj 900511) ────────────
+// Admin-only, signed-in-in-the-browser only. Named connectors only: a
+// connector that does not declare `shared_app_eligible` gets a 400.
+
+async function sharedAppTarget(req: AuthRequest, res: Response): Promise<ConnectorDefinition | null> {
+  if (writerId(req, res) == null) return null
+  const def = await findOr404(req, res)
+  if (!def) return null
+  if (!def.shared_app_eligible || def.auth_path !== 'oauth_guided') {
+    res.status(400).json({ error: `${def.name} cannot use a shared third-party app.` })
+    return null
+  }
+  return def
+}
+
+router.put('/:id/shared-app', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const def = await sharedAppTarget(req, res)
+  if (!def) return
+  const parsed = validateSharedAppInput(req.body)
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error })
+    return
+  }
+  setSharedAppConfig(def.id, parsed.value)
+  console.log(`[connectors] ${def.id}: shared third-party app ${parsed.value.enabled ? 'ENABLED' : 'saved (off)'} by user ${req.user?.id}`)
+  res.json({ shared_app: sharedAppSummary(def) })
+})
+
+router.delete('/:id/shared-app', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const def = await sharedAppTarget(req, res)
+  if (!def) return
+  clearSharedAppConfig(def.id)
+  console.log(`[connectors] ${def.id}: shared third-party app config removed by user ${req.user?.id}`)
+  res.json({ shared_app: sharedAppSummary(def) })
 })
 
 router.delete('/:id', async (req: AuthRequest, res: Response) => {

@@ -128,7 +128,7 @@ export function DataTable<T>({
                     key={col.key}
                     aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                     className={cn(
-                      'px-3 py-2.5 text-[12px] uppercase tracking-[0.1em] text-fg-3 font-semibold tracking-[0.06em]',
+                      'px-3 py-2.5 align-middle text-[12px] uppercase tracking-[0.1em] text-fg-3 font-semibold',
                       alignCls(col.align),
                       col.headerClassName,
                       col.className,
@@ -138,7 +138,8 @@ export function DataTable<T>({
                       <button
                         onClick={() => toggleSort(col)}
                         className={cn(
-                          'inline-flex items-center gap-1 transition-colors duration-fast hover:text-fg-1',
+                          // Preflight resets text-transform on <button>; keep the header's small caps (QA obj 900621).
+                          'inline-flex items-center gap-1 align-middle uppercase transition-colors duration-fast hover:text-fg-1',
                           active && 'text-fg-1',
                           col.align === 'right' && 'flex-row-reverse',
                         )}

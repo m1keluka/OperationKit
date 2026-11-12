@@ -11,6 +11,9 @@
  *     console line.
  *  7. MCP relay: board:secrets_request mints a one-time upload token; it expires,
  *     cannot be reused, cannot be used for another name; History records the agent.
+ *  8. obj 900670 — the masked in-chat form: its write path is write-only (no
+ *     route, including every error path and the Settings → Secrets reads, ever
+ *     echoes the value) and the value cannot be revealed (#900540 D1).
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import fs from 'fs'
@@ -46,6 +49,7 @@ const { default: objectivesRouter } = await import('./objectives.js')
 const { default: needsSecretRouter } = await import('./objective-needs-secret.js')
 const { default: secretUploadRouter } = await import('./secret-upload.js')
 const { default: agentControlRouter } = await import('./agent-control.js')
+const { default: secretsRouter } = await import('./secrets.js')
 
 const WS = 'example'
 const SESSION = 'cc-719065-1'
@@ -134,6 +138,7 @@ beforeAll(async () => {
   app.use('/api/objectives', needsSecretRouter)
   app.use('/api/objectives', objectivesRouter)
   app.use('/api/agent', agentControlRouter)
+  app.use('/api/secrets', secretsRouter)
   server = http.createServer(app)
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
   const addr = server.address()
@@ -354,5 +359,72 @@ describe('7. MCP relay: one-time, write-only upload token', () => {
     await tool.run({ request_id: `sr-${objId}-APIFY_API_TOKEN` }, (async (m: string, p: string, b?: unknown) => { calls.push([m, p, b]); return {} }) as any)
     expect(calls[0].slice(0, 2)).toEqual(['POST', `/api/objectives/${objId}/secret-requests/sr-${objId}-APIFY_API_TOKEN/upload-token`])
     await expect(tool.run({ request_id: 'nope' }, (async () => ({})) as any)).rejects.toThrow(/request_id/)
+  })
+})
+
+describe('8. masked in-chat secret form (obj 900670): write-only, never echoed, never revealed', () => {
+  const NAME = 'CHAT_FORM_API_KEY'
+  const owner = () => ({ Cookie: ownerCookie() })
+
+  it('agent asks → form submit stores the value; no response, read route or persisted row carries it', async () => {
+    await raise(NAME)
+    const filled = await call('POST', `/api/objectives/${objId}/needs-secret/fill`, owner(), { name: NAME, value: VALUE })
+    expect(filled.status).toBe(200)
+    expect(filled.json).toMatchObject({ ok: true, name: NAME, requested: true, needs_secret: [] })
+    expect(filled.text).not.toContain(VALUE)
+    // landed in the workspace secrets the session env is built from
+    expect(resolveSecrets({ workspace: WS })[NAME]).toBe(VALUE)
+
+    // Every read a browser or agent can make afterwards: names/metadata only.
+    const reads = await Promise.all([
+      call('GET', `/api/objectives/${objId}`, owner()),
+      call('GET', `/api/objectives/${objId}/secret-requests`, owner()),
+      call('GET', '/api/secrets', owner()),
+      call('GET', `/api/secrets?scopeType=workspace&workspace=${WS}`, owner()),
+      call('GET', `/api/secrets/versions?scopeType=workspace&workspace=${WS}&key=${NAME}`, owner()),
+    ])
+    for (const r of reads) {
+      expect(r.status).toBe(200)
+      expect(r.text).not.toContain(VALUE)
+    }
+    expect(reads[2].text).toContain(NAME) // listed by name — the value is the only thing withheld
+
+    await flush()
+    const [, wake] = sendFollowUpMock.mock.calls[0] as unknown as [string, string]
+    expect(wake).toContain(NAME)
+    expect(wake).not.toContain(VALUE)
+    expect(everythingPersisted()).not.toContain(VALUE)
+  })
+
+  it('the stored value cannot be revealed (D1) — the reveal tripwire refuses and does not echo', async () => {
+    await call('POST', `/api/objectives/${objId}/secrets`, owner(), { name: NAME, value: VALUE, notify: false })
+    const r = await call('POST', '/api/secrets/reveal', owner(), { scopeType: 'workspace', workspace: WS, key: NAME })
+    expect(r.status).toBe(403)
+    expect(r.json.error).toBe('reveal_disabled')
+    expect(r.text).not.toContain(VALUE)
+  })
+
+  it('error paths never echo the submitted value', async () => {
+    const huge = VALUE.repeat(Math.ceil((16 * 1024) / VALUE.length) + 1)
+    const cases = [
+      // not requested on this card
+      await call('POST', `/api/objectives/${objId}/needs-secret/fill`, owner(), { name: 'NOT_ASKED_FOR', value: VALUE }),
+      // bad name
+      await call('POST', `/api/objectives/${objId}/secrets`, owner(), { name: 'bad name', value: VALUE }),
+      // bad scope
+      await call('POST', `/api/objectives/${objId}/secrets`, owner(), { name: NAME, value: VALUE, scope: 'nope' }),
+      // too large to be a credential
+      await call('POST', `/api/objectives/${objId}/secrets`, owner(), { name: NAME, value: huge }),
+      // not the owner (agent key)
+      await call('POST', `/api/objectives/${objId}/needs-secret/fill`, { Authorization: `Bearer ${relayKey.token}` }, { name: NAME, value: VALUE }),
+    ]
+    expect(cases.map(c => c.status)).toEqual([400, 400, 400, 413, 403])
+    for (const c of cases) expect(c.text).not.toContain(VALUE)
+    setFlag(trust.SESSION_SECRET_ACCESS_FLAG, false)
+    const off = await call('POST', `/api/objectives/${objId}/needs-secret/fill`, owner(), { name: NAME, value: VALUE })
+    expect(off.status).toBe(404)
+    expect(off.text).not.toContain(VALUE)
+    expect(resolveSecrets({ workspace: WS })[NAME]).toBeUndefined()
+    expect(everythingPersisted()).not.toContain(VALUE)
   })
 })

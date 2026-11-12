@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Share2 } from 'lucide-react'
 import { edgeSentence, radialLayout, shortTitle, type GraphNeighbour, type RelatedResponse } from '../../lib/kbWiki'
 import { Alert, Badge, Button, Skeleton, SkeletonText, cn } from '../ui'
+import { kindName, toneOf } from './kinds'
 import { wikiApi, wsQuery } from './wikiApi'
 
 /* PageGraph (obj 720162) — the neighbourhood of one knowledge-base page: the
@@ -18,24 +19,6 @@ const heightFor = (w: number) => (w < 420 ? 300 : 260)
 const NAME_HALF = 54
 const MAX_DRAWN = 12
 const LIST_PREVIEW = 6
-
-/** Token colour per page kind — fill for the SVG dot, bg for the list dot. */
-const KIND_TONE: Record<string, { fill: string; bg: string }> = {
-  person: { fill: 'fill-agent-cto', bg: 'bg-agent-cto' },
-  organization: { fill: 'fill-agent-cfo', bg: 'bg-agent-cfo' },
-  project: { fill: 'fill-agent-coo', bg: 'bg-agent-coo' },
-  product: { fill: 'fill-agent-cmo', bg: 'bg-agent-cmo' },
-  topic: { fill: 'fill-status-planning', bg: 'bg-status-planning' },
-  answer: { fill: 'fill-status-ai', bg: 'bg-status-ai' },
-  source: { fill: 'fill-fg-3', bg: 'bg-fg-3' },
-}
-const toneOf = (kind: string) => KIND_TONE[kind] ?? { fill: 'fill-fg-2', bg: 'bg-fg-2' }
-
-function kindName(kind: string): string {
-  if (kind === 'answer') return 'Saved answer'
-  if (kind === 'source') return 'Source'
-  return kind.charAt(0).toUpperCase() + kind.slice(1).replace(/[-_]+/g, ' ')
-}
 
 export function PageGraph({ workspace, rel, onOpenNote }: { workspace: string; rel: string; onOpenNote: (rel: string) => void }) {
   const [data, setData] = useState<RelatedResponse | null>(null)

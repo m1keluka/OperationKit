@@ -190,6 +190,17 @@ export function initModelsSchema(db: Database.Database): void {
     })()
   }
 
+  // Provider refresh bookkeeping (obj 900679). `source` = where the row came
+  // from: 'seed' (a migration above / pre-existing rows) or 'provider' (inserted
+  // by services/model-refresh.ts from a provider's live /models list).
+  // `last_seen_at` = the last refresh that saw the id at its provider.
+  {
+    const cols = new Set((db.prepare('PRAGMA table_info(models)').all() as { name: string }[]).map(c => c.name))
+    if (!cols.has('source')) db.exec("ALTER TABLE models ADD COLUMN source TEXT NOT NULL DEFAULT 'seed'")
+    if (!cols.has('discovered_at')) db.exec('ALTER TABLE models ADD COLUMN discovered_at TEXT')
+    if (!cols.has('last_seen_at')) db.exec('ALTER TABLE models ADD COLUMN last_seen_at TEXT')
+  }
+
   // Disabled-model rescue (2026-06-19, bug #836). Defense-in-depth safety net.
   // The 2026-06-13 registry cutover repointed existing objective row VALUES off
   // the dead 'claude-fable-5' but left the objectives.model column DEFAULT as
@@ -207,14 +218,14 @@ export function initModelsSchema(db: Database.Database): void {
   // would quietly become Opus with only a `[db]` log line. So for non-terminal
   // objectives we now raise a HIGH-severity alert (AlertBell) and leave the model
   // untouched, letting an operator re-enable the model or reassign deliberately.
-  // Terminal `done` rows never spawn, so they are left untouched to preserve their
+  // Terminal `done` and `cancelled` rows never spawn (obj 900677: cancelled ones re-raised this alert on every boot), so they are left untouched to preserve their
   // historical model attribution.
   try {
     const def = (db.prepare('SELECT id FROM models WHERE is_default = 1 LIMIT 1').get() as { id: string } | undefined)?.id
     if (def) {
       const stranded = db.prepare(
         `SELECT id, model FROM objectives
-         WHERE status != 'done'
+         WHERE status NOT IN ('done', 'cancelled')
            AND model IN (SELECT id FROM models WHERE enabled = 0)
          ORDER BY id`
       ).all() as { id: number; model: string }[]

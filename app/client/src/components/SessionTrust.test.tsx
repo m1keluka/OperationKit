@@ -4,7 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { Objective } from '@operationkit/shared'
 import { ObjectiveCard } from './ObjectiveCard'
 import { NeedsSecretFlag, SenderTag } from './design/primitives'
-import { NeedsSecretPanel } from './session-viewer/NeedsSecretPanel'
+import { ChatSecretRequests } from './session-viewer/ChatSecretRequest'
+import { Composer } from './session-viewer/Composer'
 import { GroupedMessages } from './SessionMessages'
 
 // obj 718944 — server-stamped sender on chat bubbles; needs-secret on the card.
@@ -66,20 +67,38 @@ describe('needs-secret on the card (obj 718944)', () => {
     expect(html).toContain('Needs a secret from the owner: A_KEY, B_KEY')
   })
 
-  it('panel: owner gets a masked input; others are told only the owner can add it', () => {
+  it('chat form (obj 900670): the agent request is an in-chat bubble with a masked input; others only see who can add it', () => {
     const items = [{ name: 'APIFY_API_TOKEN', reason: 'Apify skip trace', requested_at: 't' }]
-    const owner = renderToStaticMarkup(<NeedsSecretPanel objectiveId={1} workspace="example" items={items} canFill />)
+    const owner = renderToStaticMarkup(<ChatSecretRequests objectiveId={1} workspace="example" items={items} canFill />)
+    expect(owner).toContain('data-testid="chat-secret-request"')
     expect(owner).toContain('type="password"')
+    expect(owner).toContain('autoComplete="off"')
     expect(owner).toContain('APIFY_API_TOKEN')
     expect(owner).toContain('Apify skip trace')
-    // obj 719065: scope picker defaults to the card's organization
-    expect(owner).toMatch(/aria-checked="true"[^>]*>Organization</)
-    const global = renderToStaticMarkup(<NeedsSecretPanel objectiveId={1} workspace="example" items={[{ ...items[0], scope: 'global' }]} canFill />)
-    expect(global).toMatch(/aria-checked="true"[^>]*>Everywhere</)
-    const member = renderToStaticMarkup(<NeedsSecretPanel objectiveId={1} workspace="example" items={items} canFill={false} />)
+    // scope defaults to the card's organization, shown as one compact line
+    expect(owner).toContain('example secrets')
+    expect(owner).toContain('never shown in chat')
+    const global = renderToStaticMarkup(<ChatSecretRequests objectiveId={1} workspace="example" items={[{ ...items[0], scope: 'global' }]} canFill />)
+    expect(global).toContain('Everywhere (every organization)')
+    const member = renderToStaticMarkup(<ChatSecretRequests objectiveId={1} workspace="example" items={items} canFill={false} />)
     expect(member).not.toContain('type="password"')
-    expect(member).toContain('Only the card owner or an admin can add this')
-    expect(renderToStaticMarkup(<NeedsSecretPanel objectiveId={1} workspace="example" items={[]} canFill />)).toBe('')
+    expect(member).toContain('Waiting for the card owner or an admin')
+    expect(renderToStaticMarkup(<ChatSecretRequests objectiveId={1} workspace="example" items={[]} canFill />)).toBe('')
+  })
+
+  it('the composer "+ Add secret" item is gone (obj 900670)', () => {
+    const noop = () => {}
+    const html = renderToStaticMarkup(
+      <Composer
+        attachedFiles={[]} removeFile={noop} sendError={null} setSendError={noop}
+        fileInputRef={{ current: null }} handleUpload={noop} uploading={false}
+        message="" setMessage={noop} messageRef={{ current: null }} handleSendMessage={noop}
+        inputDisabled={false} isActive={false} handleStop={noop} interrupting={false} sending={false}
+        secrets={{ objectiveId: 1, workspace: 'example', pendingNames: [] }}
+      />,
+    )
+    expect(html).not.toContain('Add secret')
+    expect(html).not.toContain('type="password"')
   })
 })
 

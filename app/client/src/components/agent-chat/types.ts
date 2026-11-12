@@ -16,8 +16,36 @@ export interface ChatAgentInfo {
   provider: ProviderId | null
   version: string | null
   author: string | null
+  /** "How to use" text for the info panel (obj 900672). Older servers omit it. */
+  how_to_use?: string
+  /** Example prompts for the info panel and an empty conversation (obj 900672). */
+  example_prompts?: string[]
   source: 'file' | 'demo' | 'builtin'
   answered_by: { id: ProviderId; model: string | null }
+  /** obj 900671 — optional so an older server's answer still renders. */
+  all_tools?: boolean
+  effective_tools?: string[]
+  file_defaults?: { provider: ProviderId | null; model: string | null; tools: string[] }
+  config?: BotConfigInfo | null
+}
+
+/** An admin's bot-page overrides (obj 900671). null fields = the agent file's value. */
+export interface BotConfigInfo {
+  provider: ProviderId | null
+  model: string | null
+  tools: string[] | null
+  all_tools: boolean
+  updated_by: string | null
+  updated_at: string
+}
+
+export type ToolGroup = 'web' | 'knowledge' | 'board' | 'connectors' | 'integrations'
+
+export interface ToolCatalogEntry {
+  name: string
+  label: string
+  description: string
+  group: ToolGroup
 }
 
 export interface AgentsResponse {
@@ -26,6 +54,19 @@ export interface AgentsResponse {
   providers: Record<ProviderId, boolean>
   default_provider: string | null
   problems?: { slug: string; file: string; errors: string[] }[]
+  /** obj 900671 */
+  tool_catalog?: ToolCatalogEntry[]
+  model_suggestions?: Partial<Record<ProviderId, string[]>>
+  default_models?: Partial<Record<ProviderId, string>>
+  web?: { available: boolean; backends: string[] }
+}
+
+/** Body of PUT /agent-chat/agents/:slug/config (obj 900671). */
+export interface BotConfigPatch {
+  provider?: ProviderId | null
+  model?: string | null
+  tools?: string[] | null
+  all_tools?: boolean
 }
 
 /** An image attached to a chat message (obj 900157). */

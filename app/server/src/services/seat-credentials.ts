@@ -14,6 +14,7 @@
  * (seatJailMount) and nothing else.
  */
 import path from 'path'
+import { timingSafeEqual } from 'crypto'
 import {
   registerSeatCredentialCheck,
   type AccountSlot,
@@ -50,9 +51,34 @@ export function storeSeatCredential(
   return { ref, hint: credentialHint(v) }
 }
 
-export function deleteSeatCredential(ref: string | null | undefined, actorUserId?: number | null): void {
-  if (!ref) return
+/**
+ * Delete a seat's stored credential. Returns whether the store still holds it
+ * afterwards (false = gone), so the caller can prove the delete and audit it.
+ */
+export function deleteSeatCredential(ref: string | null | undefined, actorUserId?: number | null): boolean {
+  if (!ref) return false
   try { deleteSecret(GLOBAL, ref, actorUserId ?? null) } catch { /* already gone */ }
+  return seatCredentialStored(ref)
+}
+
+/**
+ * Is this exact credential already stored on another Claude seat? Used so a
+ * double-submitted / re-pasted setup token does not create a second seat for
+ * the same subscription. Only seats whose masked hint already matches are
+ * decrypted (normally zero or one), and the comparison is constant-time.
+ */
+export function findSeatWithCredential(seats: AccountSlot[], value: string, actorUserId?: number | null): AccountSlot | null {
+  const v = (value || '').trim()
+  const hint = credentialHint(v)
+  if (!v || !hint) return null
+  for (const seat of seats) {
+    if (seat.credentialKind !== 'setup_token' || !seat.credentialRef || seat.credentialHint !== hint) continue
+    if (seatKind(seat) !== 'claude' || seat.id === SANDBOX_ACCOUNT_ID) continue
+    let stored: string | null = null
+    try { stored = getSecretValue(GLOBAL, seat.credentialRef, actorUserId ?? 0) } catch { stored = null }
+    if (stored && stored.length === v.length && timingSafeEqual(Buffer.from(stored), Buffer.from(v))) return seat
+  }
+  return null
 }
 
 export function seatCredentialStored(ref: string | null | undefined): boolean {
@@ -106,6 +132,13 @@ export interface SeatSummary {
   consecutiveFailures: number
   credential: {
     kind: 'setup_token' | 'cli_login'
+    /**
+     * How the credential got here: 'oauth' (in-app Sign in with Claude),
+     * 'pasted' (a pasted setup token, or an older record that predates this
+     * field) or 'cli_login' (CLI login files). Anything but 'oauth' on a
+     * Claude seat is offered "Reconnect with Sign in with Claude".
+     */
+    source: 'oauth' | 'pasted' | 'cli_login'
     /** Last 4 characters at most; null when unknown or too short to show safely. */
     last4: string | null
     addedAt: string | null
@@ -153,6 +186,7 @@ export function maskSeat(
     consecutiveFailures: seat.consecutiveFailures || 0,
     credential: {
       kind: seat.credentialKind === 'setup_token' ? 'setup_token' : 'cli_login',
+      source: cliLogin ? 'cli_login' : seat.credentialSource === 'oauth' ? 'oauth' : 'pasted',
       last4: seat.credentialHint ? seat.credentialHint.slice(-4) : null,
       addedAt: seat.credentialAddedAt || null,
       expiresAt: seat.credentialExpiresAt || null,

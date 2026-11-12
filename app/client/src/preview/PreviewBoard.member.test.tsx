@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * The board's two filter rows: ORG (WorkspaceFilterBar) and PROJECT
- * (ProjectFilterBar).
+ * The board header filters: PROJECT (ProjectFilterBar) and OWNER;
+ * the ORG picker moved to the top bar in obj 900666.
  *
  * obj 708893 — the PROJECT row has to render for a non-admin member of exactly
  * one org even while `workspaces` is still `[]` (the window after auth resolves
@@ -10,8 +10,8 @@
  * obj 900197 — the PROJECT row must ALSO render in the All / multi-org view,
  * which is where this file previously asserted the opposite. Hiding it there
  * was the reported bug: the default admin board spans every org, so the filter
- * was absent almost all the time. It now renders with org-prefixed chips. The
- * ORG row is new and renders unconditionally.
+ * was absent almost all the time. It now renders with org-prefixed options.
+ * (The ORG row obj 900197 added here moved to the top bar in obj 900666.)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushSync } from 'react-dom'
@@ -199,46 +199,38 @@ describe('PreviewBoard — filter row visibility (obj 708893, obj 900197)', () =
     expect(hasProjectBar()).toBe(true)
   })
 
-  it('ORG row renders on the board in every view', async () => {
+  // obj 900666: the org picker moved to the top bar (Layout → OrgSwitcher), so
+  // the board itself must NOT carry an org row any more.
+  it('the board has no org row of its own', async () => {
     mockUser = {
       id: 1, username: 'operator', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }
-    flushSync(() => root.render(<PreviewBoard workspaces={[]} onWorkspacesChange={vi.fn()} />))
+    flushSync(() => root.render(<PreviewBoard workspaces={[]} />))
     await flush()
-    expect(hasOrgBar()).toBe(true)
-    flushSync(() => root.render(<PreviewBoard workspaces={['example' as Workspace]} onWorkspacesChange={vi.fn()} />))
-    await flush()
-    expect(hasOrgBar()).toBe(true)
+    expect(hasOrgBar()).toBe(false)
+    expect(container.querySelector('[data-testid="org-switcher"]')).toBeNull()
   })
 
-  it('an admin can pick an org straight from the board row', async () => {
+  it('Project, Owner, Search cards, Archive and New share ONE header line', async () => {
     mockUser = {
       id: 1, username: 'operator', role: 'admin',
       workspaces: [],
       created_at: '2026-01-01T00:00:00Z',
     }
-    const onWorkspacesChange = vi.fn()
-    flushSync(() => root.render(
-      <PreviewBoard workspaces={[]} onWorkspacesChange={onWorkspacesChange} />
-    ))
+    flushSync(() => root.render(<PreviewBoard workspaces={['example' as Workspace]} />))
     await flush()
-    const chip = container.querySelector('[data-workspace="example2"]')
-    expect(chip).toBeTruthy()
-    flushSync(() => chip?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-    expect(onWorkspacesChange).toHaveBeenCalledWith(['example2'])
-  })
-
-  it('a member only sees the orgs they belong to in the ORG row', async () => {
-    mockUser = {
-      id: 2, username: 'casey', role: 'member',
-      workspaces: [{ workspace: 'example', role: 'member' }],
-      created_at: '2026-01-01T00:00:00Z',
-    }
-    flushSync(() => root.render(<PreviewBoard workspaces={['example' as Workspace]} onWorkspacesChange={vi.fn()} />))
-    await flush()
-    expect(container.querySelector('[data-workspace="example"]')).toBeTruthy()
-    expect(container.querySelector('[data-workspace="example2"]')).toBeNull()
+    const header = container.querySelector('[data-testid="board-header"]') as HTMLElement
+    expect(header).toBeTruthy()
+    expect(header.querySelector('[data-testid="project-filter-bar"]')).toBeTruthy()
+    expect(header.querySelector('[data-testid="owner-filter"]')).toBeTruthy()
+    const labels = [...header.querySelectorAll('button')].map(b => b.getAttribute('aria-label') || b.textContent?.trim())
+    expect(labels).toContain('Search cards')
+    expect(labels).toContain('Archive')
+    expect(labels).toContain('New')
+    // Project comes before Owner, both before the actions.
+    const order = [...header.querySelectorAll('[data-testid]')].map(el => el.getAttribute('data-testid'))
+    expect(order.indexOf('project-filter-bar')).toBeLessThan(order.indexOf('owner-filter'))
   })
 })
