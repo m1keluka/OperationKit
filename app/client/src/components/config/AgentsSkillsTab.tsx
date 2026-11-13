@@ -231,7 +231,7 @@ export function AgentsSkillsTab() {
               className={cn(
                 'w-full rounded-md px-3 py-2.5 text-left transition-colors',
                 selected?.type === 'agent' && selected.key === agentId(agent)
-                  ? 'bg-[var(--accent-tint)] text-accent-hover'
+                  ? 'bg-surface-selected font-medium text-fg-0 shadow-[inset_2px_0_0_var(--accent-text)]'
                   : 'text-fg-1 hover:bg-surface-3',
               )}
             >
@@ -266,7 +266,7 @@ export function AgentsSkillsTab() {
                   'w-full rounded-md px-3 py-2.5 text-left transition-colors',
                   skill.parent && 'pl-6',
                   selected?.type === 'skill' && selected.key === skill.dirname
-                    ? 'bg-[var(--accent-tint)] text-accent-hover'
+                    ? 'bg-surface-selected font-medium text-fg-0 shadow-[inset_2px_0_0_var(--accent-text)]'
                     : 'text-fg-1 hover:bg-surface-3',
                 )}
               >

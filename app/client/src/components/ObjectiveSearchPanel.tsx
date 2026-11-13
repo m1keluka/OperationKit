@@ -163,7 +163,7 @@ export function ObjectiveSearchPanel({ open, workspace, onClose, onSelect }: Obj
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-surface-0/70 p-4 pt-[10vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-[var(--scrim)] p-4 pt-[10vh]"
       onClick={onClose}
     >
       <div

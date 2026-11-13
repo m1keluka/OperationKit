@@ -106,7 +106,7 @@ export function DropdownOption({
       aria-pressed={selected}
       {...rest}
       className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors duration-fast ease-out ${
-        selected ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
+        selected ? 'bg-surface-selected text-fg-0' : 'text-fg-1 hover:bg-surface-3 hover:text-fg-0'
       }`}
     >
       {multi && (

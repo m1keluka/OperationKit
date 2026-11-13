@@ -121,7 +121,7 @@ export function WikiBrowser({
                     <button
                       type="button"
                       onClick={() => onOpenNote(p.rel)}
-                      className="flex min-h-[44px] w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors duration-fast hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                      className="flex min-h-[44px] w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors duration-fast hover:bg-surface-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                     >
                       <span className="text-[13.5px] font-medium text-fg-0">{p.title}</span>
                       {p.summary && <span className="line-clamp-2 text-[12.5px] leading-snug text-fg-2">{p.summary}</span>}

@@ -32,7 +32,10 @@ import { fileAnswer } from '../kb-wiki/answers.js'
 import { botForAgentSlug } from '../bots/bot-registry.js'
 import { createBotJob } from '../bots/bot-jobs.js'
 import { buildAttention, oneLine, visibilityClause, type ControlUser } from '../../lib/agent-control.js'
-import { KNOWN_TOOL_NAMES, listsAllTools } from './tool-names.js'
+import { ALL_TOOLS_GRANT, EXPLICIT_ONLY_TOOLS, KNOWN_TOOL_NAMES, listsAllTools } from './tool-names.js'
+import { callerForChat, executeHttp, listForCaller, recordBrokerUse } from '../secrets-broker.js'
+import { rateLimit } from '../file-access.js'
+import { userHasWorkspace } from '../../middleware/workspace.js'
 import { webFetch, webSearch, WebToolError, MAX_SEARCH_RESULTS, DEFAULT_SEARCH_RESULTS, type WebToolDeps } from './web-tools.js'
 
 export interface ToolSpec {
@@ -117,6 +120,17 @@ const SPECS: Record<string, ToolSpec[]> = {
     }, ['query']))],
   web_fetch: [fn('web_fetch', 'Read one public web page (http or https) and return its text. Use it to open a search result or a link the person gives you. Private and internal addresses cannot be read.',
     obj({ url: { type: 'string', description: 'The full page URL, e.g. https://example.com/pricing' } }, ['url']))],
+  // obj 900749: use a named secret without seeing it (the secrets broker).
+  secrets: [
+    fn('secrets_list', 'List the secrets you may USE in this workspace, by NAME, with the hosts each one may be sent to. You never see a value. usable=false means no host is allowed yet (an admin turns on bot access in Settings → Secrets).',
+      obj({})),
+    fn('secret_http', 'Call an HTTPS API with a named secret. Write {{secret:NAME}} where the key goes (a header value, the URL path/query, or a body string), e.g. headers {"Authorization": "Bearer {{secret:STRIPE_KEY}}"}. The server adds the real value only on the outgoing request, only to a host that secret allows, and gives you the reply with the value blanked out. NEVER ask the person to paste a key and never write one into a message.',
+      obj({
+        method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'], description: 'Default GET' },
+        url: { type: 'string', description: 'Absolute https:// URL' },
+        headers: { type: 'object', additionalProperties: { type: 'string' } },
+        body: { type: 'string', description: 'Request body. For JSON, send the JSON text and a Content-Type: application/json header.' },
+      }, ['url']))],
   email: [
     fn('email_list_inbox', 'List recent emails in the inbox (newest first).',
       obj({ limit: { type: 'integer', minimum: 1, maximum: 50 }, unread_only: { type: 'boolean' } })),
@@ -150,7 +164,8 @@ const IMPLIED_TOOLS: Record<string, string[]> = {
  * this release knows, so an "all tools" bot gains new tools without an edit.
  */
 export function effectiveTools(agent: Pick<ChatAgent, 'tools'>): string[] {
-  if (listsAllTools(agent.tools)) return [...KNOWN_TOOL_NAMES]
+  // obj 900749: "all" never includes an explicit-only tool (secret use) — it must be named too.
+  if (listsAllTools(agent.tools)) return [...ALL_TOOLS_GRANT, ...agent.tools.filter(t => EXPLICIT_ONLY_TOOLS.has(t))]
   const out = new Set(agent.tools.filter(t => KNOWN_TOOL_NAMES.has(t)))
   for (const t of agent.tools) for (const extra of IMPLIED_TOOLS[t] ?? []) out.add(extra)
   return [...out]
@@ -209,6 +224,29 @@ export function resolveKnowledgePath(ctx: Pick<ToolContext, 'kbRoot' | 'agent'>,
     throw new ToolUseError(`"${cleaned}" is outside this agent's knowledge folders (${ctx.agent.knowledge_folders.join(', ')}).`)
   }
   return { abs, rel: path.relative(root, abs).split(path.sep).join('/') }
+}
+
+/**
+ * The error a bot sees when a knowledge path is missing (obj 900745).
+ *
+ * A note nobody has written yet — Operation Kit Dev's business/profile.md on a
+ * fresh install is the case that bit us — is a normal state, not a dead end. A
+ * bare "File … does not exist." let one model stop there ("I don't have a
+ * profile for your business yet") while another listed the folders and the
+ * board and answered. So the error itself names the next step, using only the
+ * tools THIS agent has, so the recovery is the same whichever model answers.
+ */
+export function missingPathError(ctx: Pick<ToolContext, 'agent'>, kind: 'File' | 'Folder', rel: string): ToolUseError {
+  const tools = new Set(effectiveTools(ctx.agent))
+  const next: string[] = []
+  if (tools.has('list_folders')) next.push('call list_folders (no path) to see which folders and files exist')
+  if (tools.has('search')) next.push('search the knowledge folders for the topic')
+  const board = ['board_briefing', 'list_objectives'].filter(t => tools.has(t))
+  if (board.length) next.push(`use ${board.join(' or ')} to read the board cards`)
+  const hint = next.length
+    ? ` That is normal for a note nobody has written yet, so do not stop or tell the person you have nothing: ${next.join(', ')}, and answer from what you find.`
+    : ''
+  return new ToolUseError(`${kind} "${rel}" does not exist.${hint}`)
 }
 
 function walk(dir: string, out: string[], cap: number): void {
@@ -580,6 +618,7 @@ function s(args: Record<string, unknown>, key: string, required = false): string
  * synchronous runTool below, unchanged.
  */
 export async function runChatTool(ctx: ToolContext, fnName: string, args: Record<string, unknown>): Promise<ToolOutcome> {
+  if (fnName === 'secrets_list' || fnName === 'secret_http') return runSecretTool(ctx, fnName, args)
   if (fnName !== 'web_search' && fnName !== 'web_fetch') return runTool(ctx, fnName, args)
   if (!agentHasTool(ctx.agent, fnName)) throw new ToolUseError(`Tool "${fnName}" is not allowed for this agent.`)
   try {
@@ -594,6 +633,68 @@ export async function runChatTool(ctx: ToolContext, fnName: string, args: Record
   } catch (err) {
     if (err instanceof WebToolError) throw new ToolUseError(err.message)
     throw err
+  }
+}
+
+/** Same per-person budget as POST /api/secrets-broker/http, shared across both doors. */
+const SECRET_USE_RATE = () => Number(process.env.CC_SECRETS_BROKER_RATE_PER_MIN) || 30
+
+/**
+ * secrets_list / secret_http (obj 900749) — the chat bot's last mile to the
+ * secrets broker. The model only ever handles NAMES: the broker resolves the
+ * value in-process, puts it on the outbound request, and redacts it from the
+ * reply before the reply becomes this tool's result (which is what the model,
+ * the chat history and the UI see). The caller is the chatting person inside
+ * the chat's ONE workspace and never an admin view, whatever their role. The
+ * workspace comes from the chat, never from the model's arguments.
+ */
+async function runSecretTool(ctx: ToolContext, fnName: 'secrets_list' | 'secret_http', args: Record<string, unknown>): Promise<ToolOutcome> {
+  if (!agentHasTool(ctx.agent, 'secrets')) throw new ToolUseError(`Tool "${fnName}" is not allowed for this agent.`)
+  const role = (getDb().prepare('SELECT role FROM users WHERE id = ?').get(ctx.userId) as { role?: string } | undefined)?.role
+  if (role !== 'admin' && !userHasWorkspace(ctx.userId, ctx.workspace)) {
+    throw new ToolUseError(`You are not a member of workspace '${ctx.workspace}', so no secrets are available here.`)
+  }
+  const caller = callerForChat(ctx.userId, ctx.workspace)
+  if (fnName === 'secrets_list') {
+    const secrets = listForCaller(caller, { workspace: ctx.workspace }).map(x => ({
+      name: x.name,
+      description: x.description,
+      allowed_hosts: x.allowed_hosts,
+      allowed_methods: x.allowed_methods,
+      usable: x.usable,
+    }))
+    const usable = secrets.filter(x => x.usable).length
+    return { result: { secrets }, summary: `Listed secret names (${usable} usable, ${secrets.length} total) — no values` }
+  }
+  if (rateLimit(`broker-use:${ctx.userId}`, SECRET_USE_RATE()) !== null) {
+    throw new ToolUseError('Too many secret calls in the last minute. Wait a moment and try again.')
+  }
+  let outcome
+  try {
+    outcome = await executeHttp({
+      method: args.method,
+      url: args.url,
+      headers: args.headers,
+      body: args.body,
+      workspace: ctx.workspace,
+    }, caller)
+  } catch (err) {
+    // Same rule as the REST route: never echo an unexpected error's message —
+    // it would land in the chat history and the model's context.
+    console.error('[secrets-broker] chat internal error', err instanceof Error ? err.name : 'unknown')
+    throw new ToolUseError('The secrets broker hit an internal error. Nothing was sent.')
+  }
+  recordBrokerUse(outcome, caller, { auth: 'chat', key_last4: `bot:${ctx.agent.slug}`, username: ctx.username })
+  const a = outcome.audit
+  if (outcome.httpStatus !== 200) {
+    // A refusal names secrets/hosts, never a value (executeHttp contract).
+    throw new ToolUseError(String((outcome.body as { error?: unknown }).error ?? 'The secrets broker refused this call.'))
+  }
+  const r = outcome.body as { body?: unknown }
+  const text = typeof r.body === 'string' && r.body.length > MAX_READ_CHARS ? `${r.body.slice(0, MAX_READ_CHARS)}… [cut]` : r.body
+  return {
+    result: { ...outcome.body, body: text },
+    summary: `Called ${a.method} ${a.host ?? '?'} with ${a.secrets.join(', ')} (value hidden) → ${a.status}`,
   }
 }
 
@@ -616,7 +717,7 @@ export function runTool(ctx: ToolContext, fnName: string, args: Record<string, u
       try {
         entries = fs.readdirSync(abs, { withFileTypes: true })
       } catch {
-        throw new ToolUseError(`Folder "${rel}" does not exist.`)
+        throw missingPathError(ctx, 'Folder', rel)
       }
       const items = entries.filter(e => !e.name.startsWith('.')).map(e => ({ name: e.name, type: e.isDirectory() ? 'folder' : 'file' }))
       return { result: { path: rel, items }, summary: `Opened folder ${rel}` }
@@ -628,7 +729,7 @@ export function runTool(ctx: ToolContext, fnName: string, args: Record<string, u
       try {
         text = fs.readFileSync(abs, 'utf8')
       } catch {
-        throw new ToolUseError(`File "${rel}" does not exist.`)
+        throw missingPathError(ctx, 'File', rel)
       }
       const clipped = text.length > MAX_READ_CHARS
       return { result: { path: rel, content: clipped ? text.slice(0, MAX_READ_CHARS) : text, truncated: clipped }, summary: `Read ${rel}` }

@@ -35,7 +35,7 @@ export function SecretScopePicker({ id, value, onChange, workspace, disabled }: 
               aria-checked={on}
               onClick={() => onChange(s)}
               className={`min-h-[44px] rounded px-2 text-[12.5px] font-medium transition-[background-color,color,box-shadow] duration-base focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-[32px] ${
-                on ? 'bg-surface-3 text-fg-0 shadow-sm ring-1 ring-line-strong' : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
+                on ? 'bg-surface-3 text-fg-0 shadow-sm ring-1 ring-line-strong' : 'text-fg-2 hover:bg-surface-3 hover:text-fg-0'
               }`}
             >
               {SHORT_LABEL[s]}

@@ -271,7 +271,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange, pageS
       <button
         role="menuitem"
         onClick={() => { logout(); setUserMenuOpen(false) }}
-        className={`w-full px-3 text-left text-sm text-fg-1 outline-none transition-colors duration-fast ease-out hover:bg-surface-2 hover:text-fg-0 focus-visible:bg-surface-2 ${rowClass}`}
+        className={`w-full px-3 text-left text-sm text-fg-1 outline-none transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-fg-0 focus-visible:bg-surface-3 ${rowClass}`}
       >
         Log out
       </button>
@@ -306,10 +306,10 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange, pageS
                 onClick={onNavClick(item.href)}
                 aria-current={active ? 'page' : undefined}
                 className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium outline-none transition-colors duration-fast ease-out focus-visible:ring-2 focus-visible:ring-accent/60 ${
-                  active ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
+                  active ? 'bg-surface-selected text-fg-0' : 'text-fg-2 hover:bg-surface-3 hover:text-fg-0'
                 }`}
               >
-                <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-3.5 w-3.5" />
+                <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className={`h-3.5 w-3.5 ${active ? 'text-accent' : ''}`} />
                 {item.label}
               </a>
             )
@@ -342,7 +342,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange, pageS
             <button
               type="button"
               onClick={toggleTheme}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-fg-2 outline-none transition-colors duration-fast ease-out hover:bg-surface-2 hover:text-fg-0 focus-visible:ring-2 focus-visible:ring-accent/60"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-fg-2 outline-none transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-fg-0 focus-visible:ring-2 focus-visible:ring-accent/60"
               aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
             >
               {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
@@ -354,10 +354,10 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange, pageS
               aria-expanded={userMenuOpen}
               aria-label="Account menu"
               className={`inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors duration-fast ease-out focus-visible:ring-2 focus-visible:ring-accent/60 ${
-                menuActive || userMenuOpen ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
+                menuActive || userMenuOpen ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:bg-surface-3 hover:text-fg-0'
               }`}
             >
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-[12px] font-medium text-accent">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface-3 text-[12px] font-semibold text-fg-1">
                 {user.username[0].toUpperCase()}
               </div>
               <span className="hidden lg:inline">{user.username}</span>
@@ -408,8 +408,8 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange, pageS
               aria-haspopup="menu"
               aria-expanded={userMenuOpen}
               aria-label="Account menu"
-              className={`flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-medium text-accent ${
-                menuActive || userMenuOpen ? 'bg-accent/25 ring-1 ring-accent/50' : 'bg-accent/15'
+              className={`flex h-7 w-7 items-center justify-center rounded-full border text-[12px] font-semibold text-fg-1 ${
+                menuActive || userMenuOpen ? 'border-line-strong bg-surface-4' : 'border-line bg-surface-3'
               }`}
             >
               {user.username[0].toUpperCase()}
@@ -450,11 +450,11 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange, pageS
                 aria-current={active ? 'page' : undefined}
                 aria-label={item.shortLabel ? item.label : undefined}
                 className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 transition-colors duration-fast ease-out ${
-                  active ? 'text-accent' : 'text-fg-2'
+                  active ? 'text-fg-0' : 'text-fg-2'
                 }`}
                 style={{ minHeight: 44 }}
               >
-                <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-5 w-5" />
+                <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className={`h-5 w-5 ${active ? 'text-accent' : ''}`} />
                 <span className="text-[12px] font-medium">{item.shortLabel ?? item.label}</span>
               </a>
             )
@@ -490,11 +490,11 @@ function AccountMenuRow({
       onClick={onClick}
       role="menuitem"
       aria-current={active ? 'page' : undefined}
-      className={`flex items-center gap-2.5 px-3 text-sm outline-none transition-colors duration-fast ease-out focus-visible:bg-surface-2 ${rowClass} ${
-        active ? 'bg-surface-3 text-fg-0' : 'text-fg-1 hover:bg-surface-2 hover:text-fg-0'
+      className={`flex items-center gap-2.5 px-3 text-sm outline-none transition-colors duration-fast ease-out focus-visible:bg-surface-3 ${rowClass} ${
+        active ? 'bg-surface-selected text-fg-0 shadow-[inset_2px_0_0_var(--accent-text)]' : 'text-fg-1 hover:bg-surface-3 hover:text-fg-0'
       }`}
     >
-      <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className="h-4 w-4 text-fg-3" />
+      <NavIcon name={item.icon} variant={active ? 'solid' : 'outline'} className={`h-4 w-4 ${active ? 'text-accent' : 'text-fg-3'}`} />
       {item.label}
     </a>
   )

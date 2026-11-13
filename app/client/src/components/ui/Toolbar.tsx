@@ -40,7 +40,7 @@ export function SearchInput({ wrapClassName, className, ...rest }: SearchInputPr
         type="search"
         className={cn(
           'min-h-[44px] w-full rounded-md border border-line bg-surface-2 pl-8 pr-3 text-[13px] text-fg-0 placeholder:text-fg-3 sm:min-h-[36px]',
-          'transition-colors duration-fast ease-out hover:border-line-strong focus:border-[color:var(--accent-line)] focus:outline-none focus:ring-2 focus:ring-accent/40',
+          'transition-colors duration-fast ease-out hover:border-line-strong focus:border-accent focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent',
           className,
         )}
         {...rest}

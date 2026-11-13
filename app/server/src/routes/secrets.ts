@@ -19,7 +19,7 @@
  *   - user(uid)      → global admin OR the user themselves (user.id === uid).
  *   - workspace_user → global admin OR (user.id === uid AND member of ws).
  */
-import { Router } from 'express'
+import { Router, type Response } from 'express'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { recentConnectorDenials } from '../services/connector-guard.js'
 import { getDb } from '../db/index.js'
@@ -35,6 +35,13 @@ import {
   type AllowlistSubjectType,
 } from '../services/secret-env-policy.js'
 import { listRotationFlags, resolveRotationFlag } from '../services/chat-secret-capture.js'
+import {
+  BrokerPolicyError,
+  isBrokerableSecretKey,
+  readBrokerPolicy,
+  setBrokerPolicyEntry,
+  validatePolicyEntry,
+} from '../services/secrets-broker.js'
 import {
   setSecret,
   listSecrets,
@@ -503,6 +510,64 @@ router.post('/rotation-flags/:id/resolve', (req: AuthRequest, res) => {
   const ok = resolveRotationFlag(Number(req.params.id))
   res.status(ok ? 200 : 404).json({ ok })
 })
+
+// ── Bot access (obj 900749) ─────────────────────────────────────────────────
+// Which destination hosts a secret may be SENT to by a bot through the broker
+// (use-without-reveal). Default-deny: a name with no entry cannot be used by
+// any bot. These routes read/write ONLY the `secrets_broker_policy` settings
+// row — never a secret row, never a value — and widening one is a global-admin
+// action from the signed-in web app (not an API or agent key).
+
+function requireAdminUi(req: AuthRequest, res: Response): boolean {
+  if (req.user!.role !== 'admin') {
+    res.status(403).json({ error: 'Global admin role required' })
+    return false
+  }
+  return true
+}
+
+// GET /api/secrets/bot-access → { source, policy: {NAME: {hosts, methods?, workspaces?, description?}}, blocked_keys }
+router.get('/bot-access', (req: AuthRequest, res) => {
+  if (!requireAdminUi(req, res)) return
+  const { policy, source } = readBrokerPolicy()
+  const blocked = [...new Set(listSecrets().map(s => s.key).filter(k => !isBrokerableSecretKey(k)))].sort()
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.json({ source, policy, blocked_keys: blocked })
+})
+
+// PUT /api/secrets/bot-access/:name { hosts: string[], methods?, workspaces?, description? }
+// DELETE /api/secrets/bot-access/:name — back to default-deny.
+for (const method of ['put', 'delete'] as const) {
+  router[method]('/bot-access/:name', (req: AuthRequest, res) => {
+    if (!requireAdminUi(req, res)) return
+    // The browser's httpOnly session cookie only — not an API key, an agent key
+    // or a Bearer JWT from POST /api/auth/token.
+    if (req.authVia !== 'session' || !req.cookies?.token || req.headers.authorization) {
+      res.status(403).json({ error: 'Bot access is changed from the signed-in web app, not with an API key' })
+      return
+    }
+    const name = String(req.params.name)
+    if (!isBrokerableSecretKey(name)) {
+      res.status(400).json({ error: `'${name}' is a seat or server-only secret; bots can never use it` })
+      return
+    }
+    try {
+      const entry = method === 'put' ? validatePolicyEntry(req.body) : null
+      const policy = setBrokerPolicyEntry(name, entry)
+      logAccess(req.user!.id, 'bot_access', 'policy', name, {
+        source: auditSource(req),
+        detail: entry ? `hosts=${entry.hosts.join(',')}${entry.methods ? ` methods=${entry.methods.join(',')}` : ''}${entry.workspaces ? ` workspaces=${entry.workspaces.join(',')}` : ''}` : 'off',
+      })
+      res.json({ name, entry: policy[name] ?? null })
+    } catch (err) {
+      if (err instanceof BrokerPolicyError) {
+        res.status(400).json({ error: err.message })
+        return
+      }
+      throw err
+    }
+  })
+}
 
 // GET /api/secrets/principals — the organizations + users the caller may target
 // when picking a scope. Exists so the admin UI can offer real pickers instead of

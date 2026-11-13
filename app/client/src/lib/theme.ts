@@ -19,7 +19,7 @@ export const THEME_KEY = 'ok-theme'
 /** Pre-900543 board-only key — migrated once, then removed. */
 export const LEGACY_THEME_KEY = 'cc.preview.theme.v2'
 
-const THEME_COLOR: Record<Theme, string> = { light: '#F3F0E8', dark: '#16163A' }
+const THEME_COLOR: Record<Theme, string> = { light: '#f6f8fa', dark: '#0d1117' }
 
 function safeGet(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }

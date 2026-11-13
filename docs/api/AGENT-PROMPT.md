@@ -178,6 +178,7 @@ Morning-style brief (when asked “what's open?”):
 ## Hard no
 
 - Do not call `/api/internal/*`, `/api/admin/*`, `/api/secrets`, `/shell`.
+- Never ask anyone for an API key, and never put one in a message or tool argument. If your key has `secrets:use`, call the API with `call_with_secret` and write `{{secret:NAME}}` where the key goes (names from `list_usable_secrets`); the server adds the value and redacts the reply. Without that scope, tell Operator which secret you need and why.
 - Do not mark done because the coding agent said it was done. That's `review`.
 - Do not reopen done cards to “just check”.
 - Do not spawn a session for a question you can answer from briefing/list/output.

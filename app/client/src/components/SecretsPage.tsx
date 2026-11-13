@@ -19,6 +19,13 @@
  * and an existing secret can be RE-SCOPED via `POST /secrets/move` without ever
  * re-entering its value (leave the value blank to change only the scope).
  *
+ * obj 900749 (clean + clearly secure): one security strip states the three
+ * promises (write-only, encrypted + scoped, bots use by name) instead of hint
+ * text scattered around; a name search; a compact toolbar; and a Bot access
+ * column (global admins) that shows and edits which hosts a bot may send each
+ * NAME to through the broker. Bot access edits the broker policy only — never a
+ * secret row, value or scope.
+ *
  * SECURITY: the raw value is NEVER fetched back — the table shows `••••••` for
  * every key, and setting a new value requires typing it (the server only ever
  * returns metadata summaries). Access is enforced server-side too; this UI just
@@ -39,7 +46,11 @@ import {
   scopeDescription, scopeOf, scopeQuery,
   type Scope, type ScopeFilter,
 } from './secrets/scope'
-import { SecretRow } from './secrets/SecretRow'
+import { SECRET_TABLE_COLUMNS, SecretRow } from './secrets/SecretRow'
+import { SecurityStrip } from './secrets/SecurityStrip'
+import { BotAccessModal } from './secrets/BotAccessModal'
+import { botAccessStatus, loadBotAccess, type BotAccessState } from './secrets/botAccess'
+import { Search } from 'lucide-react'
 import { SecretModal } from './secrets/SecretModal'
 import { VersionHistoryModal } from './secrets/VersionHistoryModal'
 import { AuditLogPanel } from './secrets/AuditLogPanel'
@@ -67,6 +78,10 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
   const [modalTarget, setModalTarget] = useState<SecretSummary | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [historyTarget, setHistoryTarget] = useState<SecretSummary | null>(null)
+  const [query, setQuery] = useState('')
+  // Bot access (obj 900749): global admins only — the policy is install-wide.
+  const [botAccess, setBotAccess] = useState<BotAccessState | null>(null)
+  const [botTarget, setBotTarget] = useState<SecretSummary | null>(null)
   const { confirm, confirmDialog } = useConfirm()
 
   // Available scope types depend on role: members cannot address Command Center.
@@ -98,6 +113,16 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
       .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load scope pickers') })
     return () => { cancelled = true }
   }, [])
+
+  const reloadBotAccess = useCallback(async () => {
+    if (!isGlobalAdmin) return
+    try {
+      setBotAccess(await loadBotAccess())
+    } catch {
+      setBotAccess(null) // column shows "—"; the table itself still works
+    }
+  }, [isGlobalAdmin])
+  useEffect(() => { void reloadBotAccess() }, [reloadBotAccess])
 
   // Default the organization picker to the caller's first organization once
   // principals arrive (members typically have exactly one).
@@ -145,6 +170,13 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
       a.key.localeCompare(b.key),
     )
   }, [secrets, orgName, userName])
+
+  // Name / description search over what is loaded (client-side; values are never here to match).
+  const visibleRows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter(s => s.key.toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q))
+  }, [rows, query])
 
   const orgCount = useMemo(
     () => new Set(secrets.filter(s => s.workspace).map(s => s.workspace)).size,
@@ -203,18 +235,12 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
   return (
     <div className={embedded ? '' : 'h-full overflow-y-auto p-6'}>
       <div className={embedded ? '' : 'max-w-5xl mx-auto'}>
-        <div className={embedded ? 'mb-4 flex items-center justify-between gap-4' : 'mb-5 flex items-center justify-between gap-4'}>
+        <div className={embedded ? 'mb-3 flex items-center justify-between gap-4' : 'mb-4 flex items-center justify-between gap-4'}>
           <div>
             {!embedded && <h1 className="text-xl font-semibold text-fg-0">Secrets</h1>}
-            <p className={embedded ? 'text-xs text-fg-3' : 'mt-1 text-xs text-fg-3'}>
-              Scoped, encrypted-at-rest secrets. Values are write-only: never shown after saving — rotate to change one.
+            <p className={embedded ? 'text-sm text-fg-2' : 'mt-1 text-sm text-fg-2'}>
+              Keys and tokens your workers, bots and integrations use.
             </p>
-            {!loading && (
-              <p className="mt-1 text-xs text-fg-2" data-testid="secret-count">
-                {secrets.length} {secrets.length === 1 ? 'secret' : 'secrets'}
-                {isAllScopes && ` across ${orgCount} ${orgCount === 1 ? 'organization' : 'organizations'}`}
-              </p>
-            )}
           </div>
           <button
             onClick={openCreate}
@@ -224,62 +250,76 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
           </button>
         </div>
 
+        <SecurityStrip />
+
         {/* obj 718944 — secrets pasted into a card chat, to rotate later (admin, names only). */}
         <RotationFlagsPanel />
 
-        {/* Scope filter. "All scopes" is the cross-organization admin view. */}
-        <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface-raised p-4">
-          <div>
-            <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Scope</label>
+        {/* Toolbar: search + scope filter on one line. "All scopes" is the cross-organization admin view. */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <label className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+            <span className="sr-only">Search secrets</span>
+            <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-3" />
+            <input
+              type="search"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search by name"
+              data-testid="secret-search"
+              className="w-full rounded border border-border bg-surface py-1.5 pl-7 pr-2 text-sm text-fg-0 outline-none focus:border-accent"
+            />
+          </label>
+          <select
+            value={scopeFilter}
+            onChange={e => setScopeFilter(e.target.value as ScopeFilter)}
+            data-testid="scope-filter"
+            aria-label="Scope"
+            title={isAllScopes ? 'Every secret you may see. Each row acts on its own scope.' : SCOPE_HINTS[scopeFilter as SecretScopeType]}
+            className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
+          >
+            <option value={ALL_SCOPES}>All scopes</option>
+            {scopeOptions.map(s => (
+              <option key={s} value={s}>{SCOPE_LABELS[s]}</option>
+            ))}
+          </select>
+          {!isAllScopes && needsWorkspace && (
             <select
-              value={scopeFilter}
-              onChange={e => setScopeFilter(e.target.value as ScopeFilter)}
-              data-testid="scope-filter"
+              value={workspace}
+              onChange={e => setWorkspace(e.target.value)}
+              aria-label="Organization"
               className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
             >
-              <option value={ALL_SCOPES}>All scopes</option>
-              {scopeOptions.map(s => (
-                <option key={s} value={s}>{SCOPE_LABELS[s]}</option>
+              <option value="">Organization…</option>
+              {orgs.map(o => (
+                <option key={o.slug} value={o.slug}>{o.name}</option>
               ))}
             </select>
-          </div>
-          {!isAllScopes && needsWorkspace && (
-            <div>
-              <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Organization</label>
-              <select
-                value={workspace}
-                onChange={e => setWorkspace(e.target.value)}
-                className="rounded border border-line bg-surface-1 px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
-              >
-                <option value="">— select —</option>
-                {orgs.map(o => (
-                  <option key={o.slug} value={o.slug}>{o.name}</option>
-                ))}
-              </select>
-            </div>
           )}
           {!isAllScopes && needsUser && (
-            <div>
-              <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">User</label>
-              <select
-                value={userId}
-                onChange={e => setUserId(e.target.value)}
-                title={SCOPE_HINTS.user}
-                className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
-              >
-                <option value="">— select —</option>
-                {users.map(u => (
-                  <option key={u.id} value={String(u.id)}>{u.username}</option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={userId}
+              onChange={e => setUserId(e.target.value)}
+              aria-label="User"
+              title={SCOPE_HINTS.user}
+              className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
+            >
+              <option value="">User…</option>
+              {users.map(u => (
+                <option key={u.id} value={String(u.id)}>{u.username}</option>
+              ))}
+            </select>
           )}
-          <p className="ml-auto max-w-prose text-[12px] text-fg-3">
-            {isAllScopes
-              ? 'Every secret you may see, across every organization and user. Each row acts on its own scope.'
-              : SCOPE_HINTS[scopeFilter as SecretScopeType]}
-          </p>
+          {!loading && (
+            <p className="ml-auto text-xs text-fg-3" data-testid="secret-count">
+              {query.trim() ? `${visibleRows.length} of ` : ''}
+              {secrets.length} {secrets.length === 1 ? 'secret' : 'secrets'}
+              {isAllScopes && ` across ${orgCount} ${orgCount === 1 ? 'organization' : 'organizations'}`}
+            </p>
+          )}
         </div>
+        {!isAllScopes && (
+          <p className="-mt-1 mb-3 text-[12px] text-fg-3">{SCOPE_HINTS[scopeFilter as SecretScopeType]}</p>
+        )}
 
         {error && (
           <div className="mb-4 rounded bg-signal-alarm/10 px-3 py-2 text-sm text-signal-alarm">{error}</div>
@@ -290,9 +330,9 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
             <thead className="bg-surface border-b border-border">
               <tr className="text-left text-xs text-fg-2">
                 <th className="px-3 py-2 font-medium">Scope</th>
-                <th className="px-3 py-2 font-medium">Key</th>
+                <th className="px-3 py-2 font-medium">Name</th>
                 <th className="px-3 py-2 font-medium">Value</th>
-                <th className="px-3 py-2 font-medium">Version</th>
+                <th className="px-3 py-2 font-medium" title="Which hosts a bot may send this secret to. Off = no bot can use it.">Bot access</th>
                 <th className="px-3 py-2 font-medium">Updated</th>
                 <th className="px-3 py-2 font-medium">Last used</th>
                 <th className="px-3 py-2 font-medium text-right">Actions</th>
@@ -305,28 +345,32 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
                     <td className="px-3 py-2"><Skeleton className="h-4 w-32" /></td>
                     <td className="px-3 py-2"><Skeleton className="h-4 w-28" /></td>
                     <td className="px-3 py-2"><Skeleton className="h-4 w-16" /></td>
-                    <td className="px-3 py-2"><Skeleton className="h-4 w-8" /></td>
+                    <td className="px-3 py-2"><Skeleton className="h-4 w-14" /></td>
                     <td className="px-3 py-2"><Skeleton className="h-4 w-24" /></td>
                     <td className="px-3 py-2"><Skeleton className="h-4 w-24" /></td>
                     <td className="px-3 py-2"><div className="flex justify-end gap-2"><Skeleton className="h-4 w-8" /><Skeleton className="h-4 w-10" /></div></td>
                   </tr>
                 ))
-              ) : rows.length === 0 ? (
+              ) : visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-sm text-fg-3">
-                    {isAllScopes ? 'No secrets yet. Click "New" to add one.' : 'No secrets at this scope. Click "New" to add one.'}
+                  <td colSpan={SECRET_TABLE_COLUMNS} className="px-3 py-8 text-center text-sm text-fg-3">
+                    {query.trim() && rows.length > 0
+                      ? `No secret matches "${query.trim()}".`
+                      : isAllScopes ? 'No secrets yet. Click "New" to add one.' : 'No secrets at this scope. Click "New" to add one.'}
                   </td>
                 </tr>
               ) : (
-                rows.map((s, i) => (
+                visibleRows.map((s, i) => (
                   <SecretRow
                     key={s.id}
                     secret={s}
                     // Group the all-scopes list by scope type so it reads as
                     // "everything Command-Center-wide, then per organization…".
-                    groupHeader={isAllScopes && (i === 0 || rows[i - 1]!.scopeType !== s.scopeType) ? SCOPE_LABELS[s.scopeType] : null}
+                    groupHeader={isAllScopes && (i === 0 || visibleRows[i - 1]!.scopeType !== s.scopeType) ? SCOPE_LABELS[s.scopeType] : null}
                     orgName={orgName}
                     userName={userName}
+                    botAccess={botAccessStatus(s.key, botAccess)}
+                    onBotAccess={botAccess && !botAccess.blockedKeys.has(s.key) ? () => setBotTarget(s) : undefined}
                     onHistory={() => setHistoryTarget(s)}
                     onEdit={() => openEdit(s)}
                     onDelete={() => void handleDelete(s)}
@@ -359,6 +403,15 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
           secretKey={historyTarget.key}
           onClose={() => setHistoryTarget(null)}
           onRolledBack={async () => { setHistoryTarget(null); await reload() }}
+        />
+      )}
+      {botTarget && (
+        <BotAccessModal
+          secret={botTarget}
+          entry={botAccess?.policy[botTarget.key] ?? null}
+          organizations={orgs}
+          onClose={() => setBotTarget(null)}
+          onSaved={async () => { setBotTarget(null); await reloadBotAccess() }}
         />
       )}
       {confirmDialog}

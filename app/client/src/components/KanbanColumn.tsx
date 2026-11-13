@@ -85,7 +85,7 @@ export function KanbanColumn({ status, objectives, onOpenTerminal, onCardEdit, o
             {!lazyLoading && (lazyHasMore || !lazyLoaded) && (
               <button
                 onClick={onLoadMore}
-                className="min-h-[44px] w-full rounded-md border border-dashed border-line bg-surface-1 px-3 py-2.5 text-center font-mono text-[12px] text-fg-2 transition-colors duration-fast ease-out hover:border-line-strong hover:bg-surface-2 hover:text-fg-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                className="min-h-[44px] w-full rounded-md border border-dashed border-line bg-surface-1 px-3 py-2.5 text-center font-mono text-[12px] text-fg-2 transition-colors duration-fast ease-out hover:border-line-strong hover:bg-surface-3 hover:text-fg-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               >
                 {lazyLoaded ? 'Load more done' : 'Load done objectives'}
               </button>

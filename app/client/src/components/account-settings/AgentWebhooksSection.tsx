@@ -291,7 +291,7 @@ function WebhookEditor({
       onSubmit={e => { e.preventDefault(); void save() }}
     >
       {error && <div role="alert" className="rounded bg-signal-alarm/10 px-3 py-2 text-sm text-signal-alarm">{error}</div>}
-      {notice && <div role="status" className="rounded bg-accent/10 px-3 py-2 text-sm text-fg-0">{notice}</div>}
+      {notice && <div role="status" className="rounded-md border border-line bg-surface-3 px-3 py-2 text-sm text-fg-0">{notice}</div>}
 
       <div>
         <label htmlFor={id('url')} className="block text-xs font-medium text-fg-1">Webhook URL</label>
@@ -368,7 +368,7 @@ function WebhookEditor({
                 key={e}
                 className={cn(
                   'flex min-h-[44px] cursor-pointer items-start gap-2.5 rounded-md border px-2.5 py-2 transition-colors duration-base',
-                  on ? 'border-line-strong bg-surface-2' : 'border-transparent hover:bg-surface-2',
+                  on ? 'border-line-strong bg-surface-2' : 'border-transparent hover:bg-surface-3',
                 )}
               >
                 <input

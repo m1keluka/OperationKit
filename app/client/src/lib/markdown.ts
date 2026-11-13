@@ -123,6 +123,10 @@ export function renderMarkdown(text: string): string {
   html = html.replace(/(<\/table>)(<br\/>)+/g, '$1')
   html = html.replace(/(<br\/>)+(<h[1-4])/g, '$2')
   html = html.replace(/(<br\/>)+(<hr)/g, '$2')
+  // A fenced block is its own block (my-2): drop the blank-line <br/>s around
+  // it, which otherwise left a tall empty gap under every code block (obj 900750).
+  html = html.replace(/(<br\/>)+(\x00CODEBLOCK)/g, '$2')
+  html = html.replace(/(\x00CODEBLOCK\d+\x00)(<br\/>)+/g, '$1')
 
   // Restore code blocks
   html = html.replace(/\x00CODEBLOCK(\d+)\x00/g, (_m, idx) => codeBlocks[parseInt(idx)])

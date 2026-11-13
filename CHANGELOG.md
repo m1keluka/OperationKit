@@ -8,6 +8,31 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### Secrets: bots use a named secret without seeing it + cleaner Secrets page (obj 900749)
+
+**What changed.** Chat bots and MCP-connected bots can now call an API with a
+secret by NAME. The bot writes `{{secret:NAME}}`; the existing broker adds the
+value on the outgoing HTTPS request only, sends it only to that secret's allowed
+hosts, and redacts the reply. No value reaches a prompt, chat history, tool
+result or log.
+- **MCP bots:** new `list_usable_secrets` and `call_with_secret` tools behind a
+  new agent-key scope, `secrets:use`. It is **not** in the default set; tick it on
+  the key in Settings → You → Agent keys. A named key is never an admin caller on
+  the broker, even when its owner is an admin.
+- **Chat bots:** a new **Use secrets by name** tool on the bot page (or `secrets`
+  under `tools:`). "All tools" does not include it.
+- **Settings → Secrets:** a security strip (write-only / encrypted + scoped /
+  bots use by name), name search, a compact toolbar, and a **Bot access** column.
+  A global admin sets which hosts each secret may be sent to; with none set, no
+  bot can use it (default-deny, unchanged).
+
+**What the operator should know.**
+- Nothing is turned on for any existing secret. Every secret stays "Off" until an
+  admin adds hosts. Bot-access edits write only the `secrets_broker_policy`
+  setting. They never change a secret row, value or scope.
+- If the policy came from env `CC_SECRETS_BROKER_POLICY`, the first edit in the UI
+  copies it into settings; after that the settings row wins.
+
 ### Settings → Models: editable default + provider model refresh (obj 900679)
 
 **What changed.** Settings → Models now has a **Default model** and **Planner model**

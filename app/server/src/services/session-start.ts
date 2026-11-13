@@ -31,6 +31,32 @@ import {
   reapPredecessorSessions,
 } from './session-manager.js'
 
+/**
+ * obj 900412 — true only when `holderId` is a DIFFERENT session whose process is
+ * actually running. A lease row by itself is just a recent heartbeat.
+ */
+export function leaseHolderIsLive(
+  holderId: string | null | undefined,
+  newSessionId: string,
+  isAlive: (sessionId: string) => boolean = isSessionActive,
+): boolean {
+  if (!holderId || holderId === newSessionId) return false
+  try { return isAlive(holderId) } catch { return true /* unsure: keep the old fail-safe (attach) */ }
+}
+
+/** obj 900412 — point every live lease of this card at the session about to spawn. */
+export function takeOverObjectiveLeases(objectiveId: number, sessionId: string): void {
+  try {
+    getDb()
+      .prepare(
+        "UPDATE session_leases SET session_id = ?, acquired_at = datetime('now'), heartbeat_at = datetime('now'), released_at = NULL WHERE objective_id = ? AND released_at IS NULL",
+      )
+      .run(sessionId, objectiveId)
+  } catch (err) {
+    console.warn(`[session-lease] takeover for obj ${objectiveId} failed (non-fatal):`, (err as Error).message)
+  }
+}
+
 function generateSessionId(objective: Objective): string {
   return `cc-${objective.id}-${Date.now()}`
 }
@@ -122,7 +148,13 @@ export async function startSession(objective: Objective): Promise<string> {
       logSessionStart(getDb(), { objectiveId: objective.id, sessionId: null, kind: 'rejected' })
       throw new BranchLeaseConflictError(msg, branchName, lease.holder.objective_id)
     }
-    if (lease.status === 'reattached' && lease.holder.session_id) {
+    // obj 900412 — acquireBranchLease CLOBBERS session_id on reattach, so the
+    // holder it hands back is usually the id we just generated and never spawned.
+    // Returning it pointed the card at a session that does not exist ("Session
+    // failed to start: wrapper_never_started") and the owner's message was never
+    // answered. Only rebind to a DIFFERENT session that is actually running;
+    // otherwise fall through to the identity claim below, which checks liveness.
+    if (lease.status === 'reattached' && lease.holder.session_id && leaseHolderIsLive(lease.holder.session_id, sessionId)) {
       console.warn(`[branch-lease][reattach] Objective ${objective.id} already has a live session ${lease.holder.session_id} on '${branchName}'; rebinding instead of spawning a duplicate.`)
       logSessionStart(getDb(), { objectiveId: objective.id, sessionId: lease.holder.session_id, kind: 'attach' })
       return lease.holder.session_id
@@ -161,7 +193,16 @@ export async function startSession(objective: Objective): Promise<string> {
       logSessionStart(getDb(), { objectiveId: objective.id, sessionId: null, kind: 'rejected' })
       throw new SessionLeaseConflictError(msg, idLease.leaseKey, idLease.holder.objective_id)
     }
-    if (idLease.status === 'reattached' && idLease.holder.session_id) {
+    // obj 900412 — a lease row only proves a heartbeat in the last 90s, not a
+    // running process. A start that threw after claiming it (no seat, worktree,
+    // docker) or a session that just died leaves a fresh row behind, and the
+    // next start "attached" to that ghost: nothing ran and the card later blocked
+    // with wrapper_never_started (card #900412, 2026-11-13 17:46). Attach only to
+    // a holder that is really alive; otherwise take the lease over and spawn.
+    if (idLease.status === 'reattached' && !leaseHolderIsLive(idLease.holder.session_id, sessionId)) {
+      console.warn(`[session-lease][takeover] Objective ${objective.id}: lease holder ${idLease.holder.session_id} is not running; spawning ${sessionId} instead of attaching to it.`)
+      takeOverObjectiveLeases(objective.id, sessionId)
+    } else if (idLease.status === 'reattached' && idLease.holder.session_id) {
       console.warn(`[session-lease][reattach] Objective ${objective.id} already has a live session ${idLease.holder.session_id} (${idLease.leaseKey}); rebinding instead of spawning a duplicate.`)
       logSessionStart(getDb(), { objectiveId: objective.id, sessionId: idLease.holder.session_id, kind: 'attach' })
       return idLease.holder.session_id

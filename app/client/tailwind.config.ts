@@ -26,10 +26,11 @@ export default {
     extend: {
       colors: withAlpha({
         // Every color below resolves a CSS custom property defined in index.css
-        // (default = Operation Kit brand, light + dark via [data-theme]). A
-        // fresh install re-brands by changing those custom properties
-        // (OK_BRAND_ACCENT / config/branding.json / Settings > Branding) —
-        // never by editing this file. See docs/branding.md.
+        // (light + dark via [data-theme]). Surfaces, text and hairlines are
+        // NEUTRAL; the only brand colour is `accent` (obj 900750). An install
+        // re-brands by setting the accent (OK_BRAND_ACCENT / config/branding.json
+        // / Settings > Branding) + a logo — never by editing this file.
+        // See docs/branding.md.
         surface: {
           0: 'var(--surface-0)',
           1: 'var(--surface-1)',
@@ -41,6 +42,7 @@ export default {
           overlay: 'var(--surface-2)',
           selected: 'var(--surface-selected)',
           inset: 'var(--surface-inset)',
+          field: 'var(--surface-field)',
         },
         fg: {
           0: 'var(--fg-0)',
@@ -58,7 +60,9 @@ export default {
           DEFAULT: 'var(--line)',
           hover: 'var(--line-strong)',
         },
-        // the one accent — default Ultramarine, configurable per install.
+        // the ONE brand accent — default Ultramarine, configurable per install.
+        // Use it for primary actions, links, focus and the selected-item bar
+        // only — never as a page / card / sidebar fill.
         accent: {
           DEFAULT: 'var(--accent)',
           hover: 'var(--accent-hover)',
@@ -82,7 +86,12 @@ export default {
           blocked: 'var(--ok-alarm)',
           live: 'var(--ok-verify)',
         },
-        // semantic status triad (color carries meaning)
+        // semantic status colours (meaning, never brand)
+        success: 'var(--success)',
+        warning: 'var(--warning)',
+        danger: 'var(--danger)',
+        info: 'var(--info)',
+        // older names for the same semantic triad
         signal: {
           verify: 'var(--ok-verify)',
           amber: 'var(--ok-amber)',
@@ -101,6 +110,10 @@ export default {
       // accent on light, lifted on dark so it stays ≥ AA on Ink (obj 900543).
       textColor: withAlpha({
         signal: { verify: 'var(--t-verify)', amber: 'var(--t-amber)', alarm: 'var(--t-alarm)' },
+        success: 'var(--t-success)',
+        warning: 'var(--t-warning)',
+        danger: 'var(--t-danger)',
+        info: 'var(--t-info)',
         flag: { blocked: 'var(--t-alarm)', live: 'var(--t-verify)' },
         agent: { cto: 'var(--t-agent-cto)', cmo: 'var(--t-agent-cmo)', coo: 'var(--t-agent-coo)', cfo: 'var(--t-agent-cfo)', general: 'var(--t-agent-general)' },
         status: {
@@ -116,29 +129,38 @@ export default {
       }),
       // A bare `border` (no colour class) used Tailwind's gray-200 — a near-white
       // hairline on dark. Default it to the theme's line token instead.
-      borderColor: { DEFAULT: 'var(--line)' },
+      borderColor: withAlpha({
+        DEFAULT: 'var(--line)',
+        // Accent BORDERS (focus, selected option, drag-over) use the readable
+        // accent text tone so they stay visible on the dark neutral ground.
+        accent: { DEFAULT: 'var(--accent-text)', hover: 'var(--accent-text)', press: 'var(--accent-text)', fg: 'var(--accent-fg)' },
+      }),
       ringColor: withAlpha({ accent: 'var(--focus-ring)' }),
       outlineColor: withAlpha({ accent: 'var(--focus-ring)' }),
       fontFamily: {
-        // Brand 1.0 type (operationkit-site tokens.css): Unbounded = brand/page
-        // titles only, Familjen Grotesk = all UI + body, JetBrains Mono = machine data.
-        brand: ['Unbounded', 'Familjen Grotesk', 'system-ui', 'sans-serif'],
-        display: ['Familjen Grotesk', 'system-ui', '-apple-system', 'sans-serif'],
-        sans: ['Familjen Grotesk', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        // obj 900750: one neutral UI face everywhere (the platform system
+        // stack, as GitHub uses) — nothing brand-specific to swap on a
+        // white-label install. `brand`/`display` are kept as aliases so
+        // existing classes keep working. JetBrains Mono = machine data.
+        brand: 'var(--font-ui)',
+        display: 'var(--font-ui)',
+        sans: 'var(--font-ui)',
+        mono: 'var(--font-mono)',
       },
       borderRadius: {
-        xs: '4px',
-        sm: '6px',
-        md: '8px',   // controls (brand --ok-radius-control)
-        lg: '10px',
-        xl: '14px',  // cards (brand --ok-radius-card)
+        // obj 900750: tighter, enterprise-crisp radii (GitHub uses 6px).
+        xs: '3px',
+        sm: '4px',
+        md: '6px',   // controls
+        lg: '8px',   // cards, tables
+        xl: '12px',  // modals
       },
       boxShadow: {
-        // §03 — cards never carry shadow; these are overlay-only.
-        pop: '0 1px 2px rgba(22,22,58,.14)',
-        float: '0 16px 40px -12px rgba(22,22,58,.32), 0 2px 8px rgba(22,22,58,.12)',
-        drawer: '-18px 0 48px -16px rgba(22,22,58,.35)',
+        // §03 — cards never carry shadow; these are overlay-only. Theme-aware
+        // (index.css): soft neutral grey in light, a hairline + deep black in dark.
+        pop: 'var(--shadow-pop)',
+        float: 'var(--shadow-float)',
+        drawer: 'var(--shadow-drawer)',
       },
       transitionTimingFunction: {
         out: 'cubic-bezier(.22,.61,.36,1)',

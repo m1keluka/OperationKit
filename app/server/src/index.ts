@@ -98,6 +98,8 @@ import { isOllamaReachable } from './services/session-intel-summary.js'
 import { prewarmSessionOutputs } from './services/stream-parser.js'
 import { startDreamCycleScheduler } from './services/dream-cycle.js'
 import { startRoutineScheduler } from './services/routine-scheduler.js'
+import { resyncHighAgencyRoutines } from './services/agent-chat/high-agency.js'
+import { listAgents } from './services/agent-chat/engine.js'
 import { startFlowEngine } from './services/flow-engine.js'
 import { startCanaryHarnessScheduler } from './services/canary-harness.js'
 import { startKitchenLoop } from './services/kitchen-loop.js'
@@ -461,6 +463,14 @@ if (scratchVerdict.scratch) {
   startDreamCycleScheduler()
 
   // Start routines scheduler (cron-scheduled recurring objectives, 60s tick)
+  // obj 900748: refresh each High Agency wake routine from the current bot files
+  // (brief + cadence only; a paused routine stays paused).
+  try {
+    const ha = resyncHighAgencyRoutines(listAgents().agents)
+    if (ha.synced || ha.disabled) console.log(`[high-agency] resynced ${ha.synced} bot wake routine(s), switched off ${ha.disabled} for removed bots`)
+  } catch (err) {
+    console.warn('[high-agency] boot resync failed:', err instanceof Error ? err.message : err)
+  }
   startRoutineScheduler()
   // Workflow engine (obj 900638, docs/design/WORKFLOWS.md §4). Arms its 2s tick here
   // (never on a scratch instance — startFlowEngine re-checks); every tick is a
@@ -534,7 +544,8 @@ if (scratchVerdict.scratch) {
   startHostBootDaemons()
 
   // n8n sibling watchdog (30s): inspect n8n + n8n-db, auto-start if they died,
-  // AlertBell-only page on down/recovery. Docker socket is mounted.
+  // AlertBell-only page on down/recovery. Docker socket is mounted. Starts only when
+  // an `n8n` container exists on this host (obj 900746); N8N_WATCHDOG=0|1 overrides.
   startN8nWatchdog()
   // Probe every Claude subscription slot on a timer so a disabled org / dead OAuth
   // is parked before cards run on it (obj 717767). Subscription login only.

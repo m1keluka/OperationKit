@@ -4,7 +4,8 @@ import { Card, CardHeader, CardBody } from '../ui/Card'
 import { Button } from '../ui/Button'
 import { CopyButton } from '../ui/CopyButton'
 import type { Branding, BrandTokens } from '../../hooks/useBranding'
-import { invalidateBranding } from '../../hooks/useBranding'
+import { invalidateBranding, brandTokenVars } from '../../hooks/useBranding'
+import { deriveAccent } from '@operationkit/shared'
 import { BrandLogo } from '../BrandLogo'
 import { useAuth } from '../../context/AuthContext'
 
@@ -14,16 +15,52 @@ export function brandingAgentPrompt(websiteUrl: string): string {
   return `Here is my company website: ${url}. Read the brand colors and logo from it and configure this install's branding (name, colors, logo files) via the env/config file per docs/branding.md.`
 }
 
-const TOKEN_FIELDS: Array<{ key: keyof BrandTokens; label: string; help?: string }> = [
-  { key: 'accent', label: 'Accent' },
-  { key: 'accentHover', label: 'Accent (hover)' },
-  { key: 'accentPress', label: 'Accent (pressed)' },
-  { key: 'accentFg', label: 'Text on accent', help: 'Foreground color for text/icons on top of the accent fill.' },
-  { key: 'verify', label: 'Verify / done (light)' },
-  { key: 'verifyOnDark', label: 'Verify / done (dark)' },
-  { key: 'caution', label: 'Caution / blocked (light)' },
-  { key: 'cautionOnDark', label: 'Caution / blocked (dark)' },
+/* obj 900750: the accent is the ONE brand lever. Its hover / pressed /
+   text-on-accent shades are derived from it automatically (shared/brand-color)
+   unless an admin pins one; the semantic status colours are not brand colours
+   and live under "Advanced". */
+type DerivedKey = 'accentHover' | 'accentPress' | 'accentFg'
+const DERIVED_FIELDS: Array<{ key: DerivedKey; label: string; from: 'hover' | 'press' | 'fg' }> = [
+  { key: 'accentHover', label: 'Hover', from: 'hover' },
+  { key: 'accentPress', label: 'Pressed', from: 'press' },
+  { key: 'accentFg', label: 'Text on accent', from: 'fg' },
 ]
+const SEMANTIC_FIELDS: Array<{ key: keyof BrandTokens; label: string }> = [
+  { key: 'verify', label: 'Success (light)' },
+  { key: 'verifyOnDark', label: 'Success (dark)' },
+  { key: 'caution', label: 'Danger (light)' },
+  { key: 'cautionOnDark', label: 'Danger (dark)' },
+]
+const isHex = (v: string) => /^#[0-9a-fA-F]{6}$/.test(v)
+
+/**
+ * Save payload (obj 900750). Sends only what the admin actually decided, so a
+ * Save never freezes the shipped defaults into config/branding.json:
+ * - derived shades: a pinned shade is sent as its value; an "Auto" one as ''
+ *   (cleared → derived server-side from the accent);
+ * - the accent and the semantic status colours: sent only when they differ
+ *   from what the server returned on load (`saved`). Omitted keys leave the
+ *   file untouched (the server merges).
+ * Env-locked fields are never sent.
+ */
+export function brandingSavePayload(
+  t: BrandTokens,
+  saved: BrandTokens | null,
+  pinned: ReadonlySet<string>,
+  locked: ReadonlySet<string>,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  const changed = (k: keyof BrandTokens) => !saved || t[k].trim().toLowerCase() !== saved[k].trim().toLowerCase()
+  if (!locked.has('accent') && changed('accent')) out.accent = t.accent
+  for (const f of DERIVED_FIELDS) {
+    if (locked.has(f.key)) continue
+    out[f.key] = pinned.has(f.key) ? t[f.key] : ''
+  }
+  for (const f of SEMANTIC_FIELDS) {
+    if (!locked.has(f.key) && changed(f.key)) out[f.key] = t[f.key]
+  }
+  return out
+}
 
 const LOGO_SLOTS: Array<{ slot: 'wordmark' | 'wordmark-dark' | 'icon' | 'favicon'; label: string; help: string }> = [
   { slot: 'wordmark', label: 'Wordmark (light bg)', help: 'Full logo with product name, shown on light surfaces.' },
@@ -68,6 +105,8 @@ export function BrandingPanel() {
   const [branding, setBranding] = useState<Branding | null>(null)
   const [name, setName] = useState('')
   const [tokens, setTokens] = useState<BrandTokens | null>(null)
+  // Derived shades the admin pinned by hand; the rest follow the accent.
+  const [pinned, setPinned] = useState<Set<string>>(new Set())
   const [poweredBy, setPoweredBy] = useState(false)
   const [websiteUrl, setWebsiteUrl] = useState('')
   const [saving, setSaving] = useState(false)
@@ -84,6 +123,7 @@ export function BrandingPanel() {
         setBranding(b)
         setName(b.name)
         setTokens(b.tokens)
+        setPinned(new Set(b.explicit_token_fields ?? []))
         setPoweredBy(!!b.powered_by)
       })
       .catch(err => !cancelled && setError(err instanceof Error ? err.message : 'Could not load branding'))
@@ -106,6 +146,37 @@ export function BrandingPanel() {
     setTokens(t => (t ? { ...t, [key]: value } : t))
   }
 
+  /** Changing the accent re-derives every shade that isn't pinned, so the
+   * preview shows exactly what Save will produce. */
+  function setAccent(value: string) {
+    setTokens(t => {
+      if (!t) return t
+      const next = { ...t, accent: value }
+      if (isHex(value)) {
+        const d = deriveAccent(value)
+        for (const f of DERIVED_FIELDS) if (!pinned.has(f.key)) next[f.key] = d[f.from]
+      }
+      return next
+    })
+  }
+
+  function togglePinned(key: DerivedKey, pin: boolean) {
+    setPinned(p => {
+      const n = new Set(p)
+      if (pin) n.add(key)
+      else n.delete(key)
+      return n
+    })
+    if (!pin && tokens && isHex(tokens.accent)) {
+      const f = DERIVED_FIELDS.find(x => x.key === key)!
+      setToken(key, deriveAccent(tokens.accent)[f.from])
+    }
+  }
+
+  function payloadTokens(t: BrandTokens): Record<string, string> {
+    return brandingSavePayload(t, branding?.tokens ?? null, pinned, locked)
+  }
+
   async function save() {
     if (!tokens) return
     setSaving(true)
@@ -116,12 +187,13 @@ export function BrandingPanel() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, tokens, powered_by: poweredBy }),
+        body: JSON.stringify({ name, tokens: payloadTokens(tokens), powered_by: poweredBy }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Save failed')
       const b: Branding = await res.json()
       setBranding(b)
       setTokens(b.tokens)
+      setPinned(new Set(b.explicit_token_fields ?? []))
       void invalidateBranding(b) // live-apply name, logo, tokens and favicon everywhere — no reload
       setNotice('Saved.')
     } catch (err) {
@@ -141,6 +213,7 @@ export function BrandingPanel() {
       setBranding(b)
       setName(b.name)
       setTokens(b.tokens)
+      setPinned(new Set(b.explicit_token_fields ?? []))
       setPoweredBy(!!b.powered_by)
       void invalidateBranding(b)
       setNotice('Reset to the default brand.')
@@ -244,20 +317,59 @@ export function BrandingPanel() {
           </label>
 
           {tokens && (
-            <div className="flex flex-col gap-2">
-              {TOKEN_FIELDS.map(f => (
-                <div key={f.key} className="flex items-center gap-2">
-                  <HexInput
-                    label={f.label}
-                    value={tokens[f.key]}
-                    onChange={v => setToken(f.key, v)}
-                    disabled={locked.has(f.key)}
-                  />
-                  {locked.has(f.key) && (
-                    <span className="text-[12px] text-fg-3">env-locked</span>
-                  )}
+            <div className="flex flex-col gap-3 border-t border-line-soft pt-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <HexInput label="Accent color" value={tokens.accent} onChange={setAccent} disabled={locked.has('accent')} />
+                  {locked.has('accent') && <span className="text-[12px] text-fg-3">env-locked</span>}
                 </div>
-              ))}
+                <p className="mt-1.5 text-[12px] text-fg-3 sm:pl-[9.5rem]">
+                  Your one brand color — primary buttons, links, focus rings and the selected-item marker.
+                  Pages, cards, navigation and text stay neutral in light and dark mode.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                {DERIVED_FIELDS.map(f => {
+                  const auto = !pinned.has(f.key) && !locked.has(f.key)
+                  return (
+                    <div key={f.key} className="flex flex-wrap items-center gap-2">
+                      <HexInput
+                        label={f.label}
+                        value={tokens[f.key]}
+                        onChange={v => { if (auto) togglePinned(f.key, true); setToken(f.key, v) }}
+                        disabled={locked.has(f.key)}
+                      />
+                      {locked.has(f.key) ? (
+                        <span className="text-[12px] text-fg-3">env-locked</span>
+                      ) : (
+                        <label className="inline-flex items-center gap-1.5 text-[12px] text-fg-2">
+                          <input
+                            type="checkbox"
+                            checked={auto}
+                            onChange={e => togglePinned(f.key, !e.target.checked)}
+                            className="h-3.5 w-3.5"
+                          />
+                          Auto (from accent)
+                        </label>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              <details className="group rounded-md border border-line-soft bg-surface-0 px-3 py-2">
+                <summary className="cursor-pointer select-none text-[13px] font-medium text-fg-1">
+                  Advanced — status colors
+                  <span className="ml-2 font-normal text-fg-3">semantic, not brand; most installs never change these</span>
+                </summary>
+                <div className="mt-3 flex flex-col gap-2 pb-1">
+                  {SEMANTIC_FIELDS.map(f => (
+                    <div key={f.key} className="flex items-center gap-2">
+                      <HexInput label={f.label} value={tokens[f.key]} onChange={v => setToken(f.key, v)} disabled={locked.has(f.key)} />
+                      {locked.has(f.key) && <span className="text-[12px] text-fg-3">env-locked</span>}
+                    </div>
+                  ))}
+                </div>
+              </details>
             </div>
           )}
         </CardBody>
@@ -272,7 +384,7 @@ export function BrandingPanel() {
             <div key={slot} className="flex flex-wrap items-center gap-3">
               <div
                 className="flex h-12 w-24 shrink-0 items-center justify-center rounded-md border border-line"
-                style={{ background: slot === 'wordmark-dark' ? 'var(--ok-ink)' : 'var(--ok-paper)' }}
+                style={{ background: slot === 'wordmark-dark' ? '#0d1117' : '#ffffff' }}
               >
                 {assetUrl[slot]
                   ? <img src={assetUrl[slot]!} alt="" className="max-h-10 max-w-20 object-contain" />
@@ -337,25 +449,33 @@ export function BrandingPanel() {
  * inline CSS custom properties, so editing doesn't repaint the whole app
  * until Save. */
 function LivePreview({ tokens, name, branding }: { tokens: BrandTokens; name: string; branding: Branding }) {
-  const style = {
-    '--accent': tokens.accent,
-    '--accent-hover': tokens.accentHover,
-    '--accent-press': tokens.accentPress,
-    '--accent-fg': tokens.accentFg,
-    '--brand-verify': tokens.verify,
-    '--brand-caution': tokens.caution,
-  } as CSSProperties
+  // Same variables applyBrandTokens sets on <html>, scoped to this subtree.
+  // `.brand-scope` (index.css) re-declares the tokens DERIVED from them
+  // (--accent-text, --accent-line, --accent-tint, --focus-ring, the status
+  // colours) on the wrapper itself: a custom property resolves where it is
+  // declared, so the :root versions would keep showing the SAVED accent.
+  const safe = isHex(tokens.accent) ? tokens : { ...tokens, accent: branding.tokens.accent }
+  const style = brandTokenVars(safe) as CSSProperties
   const draft: Branding = { ...branding, name: name || branding.name, tokens }
   return (
     <Card>
       <CardHeader title="Live preview" eyebrow="Updates as you edit, before you Save" />
       <CardBody>
-        <div style={style} className="flex flex-wrap items-center gap-4 rounded-md border border-line bg-surface-0 p-4">
-          <BrandLogo branding={draft} size="md" />
-          <Button variant="primary" size="sm">Primary action</Button>
-          <Button variant="secondary" size="sm">Secondary</Button>
-          <span className="rounded-full border border-signal-verify px-2 py-0.5 text-[12px] font-medium text-signal-verify">Done</span>
-          <span className="rounded-full border border-signal-alarm px-2 py-0.5 text-[12px] font-medium text-signal-alarm">Blocked</span>
+        <div style={style} className="brand-scope flex flex-col gap-3 rounded-md border border-line bg-surface-0 p-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <BrandLogo branding={draft} size="md" />
+            <Button variant="primary" size="sm">Primary action</Button>
+            <Button variant="secondary" size="sm">Secondary</Button>
+            <a href="#preview" onClick={e => e.preventDefault()} className="text-[13px] font-medium text-accent hover:underline">A link</a>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[12px] font-medium text-success">Done</span>
+            <span className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[12px] font-medium text-warning">In review</span>
+            <span className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[12px] font-medium text-danger">Blocked</span>
+            <span className="rounded-full border border-info/30 bg-info/10 px-2 py-0.5 text-[12px] font-medium text-info">Working</span>
+            <span className="rounded-md border border-line bg-surface-selected px-2 py-0.5 text-[12px] font-medium text-fg-0 shadow-[inset_2px_0_0_var(--accent-text)]">Selected row</span>
+            <span className="rounded-full border border-[color:var(--accent-line)] bg-[var(--accent-tint)] px-2 py-0.5 text-[12px] font-medium text-accent">Needs you</span>
+          </div>
         </div>
       </CardBody>
     </Card>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { deriveAccent } from '@operationkit/shared'
 
 export interface BrandTokens {
   accent: string
@@ -20,6 +21,9 @@ export interface Branding {
   favicon_url: string | null
   tokens: BrandTokens
   env_locked_fields: string[]
+  /** Token fields the install set explicitly; the rest are derived from the
+   * accent (hover / pressed / text-on-accent) or are semantic defaults. */
+  explicit_token_fields?: string[]
   is_customized: boolean
   default_name: string
   /** Install has its own name or uploaded marks — default marks are never shown. */
@@ -32,6 +36,12 @@ export interface Branding {
  * can't be reached. Exported so the brand-string guard test can whitelist it. */
 export const DEFAULT_BRAND_NAME = 'Operation Kit'
 
+/** Where the product's human-readable docs live: the public source repo on
+ * `main` (obj 900745). An install does not serve the repo's docs/ folder, so
+ * Settings → API & MCP links its API guide here. Kept in this module because it
+ * names the product, like DEFAULT_BRAND_NAME (see no-hardcoded-brand.test.ts). */
+export const PUBLIC_DOCS_BASE = 'https://github.com/m1keluka/OperationKit/blob/main'
+
 export const DEFAULT_BRANDING: Branding = {
   name: DEFAULT_BRAND_NAME,
   logo_url: null,
@@ -40,8 +50,8 @@ export const DEFAULT_BRANDING: Branding = {
   icon_url: null,
   favicon_url: null,
   tokens: {
-    accent: '#2B2BE8', accentHover: '#2727C9', accentPress: '#2323A9', accentFg: '#F3F0E8',
-    verify: '#0B7643', verifyOnDark: '#63D18F', caution: '#BD321B', cautionOnDark: '#F47D67',
+    accent: '#2B2BE8', accentHover: '#2727C9', accentPress: '#2323A9', accentFg: '#FFFFFF',
+    verify: '#1A7F37', verifyOnDark: '#3FB950', caution: '#D1242F', cautionOnDark: '#F85149',
   },
   env_locked_fields: [],
   is_customized: false,
@@ -101,19 +111,31 @@ export function invalidateBranding(next?: Partial<Branding>): Promise<Branding> 
   return loadBranding()
 }
 
+/** CSS custom properties for a token set — the accent plus the accent TEXT
+ * colours derived from it so links/icons/rings clear 4.5:1 on the neutral
+ * grounds in both themes, whatever accent the install picked (obj 900750). */
+export function brandTokenVars(tokens: BrandTokens): Record<string, string> {
+  const d = deriveAccent(tokens.accent)
+  return {
+    '--accent': tokens.accent,
+    '--accent-hover': tokens.accentHover,
+    '--accent-press': tokens.accentPress,
+    '--accent-fg': tokens.accentFg,
+    '--brand-accent-text': d.textLight,
+    '--brand-accent-text-dark': d.textDark,
+    '--brand-verify': tokens.verify,
+    '--brand-verify-on-dark': tokens.verifyOnDark,
+    '--brand-caution': tokens.caution,
+    '--brand-caution-on-dark': tokens.cautionOnDark,
+  }
+}
+
 /** Applies accent/status tokens as CSS custom-property overrides on <html>,
  * so a re-brand reaches every Tailwind class that resolves `var(--accent)`
  * etc. (tailwind.config.ts) without a rebuild. */
 export function applyBrandTokens(tokens: BrandTokens): void {
   const root = document.documentElement.style
-  root.setProperty('--accent', tokens.accent)
-  root.setProperty('--accent-hover', tokens.accentHover)
-  root.setProperty('--accent-press', tokens.accentPress)
-  root.setProperty('--accent-fg', tokens.accentFg)
-  root.setProperty('--brand-verify', tokens.verify)
-  root.setProperty('--brand-verify-on-dark', tokens.verifyOnDark)
-  root.setProperty('--brand-caution', tokens.caution)
-  root.setProperty('--brand-caution-on-dark', tokens.cautionOnDark)
+  for (const [k, v] of Object.entries(brandTokenVars(tokens))) root.setProperty(k, v)
 }
 
 export function applyFavicon(url: string | null): void {

@@ -208,3 +208,50 @@ describe('AgentChatPage', () => {
     expect(img.closest('a')?.getAttribute('href')).toBe('/api/agent-chat/attachments/5')
   })
 })
+
+// obj 900745 — the composer was rows={1} with no autosize, so a long or
+// multi-line message stayed one short line. It now grows with its content up
+// to 240px, then scrolls inside, and shrinks back when cleared.
+describe('AgentChatPage composer autosize (obj 900745)', () => {
+  const LINE_PX = 22
+  let restore: PropertyDescriptor | undefined
+  beforeEach(() => {
+    // jsdom has no layout: model scrollHeight as one 22px line per text line.
+    restore = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'scrollHeight')
+    Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get(this: HTMLTextAreaElement) { return Math.max(1, this.value.split('\n').length) * LINE_PX },
+    })
+  })
+  afterEach(() => {
+    if (restore) Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', restore)
+    else delete (HTMLTextAreaElement.prototype as unknown as Record<string, unknown>).scrollHeight
+  })
+
+  function type(box: HTMLTextAreaElement, value: string) {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, value)
+    box.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  it('grows with multi-line input, caps at 240px and scrolls, then shrinks when cleared', async () => {
+    await mount('/chat/demo-assistant')
+    await settle()
+    const box = host.querySelector('#agent-chat-input') as HTMLTextAreaElement
+    expect(box.className).toContain('max-h-60')
+
+    type(box, 'one\ntwo\nthree\nfour\nfive')
+    await settle()
+    expect(box.style.height).toBe(`${5 * LINE_PX}px`)
+    expect(box.style.overflowY).toBe('hidden')
+
+    type(box, Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n'))
+    await settle()
+    expect(box.style.height).toBe('240px')
+    expect(box.style.overflowY).toBe('auto')
+
+    type(box, '')
+    await settle()
+    expect(box.style.height).toBe(`${LINE_PX}px`)
+    expect(box.style.overflowY).toBe('hidden')
+  })
+})

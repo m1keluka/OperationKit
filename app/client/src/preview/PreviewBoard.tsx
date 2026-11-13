@@ -313,7 +313,7 @@ export function PreviewBoard({ workspaces }: PreviewBoardProps) {
               data-testid="board-needs-you-count"
               className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] text-fg-1"
             >
-              <span className="font-mono font-semibold text-[color:var(--accent-hover)]">{grouped.review.length}</span>
+              <span className="font-mono font-semibold text-accent">{grouped.review.length}</span>
               need you
             </span>
           )}

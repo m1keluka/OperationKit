@@ -201,6 +201,22 @@ describe('Settings → Connectors', () => {
     expect(text).toContain('Any remote MCP server')
   })
 
+  it('New Integration has a first-class Add an MCP card that opens the custom-URL dialog (obj 900745)', async () => {
+    await render('?new=1')
+    const cards = Array.from(container.querySelectorAll('[data-testid^="choose-"]')).map(el => el.getAttribute('data-testid'))
+    expect(cards).toEqual(['choose-browse', 'choose-mcp', 'choose-make'])
+    const mcp = container.querySelector('[data-testid="choose-mcp"]') as HTMLButtonElement
+    expect(mcp.textContent).toContain('Add an MCP')
+    expect(mcp.disabled).toBe(false)
+    expect(document.body.textContent).not.toContain('Connect an MCP server')
+    mcp.click()
+    await flush()
+    // The existing connect-any-MCP dialog (#900620 / #900649), on its Paste a URL tab.
+    expect(document.body.textContent).toContain('Connect an MCP server')
+    const urlTab = Array.from(document.body.querySelectorAll('[role="tab"]')).find(t => t.textContent === 'Paste a URL')
+    expect(urlTab?.getAttribute('aria-selected')).toBe('true')
+  })
+
   it('Browse offers catalog MCP servers as a workspace MCP server (admin)', async () => {
     store.catalog = [{ id: 'linear', name: 'Linear', description: 'Issues and projects.', mcp_url: 'https://mcp.linear.app/mcp' }]
     await render('?new=browse')

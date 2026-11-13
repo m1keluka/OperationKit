@@ -20,6 +20,7 @@ import { SecretsPage } from '../SecretsPage'
 import { TestCredentialsPage } from '../TestCredentialsPage'
 import { MySecretsSection } from '../account-settings/MySecretsSection'
 import { canManageSharedSecrets } from '../../lib/secretsAccess'
+import { SecurityStrip } from '../secrets/SecurityStrip'
 
 export { canManageSharedSecrets }
 
@@ -56,6 +57,8 @@ export function SettingsSecrets() {
       )}
       {view === 'mine' && (
         <div className="max-w-3xl [&>section]:mt-0">
+          {/* Same three promises as Shared (obj 900749): your own secrets are just as write-only. */}
+          <SecurityStrip />
           <MySecretsSection />
         </div>
       )}

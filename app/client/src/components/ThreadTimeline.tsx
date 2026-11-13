@@ -114,7 +114,7 @@ function Divider({ seg }: { seg: Extract<ThreadSegment, { type: 'divider' }> }) 
       <div
         className={relayed
           ? 'overflow-hidden break-words rounded-lg border border-line bg-surface-2 px-4 py-3 text-[14px] leading-relaxed text-fg-1'
-          : 'overflow-hidden break-words rounded-lg bg-accent px-4 py-3 text-[14px] leading-relaxed text-accent-fg'}
+          : 'overflow-hidden break-words rounded-lg rounded-br-sm border border-line bg-surface-3 px-4 py-3 text-[14px] leading-relaxed text-fg-0'}
         style={{ maxWidth: 'min(85%, 64ch)' }}
       >
         {seg.text}

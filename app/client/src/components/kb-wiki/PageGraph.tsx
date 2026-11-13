@@ -174,7 +174,7 @@ export function PageGraph({ workspace, rel, onOpenNote }: { workspace: string; r
                   onClick={open(n.rel)}
                   onMouseEnter={() => setHover(n.rel)}
                   onMouseLeave={() => setHover(h => (h === n.rel ? null : h))}
-                  className="flex min-h-[44px] w-full items-center gap-3 px-3 py-2 text-left transition-colors duration-fast hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                  className="flex min-h-[44px] w-full items-center gap-3 px-3 py-2 text-left transition-colors duration-fast hover:bg-surface-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                 >
                   <span className={cn('h-2 w-2 shrink-0 rounded-full', toneOf(n.kind).bg)} aria-hidden="true" />
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">

@@ -2,24 +2,25 @@ import { forwardRef } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { cn } from './cn'
 
-/* Button — token-bound action primitive. Three variants:
-     primary   = accent fill + accent-fg text (the one accent; primary actions only;
-                 install-configurable — see docs/branding.md)
-     secondary = surface-1 + hairline, lifts to line-strong on hover
-     ghost     = transparent, fg-1 text, subtle surface on hover
+/* Button — token-bound action primitive (obj 900750: GitHub-style). Variants:
+     primary   = accent fill + accent-fg text (the one brand accent; primary
+                 actions only; install-configurable — see docs/branding.md)
+     secondary = neutral raised surface + hairline (the default button)
+     ghost     = transparent, fg-1 text, neutral hover fill
+     danger    = neutral button with danger text; tints red on hover
    Sizes meet the 44px mobile hit-target at `md`+ via min-h. */
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type Size = 'sm' | 'md'
 
 const VARIANT: Record<Variant, string> = {
   primary:
-    'bg-accent text-accent-fg hover:bg-accent-hover active:bg-accent-press border border-transparent',
+    'bg-accent text-accent-fg hover:bg-accent-hover active:bg-accent-press border border-transparent shadow-[inset_0_-1px_0_rgba(0,0,0,0.12)]',
   secondary:
-    'bg-surface-1 text-fg-1 border border-line hover:border-line-strong hover:text-fg-0 hover:bg-surface-3',
+    'bg-surface-2 text-fg-0 border border-line shadow-[0_1px_0_rgba(31,35,40,0.04)] hover:border-line-strong hover:bg-surface-3 active:bg-surface-4',
   ghost:
-    'bg-transparent text-fg-1 border border-transparent hover:bg-surface-2 hover:text-fg-0',
+    'bg-transparent text-fg-1 border border-transparent hover:bg-surface-3 hover:text-fg-0 active:bg-surface-4',
   danger:
-    'bg-transparent text-signal-alarm border border-signal-alarm/30 hover:bg-signal-alarm/10',
+    'bg-surface-2 text-danger border border-line hover:border-danger/40 hover:bg-danger/10 active:bg-danger/15',
 }
 /* Standard disabled token (QA r3 #2): a disabled control of ANY variant reads as
    a muted neutral — surface-3 + hairline + fg-3 — never a faded accent (a 45%
@@ -68,7 +69,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       aria-busy={loading || undefined}
       className={cn(
         'inline-flex select-none items-center whitespace-nowrap justify-center rounded-md font-medium tracking-[-0.01em]',
-        'transition-colors duration-fast ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+        'transition-colors duration-fast ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0',
         VARIANT[variant],
         loading ? 'disabled:cursor-wait' : disabledFor(variant),
         SIZE[size],

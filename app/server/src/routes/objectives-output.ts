@@ -28,9 +28,11 @@ import {
   releaseFollowUps,
   resolveFollowUpQueueConfig,
   takePendingFollowUps,
-  transcriptMtimeMs,
+  listPendingFollowUps,
+  workerActivityMs,
   type QueuedFollowUp,
 } from '../services/followup-queue.js'
+import { appendVisibleError } from '../services/unanswered-followup.js'
 
 // Default cap on the non-incremental first-open payload: the most recent N
 // messages. Older history loads on demand via ?from&to; the live tail via
@@ -436,7 +438,12 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
         sessionId: existingSessionId,
         currentSessionId: objective.session_id,
         sessionState: getSessionState(existingSessionId),
-        transcriptMtimeMs: transcriptMtimeMs(transcriptPathFor(existingSessionId, getSessionJsonlPath(existingSessionId) || undefined)),
+        // obj 900412 (round 2) — our own queued bubbles must not count as the
+        // worker being active, or "???" every minute keeps a hung worker "fresh".
+        transcriptMtimeMs: workerActivityMs(
+          transcriptPathFor(existingSessionId, getSessionJsonlPath(existingSessionId) || undefined),
+          listPendingFollowUps(db, objective.id),
+        ),
         nowMs: Date.now(),
       })
     } catch (err) {
@@ -516,6 +523,15 @@ router.post('/:id/message', async (req: AuthRequest, res) => {
     } catch (err) {
       releaseRespawnHold()
       console.error(`[objectives] message → deferred sendFollowUp failed for ${req.params.id}:`, err)
+      // obj 900412 (round 2) — this used to be silent: the bubble stayed in the
+      // thread, the card flipped back, and it looked like the agent ignored the
+      // owner. Say what happened, in the thread, where they are looking.
+      try {
+        appendVisibleError(
+          transcriptPathFor(existingSessionId, getSessionJsonlPath(existingSessionId) || undefined),
+          `The agent could not start for this message: ${((err as Error)?.message || String(err)).split('\n')[0].slice(0, 300)} Your message is saved. Send it again or press Resume to retry.`,
+        )
+      } catch { /* best effort */ }
       if (carried.length > 0) { try { releaseFollowUps(db, carried.map(c => c.id)) } catch { /* ignore */ } }
       try {
         db.prepare("UPDATE objectives SET status = ?, updated_at = datetime('now') WHERE id = ?").run(priorStatus, req.params.id)

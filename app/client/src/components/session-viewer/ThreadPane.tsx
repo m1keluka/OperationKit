@@ -67,7 +67,7 @@ export function ThreadPane({
         {pendingEcho && (
           <div className="cc-land my-1 flex justify-end">
             <div
-              className="overflow-hidden break-words rounded-lg bg-accent px-4 py-3 text-[14px] leading-relaxed text-accent-fg"
+              className="overflow-hidden break-words rounded-lg rounded-br-sm border border-line bg-surface-3 px-4 py-3 text-[14px] leading-relaxed text-fg-0"
               style={{ maxWidth: 'min(85%, 64ch)' }}
             >
               {pendingEcho}

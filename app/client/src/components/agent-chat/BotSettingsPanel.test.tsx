@@ -34,6 +34,16 @@ const CTO: ChatAgentInfo = {
   config: null,
 }
 
+const HIGH_AGENCY_OFF = {
+  high_agency: {
+    slug: 'acme-cto', enabled: false, times_per_day: 1, first_hour: 9, workspace: null, allow_cards: true, allow_workflows: true,
+    run_as_user_id: null, routine_id: null, updated_by: null, updated_at: null, wake_times: ['09:00'], cron: '0 9 * * *',
+    next_wake_at: null, routine: null, last_wake: null,
+  },
+  cadences: [1, 2, 3, 4, 6],
+  max_cards_per_wake: 3,
+}
+
 let host: HTMLDivElement
 let root: Root
 let requests: { url: string; method: string; body: unknown }[] = []
@@ -43,6 +53,9 @@ beforeEach(() => {
   requests = []
   onSaved = vi.fn()
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    // The High Agency section (obj 900748) loads its own setting; it has its own
+    // test file, so its calls are answered here and kept out of `requests`.
+    if (url.includes('/high-agency')) return new Response(JSON.stringify(HIGH_AGENCY_OFF), { status: 200, headers: { 'content-type': 'application/json' } })
     const body = init?.body ? JSON.parse(String(init.body)) : null
     requests.push({ url, method: init?.method ?? 'GET', body })
     const agent = { ...CTO, model: body?.model ?? null, all_tools: !!body?.all_tools, config: init?.method === 'DELETE' ? null : { ...body, updated_by: 'jordan', updated_at: '' } }
@@ -158,5 +171,51 @@ describe('BotSettingsPanel', () => {
     expect(box('Web search').checked).toBe(true)
     expect(box('File board cards').checked).toBe(false)
     expect([...host.querySelectorAll('button')].some(b => b.textContent?.trim() === 'Save')).toBe(false)
+  })
+})
+
+/* obj 900749 — "Use secrets by name" is explicit opt-in: "All tools" never
+   implies it, so it stays tickable (and unticked) with "All tools" on, and a
+   tick is saved alongside all_tools. */
+describe('explicit-only secret tool', () => {
+  const META_SECRETS = {
+    ...META,
+    tool_catalog: [...CATALOG, { name: 'secrets', label: 'Use secrets by name', description: 'Server adds the key.', group: 'secrets', explicit_only: true }],
+  } as AgentsResponse
+
+  it('is not implied by "All tools" and can be ticked on its own', async () => {
+    render({ ...CTO, all_tools: true }, true, META_SECRETS)
+    expect(allTools().checked).toBe(true)
+    expect(box('Web search').disabled).toBe(true)
+    const secrets = box('Use secrets by name')
+    expect(secrets.checked).toBe(false)
+    expect(secrets.disabled).toBe(false)
+    expect(host.textContent).toContain('Secrets')
+    await click(secrets)
+    await click(button('Save'))
+    const put = requests.find(r => r.method === 'PUT')!
+    expect(put.body).toMatchObject({ all_tools: true })
+    expect((put.body as { tools: string[] }).tools).toContain('secrets')
+  })
+})
+
+// obj 900745 — Operator missed the ghost "Done" (plain text on the dark panel) and
+// closed the panel with the header Settings toggle. Done is a real button now.
+describe('BotSettingsPanel Done button (obj 900745)', () => {
+  it('is a visible, bordered button (not ghost text) that closes the panel', async () => {
+    const onClose = vi.fn()
+    act(() => {
+      root.render(<BotSettingsPanel agent={CTO} meta={META} isAdmin={false} onSaved={onSaved} onClose={onClose} />)
+    })
+    const done = button('Done')
+    expect(done).toBeTruthy()
+    expect(done.getAttribute('aria-label')).toBe('Done: close settings for CTO')
+    // Secondary variant + stronger hairline and fill — never the transparent ghost.
+    expect(done.className).toContain('!border-line-strong')
+    expect(done.className).toContain('!bg-surface-2')
+    expect(done.className).not.toContain('bg-transparent')
+    expect(done.className).not.toContain('border-transparent')
+    await click(done)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

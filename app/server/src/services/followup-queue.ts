@@ -110,6 +110,45 @@ export function transcriptMtimeMs(jsonlPath: string): number | null {
   }
 }
 
+/**
+ * obj 900412 (round 2) — when the WORKER last wrote to its transcript.
+ *
+ * The file mtime alone is wrong once a message has been queued: the queued
+ * bubble is appended to the same file, so every "???" refreshed the mtime and a
+ * hung worker never looked stale — the owner could not get through until they
+ * stopped typing for 5 minutes. When the transcript ends in our own queued
+ * bubbles, the worker has been silent at least since the oldest pending
+ * message, so that is the activity time.
+ */
+export function workerActivityMs(jsonlPath: string, pending: Pick<QueuedFollowUp, 'created_at'>[]): number | null {
+  const mtime = transcriptMtimeMs(jsonlPath)
+  if (mtime === null || pending.length === 0) return mtime
+  let lastIsQueuedBubble = false
+  try {
+    const fd = fs.openSync(jsonlPath, 'r')
+    try {
+      const size = fs.fstatSync(fd).size
+      const len = Math.min(size, 64_000)
+      const buf = Buffer.alloc(len)
+      fs.readSync(fd, buf, 0, len, size - len)
+      const lines = buf.toString('utf8').split('\n')
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const t = lines[i].trim()
+        if (!t) continue
+        try {
+          const e = JSON.parse(t) as { type?: string; queued?: boolean }
+          if (!e.type) continue
+          lastIsQueuedBubble = e.type === 'followup' && e.queued === true
+          break
+        } catch { /* partial first line */ }
+      }
+    } finally { fs.closeSync(fd) }
+  } catch { return mtime }
+  if (!lastIsQueuedBubble) return mtime
+  const oldest = Math.min(...pending.map(p => Date.parse(p.created_at)).filter(Number.isFinite))
+  return Number.isFinite(oldest) ? Math.min(mtime, oldest) : mtime
+}
+
 export function enqueueFollowUp(
   db: Database.Database,
   objectiveId: number,

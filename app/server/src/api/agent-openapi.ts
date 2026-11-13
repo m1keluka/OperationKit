@@ -13,7 +13,7 @@ export const AGENT_OPENAPI = {
       'Remote API for listing, creating, updating, and talking to board cards (objectives).',
       // Auth (obj 714090)
       'Auth: one NAMED, SCOPED agent key per bot — Settings → You → Agent keys — sent as `Authorization: Bearer cc_live_…`.',
-      'Scopes: board:read, board:write, board:start, board:cancel, board:done, board:delete, vault:read, vault:write, board:secrets_request;',
+      'Scopes: board:read, board:write, board:start, board:cancel, board:done, board:delete, vault:read, vault:write, board:secrets_request, secrets:use;',
       'new keys default to everything except board:done and board:delete (done is Operator\'s signature). A key may also be pinned to a workspace allowlist.',
       'A call the key is not scoped for returns 403 { error, missing_scope }; a workspace outside the allowlist returns 403 { error, workspace }.',
       'Cards created with an agent key (REST or MCP) carry origin=agent_api and agent_key_label. GET /api/auth/me returns api_key { kind, id, label, scopes, workspaces }.',
@@ -250,7 +250,7 @@ export const AGENT_OPENAPI = {
       // obj 714090 — named, scoped agent API keys.
       AgentScope: {
         type: 'string',
-        enum: ['board:read', 'board:write', 'board:start', 'board:cancel', 'board:done', 'board:delete', 'vault:read', 'vault:write', 'board:secrets_request'],
+        enum: ['board:read', 'board:write', 'board:start', 'board:cancel', 'board:done', 'board:delete', 'vault:read', 'vault:write', 'board:secrets_request', 'secrets:use'],
       },
       ScopeError: {
         type: 'object',
@@ -1003,7 +1003,7 @@ export const AGENT_OPENAPI = {
       get: {
         tags: ['secrets-broker'],
         summary: 'List secret NAMES you can use (never values)',
-        description: 'Workspace keys see secrets scoped to their workspaces plus global secrets whose policy tags one of their workspaces; admin keys see every name.',
+        description: 'Workspace keys see secrets scoped to their workspaces plus global secrets whose policy tags one of their workspaces; a legacy admin key sees every name. A named agent key (cc_live_) needs the secrets:use scope and is never an admin caller here: it sees its owner\'s own secrets, workspace secrets of the key\'s workspaces, and global secrets whose bot-access policy names one of them. MCP tool: list_usable_secrets.',
         parameters: [{ name: 'workspace', in: 'query', schema: { type: 'string' } }],
         responses: {
           '200': {
@@ -1023,6 +1023,7 @@ export const AGENT_OPENAPI = {
         description:
           'Put `{{secret:NAME}}` in the url (path/query), a header value, or a string anywhere in the body. The server checks the secret is visible to your key and that the destination host is on that secret\'s allowlist, ' +
           'injects the value, sends the request (https only, port 443, no redirects followed, 30 s timeout), and returns the response with every secret value and credential pattern redacted. ' +
+          'A named agent key needs the secrets:use scope (MCP tool: call_with_secret). ' +
           'Requests without a placeholder are rejected (this is not an open proxy). Binary responses are withheld. Every call (allowed or rejected) is audited by secret name, key, workspace, host and status — never the value.',
         requestBody: {
           required: true,
@@ -1397,7 +1398,7 @@ export const AGENT_DISCOVERY = {
     expires_in: null,
     // obj 714090
     agent_keys: 'Settings → You → Agent keys: one named, scoped key per bot. 403 { missing_scope } when a call is out of scope.',
-    scopes: ['board:read', 'board:write', 'board:start', 'board:cancel', 'board:done', 'board:delete', 'vault:read', 'vault:write', 'board:secrets_request'],
+    scopes: ['board:read', 'board:write', 'board:start', 'board:cancel', 'board:done', 'board:delete', 'vault:read', 'vault:write', 'board:secrets_request', 'secrets:use'],
     default_scopes: ['board:read', 'board:write', 'board:start', 'board:cancel', 'vault:read', 'vault:write'],
   },
   surface: 'board',
@@ -1426,7 +1427,7 @@ export const AGENT_DISCOVERY = {
       'get_objective', 'get_progress', 'get_output', 'get_artifacts', 'list_workspaces', 'list_agents', 'list_chat_agents',
       'get_chat_agent', 'create_objective',
       'update_objective', 'update_status', 'start_objective', 'send_message', 'list_secret_requests',
-      'fulfill_secret_request', 'stop_objective',
+      'fulfill_secret_request', 'list_usable_secrets', 'call_with_secret', 'stop_objective',
       // obj 900642 (card B6): workflows. No publish tool — publish is owner-only in the web app.
       'list_workflows', 'get_workflow', 'create_workflow', 'draft_workflow_version', 'validate_workflow',
       'test_workflow', 'run_workflow', 'get_workflow_run',

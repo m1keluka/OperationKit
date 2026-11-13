@@ -119,7 +119,7 @@ export function DataTable<T>({
       {/* ── DESKTOP: real table ── */}
       <div className="hidden overflow-hidden rounded-lg border border-line bg-surface-2 sm:block">
         <table className="w-full border-collapse text-[13px]">
-          <thead className="sticky top-0 z-[1] bg-surface-1">
+          <thead className="sticky top-0 z-[1] bg-surface-0">
             <tr className="border-b border-line">
               {columns.map((col) => {
                 const active = sort?.key === col.key
@@ -128,7 +128,7 @@ export function DataTable<T>({
                     key={col.key}
                     aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                     className={cn(
-                      'px-3 py-2.5 align-middle text-[12px] uppercase tracking-[0.1em] text-fg-3 font-semibold',
+                      'px-3 py-2 align-middle text-[12px] uppercase tracking-[0.06em] text-fg-2 font-semibold',
                       alignCls(col.align),
                       col.headerClassName,
                       col.className,

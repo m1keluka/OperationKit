@@ -25,7 +25,8 @@
  * board:done fails exactly like the REST PATCH, carrying the same
  * `missing_scope`. Only public `/api/*` routes are ever targeted — never
  * `/api/internal/*` (whose localhost check a loopback request would satisfy),
- * `/api/admin/*`, `/api/secrets*` or `/shell`; `MCP_TOOLS` below is the
+ * `/api/admin/*`, the `/api/secrets` store or `/shell` (the use-only broker,
+ * `/api/secrets-broker`, IS wrapped — obj 900749 — and returns no value); `MCP_TOOLS` below is the
  * complete list, and there is no merge / deploy / spend / delete tool.
  *
  * ── The one MCP-only rule ─────────────────────────────────────────────────
@@ -69,6 +70,7 @@ const SERVER_INSTRUCTIONS = [
   'An error with missing_scope means this key may not do that — tell Operator what you wanted; do not retry or route around it. An error with workspace means the card belongs to another bot\'s workspace.',
   'Every write returns a one-line confirmation plus id and card url — quote the url back to Operator.',
   'Knowledge: search (vault/docs full-text) → read_file; search_files for pptx/pdf/images; list_folders to browse. Vault entry point: workspaces/<slug>/active.md.',
+  'Secrets: never ask anyone for a key and never put one in a tool argument. list_usable_secrets shows the NAMES you may use; call_with_secret sends one HTTPS request with {{secret:NAME}} injected server-side and returns the reply redacted. Needs the secrets:use scope.',
   'Workflows (okflow/1): create_workflow(goal) files a builder card; or build it yourself: draft_workflow_version → (validate_workflow is free) → test_workflow until self_test.status = passed. Publishing is the owner\'s click in the web app — no tool publishes or approves.',
 ].join('\n')
 
@@ -256,6 +258,9 @@ export const WORKFLOW_TOOL_ROUTES = {
   get_workflow_run: { method: 'GET', path: '/api/flows/:id/runs/:runId' },
 } as const satisfies Record<string, { method: Method; path: string }>
 export type WorkflowToolName = keyof typeof WORKFLOW_TOOL_ROUTES
+
+/** The broker routes the two secret-use tools wrap (obj 900749). Agent surface, scope secrets:use. */
+export const SECRETS_BROKER_ROUTES = { list: '/api/secrets-broker/list', http: '/api/secrets-broker/http' } as const
 
 /** Fill a WORKFLOW_TOOL_ROUTES template (`:id`, `:runId`) and call it. */
 function flowRest(rest: RestCall, tool: WorkflowToolName, params: Record<string, number> = {}, query = '', body?: unknown): Promise<any> {
@@ -1205,6 +1210,54 @@ export const MCP_TOOLS: McpTool[] = [
       return rest('POST', `/api/objectives/${m[1]}/secret-requests/${encodeURIComponent(requestId)}/upload-token`, scope ? { scope } : {})
     },
   },
+  // ── use-without-reveal (obj 900749) — a bot names a secret, the server injects it ──
+  // Both wrap /api/secrets-broker (scope secrets:use). No tool, argument or
+  // result here ever carries a value: the bot writes {{secret:NAME}}, the broker
+  // substitutes it on the outbound request only, and redacts the reply.
+  {
+    name: 'list_usable_secrets',
+    access: 'read',
+    scope: 'secrets:use',
+    description: 'Names of the secrets this key may USE (never read), each with the destination hosts it may be sent to. usable=false means no host is allowed yet — ask Operator to turn on bot access for it in Settings → Secrets. Values are never returned by any tool.',
+    inputSchema: { type: 'object', properties: { workspace: WS_FILTER } },
+    run: async (a, rest) => {
+      const r = await rest('GET', `${SECRETS_BROKER_ROUTES.list}${qs({ workspace: strArg(a, 'workspace') })}`)
+      const items = Array.isArray(r?.secrets) ? r.secrets as Record<string, unknown>[] : []
+      return {
+        secrets: items.map(x => compact(pick(x, ['name', 'description', 'scope', 'workspace', 'allowed_hosts', 'allowed_methods', 'usable']), 300)),
+        how_to_use: 'call_with_secret with {{secret:NAME}} in a header, the url or the body — e.g. headers: {"Authorization": "Bearer {{secret:NAME}}"}.',
+      }
+    },
+  },
+  {
+    name: 'call_with_secret',
+    access: 'write',
+    scope: 'secrets:use',
+    description: 'Make ONE HTTPS request that uses a named secret without ever seeing it. Put {{secret:NAME}} where the credential goes (a header value, the url path/query, or a body string); the server injects the value only on the outbound request, only to a host that secret allows, and returns the reply with every injected value redacted. Never ask anyone for a value and never paste one here — names only. Max 5 secrets per call; https only; binary replies are omitted.',
+    inputSchema: {
+      type: 'object',
+      required: ['url'],
+      properties: {
+        method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'], description: 'Default GET' },
+        url: { type: 'string', description: 'Absolute https:// URL. Placeholders are not allowed in the host.' },
+        headers: { type: 'object', additionalProperties: { type: 'string' }, description: 'e.g. {"Authorization": "Bearer {{secret:STRIPE_KEY}}"}' },
+        body: { description: 'JSON value or string. Placeholders allowed inside strings.' },
+        workspace: { type: 'string', description: 'Pin to one workspace when the same NAME exists in several' },
+      },
+    },
+    run: async (a, rest) => {
+      const body: Record<string, unknown> = { url: strArg(a, 'url', true) }
+      const method = strArg(a, 'method')
+      if (method) body.method = method
+      if (a.headers !== undefined) body.headers = a.headers
+      if (a.body !== undefined) body.body = a.body
+      const ws = strArg(a, 'workspace')
+      if (ws) body.workspace = ws
+      const r = await rest('POST', SECRETS_BROKER_ROUTES.http, body)
+      // The broker already redacted; clip so one reply stays within a sane token budget.
+      return { ...r, body: clip(r?.body, MAX_TEXT_CHARS) }
+    },
+  },
   {
     name: 'stop_objective',
     access: 'write',
@@ -1321,9 +1374,10 @@ async function handleMessage(msg: JsonRpcMessage, req: AuthRequest, rest: RestCa
           annotations: {
             readOnlyHint: t.access === 'read',
             // stop_objective kills a live session; nothing here deletes data.
-            destructiveHint: t.name === 'stop_objective',
+            // call_with_secret can PUT/DELETE on a third-party API.
+            destructiveHint: t.name === 'stop_objective' || t.name === 'call_with_secret',
             idempotentHint: t.access === 'read',
-            openWorldHint: false,
+            openWorldHint: t.name === 'call_with_secret',
           },
         })),
       })

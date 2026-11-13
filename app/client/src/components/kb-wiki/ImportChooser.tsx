@@ -172,7 +172,7 @@ export function ImportChooser({
             const locked = it.status === 'working' || it.status === 'done'
             return (
               <li key={it.key} className="flex items-start gap-2 py-2">
-                <label className={cn('grid min-h-[44px] min-w-[44px] shrink-0 place-items-center rounded-md sm:min-h-[32px] sm:min-w-[32px]', locked ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-2')}>
+                <label className={cn('grid min-h-[44px] min-w-[44px] shrink-0 place-items-center rounded-md sm:min-h-[32px] sm:min-w-[32px]', locked ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-3')}>
                   <input
                     type="checkbox"
                     checked={it.selected}

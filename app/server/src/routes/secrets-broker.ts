@@ -10,15 +10,18 @@
  * Workspace keys see and use only secrets tagged for their workspaces; an admin
  * key sees every name. No response, error or log line from this router carries
  * a secret value — see services/secrets-broker.ts.
+ *
+ * Named agent keys (cc_live_, the key an MCP-connected bot holds) reach this
+ * router only with the `secrets:use` scope (obj 900749, agent-key-guard), and
+ * are never admin callers here — see callerForAgentKey.
  */
 import { Router, type Response } from 'express'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { getUserWorkspaces, userHasWorkspace } from '../middleware/workspace.js'
+import { getUserWorkspaces } from '../middleware/workspace.js'
 import { getDb } from '../db/index.js'
 import { isApiKey } from '../lib/api-keys.js'
 import { rateLimit } from '../services/file-access.js'
-import { executeHttp, listForCaller, type Caller } from '../services/secrets-broker.js'
-import { logAccess, touchLastUsed } from '../services/secrets-store.js'
+import { callerForAgentKey, executeHttp, listForCaller, recordBrokerUse, type BrokerUseIdentity, type Caller } from '../services/secrets-broker.js'
 import {
   SESSION_SECRET_ACCESS_FLAG,
   readSettingFlag,
@@ -68,6 +71,9 @@ function callerOf(req: BrokerRequest): Caller {
   if (req.sessionScope) {
     return { userId: req.user!.id, isAdmin: false, workspaces: [req.sessionScope.workspace] }
   }
+  if (req.agentKey) {
+    return callerForAgentKey(req.user!, req.agentKey.workspaces, getUserWorkspaces(req.user!.id).map(w => w.workspace))
+  }
   const isAdmin = req.user!.role === 'admin'
   return {
     userId: req.user!.id,
@@ -76,11 +82,14 @@ function callerOf(req: BrokerRequest): Caller {
   }
 }
 
-function keyIdentity(req: BrokerRequest): { auth: 'api_key' | 'session'; key_last4: string | null } {
-  if (req.sessionScope) return { auth: 'session', key_last4: `obj:${req.sessionScope.objectiveId}` }
+function keyIdentity(req: BrokerRequest): BrokerUseIdentity {
+  const username = req.user!.username
+  if (req.sessionScope) return { auth: 'session', key_last4: `obj:${req.sessionScope.objectiveId}`, username }
   const header = req.headers.authorization
   const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : ''
-  return isApiKey(bearer) ? { auth: 'api_key', key_last4: bearer.slice(-4) } : { auth: 'session', key_last4: null }
+  // An MCP tool re-issues here with the bot's own key; the label names the bot.
+  if (req.agentKey) return { auth: req.headers['x-cc-client'] === 'mcp' ? 'mcp' : 'agent_key', key_last4: `${req.agentKey.label}…${bearer.slice(-4)}`, username }
+  return isApiKey(bearer) ? { auth: 'api_key', key_last4: bearer.slice(-4), username } : { auth: 'session', key_last4: null, username }
 }
 
 // GET /api/secrets-broker/list?workspace=
@@ -92,7 +101,8 @@ router.get('/list', (req: BrokerRequest, res) => {
     res.status(403).json({ error: `Session token is scoped to workspace '${req.sessionScope.workspace}'` })
     return
   }
-  if (ws && !caller.isAdmin && !req.sessionScope && !userHasWorkspace(caller.userId, ws)) {
+  // caller.workspaces is the membership list (or, for an agent key, its narrowed allowlist).
+  if (ws && !caller.isAdmin && !req.sessionScope && !caller.workspaces.includes(ws)) {
     res.status(403).json({ error: `No access to workspace '${ws}'` })
     return
   }
@@ -113,44 +123,7 @@ router.post('/http', async (req: BrokerRequest, res) => {
     res.status(500).json({ error: 'broker internal error' })
     return
   }
-  const id = keyIdentity(req)
-  const meta = {
-    secrets: outcome.audit.secrets,
-    scopes: outcome.audit.scopes,
-    host: outcome.audit.host,
-    method: outcome.audit.method,
-    status: outcome.audit.status,
-    workspace: outcome.audit.workspace,
-    user_id: caller.userId,
-    username: req.user!.username,
-    ...id,
-  }
-  try {
-    getDb().prepare(
-      `INSERT INTO activity_log (project, workspace, event_type, title, detail, metadata)
-       VALUES ('operationkit', ?, 'milestone', 'secrets_broker_use', ?, ?)`,
-    ).run(
-      outcome.audit.workspace ?? 'shared',
-      `${req.user!.username} used ${outcome.audit.secrets.join(', ') || '(none)'} → ${outcome.audit.method} ${outcome.audit.host ?? '-'} (${outcome.audit.status})`,
-      JSON.stringify(meta),
-    )
-  } catch (err) {
-    console.error('[secrets-broker] audit insert failed', err instanceof Error ? err.message : err)
-  }
-  // Store-level audit too, so the secret's own access history shows each use.
-  if (!outcome.audit.status.startsWith('rejected')) {
-    const ids = outcome.audit.secretIds ?? []
-    outcome.audit.scopes.forEach((s, i) => {
-      const [name, scope] = s.split('@')
-      logAccess(caller.userId, 'use', `broker:${scope}→${outcome.audit.host}`, name, {
-        secretId: ids[i] ?? null,
-        source: 'broker',
-        detail: `${outcome.audit.method} ${outcome.audit.host ?? '-'}`,
-      })
-    })
-    touchLastUsed(ids)
-  }
-  console.log(`[secrets-broker] use user=${caller.userId} auth=${id.auth} key=${id.key_last4 ?? '-'} secrets=${outcome.audit.secrets.join(',') || '-'} host=${outcome.audit.host ?? '-'} status=${outcome.audit.status}`)
+  recordBrokerUse(outcome, caller, keyIdentity(req))
   res.setHeader('Cache-Control', 'private, no-store')
   res.status(outcome.httpStatus).json(outcome.body)
 })

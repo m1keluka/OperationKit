@@ -138,7 +138,7 @@ export function Modal({
     >
       {/* Backdrop */}
       <div
-        className="cc-backdrop-in absolute inset-0 bg-surface-0/70 backdrop-blur-[1px]"
+        className="cc-backdrop-in absolute inset-0 bg-[var(--scrim)]"
         onClick={closeOnBackdrop ? onClose : undefined}
         aria-hidden="true"
       />

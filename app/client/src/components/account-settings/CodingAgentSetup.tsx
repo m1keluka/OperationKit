@@ -105,12 +105,12 @@ export function CodingAgentSetup() {
   const agentLabel = CODING_AGENTS.find(a => a.key === agent)?.label ?? 'your agent'
 
   return (
-    <Card inset className="mb-6" aria-labelledby="coding-agent-setup-heading" data-testid="coding-agent-setup">
+    <Card inset className="mt-6" aria-labelledby="coding-agent-setup-heading" data-testid="coding-agent-setup">
       <CardHeader title="Connect a coding agent" eyebrow="Quick setup" />
       <CardBody className="space-y-4">
         <ol className="max-w-prose list-decimal space-y-1 pl-5 text-[12.5px] leading-relaxed text-fg-2">
           <li>
-            Create an agent key in <span className="text-fg-1">Agent keys</span> below and set it in your terminal as{' '}
+            Create an agent key in <span className="text-fg-1">Agent keys</span> above and set it in your terminal as{' '}
             <code className="font-mono text-fg-1">export {KEY_ENV}=cc_live_…</code>
           </li>
           <li>Copy this prompt and paste it into {agentLabel}. It sets itself up and checks the connection.</li>

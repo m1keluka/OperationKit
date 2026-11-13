@@ -378,7 +378,7 @@ function NodeButton({
       className={cn(
         'w-full rounded-md border px-2.5 py-2 text-left transition-colors duration-fast ease-out',
         'active:bg-surface-3',
-        active ? 'border-[color:var(--accent-line)] bg-[var(--accent-tint)]' : 'border-line hover:bg-surface-2',
+        active ? 'border-[color:var(--accent-line)] bg-surface-selected' : 'border-line hover:bg-surface-3',
       )}
     >
       <div className="flex flex-wrap items-center gap-1.5">

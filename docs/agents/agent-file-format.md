@@ -65,9 +65,26 @@ point out that they are not built in.
 
 Every bot's conversation has an **i** button that opens an info panel: what the
 bot is for, how to use it, example prompts, and what it can reach (worked out from
-`knowledge_folders` and `tools`). Add `how_to_use` and `example_prompts` to give
-your bot its own words; without them the panel shows a short generic guide and
-prompts based on the bot's tools.
+`knowledge_folders` and `tools`), and the bot's **instructions** (its system
+prompt) shown read-only. Add `description`, `how_to_use` and `example_prompts` to
+give your bot its own words.
+
+Any of those three that the file leaves out is **written for you** from the bot's
+instructions, tools and folders (obj 900747), so a new bot's panel is filled in
+the moment it appears:
+
+- At once, a rules-based summary, how-to and example prompts that match the
+  bot's current tools exactly.
+- Shortly after, a better version written by the bot's own AI provider. It is
+  rewritten whenever the bot changes: when it is created or replaced, when an
+  admin changes its tools or model on the bot page, and when its file is edited
+  (the bot list notices the next time it loads).
+
+Text you write in the file always wins over generated text, field by field. To
+switch off the AI-written version (the rules-based one still shows), set
+`agent_chat_about_autogen` to `0` in the settings table, or
+`AGENT_CHAT_ABOUT_AUTOGEN=0` in the server environment. The instructions are
+never editable from the panel; change them in the agent file.
 
 ```yaml
 example_prompts:

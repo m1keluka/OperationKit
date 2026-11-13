@@ -429,7 +429,7 @@ export function KanbanBoard({ workspaces }: KanbanBoardProps) {
         {/* Chips */}
         <div className="flex shrink-0 items-center gap-3.5 text-[12.5px]">
           {needsYouCount > 0 && (
-            <span className="inline-flex items-center gap-1.5 text-[color:var(--accent-hover)]">
+            <span className="inline-flex items-center gap-1.5 text-accent">
               <span aria-hidden="true" className="text-[15px] leading-none">›</span>
               <span className="font-mono font-semibold">{needsYouCount}</span>
               <span className="text-fg-1">need your review</span>

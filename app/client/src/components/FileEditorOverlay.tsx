@@ -126,7 +126,7 @@ export function FileEditorOverlay({ filePath, onClose }: FileEditorOverlayProps)
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-6">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-surface-0/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-[var(--scrim)]" onClick={onClose} />
 
       {/* Modal — full-sheet on mobile, centered card on desktop */}
       <div className="cc-drawer-in relative z-10 flex flex-col w-full h-full sm:h-[85vh] sm:w-[min(960px,92vw)] sm:rounded-lg border border-line bg-surface-0 shadow-float overflow-hidden">
@@ -157,7 +157,7 @@ export function FileEditorOverlay({ filePath, onClose }: FileEditorOverlayProps)
             </button>
             <button
               onClick={onClose}
-              className="rounded-sm p-1.5 text-fg-2 transition hover:bg-surface-2 hover:text-fg-0"
+              className="rounded-sm p-1.5 text-fg-2 transition hover:bg-surface-3 hover:text-fg-0"
               aria-label="Close"
             >
               <X className="h-4 w-4" />

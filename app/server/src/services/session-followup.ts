@@ -543,7 +543,9 @@ export async function reopenObjective(objective: Objective): Promise<string> {
       emitSessionLeaseConflictWarning(objective, sessionId, idLease.holder)
       throw new SessionLeaseConflictError(msg, idLease.leaseKey, idLease.holder.objective_id)
     }
-    if (idLease.status === 'reattached' && idLease.holder.session_id && idLease.holder.session_id !== sessionId) {
+    // obj 900412 — only a holder that is actually running counts; a fresh lease
+    // row left by a start that never spawned must not swallow the reopen.
+    if (idLease.status === 'reattached' && idLease.holder.session_id && idLease.holder.session_id !== sessionId && isSessionActive(idLease.holder.session_id)) {
       console.warn(`[session-lease][reattach] Objective ${objective.id} was already revived as ${idLease.holder.session_id} (${idLease.leaseKey}); not respawning a duplicate.`)
       return idLease.holder.session_id
     }

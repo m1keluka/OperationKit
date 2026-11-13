@@ -22,8 +22,8 @@
  */
 import { getDb } from '../db/index.js'
 import { decryptSecret } from './secrets-crypto.js'
-import { isServerOnlySecretKey } from './secrets-store.js'
-import { redactText } from './secret-redaction.js'
+import { isServerOnlySecretKey, logAccess, touchLastUsed } from './secrets-store.js'
+import { MIN_SECRET_LEN, redactText } from './secret-redaction.js'
 import { isSeatSecretKey } from './secrets-store.js'
 
 export interface BrokerPolicyEntry {
@@ -54,23 +54,131 @@ function sanitizePolicy(raw: unknown): BrokerPolicy {
 }
 
 export function getBrokerPolicy(): BrokerPolicy {
+  return readBrokerPolicy().policy
+}
+
+/** Where the effective policy came from — the Secrets UI shows it. */
+export type BrokerPolicySource = 'settings' | 'env' | 'none'
+
+export function readBrokerPolicy(): { policy: BrokerPolicy; source: BrokerPolicySource } {
   try {
     const row = getDb().prepare("SELECT value FROM settings WHERE key = 'secrets_broker_policy'").get() as { value: string } | undefined
-    if (row?.value) return sanitizePolicy(JSON.parse(row.value))
+    if (row?.value) return { policy: sanitizePolicy(JSON.parse(row.value)), source: 'settings' }
   } catch { /* malformed / no settings table → fall through */ }
   const env = process.env.CC_SECRETS_BROKER_POLICY
-  if (!env) return {}
+  if (!env) return { policy: {}, source: 'none' }
   try {
-    return sanitizePolicy(JSON.parse(env))
+    return { policy: sanitizePolicy(JSON.parse(env)), source: 'env' }
   } catch {
-    return {} // malformed policy never widens access
+    return { policy: {}, source: 'none' } // malformed policy never widens access
   }
+}
+
+// ── Policy editing (obj 900749) ─────────────────────────────────────────────
+//
+// The Secrets page edits ONE secret's "bot access" entry at a time. That writes
+// the `secrets_broker_policy` settings row only — never a secret row, never a
+// value. A name with no entry stays default-deny. The first write copies an
+// env-sourced policy into settings so nothing configured there is dropped.
+
+/** Exact host (`api.example.com`) or a subdomain wildcard (`*.example.com`). Lowercase, ≥ 2 labels. */
+const HOST_PATTERN_RE = /^(\*\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/
+const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/
+const POLICY_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']
+const WS_SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
+export const MAX_POLICY_HOSTS = 20
+
+export class BrokerPolicyError extends Error {}
+
+/**
+ * Domains where anyone can get a subdomain (public suffixes and shared hosting).
+ * A wildcard over one would let a bot send the secret to a host an attacker
+ * controls, so the UI only accepts an exact host there. Not exhaustive — the
+ * exact-host habit is the real defence; this catches the common traps.
+ */
+const SHARED_SUFFIXES = new Set([
+  'supabase.co', 'supabase.in', 'vercel.app', 'netlify.app', 'herokuapp.com', 'workers.dev', 'pages.dev',
+  'github.io', 'gitlab.io', 'appspot.com', 'web.app', 'firebaseapp.com', 'azurewebsites.net', 'cloudfront.net',
+  'amazonaws.com', 'fly.dev', 'onrender.com', 'railway.app', 'up.railway.app', 'ngrok.io', 'ngrok-free.app', 'ngrok.app',
+  'repl.co', 'replit.dev', 'glitch.me', 'deno.dev', 'run.app', 'cloudfunctions.net', 'blob.core.windows.net',
+  'trycloudflare.com', 'r2.dev', 'webflow.io', 'framer.app', 'bubbleapps.io', 'myshopify.com', 'wixsite.com',
+  'blogspot.com', 'wordpress.com', 'pipedream.net', 'requestbin.net', 'webhook.site', 'n8n.cloud',
+])
+const SECOND_LEVEL_PUBLIC = new Set(['co', 'com', 'net', 'org', 'gov', 'ac', 'edu', 'ltd', 'plc', 'me', 'or', 'ne', 'go'])
+
+export function isSharedSuffix(suffix: string): boolean {
+  const s = suffix.toLowerCase()
+  for (const shared of SHARED_SUFFIXES) if (s === shared || s.endsWith(`.${shared}`)) return true
+  const labels = s.split('.')
+  // co.uk, com.au, org.br … : a two-label public suffix.
+  return labels.length === 2 && SECOND_LEVEL_PUBLIC.has(labels[0]!) && labels[1]!.length === 2
+}
+
+/** Validate one hand-typed entry. Throws BrokerPolicyError with a readable reason. */
+export function validatePolicyEntry(input: unknown): BrokerPolicyEntry {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BrokerPolicyError('body must be an object')
+  const b = input as Record<string, unknown>
+  const list = (v: unknown, field: string): string[] => {
+    if (v === undefined || v === null) return []
+    const arr = typeof v === 'string' ? v.split(/[\s,]+/) : v
+    if (!Array.isArray(arr) || arr.some(x => typeof x !== 'string')) throw new BrokerPolicyError(`${field} must be a list of strings`)
+    return [...new Set((arr as string[]).map(s => s.trim()).filter(Boolean))]
+  }
+  const hosts = list(b.hosts, 'hosts').map(h => h.toLowerCase().replace(/\.$/, ''))
+  if (hosts.length === 0) throw new BrokerPolicyError('add at least one destination host (or turn bot access off)')
+  if (hosts.length > MAX_POLICY_HOSTS) throw new BrokerPolicyError(`at most ${MAX_POLICY_HOSTS} hosts`)
+  for (const h of hosts) {
+    if (h.includes('://') || h.includes('/')) throw new BrokerPolicyError(`'${h}': give a host name only, without https:// or a path`)
+    if (IPV4_RE.test(h)) continue // only ever matched exactly (see executeHttp)
+    // "*.com" would match every .com host. A wildcard needs a registrable name under it.
+    if (h.startsWith('*.') && /^[a-z0-9-]+$/.test(h.slice(2))) throw new BrokerPolicyError(`'${h}' is too broad — name the domain, e.g. *.example.com`)
+    if (!HOST_PATTERN_RE.test(h)) throw new BrokerPolicyError(`'${h}' is not a host name. Use api.example.com, or *.example.com for its subdomains`)
+    if (h.startsWith('*.') && isSharedSuffix(h.slice(2))) {
+      throw new BrokerPolicyError(`'${h}' is too broad — anyone can get a host under ${h.slice(2)}. List the exact host instead (e.g. yourproject.${h.slice(2)})`)
+    }
+  }
+  const methods = list(b.methods, 'methods').map(m => m.toUpperCase())
+  for (const m of methods) if (!POLICY_METHODS.includes(m)) throw new BrokerPolicyError(`method '${m}' must be one of ${POLICY_METHODS.join(', ')}`)
+  const workspaces = list(b.workspaces, 'workspaces')
+  for (const w of workspaces) if (!WS_SLUG_RE.test(w)) throw new BrokerPolicyError(`'${w}' is not a workspace slug`)
+  let description: string | undefined
+  if (b.description !== undefined && b.description !== null) {
+    if (typeof b.description !== 'string') throw new BrokerPolicyError('description must be a string')
+    description = b.description.trim().slice(0, 200) || undefined
+  }
+  return {
+    hosts,
+    ...(description ? { description } : {}),
+    ...(workspaces.length ? { workspaces } : {}),
+    ...(methods.length ? { methods } : {}),
+  }
+}
+
+/**
+ * Set (entry) or clear (null) one secret's bot-access entry. Returns the new
+ * effective policy. Writes the settings row only.
+ */
+export function setBrokerPolicyEntry(name: string, entry: BrokerPolicyEntry | null): BrokerPolicy {
+  if (!NAME_RE.test(name)) throw new BrokerPolicyError('invalid secret name')
+  const next: BrokerPolicy = { ...readBrokerPolicy().policy }
+  if (entry) next[name] = entry
+  else delete next[name]
+  getDb()
+    .prepare(`INSERT INTO settings (key, value) VALUES ('secrets_broker_policy', ?)
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .run(JSON.stringify(next))
+  return getBrokerPolicy()
 }
 
 /**
  * Host allowlist match. `api.supabase.com` = exact. `*.supabase.co` = any
  * subdomain (NOT the apex, NOT `evil-supabase.co`). No other wildcard forms.
  */
+/** Seat credentials and server-only / MCP-connection secrets never go through the broker. */
+export function isBrokerableSecretKey(name: string): boolean {
+  return !isSeatSecretKey(name) && !isServerOnlySecretKey(name)
+}
+
 export function hostAllowed(host: string, patterns: string[]): boolean {
   const h = host.toLowerCase().replace(/\.$/, '')
   return patterns.some(p => {
@@ -92,6 +200,12 @@ export interface Caller {
   userId: number
   isAdmin: boolean
   workspaces: string[]
+  /**
+   * A bot (named agent key / in-app chat bot), as opposed to a person or a
+   * worker session (obj 900749). Bots may not use a value too short for the
+   * redactor to recognise, since their replies feed an LLM.
+   */
+  bot?: boolean
 }
 
 interface Row {
@@ -183,6 +297,30 @@ function resolveForUse(name: string, caller: Caller, policy: BrokerPolicy, works
 }
 
 // ── Execution ───────────────────────────────────────────────────────────────
+
+/**
+ * Every form of an injected value the reply is scrubbed for (obj 900749):
+ * raw, URL-encoded, JSON-escaped, hex, and base64 / base64url at all three
+ * byte alignments. An upstream that stores "X{{secret:K}}" and hands it back
+ * base64-encoded puts the value at an arbitrary offset in the stream; the core
+ * characters that depend only on the value's own bytes are the same for a given
+ * offset mod 3, so matching those three cores catches it wherever it sits.
+ */
+export function redactionForms(value: string): string[] {
+  const out = new Set<string>([value, encodeURIComponent(value), JSON.stringify(value).slice(1, -1)])
+  const bytes = Buffer.from(value)
+  out.add(bytes.toString('hex'))
+  out.add(bytes.toString('hex').toUpperCase())
+  out.add(bytes.toString('base64'))
+  for (let k = 0; k < 3; k++) {
+    const b64 = Buffer.concat([Buffer.alloc(k), bytes]).toString('base64')
+    const core = b64.slice(Math.ceil((8 * k) / 6), Math.floor((8 * (k + bytes.length)) / 6))
+    if (core.length < MIN_SECRET_LEN) continue
+    out.add(core)
+    out.add(core.replace(/\+/g, '-').replace(/\//g, '_'))
+  }
+  return [...out].filter(f => f.length >= MIN_SECRET_LEN)
+}
 
 export const PLACEHOLDER_RE = /\{\{\s*secret:([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g
 const HAS_PLACEHOLDER = /\{\{\s*secret:/
@@ -333,15 +471,15 @@ export async function executeHttp(req: BrokerHttpRequest, caller: Caller): Promi
       return reject(403, `destination host '${host}' is not allowed for secret '${name}' (allowed: ${p.hosts.join(', ')})`, audit)
     }
     if (p.methods && p.methods.length && !p.methods.includes(method)) return reject(403, `method ${method} is not allowed for secret '${name}'`, audit)
+    if (caller.bot && resolved.value.length < MIN_SECRET_LEN) {
+      return reject(403, `secret '${name}' is too short to be redacted reliably, so bots cannot use it`, audit)
+    }
     values.set(name, resolved.value)
     audit.scopes.push(`${name}@${resolved.scope}`)
     audit.secretIds!.push(resolved.id)
     if (!audit.workspace && resolved.workspace) audit.workspace = resolved.workspace
     if (resolved.value) {
-      redactMap.set(resolved.value, name)
-      redactMap.set(encodeURIComponent(resolved.value), name)
-      redactMap.set(JSON.stringify(resolved.value).slice(1, -1), name)
-      redactMap.set(Buffer.from(resolved.value).toString('base64'), name)
+      for (const form of redactionForms(resolved.value)) redactMap.set(form, name)
     }
   }
 
@@ -393,9 +531,11 @@ export async function executeHttp(req: BrokerHttpRequest, caller: Caller): Promi
       const buf = Buffer.from(await upstream.arrayBuffer())
       const cap = maxResponseBytes()
       truncated = buf.length > cap
-      const r = scrub(buf.subarray(0, cap).toString('utf-8'))
+      // Redact the WHOLE body, then cut: cutting first could split a value at
+      // the cap and leave its prefix unrecognisable (obj 900749).
+      const r = scrub(buf.toString('utf-8'))
       redactions += r.count
-      text = r.text
+      text = truncated ? r.text.slice(0, cap) : r.text
     }
   }
   audit.status = String(upstream.status)
@@ -414,4 +554,91 @@ export async function executeHttp(req: BrokerHttpRequest, caller: Caller): Promi
     },
     audit,
   }
+}
+
+// ── Callers + audit shared by every surface (obj 900749) ─────────────────────
+//
+// The broker has four front doors: the REST route (cookie / legacy key / agent
+// key / worker session token), the remote MCP tools (which re-issue to that
+// route with the bot's own key), and in-app chat bots (which call executeHttp
+// in-process). They all build a Caller here and audit through recordBrokerUse,
+// so "who used which secret, where" reads the same whichever door was used.
+
+/**
+ * A named agent key (cc_live_) — what an MCP-connected bot holds. NEVER an
+ * admin caller, even when the key's owner is an admin: a bot reaches only its
+ * owner's own user-scoped secrets, workspace secrets of the key's workspaces,
+ * and global secrets whose policy names one of those workspaces. A key with a
+ * workspace allowlist is narrowed to it (∩ the owner's memberships unless the
+ * owner is a global admin, who may hold keys for workspaces without a row).
+ */
+export function callerForAgentKey(owner: { id: number; role: string }, keyWorkspaces: string[] | null, ownerWorkspaces: string[]): Caller {
+  const own = new Set(ownerWorkspaces)
+  const workspaces = keyWorkspaces === null
+    ? ownerWorkspaces
+    : owner.role === 'admin' ? keyWorkspaces : keyWorkspaces.filter(w => own.has(w))
+  return { userId: owner.id, isAdmin: false, workspaces: [...new Set(workspaces)], bot: true }
+}
+
+/**
+ * An in-app chat bot acting for the person chatting, inside ONE workspace (the
+ * chat's). Non-admin by construction, whatever the person's role: a chat bot
+ * never gets an admin's every-secret view.
+ */
+export function callerForChat(userId: number, workspace: string): Caller {
+  return { userId, isAdmin: false, workspaces: [workspace], bot: true }
+}
+
+export interface BrokerUseIdentity {
+  /** How the call reached the broker. */
+  auth: 'api_key' | 'agent_key' | 'session' | 'chat' | 'mcp'
+  /** Short, non-secret handle: key last4, `obj:<id>`, `bot:<slug>`. */
+  key_last4: string | null
+  username: string
+}
+
+/**
+ * Audit one broker call: an activity_log row (names, host, status — never a
+ * value), per-secret store audit + last-used stamp on success, and one log line.
+ */
+export function recordBrokerUse(outcome: BrokerHttpOutcome, caller: Caller, id: BrokerUseIdentity): void {
+  const a = outcome.audit
+  const meta = {
+    secrets: a.secrets,
+    scopes: a.scopes,
+    host: a.host,
+    method: a.method,
+    status: a.status,
+    workspace: a.workspace,
+    user_id: caller.userId,
+    username: id.username,
+    auth: id.auth,
+    key_last4: id.key_last4,
+  }
+  try {
+    getDb().prepare(
+      `INSERT INTO activity_log (project, workspace, event_type, title, detail, metadata)
+       VALUES ('operationkit', ?, 'milestone', 'secrets_broker_use', ?, ?)`,
+    ).run(
+      a.workspace ?? 'shared',
+      `${id.username} used ${a.secrets.join(', ') || '(none)'} → ${a.method} ${a.host ?? '-'} (${a.status})`,
+      JSON.stringify(meta),
+    )
+  } catch (err) {
+    console.error('[secrets-broker] audit insert failed', err instanceof Error ? err.message : err)
+  }
+  // Store-level audit too, so the secret's own access history shows each use.
+  if (!a.status.startsWith('rejected')) {
+    const ids = a.secretIds ?? []
+    a.scopes.forEach((s, i) => {
+      const [name, scope] = s.split('@')
+      logAccess(caller.userId, 'use', `broker:${scope}→${a.host}`, name, {
+        secretId: ids[i] ?? null,
+        source: id.auth === 'chat' ? 'chat' : 'broker',
+        detail: `${a.method} ${a.host ?? '-'}${id.auth === 'chat' || id.auth === 'agent_key' ? ` via ${id.auth}` : ''}`,
+      })
+    })
+    touchLastUsed(ids)
+  }
+  console.log(`[secrets-broker] use user=${caller.userId} auth=${id.auth} key=${id.key_last4 ?? '-'} secrets=${a.secrets.join(',') || '-'} host=${a.host ?? '-'} status=${a.status}`)
 }

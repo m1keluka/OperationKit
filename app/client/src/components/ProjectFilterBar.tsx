@@ -236,7 +236,7 @@ export function ProjectFilterBar({
                     <button
                       type="button"
                       onClick={openCreate}
-                      className="inline-flex flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-fg-2 transition-colors duration-fast ease-out hover:bg-surface-2 hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                      className="inline-flex flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-fg-2 transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                     >
                       <Plus className="h-3.5 w-3.5" />
                       New project

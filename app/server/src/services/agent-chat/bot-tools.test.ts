@@ -17,7 +17,7 @@ process.env.AGENT_CHAT_BUILTINS = '0'
 
 const { initDb, getDb } = await import('../../db/index.js')
 const { toolSpecsFor, runChatTool, effectiveTools, agentHasTool, ToolUseError } = await import('./tools.js')
-const { KNOWN_TOOL_NAMES } = await import('./tool-names.js')
+const { ALL_TOOLS_GRANT, KNOWN_TOOL_NAMES } = await import('./tool-names.js')
 const { setBotConfig, clearBotConfig, getBotConfig, BotConfigError } = await import('./bot-config.js')
 const { findAgent, runTurn } = await import('./engine.js')
 const { chooseProviderId, createProvider, resolveModel, DEFAULT_MODELS } = await import('./providers.js')
@@ -82,7 +82,7 @@ describe('tool assignment from the agent file', () => {
 
   it('`tools: [all]` gives every built-in tool, web included', () => {
     const a = findAgent('everything')!
-    expect(new Set(effectiveTools(a))).toEqual(KNOWN_TOOL_NAMES)
+    expect(new Set(effectiveTools(a))).toEqual(ALL_TOOLS_GRANT)
     const fns = names(a)
     for (const fn of ['web_search', 'web_fetch', 'search', 'write_doc', 'create_objective', 'board_briefing', 'email_create_draft', 'calendar_draft_event']) {
       expect(fns, fn).toContain(fn)
@@ -167,7 +167,7 @@ describe('bot-page overrides (model, provider, tools, all tools)', () => {
     setBotConfig('notes-only', { tools: ['search'], all_tools: true }, 'admin')
     const a = findAgent('notes-only')!
     expect(a.tools).toEqual(['all'])
-    expect(new Set(effectiveTools(a))).toEqual(KNOWN_TOOL_NAMES)
+    expect(new Set(effectiveTools(a))).toEqual(ALL_TOOLS_GRANT)
     setBotConfig('notes-only', { all_tools: false }, 'admin')
     expect(findAgent('notes-only')!.tools).toEqual(['search'])
   })

@@ -96,6 +96,45 @@ export function initAgentChatSchema(db: Database.Database): void {
       updated_by TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- The bot's auto-generated About text (obj 900747): a model-written summary,
+    -- how-to and example prompts, cached per bot and keyed by input_hash (a
+    -- digest of the bot's instructions, tools and reach). A row whose hash no
+    -- longer matches the bot is never shown; the rules-based About is shown
+    -- until a fresh one is written. attempted_* records the last try so a
+    -- failing model is not re-asked on every page load.
+    CREATE TABLE IF NOT EXISTS agent_chat_bot_about (
+      slug TEXT PRIMARY KEY,
+      input_hash TEXT,
+      summary TEXT NOT NULL DEFAULT '',
+      how_to_use TEXT NOT NULL DEFAULT '',
+      example_prompts TEXT NOT NULL DEFAULT '[]',
+      model TEXT,
+      generated_at TEXT,
+      attempted_hash TEXT,
+      attempted_at TEXT,
+      last_error TEXT
+    );
+
+    -- High Agency (obj 900748): an admin's per-bot "wake me on a cadence and
+    -- move my area forward" switch. Its own table, not columns on
+    -- agent_chat_bot_config, because "Reset to file" deletes that row and must
+    -- not silently switch a bot's wakes off. No row = off (the default), so no
+    -- existing bot starts waking. The schedule itself is a managed routine
+    -- (routine_id, named high-agency:<slug>) derived from this row.
+    CREATE TABLE IF NOT EXISTS agent_chat_high_agency (
+      slug TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      times_per_day INTEGER NOT NULL DEFAULT 1,
+      first_hour INTEGER NOT NULL DEFAULT 9,
+      workspace TEXT,
+      allow_cards INTEGER NOT NULL DEFAULT 1,
+      allow_workflows INTEGER NOT NULL DEFAULT 1,
+      run_as_user_id INTEGER,
+      routine_id INTEGER,
+      updated_by TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `)
 
   // The side-thread column on the existing message table (obj 900370).

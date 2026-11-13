@@ -147,7 +147,7 @@ export function MarkdownEditor({
         {!readOnly && (
           <button
             onClick={beginEdit}
-            className="mt-3 rounded-md border border-line px-3 py-1.5 text-xs font-medium text-fg-1 transition hover:bg-surface-2 hover:text-fg-0"
+            className="mt-3 rounded-md border border-line px-3 py-1.5 text-xs font-medium text-fg-1 transition hover:bg-surface-3 hover:text-fg-0"
           >
             Edit
           </button>
@@ -179,7 +179,7 @@ export function MarkdownEditor({
         <button
           onClick={cancel}
           disabled={saving}
-          className="rounded-md border border-line px-3 py-1.5 text-xs font-medium text-fg-1 transition hover:bg-surface-2 hover:text-fg-0 disabled:opacity-50"
+          className="rounded-md border border-line px-3 py-1.5 text-xs font-medium text-fg-1 transition hover:bg-surface-3 hover:text-fg-0 disabled:opacity-50"
         >
           Cancel
         </button>

@@ -304,7 +304,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={e => e.stopPropagation()}
-                className="inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[color:var(--accent-hover)] [border-color:var(--accent-line)] hover:[border-color:var(--accent-hover)]"
+                className="inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-accent [border-color:var(--accent-line)] hover:[border-color:var(--accent-hover)]"
               >
                 PR #{objective.pr_number}
                 <ExternalLink className="h-2.5 w-2.5 opacity-60" />

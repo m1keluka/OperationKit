@@ -172,7 +172,7 @@ export function AssignmentsTab() {
                   onClick={() => setResourceType(rt)}
                   className={cn(
                     'rounded px-3 py-1.5 text-[13px] capitalize transition-colors',
-                    resourceType === rt ? 'bg-accent text-accent-fg' : 'text-fg-2 hover:text-fg-0',
+                    resourceType === rt ? 'bg-surface-2 text-fg-0 shadow-pop ring-1 ring-line' : 'text-fg-2 hover:text-fg-0',
                   )}
                 >
                   {rt}

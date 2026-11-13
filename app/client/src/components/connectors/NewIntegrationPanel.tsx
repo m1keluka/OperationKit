@@ -1,16 +1,20 @@
 /**
  * Settings → Integrations → New Integration (obj 900682).
  *
- * Two ways in:
+ * Three ways in:
  *   - Browse: integrations that come with a guided setup — the account catalog
  *     from Sprint 7 (#900499; each has a docs/connectors/guides/<id>.md
  *     walkthrough) and, for entries that publish a remote MCP URL, the
  *     workspace MCP route from Sprint 7.8 (#900620). Connecting reuses the
  *     existing ConnectorCard and ConnectMcpServerDialog unchanged.
+ *   - Add an MCP (obj 900745): paste any remote MCP server URL — opens the
+ *     same ConnectMcpServerDialog (#900620 / #900649) with no catalog entry, so
+ *     the custom-URL path is a first-class choice instead of a footer link
+ *     inside Browse. Admin-only, like the dialog itself.
  *   - Make my own: the Integrations bot (MakeMyOwnIntegration).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronUp, Link2 } from 'lucide-react'
+import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronUp, Link2, Plug } from 'lucide-react'
 import type { ConnectorSummary, McpCatalogEntry, McpServerSummary } from '@operationkit/shared'
 import { api } from '../../lib/api'
 import { Badge, Button, Card, EmptyState, SearchInput, cn } from '../ui'
@@ -27,19 +31,22 @@ function ChoiceCard({
   text,
   onClick,
   testId,
+  disabled,
 }: {
   icon: typeof Bot
   title: string
   text: string
   onClick: () => void
   testId: string
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       data-testid={testId}
-      className="group flex min-h-[44px] w-full items-start gap-3 rounded-lg border border-line bg-surface-2 p-4 text-left transition-colors duration-fast ease-out hover:border-line-strong hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:p-5"
+      disabled={disabled}
+      className="group flex min-h-[44px] w-full items-start gap-3 rounded-lg border border-line bg-surface-2 p-4 text-left transition-colors duration-fast ease-out hover:border-line-strong hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-line disabled:hover:bg-surface-2 sm:p-5"
     >
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line bg-surface-3 text-fg-1 group-hover:text-fg-0">
         <Icon className="h-5 w-5" strokeWidth={1.75} />
@@ -172,13 +179,25 @@ export function NewIntegrationPanel({
       </div>
 
       {step === 'choose' && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <ChoiceCard
             icon={BookOpen}
             testId="choose-browse"
             title="Browse integrations"
             text={`Ready-made integrations with a step-by-step setup guide${guided ? ` — ${guided} available` : ''}, plus remote MCP servers from the catalog.`}
             onClick={() => onStep('browse')}
+          />
+          <ChoiceCard
+            icon={Plug}
+            testId="choose-mcp"
+            title="Add an MCP"
+            text={
+              isAdmin
+                ? 'Have an MCP server URL? Paste it and we detect how it signs in, test it, and make its tools available to your agents.'
+                : 'Paste any remote MCP server URL. Only an admin can add one — ask an admin to add it.'
+            }
+            disabled={!isAdmin}
+            onClick={() => setMcpDialog({ catalog: null })}
           />
           <ChoiceCard
             icon={Bot}
