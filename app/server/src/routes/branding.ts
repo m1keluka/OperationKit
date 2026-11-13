@@ -19,6 +19,7 @@ import {
   resolveBrandName,
   resolveBrandTokens,
   envLockedFields,
+  explicitTokenFields,
   isCustomized,
   writeBrandingConfig,
   resetBrandingConfig,
@@ -142,6 +143,9 @@ function sendJson(_req: unknown, res: import('express').Response) {
     favicon_url: urlFor('favicon') ?? '/api/branding/favicon',
     tokens,
     env_locked_fields: envLockedFields(),
+    // Token fields set explicitly (env / config file); the rest are derived
+    // from the accent or are the shipped defaults (obj 900750).
+    explicit_token_fields: explicitTokenFields(),
     is_customized: isCustomized(),
     default_name: DEFAULT_BRAND_NAME,
     white_label: isWhiteLabeled(),
@@ -184,7 +188,7 @@ router.get('/favicon', serveAsset('favicon'))
 
 // ── Admin: set brand name / accent tokens ──────────────────────────────────
 router.post('/', requireAuth, requireAdmin, (req: AuthRequest, res) => {
-  const body = req.body as { name?: string; tokens?: Record<string, string>; powered_by?: boolean }
+  const body = req.body as { name?: string; tokens?: Record<string, string | null>; powered_by?: boolean }
   writeBrandingConfig({ name: body.name, tokens: body.tokens, powered_by: body.powered_by })
   sendJson(req, res)
 })

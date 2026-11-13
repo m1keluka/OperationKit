@@ -41,6 +41,22 @@ const PLAIN: ChatAgentInfo = {
   source: 'file', answered_by: { id: 'claude', model: null },
 }
 
+/** A bot created with no About text (obj 900747): the server generated it. */
+const FRESH: ChatAgentInfo = {
+  slug: 'researcher', name: 'Researcher', description: '', avatar: 'R', colour: 'pink',
+  knowledge_folders: ['market'], tools: ['search', 'web_search'], model: null, provider: null, version: null, author: null,
+  source: 'file', answered_by: { id: 'claude', model: null },
+  about: {
+    description: 'A research assistant for the sales team.',
+    how_to_use: 'Write to Researcher the way you would message a colleague.\n\n- Ask about anything in your notes in market',
+    example_prompts: ['What do my notes in market say about this week?'],
+    sources: { description: 'generated', how_to_use: 'generated', example_prompts: 'generated' },
+    generated_by: 'rules', generated_at: null, pending: true,
+  },
+}
+
+const PROMPT = 'You are a research assistant for the sales team.\n\n## Rules\n- Cite the note <b>you</b> used.'
+
 let calls: { url: string; method: string }[] = []
 let root: Root
 let host: HTMLDivElement
@@ -76,13 +92,25 @@ const panel = () => host.querySelector<HTMLElement>('#agent-info-panel')
 const box = () => host.querySelector<HTMLTextAreaElement>('#agent-chat-input')!
 const sends = () => calls.filter(c => c.method === 'POST' && c.url.endsWith('/messages'))
 
+let detailReads = 0
+
 beforeEach(() => {
   calls = []
+  detailReads = 0
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     calls.push({ url, method })
     const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    if (url === '/api/agent-chat/agents') return json({ agents: [DEV, PLAIN], demo: false, providers: { claude: true }, default_provider: 'claude' })
+    if (url === '/api/agent-chat/agents') return json({ agents: [DEV, PLAIN, FRESH], demo: false, providers: { claude: true }, default_provider: 'claude' })
+    if (url === '/api/agent-chat/agents/researcher') {
+      detailReads++
+      // The model-written About lands on the second read.
+      const about = detailReads > 1
+        ? { ...FRESH.about!, description: 'Finds facts about prospects before sales calls.', example_prompts: ['Brief me on Acme before my 3pm call'], generated_by: 'model' as const, generated_at: '2026-11-13 04:00:00', pending: false }
+        : FRESH.about
+      return json({ agent: { ...FRESH, about, system_prompt: PROMPT, instructions: PROMPT } })
+    }
+    if (url === '/api/agent-chat/agents/operation-kit-dev') return json({ agent: { ...DEV, system_prompt: 'You are Operation Kit Dev.', instructions: 'You are Operation Kit Dev.' } })
     if (url.includes('/messages')) return json({ messages: [], drafts: [], cards: [] })
     if (url.endsWith('/threads')) return json({ threads: [], max_open: 3 })
     return json({})
@@ -158,6 +186,66 @@ describe('bot info panel (obj 900672)', () => {
   })
 })
 
+describe('read-only instructions + generated About (obj 900747)', () => {
+  const instructions = () => host.querySelector<HTMLElement>('[data-testid="agent-instructions"]')
+
+  it("shows the bot's system prompt as plain, read-only text and offers no way to edit it", async () => {
+    await mount('/chat/researcher')
+    infoButton().click()
+    await settle(8)
+    const p = panel()!
+    const pre = instructions()!
+    expect(pre.tagName).toBe('PRE')
+    expect(pre.getAttribute('aria-readonly')).toBe('true')
+    // Plain text: the markup in the prompt is shown, never rendered.
+    expect(pre.textContent).toBe(PROMPT)
+    expect(pre.querySelector('b')).toBeNull()
+    expect(p.textContent).toContain('Read-only')
+    expect(p.textContent).toContain('An admin changes them by editing the bot’s file.')
+    // Nothing in the panel can change the prompt.
+    expect(p.querySelector('textarea, input, [contenteditable="true"]')).toBeNull()
+    expect([...p.querySelectorAll('button')].map(b => b.textContent)).not.toEqual(expect.arrayContaining([expect.stringMatching(/edit|save/i)]))
+    expect(calls.filter(c => c.method !== 'GET')).toEqual([])
+  })
+
+  it('keeps How to use, example prompts and reach alongside the instructions', async () => {
+    await mount('/chat/operation-kit-dev')
+    infoButton().click()
+    await settle(8)
+    const p = panel()!
+    const headings = [...p.querySelectorAll('h4')].map(h => h.textContent)
+    expect(headings).toEqual(['How to use', 'Example prompts', 'What it can reach', 'Instructions'])
+    expect(instructions()!.textContent).toBe('You are Operation Kit Dev.')
+    expect(p.textContent).toContain('They ship with the app')
+    // A file that writes all three About fields shows no "generated" note.
+    expect(p.querySelector('[data-testid="about-generated-note"]')).toBeNull()
+  })
+
+  it('a new bot with no About text in its file shows the generated About at once, then the refreshed one', async () => {
+    await mount('/chat/researcher')
+    // The empty conversation already offers the generated prompts and summary.
+    expect(host.textContent).toContain('What do my notes in market say about this week?')
+    expect(host.textContent).toContain('A research assistant for the sales team.')
+    infoButton().click()
+    await settle(8)
+    let p = panel()!
+    expect(p.textContent).toContain('A research assistant for the sales team.')
+    expect(p.textContent).toContain('Ask about anything in your notes in market')
+    expect(p.textContent).not.toContain('Write to this bot the way you would message a colleague')
+    expect(p.querySelector('[data-testid="about-generated-note"]')!.textContent).toMatch(/being written now/)
+    expect(p.textContent).toContain('Searches the public web')
+    // The panel re-reads while the model-written About is pending.
+    await new Promise(r => setTimeout(r, 4300))
+    await settle(8)
+    p = panel()!
+    expect(detailReads).toBe(2)
+    expect(p.textContent).toContain('Finds facts about prospects before sales calls.')
+    const prompts = [...p.querySelectorAll('ul[aria-label="Example prompts"] button')].map(b => b.textContent)
+    expect(prompts).toEqual(['Brief me on Acme before my 3pm call'])
+    expect(p.querySelector('[data-testid="about-generated-note"]')!.textContent).toMatch(/rewritten whenever the bot changes/)
+  }, 10_000)
+})
+
 describe('?prompt= deep link (obj 900672)', () => {
   it('pre-fills the message box once, sends nothing, and drops the param from the URL', async () => {
     await mount(`/chat/operation-kit-dev?prompt=${encodeURIComponent('Help me create a new skill for a task we repeat.')}`)
@@ -186,6 +274,12 @@ describe('info panel helpers', () => {
       { kind: 'p', text: 'One two.' },
       { kind: 'ul', items: ['a', 'b'] },
       { kind: 'p', text: 'After <b>x</b>' },
+    ])
+  })
+
+  it('reachLines follows the tools the bot can really call (effective_tools) when the server sends them', () => {
+    expect(reachLines({ ...PLAIN, tools: ['all'], effective_tools: ['email'] })).toEqual([
+      'Reads your inbox and writes email drafts — nothing is sent until you press Send',
     ])
   })
 

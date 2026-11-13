@@ -165,7 +165,7 @@ export function InputComposer({
             <button
               onClick={onSubmit}
               disabled={!canSend}
-              className="rounded-md bg-accent px-3 py-1 text-sm font-medium text-accent-fg transition hover:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md bg-accent px-3 py-1 text-sm font-medium text-accent-fg transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
               Send
             </button>

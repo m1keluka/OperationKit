@@ -191,7 +191,7 @@ export function ExecutionsPanel({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md p-1 text-fg-2 hover:bg-surface-2 hover:text-fg-0"
+          className="rounded-md p-1 text-fg-2 hover:bg-surface-3 hover:text-fg-0"
           aria-label="Close"
         >
           <X className="h-4 w-4" />
@@ -247,8 +247,8 @@ function ExecutionRow({ e, active, onClick }: { e: JobExecutionSummary; active: 
         onClick={onClick}
         data-testid={`execution-${e.key}`}
         className={cn(
-          'flex w-full items-start gap-2.5 border-b border-line px-3 py-2.5 text-left hover:bg-surface-2',
-          active && 'bg-surface-2 shadow-[inset_3px_0_0_var(--accent,currentColor)]',
+          'flex w-full items-start gap-2.5 border-b border-line px-3 py-2.5 text-left hover:bg-surface-3',
+          active && 'bg-surface-selected shadow-[inset_2px_0_0_var(--accent-text)]',
         )}
       >
         <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', STATUS_TEXT[m.tone], e.status === 'running' && 'animate-spin')} strokeWidth={1.75} />

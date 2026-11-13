@@ -3,9 +3,16 @@
  * settings reorg, obj 900496 — see docs/settings/SPRINT-4B-REORG.md).
  *
  * Per-user surface — renders for EVERY authenticated user (not admin-gated).
- * Cards: "Connect a coding agent" (one copy-paste setup prompt, obj 900681),
- * "API key" (the API — full access, acts as you), "Agent keys" (MCP —
- * scoped, per-bot access), "Agent webhooks", and an API-docs reference.
+ *
+ * Order (obj 900745, Operator's 2026-11-12 walkthrough — the old order buried the
+ * keys under the setup prompt):
+ *   1. a two-line "which key?" legend (agent key vs API key),
+ *   2. "Agent keys" (MCP — a scoped tool connection for one bot),
+ *   3. "Agent webhooks" (attached to agent keys, so it sits next to them),
+ *   4. "API key" (the REST API — full access, acts as you),
+ *   5. "Connect a coding agent" (one copy-paste setup prompt, obj 900681),
+ *   6. the API-docs reference (REST curl example + live spec links; the MCP JSON
+ *      snippet that duplicated the setup prompt is gone).
  *
  * obj 900681 (Operator's Operation Kit Feedback, 7:21–7:44): this page is only
  * about reaching the board from outside. The GitHub / Google Workspace pointer
@@ -29,27 +36,35 @@ export function AccountSettings({ embedded = false }: { embedded?: boolean }) {
         </div>
         )}
 
-        <CodingAgentSetup />
+        <div data-testid="key-kinds" className="max-w-prose space-y-2 text-[12.5px] leading-relaxed text-fg-2">
+          <p>Two kinds of key reach the board from outside the browser. Pick by who is calling:</p>
+          <dl className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-md border border-line bg-surface-1 p-3">
+              <dt className="font-medium text-fg-0">Agent key — for a bot (MCP)</dt>
+              <dd className="mt-1 text-[12px] text-fg-2">
+                A scoped tool connection for one agent (Claude Code, Cursor, Grok Bot, any MCP client). It is its own
+                identity and can only reach the workspaces and board actions you tick.
+              </dd>
+            </div>
+            <div className="rounded-md border border-line bg-surface-1 p-3">
+              <dt className="font-medium text-fg-0">API key — for your scripts (REST)</dt>
+              <dd className="mt-1 text-[12px] text-fg-2">
+                Full REST access that acts as you everywhere. One per person. Do not hand it to a bot; give the bot
+                an agent key instead.
+              </dd>
+            </div>
+          </dl>
+        </div>
 
-        <p className="mb-4 max-w-prose text-[12.5px] leading-relaxed text-fg-2">
-          Two ways to reach the board from outside the browser: <span className="text-fg-1">the API</span> (plain
-          REST) and <span className="text-fg-1">MCP</span> (a tool-calling connection an agent uses directly).
-        </p>
-
-        <p className="mb-2 max-w-prose text-[12px] leading-relaxed text-fg-3">
-          <span className="font-medium text-fg-1">The API</span> — one key, full REST access, acts as you
-          everywhere. Good for scripts and the legacy integration path; for a bot, prefer a scoped agent key below.
-        </p>
-        <ApiKeySection />
-
-        <p className="mb-2 mt-6 max-w-prose text-[12px] leading-relaxed text-fg-3">
-          <span className="font-medium text-fg-1">MCP</span> — one named, scoped key per agent (Grok Bot, Claude,
-          any MCP client), limited to the workspaces and board actions you grant it. This is how an outside agent
-          connects directly, instead of sharing your full-access key.
-        </p>
         <AgentKeysSection />
 
         <AgentWebhooksSection />
+
+        <div className="mt-6">
+          <ApiKeySection />
+        </div>
+
+        <CodingAgentSetup />
 
         <ApiMcpDocs />
     </>

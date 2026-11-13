@@ -67,7 +67,7 @@ const BOARD_TOOLS = [
   'board_briefing', 'get_attention', 'get_seat_pool', 'get_changes', 'list_objectives', 'search_objectives', 'get_objective',
   'create_objective', 'update_objective', 'update_status', 'start_objective', 'send_message', 'get_output',
   'get_progress', 'get_artifacts', 'stop_objective', 'list_workspaces', 'list_agents', 'whoami',
-  'list_secret_requests', 'fulfill_secret_request',
+  'list_secret_requests', 'fulfill_secret_request', 'list_usable_secrets', 'call_with_secret',
 ]
 
 // obj 900642 (card B6): the workflow tools, each a loopback adapter over /api/flows.
@@ -222,7 +222,7 @@ describe('MCP handshake', () => {
   })
 
   it('tools/list includes every knowledge tool AND every board tool, with object schemas', async () => {
-    const full = mint('grok-full', ['board:read', 'board:write', 'board:start', 'board:cancel', 'vault:read', 'vault:write', 'board:secrets_request'])
+    const full = mint('grok-full', ['board:read', 'board:write', 'board:start', 'board:cancel', 'vault:read', 'vault:write', 'board:secrets_request', 'secrets:use'])
     const r = await rpc('tools/list', {}, full.token)
     const tools = r.json.result.tools as { name: string; description: string; inputSchema: { type: string; required?: string[] }; annotations: Loose }[]
     const names = tools.map(t => t.name)
@@ -587,12 +587,13 @@ describe('tool table', () => {
   it('the write set is exactly these — no merge / deploy / spend / delete tool', () => {
     expect(MCP_TOOLS.filter(t => t.access === 'write').map(t => t.name).sort())
       .toEqual([
-        'create_objective', 'create_workflow', 'draft_workflow_version', 'file_answer', 'fulfill_secret_request', 'run_workflow',
+        'call_with_secret', 'create_objective', 'create_workflow', 'draft_workflow_version', 'file_answer', 'fulfill_secret_request', 'run_workflow',
         'send_message', 'start_objective', 'stop_objective', 'test_workflow', 'update_objective', 'update_status', 'write_doc',
       ])
-    // obj 719065: the only secret tools are the write-only request relay pair —
-    // neither can read a value (fulfill mints a one-time upload link).
-    const SECRET_RELAY = new Set(['list_secret_requests', 'fulfill_secret_request'])
+    // obj 719065: the write-only request relay pair — neither can read a value
+    // (fulfill mints a one-time upload link). obj 900749: the use-without-reveal
+    // pair over the broker — names in, redacted reply out; no value is returned.
+    const SECRET_RELAY = new Set(['list_secret_requests', 'fulfill_secret_request', 'list_usable_secrets', 'call_with_secret'])
     for (const t of MCP_TOOLS) {
       if (SECRET_RELAY.has(t.name)) continue
       expect(t.name).not.toMatch(/merge|deploy|delete|secret|spend|admin|shell|publish|approv/)

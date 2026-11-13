@@ -33,6 +33,7 @@ import { broadcast } from '../ws/index.js'
 import { runMachineStatusUpdate } from '../lib/status-lock.js'
 import { TRANSCRIPT_DIR, PROJECTS_DIR } from '../config.js'
 import { deliverQueuedFollowUps, listPendingFollowUps } from './followup-queue.js'
+import { handleUnansweredFollowUp } from './unanswered-followup.js'
 import { noteStartReason } from './session-start-reasons.js'
 
 // Track JSONL byte offsets for incremental knowledge capture scanning
@@ -440,6 +441,25 @@ export function handleTurnsDeath(objective: Objective): boolean {
     return true
   } catch (err) {
     console.error(`[state-poller] handleTurnsDeath failed for obj ${objective.id} (falling back to review routing):`, err)
+    return false
+  }
+}
+
+/**
+ * obj 900412 (round 2) — the worker is gone and the owner's last message has no
+ * reply after it: re-send it (bounded), then say so in the thread instead of
+ * routing the card back to review in silence. See services/unanswered-followup.ts.
+ */
+export function handleUnansweredFollowUps(objective: Objective): boolean {
+  try {
+    return handleUnansweredFollowUp(objective, {
+      jsonlPathFor: sid => transcriptPathFor(sid),
+      deliver: (sid, msg, obj, opts) => sendFollowUp(sid, msg, obj, opts),
+      stamp: (m, sender) => followUpSessionText(m, sender),
+      noteStart: (id, actor) => noteStartReason(id, 'follow_up', actor, 'unanswered_retry'),
+    })
+  } catch (err) {
+    console.error(`[unanswered-followup] failed for obj ${objective.id} (routing normally):`, err)
     return false
   }
 }

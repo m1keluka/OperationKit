@@ -21,6 +21,18 @@ import { TOOL_CATALOG } from '../services/agent-chat/tool-names.js'
 import { webSearchStatus } from '../services/agent-chat/web-tools.js'
 import { BotConfigError, clearBotConfig, hasAllTools, setBotConfig } from '../services/agent-chat/bot-config.js'
 import { listEnabledModels } from '../services/model-registry.js'
+import { aboutForAgents, ensureAboutFresh, getStoredAbout, queueAboutRefresh, resolveAbout, type BotAbout } from '../services/agent-chat/bot-about.js'
+import { redactForStorage } from '../services/secret-redaction.js'
+import {
+  allHighAgency,
+  HIGH_AGENCY_CADENCES,
+  HighAgencyError,
+  highAgencyView,
+  MAX_CARDS_PER_WAKE,
+  setHighAgency,
+  wakeNow,
+  workspaceOptions,
+} from '../services/agent-chat/high-agency.js'
 import {
   getDraft,
   listDrafts,
@@ -62,6 +74,17 @@ import {
  *   PUT    /settings                   admin: demo on/off, install default provider
  *   PUT    /agents/:slug/config        admin: this bot's default model / provider / tools / all tools (obj 900671)
  *   DELETE /agents/:slug/config        admin: reset the bot to exactly what its agent file says
+ *   GET    /agents/:slug/high-agency   this bot's High Agency setting, wake times and last wake (obj 900748)
+ *   PUT    /agents/:slug/high-agency   admin: High Agency on/off, times a day, first wake hour, workspace, permissions
+ *   POST   /agents/:slug/high-agency/wake  admin: one wake now (works while off, to try it)
+ *
+ * ABOUT (obj 900747). Every agent carries `about`: the description, how-to and
+ * example prompts the "i" panel shows, with the file's own text winning and
+ * generated text filling the rest (services/agent-chat/bot-about.ts). A list
+ * read queues a background refresh for any bot whose cached About no longer
+ * matches it, and a settings change queues one straight away. GET /agents/:slug
+ * also carries `instructions`: the system prompt the panel shows READ-ONLY,
+ * with high-confidence secret shapes masked. Nothing here edits a prompt.
  *
  * Every chat is strictly per person: a caller only ever reads or writes their
  * own messages and drafts. Sending a draft needs a signed-in browser session —
@@ -78,7 +101,7 @@ import {
 const router: Router = Router()
 router.use(requireAuth)
 
-function publicAgent(a: ChatAgent, withPrompt = false) {
+function publicAgent(a: ChatAgent, withPrompt = false, about?: BotAbout) {
   return {
     slug: a.slug,
     name: a.name,
@@ -101,8 +124,22 @@ function publicAgent(a: ChatAgent, withPrompt = false) {
     config: a.config
       ? { provider: a.config.provider, model: a.config.model, tools: a.config.tools, all_tools: a.config.all_tools, updated_by: a.config.updated_by, updated_at: a.config.updated_at }
       : null,
-    ...(withPrompt ? { system_prompt: a.system_prompt, schedules: a.schedules } : {}),
+    // obj 900747: the resolved About (file text first, generated text for the rest).
+    about: about ?? resolveAbout(a, getStoredAbout(a.slug)),
+    ...(withPrompt
+      ? { system_prompt: a.system_prompt, schedules: a.schedules, instructions: redactForStorage(a.system_prompt).text }
+      : {}),
   }
+}
+
+/** One agent for a response, after queueing an About refresh if its definition changed. */
+function agentResponse(a: ChatAgent, opts: { force?: boolean; reason?: string } = {}) {
+  try {
+    queueAboutRefresh(a, opts)
+  } catch (err) {
+    console.warn('[agent-chat] About refresh not queued:', err instanceof Error ? err.message : err)
+  }
+  return { ...publicAgent(a, true), answered_by: providerFor(a) }
 }
 
 function providerFor(a: ChatAgent) {
@@ -180,8 +217,18 @@ function laneOr404(req: AuthRequest, res: Response, slug: string, raw: unknown):
 
 router.get('/agents', (req: AuthRequest, res) => {
   const { agents, problems } = listAgents()
+  // obj 900747: a bot edited outside the app (its file by hand, a built-in by a
+  // release) gets its About refreshed the first time the list notices.
+  ensureAboutFresh(agents)
+  const about = aboutForAgents(agents)
+  // obj 900748: whether each bot has High Agency on, for a badge in the list.
+  let ha: ReturnType<typeof allHighAgency> = new Map()
+  try { ha = allHighAgency() } catch { /* no table yet → every bot is off */ }
   res.json({
-    agents: agents.map(a => ({ ...publicAgent(a), answered_by: providerFor(a) })),
+    agents: agents.map(a => {
+      const h = ha.get(a.slug)
+      return { ...publicAgent(a, false, about.get(a.slug)), answered_by: providerFor(a), high_agency: { enabled: !!h?.enabled, times_per_day: h?.times_per_day ?? 1 } }
+    }),
     demo: isDemoOn(),
     providers: availableProviders(),
     default_provider: installDefaultProvider(),
@@ -208,7 +255,7 @@ router.put('/agents/:slug/config', (req: AuthRequest, res) => {
     throw err
   }
   const updated = findAgent(a.slug)!
-  res.json({ agent: { ...publicAgent(updated, true), answered_by: providerFor(updated) } })
+  res.json({ agent: agentResponse(updated, { force: true, reason: 'bot settings changed' }) })
 })
 
 router.delete('/agents/:slug/config', (req: AuthRequest, res) => {
@@ -217,13 +264,67 @@ router.delete('/agents/:slug/config', (req: AuthRequest, res) => {
   if (!a) return
   clearBotConfig(a.slug)
   const updated = findAgent(a.slug)!
-  res.json({ agent: { ...publicAgent(updated, true), answered_by: providerFor(updated) } })
+  res.json({ agent: agentResponse(updated, { force: true, reason: 'bot settings reset' }) })
 })
+
+// ── High Agency (obj 900748): per-bot scheduled "what's next?" wakes ──
+
+function highAgencyPayload(req: AuthRequest, slug: string) {
+  const isAdmin = req.user?.role === 'admin'
+  return {
+    high_agency: highAgencyView(slug),
+    cadences: HIGH_AGENCY_CADENCES,
+    max_cards_per_wake: MAX_CARDS_PER_WAKE,
+    ...(isAdmin ? { workspace_options: workspaceOptions(req.user!.id) } : {}),
+  }
+}
+
+function highAgencyError(res: Response, err: unknown): boolean {
+  if (err instanceof HighAgencyError) {
+    res.status(err.status).json({ error: err.message })
+    return true
+  }
+  return false
+}
+
+router.get('/agents/:slug/high-agency', (req: AuthRequest, res) => {
+  const a = agentOr404(req, res)
+  if (!a) return
+  res.json(highAgencyPayload(req, a.slug))
+})
+
+router.put('/agents/:slug/high-agency', (req: AuthRequest, res) => {
+  if (!adminSessionOr403(req, res)) return
+  const a = agentOr404(req, res)
+  if (!a) return
+  try {
+    setHighAgency(a, (req.body ?? {}) as Record<string, unknown>, { id: req.user!.id, username: req.user!.username })
+  } catch (err) {
+    if (highAgencyError(res, err)) return
+    throw err
+  }
+  res.json(highAgencyPayload(req, a.slug))
+})
+
+router.post('/agents/:slug/high-agency/wake', async (req: AuthRequest, res) => {
+  if (!adminSessionOr403(req, res)) return
+  const a = agentOr404(req, res)
+  if (!a) return
+  try {
+    const result = await wakeNow(a, { id: req.user!.id, username: req.user!.username })
+    res.status(result.ok ? 200 : 409).json({ result, ...highAgencyPayload(req, a.slug) })
+  } catch (err) {
+    if (highAgencyError(res, err)) return
+    console.error('[agent-chat] high agency wake failed:', err instanceof Error ? err.message : err)
+    res.status(500).json({ error: 'The wake failed. Try again.' })
+  }
+})
+
 
 router.get('/agents/:slug', (req: AuthRequest, res) => {
   const a = agentOr404(req, res)
   if (!a) return
-  res.json({ agent: { ...publicAgent(a, true), answered_by: providerFor(a) } })
+  res.json({ agent: agentResponse(a) })
 })
 
 router.get('/agents/:slug/messages', (req: AuthRequest, res) => {

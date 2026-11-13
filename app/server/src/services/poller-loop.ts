@@ -116,6 +116,7 @@ import {
   handleOverloadDeath,
   handleTurnsDeath,
   handleQueuedFollowUps,
+  handleUnansweredFollowUps,
   recordFloorRun,
   logFloorMilestone,
   promoteArenaCohortIfReady,
@@ -671,6 +672,9 @@ export async function pollActiveSessions(): Promise<void> {
       // obj 900412 — messages queued while this worker was mid-turn: resume the
       // same session with them instead of parking the card.
       if (handleQueuedFollowUps(objective)) continue
+      // obj 900412 (round 2) — the owner's last message never got a reply and
+      // the worker is gone: re-send it rather than parking the card silently.
+      if (handleUnansweredFollowUps(objective)) continue
 
       // obj 900547 — killed / crashed MID-TURN (real work, no final result): ONE
       // automatic resume-with-context, sharing the stall watchdog's once-only
@@ -817,6 +821,8 @@ export async function pollActiveSessions(): Promise<void> {
         // obj 900412 — the turn ended with owner messages queued behind it:
         // hand them to the same session now rather than routing to review.
         if (handleQueuedFollowUps(objective)) continue
+        // obj 900412 (round 2) — same net on the transition path.
+        if (handleUnansweredFollowUps(objective)) continue
       }
 
       // ── PR auto-linkage at session-end (obj 2352) ─────────────────────────

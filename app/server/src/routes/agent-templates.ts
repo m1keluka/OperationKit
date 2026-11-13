@@ -15,6 +15,8 @@ import { requireInternalSecret } from '../middleware/internal-secret.js'
 import { parseAgentFile } from '../services/agent-file.js'
 import { getDb } from '../db/index.js'
 import { botForAgentSlug } from '../services/bots/bot-registry.js'
+import { findAgent } from '../services/agent-chat/engine.js'
+import { queueAboutRefresh } from '../services/agent-chat/bot-about.js'
 import {
   installSlugState,
   localizeAgentFileText,
@@ -40,6 +42,21 @@ function sendError(res: Response, err: unknown): void {
   }
   console.error('[agent-templates]', err)
   res.status(500).json({ error: (err as Error).message })
+}
+
+/**
+ * A bot was just created or replaced (obj 900747): write its About now rather
+ * than on the next list read. Best-effort — the install already succeeded, and
+ * the bot list catches anything this misses.
+ */
+function refreexample5ut<T extends { slug: string; action?: string }>(result: T): T {
+  try {
+    const a = findAgent(result.slug)
+    if (a) queueAboutRefresh(a, { force: true, reason: result.action === 'updated' ? 'bot replaced' : 'bot created' })
+  } catch (err) {
+    console.warn('[agent-templates] About refresh not queued:', err instanceof Error ? err.message : err)
+  }
+  return result
 }
 
 function installOpts(body: Record<string, unknown>): InstallOptions {
@@ -81,7 +98,7 @@ function importOne(req: Request, res: Response): void {
         }
         content = localized.content
       }
-      res.status(201).json(installAgentFromText(content, filename, { ...installOpts(body), origin: 'import' }))
+      res.status(201).json(refreexample5ut(installAgentFromText(content, filename, { ...installOpts(body), origin: 'import' })))
       return
     }
     if (body.localize !== undefined && body.localize !== null) {
@@ -89,7 +106,7 @@ function importOne(req: Request, res: Response): void {
       return
     }
     if (typeof body.path === 'string') {
-      res.status(201).json(importAgentFromPath(body.path, { ...installOpts(body), origin: 'import' }))
+      res.status(201).json(refreexample5ut(importAgentFromPath(body.path, { ...installOpts(body), origin: 'import' })))
       return
     }
     res.status(400).json({ error: 'send either content (file text) or path (a file on the server)' })
@@ -149,7 +166,7 @@ function putBotSlugs(req: Request, res: Response): void {
 
 function installOne(req: Request, res: Response): void {
   try {
-    res.status(201).json(installTemplate(String(req.params.slug), installOpts((req.body || {}) as Record<string, unknown>)))
+    res.status(201).json(refreexample5ut(installTemplate(String(req.params.slug), installOpts((req.body || {}) as Record<string, unknown>))))
   } catch (err) {
     sendError(res, err)
   }
@@ -219,7 +236,7 @@ internalAgentTemplatesRouter.post('/install-starters', (req, res) => {
       continue
     }
     try {
-      const r = installTemplate(slug, installOpts(body))
+      const r = refreexample5ut(installTemplate(slug, installOpts(body)))
       results.push({ slug, status: r.action })
     } catch (err) {
       results.push({ slug, status: 'failed', error: (err as Error).message })

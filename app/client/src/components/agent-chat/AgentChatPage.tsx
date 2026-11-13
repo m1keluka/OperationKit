@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
@@ -50,6 +50,9 @@ import {
 const OPEN_CARD = new Set(['planning', 'queue', 'working', 'ai_review'])
 
 export function suggestionsFor(a: ChatAgentInfo): string[] {
+  // The server's resolved About (obj 900747): the file's own prompts, else ones
+  // generated from the bot's instructions and tools.
+  if (a.about?.example_prompts?.length) return a.about.example_prompts
   // A bot file that lists its own example prompts (obj 900672) knows best.
   if (a.example_prompts?.length) return a.example_prompts
   const has = (t: string) => a.tools.includes(t)
@@ -103,7 +106,7 @@ function AgentList({
                 className={cn(
                   'flex min-h-[56px] w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all duration-fast',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
-                  on ? 'border-line-strong bg-surface-3' : 'border-transparent hover:border-line hover:bg-surface-2',
+                  on ? 'border-line-strong bg-surface-3' : 'border-transparent hover:border-line hover:bg-surface-3',
                 )}
               >
                 <AgentAvatar agent={a} />
@@ -121,7 +124,7 @@ function AgentList({
           <button
             onClick={() => onDemo(!data.demo)}
             disabled={demoBusy}
-            className="min-h-[44px] w-full rounded-md px-2 text-left text-[12.5px] text-fg-2 transition-colors duration-fast hover:bg-surface-2 hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-45"
+            className="min-h-[44px] w-full rounded-md px-2 text-left text-[12.5px] text-fg-2 transition-colors duration-fast hover:bg-surface-3 hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-45"
           >
             {data.demo ? 'Demo bot is on — turn it off' : 'Turn on the demo bot (sample inbox + calendar)'}
           </button>
@@ -229,6 +232,16 @@ function Conversation({
   const [renameTo, setRenameTo] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
+  // Autosize the composer: grow with its content (typed, pasted or prefilled)
+  // up to COMPOSER_MAX_PX, then scroll inside. Runs before paint so the box
+  // never flashes at the old height; clearing the text shrinks it back.
+  useLayoutEffect(() => {
+    const el = input.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_PX)}px`
+    el.style.overflowY = el.scrollHeight > COMPOSER_MAX_PX ? 'auto' : 'hidden'
+  }, [text])
   const filePicker = useRef<HTMLInputElement>(null)
   const { confirm, confirmDialog } = useConfirm()
   const base = `/agent-chat/agents/${encodeURIComponent(agent.slug)}`
@@ -423,14 +436,14 @@ function Conversation({
 
   return (
     <section aria-label={`Conversation with ${agent.name}`} className="flex h-full min-w-0 flex-col">
-      <header className="flex items-center gap-2 border-b border-line bg-surface-1 px-2 py-2 sm:px-4">
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-surface-1 px-2 py-2 sm:flex-nowrap sm:px-4">
         <IconButton label="All bots" onClick={onBack} className="md:hidden">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
           </svg>
         </IconButton>
         <AgentAvatar agent={agent} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[9rem] flex-1">
           <h2 className="truncate font-display text-[15px] font-semibold tracking-[-0.01em] text-fg-0">{agent.name}</h2>
           <p className="truncate text-[12px] text-fg-2">
             Answers with <span className="text-fg-1">{answeredBy}</span>
@@ -439,6 +452,9 @@ function Conversation({
             {activeThread && <span> · side thread <span className="text-fg-1">{activeThread.title}</span></span>}
           </p>
         </div>
+        {/* Actions travel as one group: on a phone they wrap under the bot name
+            instead of squeezing it to a single letter (obj 900750). */}
+        <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
         {activeThread && renameTo !== null && (
           <form
             className="flex items-center gap-1"
@@ -510,6 +526,7 @@ function Conversation({
         >
           {activeThread ? 'Clear side thread' : 'Clear conversation'}
         </Button>
+        </div>
       </header>
 
       {settingsOpen && meta?.tool_catalog && (
@@ -527,6 +544,7 @@ function Conversation({
           id="agent-info-panel"
           agent={agent}
           prompts={suggestionsFor(agent)}
+          onLoaded={a => onAgentChanged?.(a)}
           onClose={() => setInfoOpen(false)}
           onUsePrompt={p => {
             setText(p)
@@ -558,7 +576,7 @@ function Conversation({
                 <p className="mx-auto max-w-[46ch] text-[13px] leading-relaxed text-fg-2">
                   {activeThread
                     ? `A side thread has its own history and its own context — ${agent.name} sees only what you say here, and it keeps working while you use the main conversation.`
-                    : agent.description}
+                    : agent.about?.description || agent.description}
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
@@ -677,7 +695,7 @@ function Conversation({
               onPaste={onPaste}
               placeholder={narrow ? 'Write a message…' : activeThread ? `Write a message in "${activeThread.title}"` : 'Write a message, or paste a screenshot'}
               disabled={!!pending}
-              className="max-h-40 min-h-[44px] flex-1 resize-none rounded-lg border border-line bg-surface-0 px-3.5 py-2.5 text-[16px] text-fg-0 placeholder:text-fg-3 transition-colors duration-fast hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60 sm:text-[14px]"
+              className="max-h-60 min-h-[44px] flex-1 resize-none rounded-lg border border-line bg-surface-0 px-3.5 py-2.5 text-[16px] text-fg-0 placeholder:text-fg-3 transition-colors duration-fast hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60 sm:text-[14px]"
             />
             <Button type="submit" variant="primary" loading={!!pending} disabled={!text.trim() && images.length === 0} className="min-h-[44px] sm:min-h-[44px]">
               Send
@@ -690,6 +708,9 @@ function Conversation({
     </section>
   )
 }
+
+/** Tallest the chat composer grows before it scrolls inside (matches `max-h-60`). */
+const COMPOSER_MAX_PX = 240
 
 function mergeThread(t: ThreadResponse | null, r: ThreadResponse): ThreadResponse {
   const prev = t ?? { messages: [], drafts: [], cards: [] }

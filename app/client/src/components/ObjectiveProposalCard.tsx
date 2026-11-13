@@ -85,7 +85,7 @@ export function ObjectiveProposalCard({ raw }: { raw: string }) {
 
   return (
     <div
-      className="my-2 rounded-lg border border-accent/25 bg-accent/5 p-4"
+      className="my-2 rounded-lg border border-[color:var(--accent-line)] bg-surface-2 p-4 shadow-[inset_3px_0_0_var(--accent-text)]"
       style={{ maxWidth: 'min(85%, 700px)' }}
     >
       <div className="flex items-start justify-between gap-2 mb-2">

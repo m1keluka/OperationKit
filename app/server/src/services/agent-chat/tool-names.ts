@@ -12,6 +12,18 @@ export const MCP_TOOLS = ['mcp'] as const
 // the install; `web_fetch` reads one public page through the SSRF-guarded
 // fetch. Opt-in like every other tool (or via "all tools").
 export const WEB_TOOLS = ['web_search', 'web_fetch'] as const
+// obj 900749: use a named secret through the broker (secrets_list, secret_http).
+// The bot names a secret; the server injects the value into the outbound HTTPS
+// request and redacts the reply. The value never reaches the model, the chat
+// history or a log.
+export const SECRET_TOOLS = ['secrets'] as const
+
+/**
+ * Tools "All tools" does NOT grant (obj 900749). A bot gets one only when it is
+ * named — in the agent file (`tools: [all, secrets]` works) or ticked on the bot
+ * page — so switching on "All tools" never also hands a bot your credentials.
+ */
+export const EXPLICIT_ONLY_TOOLS: ReadonlySet<string> = new Set<string>([...SECRET_TOOLS])
 
 export const KNOWN_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   ...KNOWLEDGE_TOOLS,
@@ -19,13 +31,17 @@ export const KNOWN_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   ...CONNECTOR_TOOLS,
   ...MCP_TOOLS,
   ...WEB_TOOLS,
+  ...SECRET_TOOLS,
 ])
+
+/** What "All tools" grants: every known tool except the explicit-only ones. */
+export const ALL_TOOLS_GRANT: ReadonlySet<string> = new Set<string>([...KNOWN_TOOL_NAMES].filter(t => !EXPLICIT_ONLY_TOOLS.has(t)))
 
 /**
  * "All tools" (obj 900671). An agent file may say `tools: [all]` (or `*`), and
  * the bot page has an "All tools" switch. Either way the bot gets every tool in
- * KNOWN_TOOL_NAMES — including tools added in later releases — without its
- * file being edited again. Email and calendar stay draft-only and board reads
+ * ALL_TOOLS_GRANT — including tools added in later releases — without its
+ * file being edited again. Explicit-only tools (secret use) are the exception. Email and calendar stay draft-only and board reads
  * stay limited to what the chatting person can see: "all" widens WHICH tools a
  * bot has, never what a tool may do.
  */
@@ -35,13 +51,15 @@ export function listsAllTools(tools: readonly string[]): boolean {
   return tools.some(t => ALL_TOOLS_TOKENS.has(t.trim().toLowerCase()))
 }
 
-export type ToolGroup = 'web' | 'knowledge' | 'board' | 'connectors' | 'integrations'
+export type ToolGroup = 'web' | 'knowledge' | 'board' | 'connectors' | 'integrations' | 'secrets'
 
 export interface ToolCatalogEntry {
   name: string
   label: string
   description: string
   group: ToolGroup
+  /** Not included by "All tools"; must be ticked on its own (obj 900749). */
+  explicit_only?: boolean
 }
 
 /** What the bot page shows for each tool, in display order. */
@@ -60,4 +78,5 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   { name: 'email', label: 'Email (drafts only)', description: 'Read the inbox and draft replies. Nothing is sent without a click.', group: 'connectors' },
   { name: 'calendar', label: 'Calendar (drafts only)', description: 'Read the calendar and draft events. Nothing is added without a click.', group: 'connectors' },
   { name: 'mcp', label: 'Workspace integrations (MCP)', description: 'Tools from the MCP servers connected to the workspace.', group: 'integrations' },
+  { name: 'secrets', label: 'Use secrets by name', description: 'Call an API with a named secret. The server adds the key; the bot never sees it. Only hosts allowed in Settings → Secrets.', group: 'secrets', explicit_only: true },
 ]

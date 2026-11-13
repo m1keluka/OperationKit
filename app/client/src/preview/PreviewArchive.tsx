@@ -217,7 +217,7 @@ export function PreviewArchive({ workspaces }: { workspaces: Workspace[] }) {
                         <button
                           type="button"
                           onClick={() => void handleReopen(obj)}
-                          className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg hover:bg-accent-hover"
+                          className="rounded-md border border-line bg-surface-2 px-2.5 py-1 text-xs font-medium text-fg-0 hover:border-line-strong hover:bg-surface-3"
                         >
                           Re-open
                         </button>

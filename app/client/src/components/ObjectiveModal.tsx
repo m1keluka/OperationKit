@@ -476,7 +476,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
                       >
                         {u?.username ?? uid}
                         {idx === 0 && (
-                          <span className="ml-0.5 rounded-sm bg-accent/15 px-1 py-px text-[12px] font-semibold uppercase tracking-wide text-accent">
+                          <span className="ml-0.5 rounded-sm border border-[color:var(--accent-line)] px-1 py-px text-[12px] font-semibold uppercase tracking-wide text-accent">
                             primary
                           </span>
                         )}

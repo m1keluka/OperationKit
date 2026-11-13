@@ -126,6 +126,13 @@ describe('agent files', () => {
         expect(dev.system_prompt).toContain(topic)
       }
       expect(dev.system_prompt).toMatch(/Never ask for a secret value/)
+      // obj 900745: the profile is optional — a missing business/profile.md falls
+      // back to the knowledge folders and the board instead of stalling.
+      expect(dev.system_prompt).toMatch(/The profile is optional\. Never stall without it\./)
+      for (const step of ['list_folders', 'board_briefing', 'list_objectives', 'starter profile']) {
+        expect(dev.system_prompt).toContain(step)
+      }
+      expect(dev.how_to_use).toMatch(/No business profile yet\? That is fine\./)
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }

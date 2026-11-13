@@ -567,6 +567,7 @@ export const AGENT_SCOPES = [
   'vault:read',
   'vault:write',
   'board:secrets_request',
+  'secrets:use',
 ] as const
 export type AgentScope = (typeof AGENT_SCOPES)[number]
 
@@ -593,6 +594,11 @@ export const AGENT_SCOPE_DESCRIPTIONS: Record<AgentScope, string> = {
   'vault:write': 'Write vault markdown files',
   // obj 719065: write-only. Never in the default set — Operator grants it per key.
   'board:secrets_request': 'Relay a card\'s secret request: mint a one-time, write-only upload link (never reads a value)',
+  // obj 900749: use-without-reveal. Never in the default set — granted per key.
+  // The key names a secret in an outbound HTTPS call; the broker injects the
+  // value server-side, only to hosts that secret's bot-access policy allows, and
+  // redacts the reply. No route on this scope returns a value.
+  'secrets:use': 'Use named secrets in outbound HTTPS calls via the broker (injected server-side, never returned)',
 }
 
 /** GET /api/auth/agent-keys row. Never carries the secret. */

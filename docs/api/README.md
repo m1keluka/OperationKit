@@ -55,8 +55,9 @@ The key above is the **legacy full-access key**: it acts as you everywhere and k
   | `board:done` | `PATCH …/status {"status":"done"}` — the human signature |
   | `board:delete` | `DELETE /api/objectives/:id` |
   | `vault:read` / `vault:write` | `GET /api/docs/*` + `GET /api/files/search\|stat\|download` / `PUT /api/docs/file`, `POST /api/kb-wiki/answers` |
+  | `secrets:use` | `GET /api/secrets-broker/list` + `POST /api/secrets-broker/http` — use a named secret without seeing it (obj 900749). **Never in the default set.** See [Secrets: use without reveal](#secrets-use-without-reveal-obj-715532) |
 
-  New keys default to **everything except `board:done` and `board:delete`** — done is a human signature. A call the key is not scoped for returns `403 { "error": "…", "missing_scope": "board:done" }`. Anything outside this surface (admin, secrets, the secrets broker, internal, key management) returns `403` with `missing_scope: null` — an agent key can never mint itself another key.
+  New keys default to **everything except `board:done` and `board:delete`** — done is a human signature. A call the key is not scoped for returns `403 { "error": "…", "missing_scope": "board:done" }`. Anything outside this surface (admin, the secrets store, internal, key management) returns `403` with `missing_scope: null` — an agent key can never mint itself another key.
 - **Workspaces** — optional allowlist. A key pinned to `["example"]` only lists, reads, creates and edits cards in `example`; asking for another workspace returns `403 { "error": "…", "workspace": "example2" }`. A create with no `workspace` lands in the key's only workspace (a `?workspace=` query param now counts too — it used to be ignored and the card went to `example`). The changes feed and attention brief are filtered to the allowlist **in SQL**, so a pinned key never sees another workspace's events, counts or items. The allowlist covers board cards and the files API (an agent key must pass `workspace` there unless pinned to one, and cannot read system roots); markdown vault access is governed by `vault:read` / `vault:write`.
 - **MCP** — `/api/mcp` itself only needs a valid key; every tool call is re-issued to the REST route it wraps **with the same key**, so it gets exactly the scope + workspace checks above. MCP write tools need a named agent key — the legacy key is read-only there (see [MCP server](#mcp-server)).
 - **Connectors** — which connected accounts (Google Workspace, GitHub, …) the key may use. **A new key follows its owner** (obj 900303): created without a `connectors` field it stores `["owner"]` and may use the connected accounts its owner is authorised for, with nothing to tick. That is the absence of a per-key narrowing, not a grant — the key still reaches only the KEY OWNER's own connection (never another person's, and an admin's key is no exception), the owner's per-connector agent/workspace rules still apply, a card another person delegated still needs the owner's opt-in, and every use is re-measured at the moment of use, so disconnecting or revoking the account removes the key's reach with no key edit. To narrow a key, send an explicit list of ids, or `[]`/`null` for none. **Existing keys are untouched**: a stored `null` or `[]` still means none, an explicit list still means exactly that list, and keys predating the allow-list keep their migrated reach and show as *all connectors (legacy)*. There is no backfill — an owner moves a key to inherit by PATCHing `["owner"]`. `"owner"` is a mode, not a connector id: mixing it with ids is a `400`. Cards a key files inherit its setting, so a key cannot reach through a card it created to a connector it was not granted. None of this touches Settings → **Secrets**, a separate store, or the key's board scopes.
@@ -165,7 +166,7 @@ Over MCP the loop is the same with typed tools: `whoami` → `get_attention` →
 | GET | `/api/files/download?path=` | Stream one file (`Range` supported; 413 over the cap, default 200 MB) |
 | GET | `/api/files/search?system=1&content=` | Also search system roots (configs, logs, crontabs); `content` matches redacted text and returns snippets |
 | GET | `/api/files/download?path=<system file>&tail_bytes=` | System files come back **redacted** (`X-Redacted: true`, `X-Redaction-Count`); `.env*` as `KEY=[REDACTED]` |
-| GET | `/api/secrets-broker/list` | Secret **names**, scope and allowed hosts you can use — never values (not available to named agent keys) |
+| GET | `/api/secrets-broker/list` | Secret **names**, scope and allowed hosts you can use — never values (named agent keys need `secrets:use`) |
 | POST | `/api/secrets-broker/http` | One HTTPS call with `{{secret:NAME}}` injected server-side to an allowlisted host; response redacted |
 
 The vault is `/home/operator/second-brain`. Same API key as the board. Start at `workspaces/<slug>/active.md` (or `personal/active.md`), then `index.md`, then search. CoS writes **personal** memory; each company Bot writes that company’s `active.md` / `decisions/`. Nobody rewrites the vault on “what needs me?”. Do not clone the GitHub repo into Grok Bot — that copy goes stale.
@@ -487,6 +488,8 @@ surface with the tool's scope, in the OpenAPI spec, and the only call the tool m
 | Stop a stuck worker | `POST /api/objectives/:id/stop` | `stop_objective(id)` | board:write |
 | Open secret requests | `GET /api/agent/secret-requests` · `GET /api/objectives/:id/secret-requests` | `list_secret_requests(workspace?)` | board:read |
 | Relay a secret request | `POST /api/objectives/:id/secret-requests/:request_id/upload-token` | `fulfill_secret_request(request_id, scope?)` | board:secrets_request |
+| Secrets you may use (names) | `GET /api/secrets-broker/list` | `list_usable_secrets(workspace?)` | secrets:use |
+| Call an API with a named secret | `POST /api/secrets-broker/http` | `call_with_secret(url, method?, headers?, body?, workspace?)` — write `{{secret:NAME}}`; reply comes back redacted | secrets:use |
 | Workspaces / agents | `GET /api/workspaces` · `GET /api/agents` | `list_workspaces` · `list_agents` | board:read |
 | Built-in chat agents (obj 719987) | `GET /api/agent-chat/agents` · `GET /api/agent-chat/agents/:slug` | `list_chat_agents` · `get_chat_agent(slug)`: the agent's instructions, knowledge folders and tools, to act as it from any MCP client. Chat history and drafts are never on this surface | vault:read |
 | Knowledge base search | `GET /api/docs/search` | `search(q, workspace?, limit?)` | vault:read |
@@ -600,11 +603,25 @@ Bots never see a credential value. Two ways to use one:
    `{ status, headers, body, redacted, redaction_count }` with every secret value and credential pattern
    replaced. A host not on that secret's allowlist is a `403`; a secret your key can't see is a `404`.
 
+   **From an MCP-connected bot** (obj 900749): give its named key the `secrets:use` scope (never a default),
+   then `list_usable_secrets` → `call_with_secret`. The tool wraps the same route with the bot's own key.
+   A named agent key is **never an admin caller** on the broker, even when its owner is an admin: it sees its
+   owner's own user secrets, workspace secrets of the key's workspaces, and global secrets whose policy
+   `workspaces` names one of them.
+
+   **From an in-app chat bot** (obj 900749): tick **Use secrets by name** on the bot's page (or list
+   `secrets` under `tools:` in its agent file). "All tools" does NOT include it. The bot gets
+   `secrets_list` / `secret_http`, runs as the person chatting inside the chat's ONE workspace (never an
+   admin view), and the model, chat history and UI only ever see names and the redacted reply.
+
 2. **Worker sessions** already get their workspace's secrets as environment variables. Anywhere a value
    would be stored — transcripts, card threads, follow-ups, session summaries, activity rows — it is
    replaced by `[REDACTED:<NAME>]`, where `NAME` is the env var to use instead.
 
-Policy lives in the `settings` row `secrets_broker_policy` (JSON) or env `CC_SECRETS_BROKER_POLICY`:
+Policy is edited per secret in **Settings → Secrets → Bot access** (global admin, signed in to the web app;
+`PUT/DELETE /api/secrets/bot-access/:name`, never on the agent surface). It lives in the `settings` row
+`secrets_broker_policy` (JSON), else env `CC_SECRETS_BROKER_POLICY` (the first UI edit copies an env policy
+into settings). Editing it never touches a secret row or value:
 
 ```json
 {

@@ -54,6 +54,8 @@ export type SecretAction =
   | 'env_policy'
   /** D5 (obj 900540): the retention job exported and pruned rows older than the window. */
   | 'audit_prune'
+  /** obj 900749: a secret's bot-access (broker host allowlist) entry was set or cleared. Never touches the value. */
+  | 'bot_access'
 
 /** How an audited action reached the store. Free-form on disk; these are the ones the server writes. */
 export type SecretAuditSource = 'ui' | 'api' | 'spawn' | 'broker' | 'server' | 'chat' | 'relay' | 'cli' | 'retention' | 'policy'

@@ -140,17 +140,24 @@ export function PreviewCard({
             <button
               type="button"
               onClick={() => onOpen(objective)}
-              className="rounded-md bg-surface-3 px-2.5 py-1 text-xs font-medium text-fg-1 hover:bg-surface-4 hover:text-fg-0"
+              className="rounded-md border border-transparent px-2.5 py-1 text-xs font-medium text-fg-1 hover:bg-surface-3 hover:text-fg-0"
             >
               View
             </button>
           )}
-          {actions.map(a => (
+          {actions.map((a, i) => (
             <button
               key={a.target}
               type="button"
               onClick={() => onChangeStatus(objective.id, a.target)}
-              className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg hover:bg-accent-hover"
+              // obj 900750: only the card that is waiting on the human gets the
+              // accent (its first action, e.g. Approve). Routine moves are
+              // neutral buttons, so the board isn't a wall of brand colour.
+              className={
+                objective.status === 'review' && i === 0
+                  ? 'rounded-md border border-transparent bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg hover:bg-accent-hover'
+                  : 'rounded-md border border-line bg-surface-2 px-2.5 py-1 text-xs font-medium text-fg-0 hover:border-line-strong hover:bg-surface-3'
+              }
             >
               {a.label}
             </button>

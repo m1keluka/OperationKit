@@ -428,7 +428,7 @@ export function WorkspacesTab() {
                             className={cn(
                               'rounded-md border px-2 py-1 text-[12px] font-medium transition-colors disabled:opacity-50',
                               on
-                                ? 'border-[color:var(--accent-line)] bg-[var(--accent-tint)] text-accent-hover'
+                                ? 'border-[color:var(--accent-line)] bg-surface-2 text-accent'
                                 : 'border-line bg-surface-1 text-fg-3 hover:text-fg-1',
                             )}
                           >

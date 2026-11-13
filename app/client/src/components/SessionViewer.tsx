@@ -447,7 +447,7 @@ export function SessionViewer({
       {!isPage && (
         <div
           className={cn(
-            'fixed inset-0 z-40 bg-surface-0/70 transition-opacity duration-200',
+            'fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-200',
             isDialog ? 'block' : isFull ? 'hidden' : 'block',
           )}
           onClick={onClose}

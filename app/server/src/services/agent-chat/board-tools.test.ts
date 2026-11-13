@@ -238,3 +238,51 @@ describe('chat board_briefing: what is waiting on me', () => {
     expect(carol.note).toMatch(/Nothing needs a decision right now, but 1 open card/)
   })
 })
+
+// obj 900745: Operation Kit Dev stalled on a fresh install — business/profile.md
+// did not exist, read_file said only "does not exist", and the model answered
+// "I don't have a profile for your business yet" instead of using the board.
+describe('missing knowledge file → fallback to folders and board (obj 900745)', () => {
+  const okDev: Agent = {
+    ...agent,
+    slug: 'operation-kit-dev',
+    name: 'Operation Kit Dev',
+    knowledge_folders: ['business', 'projects'],
+    tools: ['search', 'list_folders', 'read_file', 'write_doc', 'create_objective', 'get_objective', 'list_objectives', 'board_briefing'],
+  }
+
+  it('the missing-profile error tells the bot how to fall back, naming only tools it has', () => {
+    fs.mkdirSync(path.join(TMP_KB, 'projects'), { recursive: true })
+    fs.writeFileSync(path.join(TMP_KB, 'projects', 'launch.md'), '# Spring launch\n')
+    let msg = ''
+    try {
+      runTool(ctx(ALICE, okDev), 'read_file', { path: 'business/profile.md' })
+    } catch (e) {
+      expect(e).toBeInstanceOf(ToolUseError)
+      msg = (e as Error).message
+    }
+    expect(msg).toMatch(/^File "business\/profile\.md" does not exist\./)
+    expect(msg).toMatch(/do not stop/)
+    expect(msg).toMatch(/list_folders/)
+    expect(msg).toMatch(/search the knowledge folders/)
+    expect(msg).toMatch(/board_briefing or list_objectives/)
+
+    // …and the fallback it points at actually works in the same state.
+    const folders = runTool(ctx(ALICE, okDev), 'list_folders', {}).result as Loose
+    expect(folders.folders).toEqual(['business', 'projects'])
+    const projects = runTool(ctx(ALICE, okDev), 'list_folders', { path: 'projects' }).result as Loose
+    expect(projects.items).toEqual([{ name: 'launch.md', type: 'file' }])
+    const brief = runTool(ctx(ALICE, okDev), 'board_briefing', {}).result as Loose
+    expect(brief.empty).toBe(false)
+    expect(brief.open_total).toBeGreaterThan(0)
+  })
+
+  it('a missing folder gets the same hint; a bot without board tools is not told to use them', () => {
+    const notesOnly: Agent = { ...okDev, slug: 'notes-only', tools: ['read_file', 'list_folders'] }
+    expect(() => runTool(ctx(ALICE, okDev), 'list_folders', { path: 'business' })).toThrow(/Folder "business" does not exist\. .*list_folders/)
+    let msg = ''
+    try { runTool(ctx(ALICE, notesOnly), 'read_file', { path: 'business/profile.md' }) } catch (e) { msg = (e as Error).message }
+    expect(msg).toMatch(/list_folders/)
+    expect(msg).not.toMatch(/board_briefing|list_objectives|search the knowledge/)
+  })
+})

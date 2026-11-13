@@ -129,8 +129,17 @@ export function requiredScope(method: string, path: string, body: unknown): Scop
     return { kind: 'scope', scope: 'vault:read' }
   }
 
+  // Secrets broker, use-without-reveal (obj 900749). Opt-in scope, never in the
+  // default set. Neither route returns a value: /list is names + allowed hosts,
+  // /http injects server-side to a policy-allowed host and redacts the reply.
+  // The route treats an agent key as a NON-admin caller narrowed to the key's
+  // workspaces (services/secrets-broker.ts callerForAgentKey). The store CRUD
+  // (/api/secrets*) stays off-surface.
+  if ((m === 'GET' && p === '/api/secrets-broker/list') || (m === 'POST' && p === '/api/secrets-broker/http')) {
+    return { kind: 'scope', scope: 'secrets:use' }
+  }
+
   // Non-markdown file search/stat/download (PR #533) — knowledge, read-only.
-  // The secrets broker (/api/secrets-broker/*) stays off the agent surface.
   if (m === 'GET' && (p === '/api/files/search' || p === '/api/files/stat' || p === '/api/files/download')) {
     return { kind: 'scope', scope: 'vault:read' }
   }

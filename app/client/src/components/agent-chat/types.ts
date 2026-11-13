@@ -27,6 +27,30 @@ export interface ChatAgentInfo {
   effective_tools?: string[]
   file_defaults?: { provider: ProviderId | null; model: string | null; tools: string[] }
   config?: BotConfigInfo | null
+  /** obj 900747 — the About the "i" panel shows, resolved server-side. Older servers omit it. */
+  about?: BotAbout
+  /** GET /agents/:slug only: the bot's instructions (system prompt), shown read-only. */
+  system_prompt?: string
+  /** GET /agents/:slug only: the same instructions with secret-shaped values masked, for display. */
+  instructions?: string
+  /** obj 900748 — High Agency summary for the list. Older servers omit it. */
+  high_agency?: { enabled: boolean; times_per_day: number }
+}
+
+/**
+ * A bot's About (obj 900747). Text the bot's file sets wins per field; the rest
+ * is generated from its instructions, tools and reach and refreshed whenever the
+ * bot is created or changed.
+ */
+export interface BotAbout {
+  description: string
+  how_to_use: string
+  example_prompts: string[]
+  sources: { description: 'file' | 'generated'; how_to_use: 'file' | 'generated'; example_prompts: 'file' | 'generated' }
+  generated_by: 'model' | 'rules' | null
+  generated_at: string | null
+  /** A fresh model-written About is on its way. */
+  pending: boolean
 }
 
 /** An admin's bot-page overrides (obj 900671). null fields = the agent file's value. */
@@ -39,13 +63,15 @@ export interface BotConfigInfo {
   updated_at: string
 }
 
-export type ToolGroup = 'web' | 'knowledge' | 'board' | 'connectors' | 'integrations'
+export type ToolGroup = 'web' | 'knowledge' | 'board' | 'connectors' | 'integrations' | 'secrets'
 
 export interface ToolCatalogEntry {
   name: string
   label: string
   description: string
   group: ToolGroup
+  /** Not granted by "All tools"; must be ticked on its own (obj 900749 — secret use). */
+  explicit_only?: boolean
 }
 
 export interface AgentsResponse {
@@ -67,6 +93,53 @@ export interface BotConfigPatch {
   model?: string | null
   tools?: string[] | null
   all_tools?: boolean
+}
+
+/** A bot's High Agency setting, as GET/PUT /agent-chat/agents/:slug/high-agency return it (obj 900748). */
+export interface HighAgencyInfo {
+  slug: string
+  enabled: boolean
+  times_per_day: number
+  first_hour: number
+  workspace: string | null
+  allow_cards: boolean
+  allow_workflows: boolean
+  run_as_user_id: number | null
+  routine_id: number | null
+  updated_by: string | null
+  updated_at: string | null
+  /** UTC "HH:MM" wake times for the saved setting. */
+  wake_times: string[]
+  cron: string
+  next_wake_at: string | null
+  routine: {
+    id: number
+    enabled: boolean
+    last_run_at: string | null
+    auto_paused_at: string | null
+    auto_pause_reason: string | null
+  } | null
+  last_wake: { objective_id: number; status: string; created_at: string } | null
+}
+
+export interface HighAgencyResponse {
+  high_agency: HighAgencyInfo
+  cadences: number[]
+  max_cards_per_wake: number
+  /** Admin only: where wake cards may land. */
+  workspace_options?: string[]
+  /** POST …/wake only: what the wake did. */
+  result?: { ok: boolean; reason?: string; objective_id?: number }
+}
+
+/** Body of PUT /agent-chat/agents/:slug/high-agency. */
+export interface HighAgencyPatch {
+  enabled?: boolean
+  times_per_day?: number
+  first_hour?: number
+  workspace?: string | null
+  allow_cards?: boolean
+  allow_workflows?: boolean
 }
 
 /** An image attached to a chat message (obj 900157). */

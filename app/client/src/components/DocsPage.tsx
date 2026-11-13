@@ -136,7 +136,7 @@ function TreeItem({ node, depth, selectedPath, expanded, onToggle, onSelectFile 
       <>
         <button
           onClick={() => onToggle(node.path)}
-          className="flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs text-fg-1 transition hover:bg-surface-2"
+          className="flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs text-fg-1 transition hover:bg-surface-3"
           style={{ paddingLeft: padLeft }}
         >
           {isOpen
@@ -168,7 +168,7 @@ function TreeItem({ node, depth, selectedPath, expanded, onToggle, onSelectFile 
       className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs transition ${
         isSelected
           ? 'bg-surface-selected font-semibold text-fg-0 shadow-[inset_3px_0_0_var(--accent-text)]'
-          : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0'
+          : 'text-fg-2 hover:bg-surface-3 hover:text-fg-0'
       }`}
       style={{ paddingLeft: padLeft + 16 }}
     >
@@ -394,7 +394,7 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
       {drawerOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-surface-0/70 md:hidden"
+            className="fixed inset-0 z-40 bg-[var(--scrim)] md:hidden"
             onClick={() => setDrawerOpen(false)}
           />
           <div className="cc-sheet-in fixed inset-y-0 left-0 z-50 md:hidden">
@@ -410,7 +410,7 @@ export function DocsPage({ workspace = 'all' }: { workspace?: string }) {
           <div className="flex min-w-0 items-center gap-2">
             <button
               onClick={() => setDrawerOpen(true)}
-              className="rounded-sm p-1.5 text-fg-2 transition hover:bg-surface-2 hover:text-fg-0 md:hidden"
+              className="rounded-sm p-1.5 text-fg-2 transition hover:bg-surface-3 hover:text-fg-0 md:hidden"
               aria-label="Open the page list"
             >
               <Menu className="h-4 w-4" />

@@ -99,8 +99,9 @@ export function ApiKeySection() {
         <div>
           <h2 className="text-base font-semibold text-fg-0">API key</h2>
           <p className="mt-1 text-xs text-fg-3">
-            Full access — acts as you everywhere. Paste as <span className="font-mono">Authorization: Bearer …</span>.
-            We only show the full key once. For a bot, prefer a scoped agent key below.
+            For your own scripts: full REST access that acts as you everywhere. Paste as{' '}
+            <span className="font-mono">Authorization: Bearer …</span>. We only show the full key once. Do not give it
+            to a bot — make a scoped agent key above instead (this key is read-only over MCP).
           </p>
         </div>
         {configured && (
@@ -149,7 +150,7 @@ export function ApiKeySection() {
               type="button"
               onClick={() => void generate()}
               disabled={busy}
-              className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-1 transition-colors duration-fast ease-out hover:bg-surface-2 hover:text-fg-0 disabled:opacity-50"
+              className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-1 transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-fg-0 disabled:opacity-50"
             >
               {busy ? 'Working…' : configured ? 'Generate new key' : 'Generate API key'}
             </button>

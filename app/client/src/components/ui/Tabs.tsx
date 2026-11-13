@@ -40,7 +40,7 @@ export function Tabs({
       ref={listRef}
       role="tablist"
       className={cn(
-        'inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-line bg-surface-1 p-0.5',
+        'inline-flex max-w-full gap-0.5 overflow-x-auto rounded-md border border-line bg-surface-3 p-0.5',
         className,
       )}
     >
@@ -54,12 +54,12 @@ export function Tabs({
             onClick={() => onChange(t.key)}
             className={cn(
               'inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium tracking-[-0.01em] transition-colors duration-fast ease-out',
-              active ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:text-fg-1',
+              active ? 'bg-surface-2 text-fg-0 shadow-pop ring-1 ring-line' : 'text-fg-2 hover:text-fg-0',
             )}
           >
             {t.label}
             {typeof t.count === 'number' && (
-              <span className={cn('font-mono text-[12px]', active ? 'text-accent-hover' : 'text-fg-3')}>
+              <span className={cn('font-mono text-[12px]', active ? 'text-fg-1' : 'text-fg-3')}>
                 {t.count}
               </span>
             )}

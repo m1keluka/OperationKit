@@ -219,7 +219,7 @@ function MeetingQueueDrawer({ onClose, onItemResolved }: DrawerProps) {
                     <div className="flex items-center gap-2 mt-3">
                       <button
                         onClick={() => handleApprove(item.id)}
-                        className="flex-1 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg hover:bg-accent/80 transition-colors duration-fast ease-out"
+                        className="flex-1 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg hover:bg-accent-hover transition-colors duration-fast ease-out"
                       >
                         Add to Board
                       </button>

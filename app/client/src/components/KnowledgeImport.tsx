@@ -340,7 +340,7 @@ export function KnowledgeImportPanel({ workspace, onClose }: { workspace: string
                       key={t}
                       type="button"
                       onClick={() => { void ask(undefined, t) }}
-                      className="min-h-[44px] rounded-md border border-line-soft bg-surface-1 px-3 py-2 text-left text-[13px] text-fg-1 transition-all duration-fast hover:-translate-y-px hover:border-line-strong hover:bg-surface-2 hover:text-fg-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      className="min-h-[44px] rounded-md border border-line-soft bg-surface-1 px-3 py-2 text-left text-[13px] text-fg-1 transition-all duration-fast hover:-translate-y-px hover:border-line-strong hover:bg-surface-3 hover:text-fg-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
                       {t}
                     </button>
@@ -369,7 +369,7 @@ export function KnowledgeImportPanel({ workspace, onClose }: { workspace: string
                           key={s.rel}
                           type="button"
                           onClick={() => { void viewNote(s.rel) }}
-                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-line bg-surface-1 px-3 text-[12.5px] text-fg-1 transition-all duration-fast hover:border-line-strong hover:bg-surface-2 hover:text-fg-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-[32px]"
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-line bg-surface-1 px-3 text-[12.5px] text-fg-1 transition-all duration-fast hover:border-line-strong hover:bg-surface-3 hover:text-fg-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-[32px]"
                         >
                           <span className="text-[12px] uppercase text-fg-3 font-semibold tracking-[0.06em]">{folderOf(s.rel)}</span>
                           {s.title}
@@ -468,7 +468,7 @@ export function KnowledgeImportPanel({ workspace, onClose }: { workspace: string
                             <button
                               type="button"
                               onClick={() => { void viewNote(f.source_note!) }}
-                              className="min-h-[44px] rounded-md border border-line bg-surface-1 px-2.5 text-[12px] text-fg-1 transition-all duration-fast hover:border-line-strong hover:bg-surface-2 hover:text-fg-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-[28px]"
+                              className="min-h-[44px] rounded-md border border-line bg-surface-1 px-2.5 text-[12px] text-fg-1 transition-all duration-fast hover:border-line-strong hover:bg-surface-3 hover:text-fg-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-[28px]"
                             >
                               Readable copy
                             </button>

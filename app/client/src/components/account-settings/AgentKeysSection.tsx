@@ -1,7 +1,14 @@
 /**
  * Agent keys — Settings → You (obj 714090).
  * One named, scoped key per Grok Bot / agent, instead of every bot sharing the
- * full-access API key above. Done + delete stay a human signature by default.
+ * full-access API key (below it on the page since obj 900745). Done + delete
+ * stay a human signature by default.
+ *
+ * Secrets copy (obj 900745): an agent key never READS a secret value, but that
+ * does not make secrets unnecessary — a bot that needs a credential uses a
+ * named secret through the secrets broker ({{secret:NAME}}, injected
+ * server-side). The old "never reads Settings → Secrets" line read as "this
+ * key never needs Secrets", which is wrong. Keep the two ideas separate.
  */
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
@@ -175,7 +182,7 @@ export function AgentKeysSection() {
               onClick={() => onToggle(c.id)}
               className={cn(
                 'min-h-[44px] rounded-full border px-3 text-xs transition-colors duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]',
-                on ? 'border-accent bg-surface-2 font-medium text-accent-hover' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
+                on ? 'border-accent bg-surface-2 font-medium text-accent-hover' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-3',
               )}
             >
               {c.name}
@@ -315,11 +322,20 @@ export function AgentKeysSection() {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 id="agent-keys-heading" className="text-base font-semibold text-fg-0">Agent keys</h2>
+          <p className="mt-1 text-[12px] font-medium uppercase tracking-[0.04em] text-fg-3">
+            MCP &middot; scoped tool connection for one bot
+          </p>
           <p className="mt-1 max-w-prose text-xs text-fg-2">
             One key per bot. Each is its own identity — cards it creates say who made them — and it can
             only do what you tick. Done and delete stay with you unless you grant them. A new key can
-            use the connected accounts you are allowed to use; it never reaches anyone else&rsquo;s, never
-            exceeds your own access, and never reads Settings &rarr; Secrets.
+            use the connected accounts you are allowed to use; it never reaches anyone else&rsquo;s and
+            never exceeds your own access.
+          </p>
+          <p className="mt-1 max-w-prose text-xs text-fg-2" data-testid="agent-key-secrets-copy">
+            Secrets: the key never sees a secret&rsquo;s value. When the bot needs a credential it uses a{' '}
+            <span className="text-fg-1">named secret through the secrets broker</span> (
+            <span className="font-mono">{'{{secret:NAME}}'}</span>, filled in server-side) — so store those in
+            Settings &rarr; Secrets under the names the bot asks for.
           </p>
         </div>
         {!formOpen && (
@@ -384,7 +400,7 @@ export function AgentKeysSection() {
                     key={s}
                     className={cn(
                       'flex min-h-[44px] cursor-pointer items-start gap-2.5 rounded-md border px-2.5 py-2 transition-colors duration-base',
-                      on ? 'border-line-strong bg-surface-2' : 'border-transparent hover:bg-surface-2',
+                      on ? 'border-line-strong bg-surface-2' : 'border-transparent hover:bg-surface-3',
                     )}
                   >
                     <input
@@ -429,7 +445,7 @@ export function AgentKeysSection() {
                       onClick={() => toggleWorkspace(w.slug)}
                       className={cn(
                         'min-h-[44px] rounded-full border px-3 text-xs transition-colors duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:min-h-[32px]',
-                        on ? 'border-accent bg-surface-2 font-medium text-accent-hover' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-2',
+                        on ? 'border-accent bg-surface-2 font-medium text-accent-hover' : 'border-line text-fg-1 hover:border-line-strong hover:bg-surface-3',
                       )}
                     >
                       {labelOf(w.slug)}
@@ -450,9 +466,9 @@ export function AgentKeysSection() {
             </p>
             <p className="mt-1 max-w-prose text-[12px] text-fg-2">
               This is about connected accounts only. It does not change what the key can DO on the board
-              (that is the tick list above — done and delete still stay with you), and it has nothing to
-              do with Settings &rarr; Secrets, which is a separate store the key cannot read. Tokens are
-              never shown here or handed to the key.
+              (that is the tick list above — done and delete still stay with you). Settings &rarr; Secrets is
+              separate: the key never reads a secret value and only uses named secrets through the secrets
+              broker. Tokens are never shown here or handed to the key.
             </p>
             <ModeButtons mode={connectorMode} setMode={setConnectorMode} idPrefix="new" />
             {connectorMode === 'none' && (

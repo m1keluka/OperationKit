@@ -20,7 +20,7 @@
 // = delete the row, and the bot is exactly what its file says again.
 import { getDb } from '../../db/index.js'
 import { CHAT_PROVIDERS, type ChatAgent, type ChatProviderId } from './agent-defs.js'
-import { KNOWN_TOOL_NAMES, listsAllTools } from './tool-names.js'
+import { EXPLICIT_ONLY_TOOLS, KNOWN_TOOL_NAMES, listsAllTools } from './tool-names.js'
 
 export interface BotConfig {
   slug: string
@@ -156,7 +156,10 @@ export function applyBotConfig(agent: ChatAgent, cfg: BotConfig | null | undefin
     ...agent,
     provider: cfg.provider ?? file_defaults.provider,
     model: cfg.model ?? file_defaults.model,
-    tools: cfg.all_tools ? ['all'] : cfg.tools ?? file_defaults.tools,
+    // obj 900749: 'all' keeps any explicit-only tool (secret use) the bot was given by name.
+    tools: cfg.all_tools
+      ? ['all', ...(cfg.tools ?? file_defaults.tools).filter(t => EXPLICIT_ONLY_TOOLS.has(t))]
+      : cfg.tools ?? file_defaults.tools,
     file_defaults,
     config: cfg,
   }

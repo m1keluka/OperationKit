@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#F3F0E8" />
+    <meta name="theme-color" content="#f6f8fa" />
     <!-- Replaced server-side with the install's own favicon + name (routes/branding.ts renderBrandedIndex). -->
     <link rel="icon" href="/api/branding/favicon" />
     <title>Operation Kit</title>
@@ -18,19 +18,19 @@
       no Tailwind runtime; they mirror tailwind.config.ts exactly.
     -->
     <style>
-      /* Colors mirror the OK v1.0 LIGHT defaults (index.css / tailwind.config.ts)
+      /* Colors mirror the neutral LIGHT defaults (obj 900750) (index.css / tailwind.config.ts)
          hard-coded here because this paints before Tailwind/CSS vars are ready. */
-      #app-shell { height: 100%; display: flex; flex-direction: column; background: #F3F0E8; }
+      #app-shell { height: 100%; display: flex; flex-direction: column; background: #f6f8fa; }
       #app-shell * { box-sizing: border-box; }
       .as-topbar {
         height: 48px; flex: 0 0 auto; display: flex; align-items: center; gap: 14px;
-        padding: 0 16px; border-bottom: 1px solid #DCD6C8; background: #F3F0E8;
+        padding: 0 16px; border-bottom: 1px solid #d1d9e0; background: #f6f8fa;
       }
       /* Neutral logo placeholder — never a brand glyph (white-label, obj 900543). */
       .as-mark {
-        width: 28px; height: 28px; border-radius: 6px; background: #E5E1D5; flex: 0 0 auto;
+        width: 28px; height: 28px; border-radius: 6px; background: #e6eaef; flex: 0 0 auto;
       }
-      .as-pill { height: 12px; border-radius: 4px; background: #E5E1D5; }
+      .as-pill { height: 12px; border-radius: 4px; background: #e6eaef; }
       .as-board {
         flex: 1 1 auto; display: flex; gap: 12px; padding: 16px;
         overflow: hidden; align-items: flex-start;
@@ -39,18 +39,18 @@
         flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px;
       }
       .as-colhead {
-        height: 11px; width: 82px; border-radius: 3px; background: #E5E1D5; margin-bottom: 4px;
+        height: 11px; width: 82px; border-radius: 3px; background: #e6eaef; margin-bottom: 4px;
       }
       .as-card {
         display: flex; gap: 10px; padding: 11px; border-radius: 6px;
-        border: 1px solid #DCD6C8; background: #FBF9F4;
+        border: 1px solid #d1d9e0; background: #ffffff;
       }
-      .as-tile { width: 26px; height: 26px; border-radius: 4px; background: #E5E1D5; flex: 0 0 auto; }
+      .as-tile { width: 26px; height: 26px; border-radius: 4px; background: #e6eaef; flex: 0 0 auto; }
       .as-lines { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
-      .as-line { height: 11px; border-radius: 3px; background: #E5E1D5; }
+      .as-line { height: 11px; border-radius: 3px; background: #e6eaef; }
       .as-shimmer {
         position: relative; overflow: hidden;
-        background: linear-gradient(90deg, #E5E1D5 0%, #DCD6C8 50%, #E5E1D5 100%);
+        background: linear-gradient(90deg, #e6eaef 0%, #d1d9e0 50%, #e6eaef 100%);
         background-size: 200% 100%; animation: as-pulse 1.4s ease-in-out infinite;
       }
       @keyframes as-pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
@@ -58,24 +58,24 @@
       /* Mobile mirrors the real board: a single full-width column, not a cramped grid. */
       @media (max-width: 640px) { .as-board > .as-col:nth-child(n+2) { display: none; } }
       /* Dark-theme skeleton (localStorage 'ok-theme'='dark', read inline below). */
-      html[data-theme="dark"] #app-shell { background: #16163A; }
-      html[data-theme="dark"] .as-topbar { background: #16163A; border-bottom-color: #393C62; }
-      html[data-theme="dark"] .as-mark { background: #292B53; }
+      html[data-theme="dark"] #app-shell { background: #0d1117; }
+      html[data-theme="dark"] .as-topbar { background: #0d1117; border-bottom-color: #3d444d; }
+      html[data-theme="dark"] .as-mark { background: #212830; }
       html[data-theme="dark"] .as-pill,
       html[data-theme="dark"] .as-colhead,
       html[data-theme="dark"] .as-tile,
-      html[data-theme="dark"] .as-line { background: #292B53; }
-      html[data-theme="dark"] .as-card { background: #202148; border-color: #393C62; }
-      html[data-theme="dark"] .as-shimmer { background: linear-gradient(90deg, #292B53 0%, #393C62 50%, #292B53 100%); background-size: 200% 100%; }
+      html[data-theme="dark"] .as-line { background: #212830; }
+      html[data-theme="dark"] .as-card { background: #151b23; border-color: #3d444d; }
+      html[data-theme="dark"] .as-shimmer { background: linear-gradient(90deg, #212830 0%, #3d444d 50%, #212830 100%); background-size: 200% 100%; }
       @media (prefers-color-scheme: dark) {
-        html[data-theme="auto"] #app-shell { background: #16163A; }
-        html[data-theme="auto"] .as-topbar { background: #16163A; border-bottom-color: #393C62; }
-        html[data-theme="auto"] .as-mark { background: #292B53; }
+        html[data-theme="auto"] #app-shell { background: #0d1117; }
+        html[data-theme="auto"] .as-topbar { background: #0d1117; border-bottom-color: #3d444d; }
+        html[data-theme="auto"] .as-mark { background: #212830; }
         html[data-theme="auto"] .as-pill,
         html[data-theme="auto"] .as-colhead,
         html[data-theme="auto"] .as-tile,
-        html[data-theme="auto"] .as-line { background: #292B53; }
-        html[data-theme="auto"] .as-card { background: #202148; border-color: #393C62; }
+        html[data-theme="auto"] .as-line { background: #212830; }
+        html[data-theme="auto"] .as-card { background: #151b23; border-color: #3d444d; }
       }
     </style>
     <script>
@@ -89,7 +89,7 @@
           t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
         document.documentElement.setAttribute('data-theme', t);
-        if (t === 'dark') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#16163A');
+        if (t === 'dark') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d1117');
       })();
     </script>
   </head>

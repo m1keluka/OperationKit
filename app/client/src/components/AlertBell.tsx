@@ -193,7 +193,7 @@ export function AlertBell() {
                 onClick={() => changeFilter(f)}
                 className={cn(
                   'rounded-md px-2.5 py-1 text-xs font-medium outline-none transition-colors duration-fast ease-out focus-visible:ring-2 focus-visible:ring-accent/60',
-                  filter === f ? 'bg-surface-3 text-fg-0' : 'text-fg-2 hover:bg-surface-2 hover:text-fg-0',
+                  filter === f ? 'bg-surface-selected text-fg-0 shadow-[inset_0_-2px_0_var(--accent-text)]' :'text-fg-2 hover:bg-surface-3 hover:text-fg-0',
                 )}
               >
                 {f === 'unread' ? 'Unread' : 'All'}
@@ -242,7 +242,7 @@ function NotificationRow({ alert, onMarkRead }: { alert: Alert; onMarkRead: (id:
       data-unread={unread ? 'true' : 'false'}
       className="border-t border-line-soft first:border-t-0"
     >
-      <div className={cn('flex items-start gap-2.5 px-3 py-2.5 transition-colors duration-fast ease-out hover:bg-surface-2', !unread && 'opacity-70')}>
+      <div className={cn('flex items-start gap-2.5 px-3 py-2.5 transition-colors duration-fast ease-out hover:bg-surface-3', !unread && 'opacity-70')}>
         <span
           aria-label={unread ? 'Unread' : 'Read'}
           className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', unread ? sev.dot : 'bg-transparent ring-1 ring-line-strong')}

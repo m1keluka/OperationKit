@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { api } from '../../lib/api'
 import { Alert, Button, cn } from '../ui'
+import { HighAgencySection } from './HighAgencySection'
 import {
   PROVIDER_LABELS,
   type AgentsResponse,
@@ -20,7 +21,10 @@ import {
        "All tools" to give it every tool, including ones added later.
    Saving writes an override on the server (the agent file is never touched);
    "Reset to file" removes the override. Everyone else sees the same panel
-   read-only, so a person can tell what a bot can do before asking it. */
+   read-only, so a person can tell what a bot can do before asking it.
+
+   High Agency (obj 900748) sits at the bottom with its own Save: it is a
+   schedule, not a model/tools override, so "Reset to file" never touches it. */
 
 const GROUP_LABELS: Record<ToolGroup, string> = {
   web: 'Web',
@@ -28,9 +32,10 @@ const GROUP_LABELS: Record<ToolGroup, string> = {
   board: 'Board',
   connectors: 'Email & calendar',
   integrations: 'Integrations',
+  secrets: 'Secrets',
 }
 
-const GROUP_ORDER: ToolGroup[] = ['web', 'knowledge', 'board', 'connectors', 'integrations']
+const GROUP_ORDER: ToolGroup[] = ['web', 'knowledge', 'board', 'connectors', 'integrations', 'secrets']
 
 const PROVIDERS: ProviderId[] = ['claude', 'anthropic', 'openai', 'xai', 'openai-compatible', 'demo']
 
@@ -144,7 +149,20 @@ export function BotSettingsPanel({
       <div className="mx-auto flex max-w-[760px] flex-col gap-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-display text-[14px] font-semibold text-fg-0">Bot settings</h3>
-          <Button variant="ghost" size="sm" onClick={onClose}>Done</Button>
+          {/* A real, visible button (Operator's 2026-11-12 walkthrough: the old ghost
+              "Done" read as plain text on this surface, so he closed the panel
+              with the header Settings toggle instead). Secondary, not primary,
+              so it never competes with Save below; the `!` overrides are needed
+              because cn() does not de-dupe the secondary variant's own fill/border/text. */}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onClose}
+            aria-label={`Done: close settings for ${agent.name}`}
+            className="min-h-[44px] min-w-[72px] font-medium sm:min-h-0 !border-line-strong !bg-surface-2 !text-fg-0 hover:!bg-surface-3"
+          >
+            Done
+          </Button>
         </div>
 
         {!isAdmin && (
@@ -202,7 +220,7 @@ export function BotSettingsPanel({
             <span>
               <span className="block text-[13px] font-medium text-fg-0">All tools</span>
               <span id={`bot-all-tools-help-${agent.slug}`} className="block text-[12px] text-fg-2">
-                Every tool below, plus any added later. Email and calendar stay draft-only.
+                Every tool below, plus any added later. Email and calendar stay draft-only. Secrets must be ticked on their own.
               </span>
             </span>
           </label>
@@ -211,13 +229,15 @@ export function BotSettingsPanel({
               <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-fg-2">{GROUP_LABELS[group]}</p>
               <div className="grid gap-1 sm:grid-cols-2">
                 {entries.map(t => {
-                  const checked = allTools || (isAdmin ? tools.includes(t.name) : enabledNames.has(t.name))
+                  // obj 900749: an explicit-only tool (secret use) is never implied by "All tools".
+                  const implied = allTools && !t.explicit_only
+                  const checked = implied || (isAdmin ? tools.includes(t.name) : enabledNames.has(t.name))
                   return (
-                    <label key={t.name} className={cn('flex items-start gap-2 rounded-md px-2 py-1.5', allTools && 'opacity-70')}>
+                    <label key={t.name} className={cn('flex items-start gap-2 rounded-md px-2 py-1.5', implied && 'opacity-70')}>
                       <input
                         type="checkbox"
                         checked={checked}
-                        disabled={allTools}
+                        disabled={implied}
                         onChange={() => toggle(t.name)}
                         className="mt-0.5"
                         aria-label={t.label}
@@ -251,6 +271,8 @@ export function BotSettingsPanel({
             )}
           </div>
         )}
+
+        <HighAgencySection agent={agent} isAdmin={isAdmin} />
       </div>
     </section>
   )

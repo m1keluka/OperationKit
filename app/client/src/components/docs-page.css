@@ -1,5 +1,7 @@
 /* BlockNote dark theme mapped onto OperationKit Mission Control tokens.
-   Every value reads from a CSS custom property in index.css — zero hardcoded hex. */
+   Every colour reads from a CSS custom property in index.css, except the
+   shadow: a dark-theme shadow must stay DARK, and the text/ink tokens are
+   near-white in dark mode (mixing one in turned the shadow into a glow). */
 .docs-editor .bn-container[data-color-scheme='dark'],
 .docs-editor [data-color-scheme='dark'] .bn-container,
 .docs-editor .bn-mantine[data-mantine-color-scheme='dark'] {
@@ -11,11 +13,11 @@
   --bn-colors-tooltip-text: var(--fg-0);
   --bn-colors-hovered-background: var(--surface-2);
   --bn-colors-hovered-text: var(--fg-0);
-  --bn-colors-selected-background: var(--accent);
-  --bn-colors-selected-text: var(--accent-fg);
+  --bn-colors-selected-background: var(--surface-selected);
+  --bn-colors-selected-text: var(--fg-0);
   --bn-colors-disabled-background: var(--surface-2);
   --bn-colors-disabled-text: var(--fg-3);
-  --bn-colors-shadow: color-mix(in srgb, var(--ok-ink) 30%, transparent);
+  --bn-colors-shadow: rgba(1, 4, 9, 0.5);
   --bn-colors-border: var(--line);
   --bn-colors-side-menu: var(--fg-3);
   --bn-colors-highlights-gray-background: var(--surface-3);
@@ -74,7 +76,7 @@
 }
 
 .docs-editor a {
-  color: var(--accent-hover, var(--accent));
+  color: var(--accent-text);  /* ≥ 4.5:1 on the neutral grounds in both themes */
   text-decoration: none;
 }
 .docs-editor a:hover { text-decoration: underline; }
