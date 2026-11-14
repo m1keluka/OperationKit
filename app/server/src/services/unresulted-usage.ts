@@ -19,6 +19,7 @@
  * never got written). It only ever applies to unreported usage, so a clean session
  * is accounted exactly as before.
  */
+import { catalogEntryForUsage } from '../lib/claude-model-catalog.js'
 
 export interface UnresultedUsage {
   tokens: number
@@ -39,8 +40,13 @@ interface MsgUsage {
   cacheWrite1h: number
 }
 
-/** $ per million tokens: [input, output, cache read]. Cache writes: 1.25x (5m) / 2x (1h) input. */
+/** $ per million tokens: [input, output, cache read]. Cache writes: 1.25x (5m) / 2x (1h) input.
+ *  An id in the curated Claude catalog (lib/claude-model-catalog.ts) is priced from
+ *  the catalog first; these family regexes are the fallback for everything else.
+ *  Fable/Mythos 5.2 dropped to $8/$40 (obj 900796) — the old `fable|mythos` row
+ *  charged it at the 5.1 price. */
 const PRICES: Array<[RegExp, number, number, number]> = [
+  [/(fable|mythos)-5-2/, 8, 40, 0.2],
   [/fable|mythos/, 10, 50, 0.25],
   [/opus-5-5/, 4, 20, 0.2],
   [/opus/, 5, 25, 0.5],
@@ -53,8 +59,11 @@ const PRICES: Array<[RegExp, number, number, number]> = [
 const FALLBACK_PRICE: [number, number, number] = [4, 20, 0.2]
 
 export function estimateCostUsd(u: Omit<MsgUsage, 'model'>, model: string): number {
-  const hit = PRICES.find(([re]) => re.test(model))
-  const [inP, outP, readP] = hit ? [hit[1], hit[2], hit[3]] : FALLBACK_PRICE
+  const cat = catalogEntryForUsage(model)
+  const hit = cat ? null : PRICES.find(([re]) => re.test(model))
+  const [inP, outP, readP] = cat
+    ? [cat.price.input, cat.price.output, cat.price.cache_read]
+    : hit ? [hit[1], hit[2], hit[3]] : FALLBACK_PRICE
   return (
     u.input * inP +
     u.output * outP +

@@ -15,6 +15,7 @@ const TMP_KB = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-chat-board-kb-'))
 
 const { initDb, getDb } = await import('../../db/index.js')
 const { runTool, toolSpecsFor, ToolUseError } = await import('./tools.js')
+const { seedExistingBotsOnce } = await import('./bot-workspaces.js')
 type Agent = import('./agent-defs.js').ChatAgent
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,6 +71,10 @@ beforeAll(() => {
   const db = getDb()
   const users: [number, string][] = [[ADMIN, 'admin'], [ALICE, 'member'], [BOB, 'member'], [CAROL, 'member'], [NOBODY, 'member']]
   for (const [id, role] of users) db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, 'x', ?)`).run(id, `user${id}`, role)
+  // obj 900797: these bots stand for bots that existed before per-bot workspace
+  // access lists, so the one-time boot seed keeps them unrestricted (today's
+  // behaviour). The restricted path is covered in bot-workspaces.test.ts.
+  seedExistingBotsOnce(['growth-general', 'librarian', 'operation-kit-dev', 'notes-only'])
   for (const ws of [GROWTH, OTHER, EMPTY_WS]) db.prepare(`INSERT OR IGNORE INTO workspaces (slug, name) VALUES (?, ?)`).run(ws, ws)
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace, role) VALUES (?, ?, 'member')`).run(ALICE, GROWTH)
   db.prepare(`INSERT INTO user_workspaces (user_id, workspace, role) VALUES (?, ?, 'member')`).run(ALICE, EMPTY_WS)

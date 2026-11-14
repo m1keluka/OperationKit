@@ -3,8 +3,9 @@ import fs from 'fs'
 import path from 'path'
 import type Database from 'better-sqlite3'
 import { parseNote } from '../doc-ingest/notes.js'
-import { isProtectedPath } from './paths.js'
-import { fmField, loadWiki, nameKey, pageRoots, parseLinks, resolveLinkTarget, type LoadedPage } from './wiki.js'
+import { INDEX_PAGE, LINT_REPORT_PAGE, LOG_PAGE } from './paths.js'
+import { fmField, loadPageFile, nameKey, parseLinks, resolveLinkTarget, type LoadedPage, type WikiPage } from './wiki.js'
+import { DEFAULT_GRAPH_EXCLUDES, graphKindFor, listVaultMarkdown, parseExcludeSetting, vaultSignature, type VaultFile, type VaultScanOptions } from './vault-scan.js'
 
 /**
  * The knowledge base's small typed link graph (obj 720162).
@@ -57,7 +58,19 @@ export interface BrokenEdge {
   kind: EdgeKind
 }
 
-export interface KbGraph { nodes: KbNode[]; edges: KbEdge[]; broken: BrokenEdge[] }
+/**
+ * A link written on a page (body [[wikilink]] or [md](link.md), or an entry in its
+ * "## Related" section) that matches no indexed page (obj 900815). Reported, never
+ * silently dropped: GET /api/kb-wiki/graph/unresolved lists them.
+ */
+export interface UnresolvedLink {
+  from_rel: string
+  /** The target as written (without #heading). */
+  target: string
+  kind: EdgeKind
+}
+
+export interface KbGraph { nodes: KbNode[]; edges: KbEdge[]; broken: BrokenEdge[]; unresolved: UnresolvedLink[] }
 
 // ── Derive (pure over the page scan) ─────────────────────────────────────────
 
@@ -66,11 +79,14 @@ function bodyOf(text: string): string {
   return m ? text.slice(m[0].length) : text
 }
 
-/** The lines of a page's "## Related" section, and the body without it. */
+/**
+ * The lines of a page's "## Related" (or "## See also") section, and the body
+ * without it. Nested list items count too.
+ */
 function splitRelated(body: string): { related: string[]; rest: string } {
-  const m = body.match(/^## Related[ \t]*\n([\s\S]*?)(?=^## |^<!-- kb-wiki:backlinks -->|(?![\s\S]))/m)
+  const m = body.match(/^#{2,3} (?:Related|See also)\b[^\n]*\n([\s\S]*?)(?=^#{1,3} |^<!-- kb-wiki:backlinks -->|(?![\s\S]))/im)
   if (!m) return { related: [], rest: body }
-  return { related: m[1].split('\n').filter(l => /^[-*] /.test(l)), rest: body.replace(m[0], '') }
+  return { related: m[1].split('\n').filter(l => /^\s*[-*+] /.test(l)), rest: body.replace(m[0], '') }
 }
 
 /** "- [Tom Whitfield](../people/tom-whitfield.md) (person) — works for" → target + label. Also accepts a [[wikilink]]. */
@@ -82,62 +98,158 @@ export function parseRelatedLine(line: string): { target: string; label: string 
   return { target: link.target, label: label ? label.slice(0, 40) : null }
 }
 
+/** A path to a .md file written WITHOUT link syntax: in backticks, or bare (`decisions/x.md`, `/abs/…/x.md`, `../x.md`). */
+const CODE_PATH_RE = /`([^`\s]+?\.md)(?:#[^`\s]*)?`/gi
+const BARE_PATH_RE = /(?:^|[\s(:])((?:~\/|\/|\.{1,2}\/)?[\w@+-][\w@.+-]*(?:\/[\w@.+-]+)*\.md)(?=$|[\s),;:]|\.(?:\s|$))/gi
+
+/**
+ * Every target on one "## Related" line, in order (obj 900815). Real vaults
+ * write these lines many ways, and all of them are connections:
+ *
+ *   - [[page]] / [[page|label]] / [[page#heading]]       wikilinks (several per line)
+ *   - [Title](../folder/page.md)                         markdown links
+ *   - Decision: `decisions/2026-01-01-x.md`              a path in backticks
+ *   - /abs/path/to/workspaces/acme/decisions/x.md        a bare path (absolute or relative)
+ *
+ * The label is the "— label" after the first link when there is one,
+ * otherwise a short "Label:" prefix ("Project: [[x]]" → "project").
+ */
+export function parseRelatedTargets(line: string): Array<{ target: string; label: string | null }> {
+  const out: Array<{ target: string; label: string | null }> = []
+  const dash = parseRelatedLine(line)?.label ?? null
+  const prefix = line.match(/^\s*[-*+]\s+([A-Za-z][\w ()/'-]{0,38}?):\s/)?.[1]?.trim().toLowerCase() ?? null
+  const label = dash ?? prefix
+  let rest = line
+  for (const l of parseLinks(line)) {
+    out.push({ target: l.target, label: out.length ? null : label })
+    rest = rest.replace(l.match, ' ')
+  }
+  // Inline code is dropped by parseLinks, so a backticked path is read here.
+  for (const m of rest.matchAll(CODE_PATH_RE)) out.push({ target: m[1], label: out.length ? null : label })
+  rest = rest.replace(CODE_PATH_RE, ' ')
+  for (const m of rest.matchAll(BARE_PATH_RE)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(m[1])) continue
+    out.push({ target: m[1], label: out.length ? null : label })
+  }
+  return out
+}
+
 function dateOf(text: string): string | null {
   const v = (fmField(text, 'date') || fmField(text, 'updated') || '').trim()
   return /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null
 }
 
-/** Nodes, edges and broken connections for every page. Deterministic: same files → same rows, same order. */
-export function deriveGraph(loaded: LoadedPage[]): KbGraph {
-  const pages = loaded.map(l => l.page)
+interface Resolver { (target: string, fromRel: string): string | null }
+
+/**
+ * Link resolution over the indexed pages (obj 900815). On top of the wiki's
+ * own rules (`resolveLinkTarget`: KB-relative, page-relative, then a bare name
+ * against every page's file stem, title and aliases, with #heading stripped),
+ * an ABSOLUTE path is matched by its tail, because vault notes are often
+ * written on another machine or before the vault moved
+ * (`/home/someone/notes/workspaces/acme/decisions/x.md` → `decisions/x.md`).
+ * The longest tail that is exactly an indexed page wins, and at least the
+ * folder + file name must match. A path that runs through another
+ * workspace's folder (`…/workspaces/<other>/…` when this one is `rootName`)
+ * is not this workspace's page and stays unresolved.
+ */
+export function makeResolver(pages: WikiPage[], opts: { rootName?: string } = {}): Resolver {
+  const byRel = new Map(pages.map(p => [p.rel.toLowerCase(), p.rel]))
+  return (target, fromRel) => {
+    const hit = resolveLinkTarget(pages, target, fromRel)
+    if (hit) return hit
+    const t = target.split('#')[0].trim()
+    if (!/^(?:~\/|\/)/.test(t)) return null
+    const segs = t.replace(/^~\//, '').split('/').filter(Boolean)
+    if (!segs.length) return null
+    if (!/\.md$/i.test(segs[segs.length - 1])) segs[segs.length - 1] += '.md'
+    const ws = segs.lastIndexOf('workspaces')
+    if (opts.rootName && ws >= 0 && ws + 1 < segs.length - 1 && segs[ws + 1] !== opts.rootName) return null
+    for (let k = segs.length - 1; k >= 2; k--) {
+      const r = byRel.get(segs.slice(-k).join('/').toLowerCase())
+      if (r) return r
+    }
+    return null
+  }
+}
+
+/** Root pages the wiki generates (index, log, cleanup report): they link to everything, so they are not graph nodes. */
+const GENERATED_ROOT_PAGES = new Set([INDEX_PAGE, LOG_PAGE, LINT_REPORT_PAGE].flatMap(n => [n, `wiki-${n}`]))
+
+export function isGeneratedRootPage(l: LoadedPage): boolean {
+  return l.generated && GENERATED_ROOT_PAGES.has(l.page.rel)
+}
+
+/** One page's outgoing edges, frontmatter connections to missing pages, and links that resolve nowhere. */
+export function derivePageEdges(l: LoadedPage, resolve: Resolver): { edges: KbEdge[]; broken: BrokenEdge[]; unresolved: UnresolvedLink[] } {
+  const from = l.page.rel
+  const isAnswer = l.page.kind === 'answer'
+  const updated = dateOf(l.text)
   const edges = new Map<string, KbEdge>()
   const broken: BrokenEdge[] = []
-  const add = (e: KbEdge) => {
-    if (e.from_rel === e.to_rel) return
-    const key = `${e.from_rel}\0${e.to_rel}\0${e.kind}`
+  const unresolved = new Map<string, UnresolvedLink>()
+  const edge = (to: string, kind: EdgeKind, label: string | null = null) => {
+    if (to === from) return
+    const key = `${to}\0${kind}`
     const prev = edges.get(key)
-    if (!prev) edges.set(key, e)
-    else if (!prev.label && e.label) prev.label = e.label
+    if (!prev) edges.set(key, { from_rel: from, to_rel: to, kind, label, source_rel: from, updated })
+    else if (!prev.label && label) prev.label = label
+  }
+  const miss = (target: string, kind: EdgeKind) => {
+    const t = target.split('#')[0].trim()
+    if (t && !unresolved.has(`${t}\0${kind}`)) unresolved.set(`${t}\0${kind}`, { from_rel: from, target: t, kind })
   }
 
+  // Frontmatter sources first, so a "*Source: [file](…)*" body link to the same page is not counted twice.
+  const cited = new Set<string>()
+  for (const s of parseNote(l.text).fm?.sources ?? []) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(s)) continue // a URL, not a page
+    const kind: EdgeKind = isAnswer ? 'answer_used' : 'cited_by'
+    const to = resolve(s, from)
+    if (to) { edge(to, kind); cited.add(to) } else broken.push({ from_rel: from, target: s, kind })
+  }
+
+  const { related, rest } = splitRelated(bodyOf(l.text))
+  for (const line of related) {
+    for (const r of parseRelatedTargets(line)) {
+      const to = resolve(r.target, from)
+      if (to) edge(to, isAnswer ? 'answer_used' : 'related', r.label)
+      else miss(r.target, isAnswer ? 'answer_used' : 'related')
+    }
+  }
+  // A page that a pipeline wrote (doc-ingest, an import) cites its sources with plain markdown links;
+  // those are `sources:` already. On a hand-written page a markdown link is a real mention.
+  const pipelineMd = !isAnswer && !!fmField(l.text, 'generated_by')
+  for (const link of parseLinks(rest)) {
+    if (link.form === 'md' && pipelineMd) continue
+    const to = resolve(link.target, from)
+    if (to) { if (!(link.form === 'md' && cited.has(to))) edge(to, isAnswer ? 'answer_used' : 'mentions') }
+    else miss(link.target, isAnswer ? 'answer_used' : 'mentions')
+  }
+  return { edges: [...edges.values()], broken, unresolved: [...unresolved.values()] }
+}
+
+function byEdge(a: KbEdge, b: KbEdge): number {
+  return a.from_rel.localeCompare(b.from_rel) || a.to_rel.localeCompare(b.to_rel) || a.kind.localeCompare(b.kind)
+}
+
+function nodeOf(l: LoadedPage): KbNode {
+  return { rel: l.page.rel, title: l.page.title, kind: l.page.kind, aliases: [...l.page.aliases], summary: l.page.summary, updated: dateOf(l.text) }
+}
+
+/** Nodes, edges, broken connections and unresolved links for every page. Deterministic: same files → same rows, same order. */
+export function deriveGraph(loaded: LoadedPage[], opts: { rootName?: string } = {}): KbGraph {
+  const resolve = makeResolver(loaded.map(l => l.page), opts)
+  const edges: KbEdge[] = []
+  const broken: BrokenEdge[] = []
+  const unresolved: UnresolvedLink[] = []
   for (const l of loaded) {
-    const from = l.page.rel
-    const isAnswer = l.page.kind === 'answer'
-    const updated = dateOf(l.text)
-    const edge = (to: string, kind: EdgeKind, label: string | null = null) => add({ from_rel: from, to_rel: to, kind, label, source_rel: from, updated })
-
-    const { related, rest } = splitRelated(bodyOf(l.text))
-    for (const line of related) {
-      const r = parseRelatedLine(line)
-      const to = r && resolveLinkTarget(pages, r.target, from)
-      if (to) edge(to, isAnswer ? 'answer_used' : 'related', r!.label)
-    }
-    for (const link of parseLinks(rest)) {
-      // Plain markdown links on a generated page are citations ("*Source: …*"), already covered by `sources:`.
-      if (!isAnswer && link.form !== 'wiki') continue
-      const to = resolveLinkTarget(pages, link.target, from)
-      if (to) edge(to, isAnswer ? 'answer_used' : 'mentions')
-    }
-    for (const s of parseNote(l.text).fm?.sources ?? []) {
-      if (/^[a-z][a-z0-9+.-]*:/i.test(s)) continue // a URL, not a page
-      const kind: EdgeKind = isAnswer ? 'answer_used' : 'cited_by'
-      const to = resolveLinkTarget(pages, s, from)
-      if (to) edge(to, kind)
-      else broken.push({ from_rel: from, target: s, kind })
-    }
+    const d = derivePageEdges(l, resolve)
+    edges.push(...d.edges)
+    broken.push(...d.broken)
+    unresolved.push(...d.unresolved)
   }
-
-  const nodes = loaded.map(l => ({
-    rel: l.page.rel,
-    title: l.page.title,
-    kind: l.page.kind,
-    aliases: [...l.page.aliases],
-    summary: l.page.summary,
-    updated: dateOf(l.text),
-  }))
-  const sorted = [...edges.values()].sort((a, b) =>
-    a.from_rel.localeCompare(b.from_rel) || a.to_rel.localeCompare(b.to_rel) || a.kind.localeCompare(b.kind))
-  return { nodes, edges: sorted, broken }
+  return { nodes: loaded.map(nodeOf), edges: edges.sort(byEdge), broken, unresolved }
 }
 
 /** Pages with no connection in either direction (lint's "isolated" check). */
@@ -172,6 +284,13 @@ export function ensureGraphSchema(db: Database.Database): void {
       updated TEXT,
       PRIMARY KEY (workspace, rel)
     );
+    CREATE TABLE IF NOT EXISTS kb_unresolved (
+      workspace TEXT NOT NULL,
+      from_rel TEXT NOT NULL,
+      target TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      PRIMARY KEY (workspace, from_rel, target, kind)
+    );
     CREATE TABLE IF NOT EXISTS kb_graph_state (
       workspace TEXT PRIMARY KEY,
       kb_root TEXT NOT NULL,
@@ -181,59 +300,208 @@ export function ensureGraphSchema(db: Database.Database): void {
   `)
 }
 
-/** Cheap content signature: every page's path, size and modified time. No file is read. */
-export function graphSignature(kbRoot: string): string {
-  const h = crypto.createHash('sha1')
-  const walk = (rel: string) => {
-    let ents: fs.Dirent[]
-    try { ents = fs.readdirSync(path.join(kbRoot, rel), { withFileTypes: true }) } catch { return }
-    ents.sort((a, b) => a.name.localeCompare(b.name))
-    for (const e of ents) {
-      if (e.name.startsWith('.')) continue
-      const r = `${rel}/${e.name}`
-      if (isProtectedPath(r)) continue
-      if (e.isDirectory()) walk(r)
-      else if (e.isFile() && e.name.toLowerCase().endsWith('.md')) {
-        try { const st = fs.statSync(path.join(kbRoot, r)); h.update(`${r}\0${st.size}\0${st.mtimeMs}\n`) } catch { /* vanished */ }
-      }
-    }
+/** The exclude list stored in `settings.kb_graph_exclude` (newline/comma list), else the defaults. */
+export function graphExcludes(db: Database.Database): string[] {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'kb_graph_exclude'").get() as { value: string } | undefined
+    return parseExcludeSetting(row?.value)
+  } catch { return [...DEFAULT_GRAPH_EXCLUDES] }
+}
+
+export interface GraphSyncOptions extends VaultScanOptions { force?: boolean; now?: Date }
+
+function scanOpts(db: Database.Database, opts: VaultScanOptions): VaultScanOptions {
+  return { ...opts, excludes: opts.excludes ?? graphExcludes(db) }
+}
+
+/** Cheap content signature: every indexed file's path, size and modified time. No file is read. */
+export function graphSignature(kbRoot: string, opts: VaultScanOptions = {}): string {
+  return vaultSignature(listVaultMarkdown(kbRoot, opts), opts)
+}
+
+// ── Incremental parse cache (obj 900815) ─────────────────────────────────────
+//
+// Each indexed file is parsed once and kept, keyed by size + modified time.
+// A rebuild re-reads only the files that changed; link resolution then runs
+// over the cached pages (in memory, milliseconds). After a server restart the
+// first sync re-reads everything once.
+
+interface CachedFile { size: number; mtimeMs: number; loaded: LoadedPage | null }
+const parseCache = new Map<string, Map<string, CachedFile>>()
+
+function cacheFor(kbRoot: string): Map<string, CachedFile> {
+  const key = path.resolve(kbRoot)
+  let c = parseCache.get(key)
+  if (!c) { c = new Map(); parseCache.set(key, c) }
+  return c
+}
+
+/** Forget every cached parse (tests; or after a bulk change made behind the server's back). */
+export function clearGraphCache(kbRoot?: string): void {
+  if (kbRoot) parseCache.delete(path.resolve(kbRoot))
+  else parseCache.clear()
+}
+
+/** Parse one file through the cache. Null for an unreadable file or a generated root page. */
+function loadCached(kbRoot: string, f: VaultFile, stats?: { reread: number }): LoadedPage | null {
+  const cache = cacheFor(kbRoot)
+  const hit = cache.get(f.rel)
+  if (hit && hit.size === f.size && hit.mtimeMs === f.mtimeMs) return hit.loaded
+  let loaded = loadPageFile(kbRoot, f.rel, graphKindFor(f.rel))
+  if (loaded && isGeneratedRootPage(loaded)) loaded = null
+  cache.set(f.rel, { size: f.size, mtimeMs: f.mtimeMs, loaded })
+  if (stats) stats.reread++
+  return loaded
+}
+
+/** Every indexed page of the vault, re-reading only files that changed since the last call. */
+export function loadVaultPages(kbRoot: string, files: VaultFile[], stats?: { reread: number }): LoadedPage[] {
+  const cache = cacheFor(kbRoot)
+  const live = new Set(files.map(f => f.rel))
+  for (const rel of [...cache.keys()]) if (!live.has(rel)) cache.delete(rel)
+  const out: LoadedPage[] = []
+  for (const f of files) {
+    const l = loadCached(kbRoot, f, stats)
+    if (l) out.push(l)
   }
-  for (const root of pageRoots()) walk(root)
-  return h.digest('hex')
+  return out
+}
+
+/** The whole-vault graph for `kbRoot`, straight from the files (no DB). */
+export function buildVaultGraph(kbRoot: string, opts: VaultScanOptions = {}): KbGraph {
+  const files = listVaultMarkdown(kbRoot, opts)
+  return deriveGraph(loadVaultPages(kbRoot, files), { rootName: path.basename(path.resolve(kbRoot)) })
+}
+
+// ── Write ────────────────────────────────────────────────────────────────────
+
+function insertRows(db: Database.Database, workspace: string, graph: Pick<KbGraph, 'nodes' | 'edges' | 'unresolved'>): void {
+  const insEdge = db.prepare('INSERT OR REPLACE INTO kb_edges (workspace, from_rel, to_rel, kind, label, source_rel, updated) VALUES (?, ?, ?, ?, ?, ?, ?)')
+  const insNode = db.prepare('INSERT OR REPLACE INTO kb_nodes (workspace, rel, title, kind, aliases, summary, updated) VALUES (?, ?, ?, ?, ?, ?, ?)')
+  const insMiss = db.prepare('INSERT OR IGNORE INTO kb_unresolved (workspace, from_rel, target, kind) VALUES (?, ?, ?, ?)')
+  for (const e of graph.edges) insEdge.run(workspace, e.from_rel, e.to_rel, e.kind, e.label, e.source_rel, e.updated)
+  for (const n of graph.nodes) insNode.run(workspace, n.rel, n.title, n.kind, JSON.stringify(n.aliases), n.summary, n.updated)
+  for (const u of graph.unresolved) insMiss.run(workspace, u.from_rel, u.target, u.kind)
+}
+
+function saveState(db: Database.Database, workspace: string, kbRoot: string, signature: string, now: Date): void {
+  db.prepare(`INSERT INTO kb_graph_state (workspace, kb_root, signature, built_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(workspace) DO UPDATE SET kb_root = excluded.kb_root, signature = excluded.signature, built_at = excluded.built_at`)
+    .run(workspace, path.resolve(kbRoot), signature, now.toISOString())
 }
 
 /** Replace one workspace's rows with `graph`, in one transaction. */
 export function writeGraph(db: Database.Database, workspace: string, kbRoot: string, graph: KbGraph, signature: string, now = new Date()): void {
   ensureGraphSchema(db)
-  const insEdge = db.prepare('INSERT INTO kb_edges (workspace, from_rel, to_rel, kind, label, source_rel, updated) VALUES (?, ?, ?, ?, ?, ?, ?)')
-  const insNode = db.prepare('INSERT INTO kb_nodes (workspace, rel, title, kind, aliases, summary, updated) VALUES (?, ?, ?, ?, ?, ?, ?)')
   db.transaction(() => {
-    db.prepare('DELETE FROM kb_edges WHERE workspace = ?').run(workspace)
-    db.prepare('DELETE FROM kb_nodes WHERE workspace = ?').run(workspace)
-    for (const e of graph.edges) insEdge.run(workspace, e.from_rel, e.to_rel, e.kind, e.label, e.source_rel, e.updated)
-    for (const n of graph.nodes) insNode.run(workspace, n.rel, n.title, n.kind, JSON.stringify(n.aliases), n.summary, n.updated)
-    db.prepare(`INSERT INTO kb_graph_state (workspace, kb_root, signature, built_at) VALUES (?, ?, ?, ?)
-      ON CONFLICT(workspace) DO UPDATE SET kb_root = excluded.kb_root, signature = excluded.signature, built_at = excluded.built_at`)
-      .run(workspace, path.resolve(kbRoot), signature, now.toISOString())
+    for (const t of ['kb_edges', 'kb_nodes', 'kb_unresolved']) db.prepare(`DELETE FROM ${t} WHERE workspace = ?`).run(workspace)
+    insertRows(db, workspace, { ...graph, unresolved: graph.unresolved ?? [] })
+    saveState(db, workspace, kbRoot, signature, now)
   })()
 }
 
+export interface GraphSyncResult { rebuilt: boolean; edges: number; nodes: number; unresolved: number; reread: number }
+
+function counts(db: Database.Database, workspace: string): { edges: number; nodes: number; unresolved: number } {
+  const count = (t: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE workspace = ?`).get(workspace) as { n: number }).n
+  return { edges: count('kb_edges'), nodes: count('kb_nodes'), unresolved: count('kb_unresolved') }
+}
+
 /**
- * Bring the tables up to date with the files. Re-derives only when the
- * signature changed (or `force`). The signature is taken BEFORE the scan, so a
- * file written mid-scan changes it again and the next call catches up.
+ * Bring the tables up to date with the files: every markdown file of the
+ * workspace's knowledge folder (see vault-scan.ts). Re-derives only when the
+ * signature changed (or `force`), and then re-reads only the files that
+ * changed. The signature is taken BEFORE the scan, so a file written mid-scan
+ * changes it again and the next call catches up.
  */
-export function syncGraph(db: Database.Database, workspace: string, kbRoot: string, opts: { force?: boolean; now?: Date } = {}): { rebuilt: boolean; edges: number; nodes: number } {
+export function syncGraph(db: Database.Database, workspace: string, kbRoot: string, opts: GraphSyncOptions = {}): GraphSyncResult {
   ensureGraphSchema(db)
-  const signature = graphSignature(kbRoot)
+  const so = scanOpts(db, opts)
+  const files = listVaultMarkdown(kbRoot, so)
+  const signature = vaultSignature(files, so)
   const state = db.prepare('SELECT signature, kb_root FROM kb_graph_state WHERE workspace = ?').get(workspace) as { signature: string; kb_root: string } | undefined
   if (!opts.force && state && state.signature === signature && state.kb_root === path.resolve(kbRoot)) {
-    const count = (t: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE workspace = ?`).get(workspace) as { n: number }).n
-    return { rebuilt: false, edges: count('kb_edges'), nodes: count('kb_nodes') }
+    return { rebuilt: false, ...counts(db, workspace), reread: 0 }
   }
-  const graph = deriveGraph(loadWiki(kbRoot))
+  const stats = { reread: 0 }
+  const graph = deriveGraph(loadVaultPages(kbRoot, files, stats), { rootName: path.basename(path.resolve(kbRoot)) })
   writeGraph(db, workspace, kbRoot, graph, signature, opts.now)
-  return { rebuilt: true, edges: graph.edges.length, nodes: graph.nodes.length }
+  return { rebuilt: true, edges: graph.edges.length, nodes: graph.nodes.length, unresolved: graph.unresolved.length, reread: stats.reread }
+}
+
+export interface FileReindexResult extends GraphSyncResult {
+  /** 'file': only that page's rows were replaced. 'full': a page appeared, vanished or was renamed, so every link was re-resolved (from the cache). 'skipped': not an indexed file. */
+  mode: 'file' | 'full' | 'skipped'
+}
+
+/** Names a link can resolve by. When these change, other pages' links may change too. */
+function nameSig(l: LoadedPage | null | undefined): string {
+  return l ? JSON.stringify([l.page.title, [...l.page.aliases].sort()]) : '∅'
+}
+
+/**
+ * Incremental reindex after ONE file was written or deleted (obj 900815) —
+ * called by every write path (the Knowledge base editor, MCP write_doc and
+ * session writes through PUT /api/docs/file, imports, the KB setup agent and
+ * saved answers through the wiki compile). Only that file is re-read. When its
+ * title/aliases are unchanged and it already existed, only its own rows are
+ * replaced; otherwise links are re-resolved across the vault from the parse
+ * cache (no other file is re-read). The stored signature is refreshed, so the
+ * next graph read does not rebuild again.
+ */
+export function reindexGraphFile(db: Database.Database, workspace: string, kbRoot: string, rel: string, opts: GraphSyncOptions = {}): FileReindexResult {
+  ensureGraphSchema(db)
+  const so = scanOpts(db, opts)
+  const now = opts.now ?? new Date()
+  const r = rel.replace(/\\/g, '/').replace(/^\.\//, '')
+  const state = db.prepare('SELECT kb_root FROM kb_graph_state WHERE workspace = ?').get(workspace) as { kb_root: string } | undefined
+  // Never built (or built for another folder): a full sync is the incremental step.
+  if (!state || state.kb_root !== path.resolve(kbRoot)) return { ...syncGraph(db, workspace, kbRoot, { ...so, now }), mode: 'full' }
+
+  const files = listVaultMarkdown(kbRoot, so)
+  const signature = vaultSignature(files, so)
+  const f = files.find(x => x.rel === r)
+  const cache = cacheFor(kbRoot)
+  const hadNode = !!db.prepare('SELECT 1 FROM kb_nodes WHERE workspace = ? AND rel = ?').get(workspace, r)
+  if (!f && !hadNode && !cache.has(r)) {
+    // Not an indexed file (excluded, not markdown, outside) — nothing of ours changed.
+    return { rebuilt: false, ...counts(db, workspace), reread: 0, mode: 'skipped' }
+  }
+  const before = cache.get(r)?.loaded
+  if (!cache.has(r) || cache.size === 0) {
+    // Cold cache (server restart): a full derive re-reads each file once.
+    return { ...syncGraph(db, workspace, kbRoot, { ...so, force: true, now }), mode: 'full' }
+  }
+  cache.delete(r)
+  const after = f ? loadCached(kbRoot, f) : null
+  const sameNames = !!before && !!after && hadNode && nameSig(before) === nameSig(after)
+  if (!sameNames) {
+    const stats = { reread: 1 }
+    const graph = deriveGraph(loadVaultPages(kbRoot, files, stats), { rootName: path.basename(path.resolve(kbRoot)) })
+    writeGraph(db, workspace, kbRoot, graph, signature, now)
+    return { rebuilt: true, edges: graph.edges.length, nodes: graph.nodes.length, unresolved: graph.unresolved.length, reread: stats.reread, mode: 'full' }
+  }
+  const pages = loadVaultPages(kbRoot, files)
+  const d = derivePageEdges(after!, makeResolver(pages.map(p => p.page), { rootName: path.basename(path.resolve(kbRoot)) }))
+  db.transaction(() => {
+    db.prepare('DELETE FROM kb_edges WHERE workspace = ? AND source_rel = ?').run(workspace, r)
+    db.prepare('DELETE FROM kb_unresolved WHERE workspace = ? AND from_rel = ?').run(workspace, r)
+    insertRows(db, workspace, { nodes: [nodeOf(after!)], edges: d.edges, unresolved: d.unresolved })
+    saveState(db, workspace, kbRoot, signature, now)
+  })()
+  return { rebuilt: true, ...counts(db, workspace), reread: 1, mode: 'file' }
+}
+
+/** Links that resolve nowhere, grouped by target (most-written first). */
+export function readUnresolved(db: Database.Database, workspace: string, opts: { limit?: number } = {}): { total: number; targets: Array<{ target: string; count: number; from: string[] }> } {
+  ensureGraphSchema(db)
+  const rows = db.prepare('SELECT from_rel, target FROM kb_unresolved WHERE workspace = ? ORDER BY target, from_rel').all(workspace) as Array<{ from_rel: string; target: string }>
+  const by = new Map<string, string[]>()
+  for (const r of rows) { const l = by.get(r.target); if (l) { if (!l.includes(r.from_rel)) l.push(r.from_rel) } else by.set(r.target, [r.from_rel]) }
+  const limit = Math.max(1, Math.min(1000, Math.floor(opts.limit ?? 200)))
+  const targets = [...by].map(([target, from]) => ({ target, count: from.length, from: from.slice(0, 10) }))
+    .sort((a, b) => b.count - a.count || a.target.localeCompare(b.target))
+  return { total: rows.length, targets: targets.slice(0, limit) }
 }
 
 interface EdgeRow { from_rel: string; to_rel: string; kind: EdgeKind; label: string | null; source_rel: string; updated: string | null }
@@ -452,7 +720,8 @@ export interface WorkspaceGraphLink { a: string; b: string; kinds: EdgeKind[]; l
 export interface WorkspaceGraphResult {
   nodes: WorkspaceGraphNode[]
   links: WorkspaceGraphLink[]
-  counts: { pages: number; links: number; isolated: number; by_kind: Record<string, number> }
+  /** `unresolved`: links written on a page that point at no indexed page (obj 900815; listed by GET /graph/unresolved). */
+  counts: { pages: number; links: number; isolated: number; unresolved: number; by_kind: Record<string, number> }
   /** True when the page count was over `limit` and the least-connected pages were left out. */
   truncated: boolean
 }
@@ -499,7 +768,13 @@ export function kbWorkspaceGraph(db: Database.Database, workspace: string, opts:
   return {
     nodes,
     links,
-    counts: { pages: all.length, links: pairs.size, isolated: all.filter(n => n.degree === 0).length, by_kind },
+    counts: {
+      pages: all.length,
+      links: pairs.size,
+      isolated: all.filter(n => n.degree === 0).length,
+      unresolved: (db.prepare('SELECT COUNT(*) AS n FROM kb_unresolved WHERE workspace = ?').get(workspace) as { n: number }).n,
+      by_kind,
+    },
     truncated: all.length > nodes.length,
   }
 }

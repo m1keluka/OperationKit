@@ -141,7 +141,13 @@ export function parseNote(text: string): { fm: Frontmatter | null; body: string 
   const m = text.match(/^---\n([\s\S]*?)\n---\n?/)
   if (!m) return { fm: null, body: text }
   const get = (k: string) => m[1].match(new RegExp(`^${k}:\\s*(.*)$`, 'm'))?.[1] ?? ''
-  const unq = (s: string) => (s.startsWith('"') ? JSON.parse(s) as string : s)
+  // A hand-written title such as `"Re-Open" replaces "Re-queue"` starts with a quote but is not
+  // one JSON string; read it as written instead of throwing (obj 900815 — a vault page must never
+  // stop the whole knowledge-base scan).
+  const unq = (s: string) => {
+    if (!s.startsWith('"')) return s
+    try { const v = JSON.parse(s); return typeof v === 'string' ? v : s } catch { return s }
+  }
   return {
     fm: {
       title: unq(get('title')),

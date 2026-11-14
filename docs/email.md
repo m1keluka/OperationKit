@@ -80,7 +80,7 @@ credential, and a provider with no credential simply returns
 
 | Flow | Email sent | Fallback when not configured (or send fails) |
 |---|---|---|
-| New user invite (Settings → Org → Users) | Invite with the temp password and a sign-in link | Temp password shown on screen, copyable, exactly like before this sprint |
+| New user invite (Settings → Workspaces → Users) | Invite with the temp password and a sign-in link | Temp password shown on screen, copyable, exactly like before this sprint |
 | Password reset (admin resets a user's password) | Temp password email | Temp password shown on screen, copyable |
 | Sign-in link ("Email me a sign-in link" on the login page) | One-time sign-in link, 15 minutes, single use | Link option doesn't appear / errors clearly; password sign-in is unaffected |
 

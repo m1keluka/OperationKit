@@ -39,27 +39,11 @@
  */
 import type { Database } from 'better-sqlite3'
 import { logActivity } from '../routes/feed.js'
+import { normalizeTitle } from './title-normalize.js'
+
+export { normalizeTitle }
 
 export const DEFAULT_DUPLICATE_WINDOW_HOURS = 24
-
-/** One or more trailing copy-style suffixes, matched on the lowercased title. */
-const COPY_SUFFIX_RE = /\s*(?:\(\s*(?:copy(?:\s*\d+)?|\d+)\s*\)|[-–—_:]?\s*\bcopy(?:\s*\d+)?)\s*$/u
-
-/** Deterministic title key — see the module header for the exact steps. */
-export function normalizeTitle(title: string | null | undefined): string {
-  let s = (title ?? '').normalize('NFKC').toLowerCase().trim()
-  // Strip stacked suffixes ("Foo (copy) (2)") until stable; bounded so a hostile
-  // title cannot spin.
-  for (let i = 0; i < 5; i++) {
-    const next = s.replace(COPY_SUFFIX_RE, '')
-    if (next === s) break
-    s = next
-  }
-  return s
-    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
 
 function settingValue(db: Database, key: string): string | undefined {
   try {

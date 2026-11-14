@@ -123,7 +123,7 @@ export function PreviewCard({
             {objective.workspace && showOrgChip && (
               <span
                 className="inline-flex items-center gap-1 rounded-full border border-line/80 bg-surface-2 px-1.5 py-px font-medium"
-                title={`Organization: ${objective.workspace}`}
+                title={`Workspace: ${objective.workspace}`}
                 data-testid="org-chip"
               >
                 <Building2 className="h-2.5 w-2.5 opacity-60" aria-hidden="true" />

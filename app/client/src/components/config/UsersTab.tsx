@@ -162,7 +162,7 @@ export function UsersTab() {
 
   async function revokeWorkspace(user: AdminUser, workspace: string) {
     if (!(await confirm({
-      title: 'Remove from organization?',
+      title: 'Remove from workspace?',
       message: `${user.username} will lose access to ${workspace}.`,
       confirmLabel: 'Remove',
       danger: true,
@@ -276,7 +276,7 @@ export function UsersTab() {
               <Badge tone={user.role === 'admin' ? 'accent' : 'neutral'}>{user.role}</Badge>
               {user.email && <span className="hidden truncate text-[12px] text-fg-2 sm:inline">{user.email}</span>}
               <span className="ml-auto text-[12px] text-fg-3">
-                {memberships.length} organization{memberships.length === 1 ? '' : 's'}
+                {memberships.length} workspace{memberships.length === 1 ? '' : 's'}
               </span>
             </button>
 
@@ -318,7 +318,7 @@ export function UsersTab() {
 
                 {/* Memberships */}
                 <section>
-                  <SectionLabel>Organization access</SectionLabel>
+                  <SectionLabel>Workspace access</SectionLabel>
                   <div className="space-y-2">
                     {memberships.map(m => (
                       <div key={m.workspace} className="space-y-2 rounded-md border border-line bg-surface-1 p-3">
@@ -340,13 +340,13 @@ export function UsersTab() {
                                     onChange={e => updateMembership(user, m.workspace, { objective_visibility: e.target.value as ObjectiveVisibility })}
                                     className={selectCls}>
                               <option value="own">own objectives</option>
-                              <option value="all">all in organization</option>
+                              <option value="all">all in workspace</option>
                             </select>
                           </label>
                         </div>
                       </div>
                     ))}
-                    {memberships.length === 0 && <p className="text-[12px] text-fg-3">No organization access — grant one below.</p>}
+                    {memberships.length === 0 && <p className="text-[12px] text-fg-3">No workspace access — grant one below.</p>}
                   </div>
                 </section>
 

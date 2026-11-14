@@ -65,10 +65,10 @@ describe('OrgSwitcher — the top-bar org switcher (obj 900197, obj 900666)', ()
 
   it('lists All plus one row per organization', async () => {
     const bar = await mount()
-    expect(chipsOf(bar)).toEqual(['All orgs', 'Acme', 'Northwind', 'Blue Harbor'])
+    expect(chipsOf(bar)).toEqual(['All workspaces', 'Acme', 'Northwind', 'Blue Harbor'])
   })
 
-  it('All orgs is pressed when nothing is selected', async () => {
+  it('All workspaces is pressed when nothing is selected', async () => {
     const bar = await mount([])
     const all = bar.querySelector('[role="group"] button') as HTMLElement
     expect(all.getAttribute('aria-pressed')).toBe('true')
@@ -92,17 +92,17 @@ describe('OrgSwitcher — the top-bar org switcher (obj 900197, obj 900666)', ()
     expect(onChange).toHaveBeenCalledWith(['blue-harbor'])
   })
 
-  it('All orgs clears the selection', async () => {
+  it('All workspaces clears the selection', async () => {
     const bar = await mount(['acme'])
     click(bar.querySelector('[role="group"] button'))
     expect(onChange).toHaveBeenCalledWith([])
   })
 
-  it('creates an organization inline and opens it', async () => {
+  it('creates a workspace inline and opens it', async () => {
     const bar = await mount()
-    click([...bar.querySelectorAll('button')].find(b => b.textContent?.includes('New organization')))
+    click([...bar.querySelectorAll('button')].find(b => b.textContent?.includes('New workspace')))
     await flush()
-    const input = bar.querySelector('input[aria-label="New organization name"]') as HTMLInputElement
+    const input = bar.querySelector('input[aria-label="New workspace name"]') as HTMLInputElement
     expect(input).toBeTruthy()
     const proto = Object.getPrototypeOf(input)
     Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(input, 'Blue Harbor')
@@ -117,9 +117,9 @@ describe('OrgSwitcher — the top-bar org switcher (obj 900197, obj 900666)', ()
   it('surfaces a create failure instead of silently doing nothing', async () => {
     const failing = vi.fn(() => Promise.reject(new Error("Workspace 'acme' already exists")))
     const bar = await mount([], { onCreate: failing })
-    click([...bar.querySelectorAll('button')].find(b => b.textContent?.includes('New organization')))
+    click([...bar.querySelectorAll('button')].find(b => b.textContent?.includes('New workspace')))
     await flush()
-    const input = bar.querySelector('input[aria-label="New organization name"]') as HTMLInputElement
+    const input = bar.querySelector('input[aria-label="New workspace name"]') as HTMLInputElement
     const proto = Object.getPrototypeOf(input)
     Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(input, 'Acme')
     flushSync(() => input.dispatchEvent(new Event('input', { bubbles: true })))
@@ -131,12 +131,12 @@ describe('OrgSwitcher — the top-bar org switcher (obj 900197, obj 900666)', ()
 
   it('hides the create affordance for non-admins', async () => {
     const bar = await mount([], { canCreate: false })
-    expect([...bar.querySelectorAll('button')].some(b => b.textContent?.includes('New organization'))).toBe(false)
+    expect([...bar.querySelectorAll('button')].some(b => b.textContent?.includes('New workspace'))).toBe(false)
   })
 
-  it('says so when there are no organizations rather than rendering an empty row', async () => {
+  it('says so when there are no workspaces rather than rendering an empty row', async () => {
     const bar = await mount([], { organizations: [] })
-    expect(bar.textContent).toContain('No organizations yet')
+    expect(bar.textContent).toContain('No workspaces yet')
   })
 })
 
@@ -163,7 +163,7 @@ describe('OrgSwitcher — trigger label', () => {
     expect(container.querySelector('[role="group"]')).toBeNull()
   })
 
-  it('reads "All orgs" when nothing is selected, even with a single org', async () => {
+  it('reads "All workspaces" when nothing is selected, even with a single org', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
@@ -171,6 +171,22 @@ describe('OrgSwitcher — trigger label', () => {
       <OrgSwitcher organizations={[ORGS[0]]} selected={[]} onChange={onChange} />
     ))
     await flush()
-    expect(container.querySelector('[data-dropdown-trigger]')?.textContent).toContain('All orgs')
+    expect(container.querySelector('[data-dropdown-trigger]')?.textContent).toContain('All workspaces')
+  })
+
+  it('labels the top-bar picker "Workspace", never "Org" (obj 900758)', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    flushSync(() => root.render(
+      <OrgSwitcher organizations={ORGS} selected={['acme', 'northwind', 'blue-harbor']} onChange={onChange} canCreate />
+    ))
+    await flush()
+    const trigger = container.querySelector('[data-dropdown-trigger]') as HTMLElement
+    expect(trigger.textContent).toContain('Workspace')
+    expect(trigger.textContent).toContain('3 workspaces')
+    expect(trigger.getAttribute('aria-label')).toBe('Workspace: 3 workspaces')
+    expect(trigger.getAttribute('title')).toBe('Workspace — scopes the whole app')
+    expect(trigger.textContent).not.toMatch(/\bOrgs?\b|Organi[sz]ation/)
   })
 })

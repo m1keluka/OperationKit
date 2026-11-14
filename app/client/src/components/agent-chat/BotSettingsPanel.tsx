@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { api } from '../../lib/api'
 import { Alert, Button, cn } from '../ui'
 import { HighAgencySection } from './HighAgencySection'
+import { WorkspaceAccessSection } from './WorkspaceAccessSection'
 import {
   PROVIDER_LABELS,
   type AgentsResponse,
@@ -72,6 +73,9 @@ export function BotSettingsPanel({
     return base.filter(t => catalog.some(c => c.name === t))
   })
   const [saving, setSaving] = useState(false)
+  // obj 900797: a grant/revoke can change where High Agency may wake (or switch
+  // it off), so the High Agency section reloads after one.
+  const [accessVersion, setAccessVersion] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
@@ -272,7 +276,9 @@ export function BotSettingsPanel({
           </div>
         )}
 
-        <HighAgencySection agent={agent} isAdmin={isAdmin} />
+        <WorkspaceAccessSection agent={agent} isAdmin={isAdmin} onChanged={() => setAccessVersion(v => v + 1)} />
+
+        <HighAgencySection key={accessVersion} agent={agent} isAdmin={isAdmin} />
       </div>
     </section>
   )

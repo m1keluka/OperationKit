@@ -34,6 +34,7 @@ import { initBotJobsSchema } from './schema/bot-jobs.js'
 import { initAgentWebhooksSchema } from './schema/agent-webhooks.js'
 import { initEmailSchema } from './schema/email.js'
 import { initAccountabilitySchema } from './schema/accountability.js'
+import { initSupervisorSchema } from './schema/supervisor.js'
 import { initStallWatchdogSchema } from './schema/stall-watchdog.js'
 import { initMcpServersSchema } from './schema/mcp-servers.js'
 import { initQueueAutostartSchema } from './schema/queue-autostart.js'
@@ -1093,6 +1094,8 @@ export function initDb(): Database.Database {
   // additive — no existing table is altered in place and no behaviour changes
   // until a caller writes one of the new columns.
   initAccountabilitySchema(db)
+  // High Agency supervisor run log (obj 900795). Additive CREATE TABLE only.
+  initSupervisorSchema(db)
   // Sprint 7.8 (obj 900620): workspace MCP servers. Additive table only.
   initMcpServersSchema(db)
   // Workflow engine tables (obj 900638, docs/design/WORKFLOWS.md §4.3). Additive

@@ -20,7 +20,9 @@
 #      — the key-auth Access app, the narrow browser-integrity exception — is
 #      brought into line here. Every step is idempotent and looks its object up
 #      before touching it, so an install that is already correct is unchanged.
-#   5. prints the exact rollback steps (also on failure). Those cover the code,
+#   5. reports the PINNED Playwright/Chromium versions now running and how to
+#      move them on their own when a browser advisory lands between releases
+#   6. prints the exact rollback steps (also on failure). Those cover the code,
 #      the images and the database. The Cloudflare side is rolled back with its
 #      own commands, which are printed at the end of the run.
 # Nothing in INSTALL_DIR is deleted. Re-running is safe.
@@ -38,7 +40,7 @@ while [ $# -gt 0 ]; do
     --skip-backup) SKIP_BACKUP=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --) shift; INSTALL_ARGS=("$@"); break ;;
-    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
   shift
@@ -133,6 +135,30 @@ if ! bash "$OK_REPO_DIR/install.sh" "${i_args[@]}" "${INSTALL_ARGS[@]+"${INSTALL
   warn "the installer failed on the new code — the site may be down"
   rollback_help
   exit 1
+fi
+
+# ── 5. Card browser ───────────────────────────────────────────────────────────
+# The browser is PINNED (obj 900024): app/Dockerfile installs exact versions and
+# the app launches exactly those. So an update moves it only because the new code
+# says so — which is the point, but it also means an operator has to be able to
+# SEE which browser they are now running, and be told how to move it on its own
+# when a Chromium advisory lands between releases.
+step "Card browser (Playwright / Chromium)"
+if [ "$DRY_RUN" -eq 1 ]; then
+  log "  [dry-run] would report the pinned browser versions"
+else
+  if bstat=$(app_internal GET /api/internal/install/browser-status 2>/dev/null); then
+    log "  now running Playwright $(jq -r '.pins.playwright' <<<"$bstat") / Chromium $(jq -r '.pins.chromium' <<<"$bstat") (@playwright/mcp $(jq -r '.pins.playwright_mcp' <<<"$bstat"))"
+    log "  sandbox: $(jq -r 'if .sandbox then "on" else "OFF" end' <<<"$bstat"); egress guard: $(jq -r 'if .egress_guard.running then "running" else "NOT RUNNING" end' <<<"$bstat")"
+    while IFS= read -r w; do [ -z "$w" ] || warn "  card browser: $w"; done < <(jq -r '.warnings[]?' <<<"$bstat")
+  else
+    log "  (could not read the browser status from the app — run install/verify.sh)"
+  fi
+  log "  To check whether a newer browser has shipped:"
+  log "    npm view playwright version && npm view @playwright/mcp version"
+  log "  To move to it: bump PLAYWRIGHT_VERSION / PLAYWRIGHT_MCP_VERSION in BOTH"
+  log "    app/Dockerfile  and  app/server/src/lib/browser-pins.ts  (CI fails if they disagree),"
+  log "    then re-run this script. Details: docs/wiki/Card-Browser-Lockdown.md"
 fi
 
 step "Updated: $(cut -c1-12 <<<"$OLD_SHA") → $(cut -c1-12 <<<"$NEW_SHA")"

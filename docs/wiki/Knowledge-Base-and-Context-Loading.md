@@ -12,7 +12,7 @@ There is exactly one knowledge base per install, and every reader and writer use
 - **Where it lives:** the vault folder when the install has one (`SECOND_BRAIN_DIR`), otherwise `/app/data/knowledge-base` (kept in backups of `data/`).
 - **Shape:** each workspace is a folder inside it, holding the raw sources (`sources/`), the compiled wiki pages, an `index.md` and the backlinks between pages. Members see only their own workspaces' folders (plus any shared folder they are given).
 - **Not knowledge, not in the tree:** agent instructions and skills (manage them on **Agents** / **Settings → Agents**) and code repositories (**Development**). Pages there stay readable by path for agents that already link to them; they are just not part of the knowledge base.
-- **Upgrading:** nothing moves on disk. A workspace whose knowledge folder sits outside the knowledge base (a custom folder set in Settings → Org) appears in the same page list as its own top-level folder, so every page that was reachable under an old "source" is still reachable.
+- **Upgrading:** nothing moves on disk. A workspace whose knowledge folder sits outside the knowledge base (a custom folder set in Settings → Workspaces) appears in the same page list as its own top-level folder, so every page that was reachable under an old "source" is still reachable.
 
 ## Why this is infrastructure, not a feature bullet
 

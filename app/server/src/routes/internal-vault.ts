@@ -14,6 +14,7 @@ import path from 'path'
 import { getDb } from '../db/index.js'
 import { rebuildContactsIndex, parseFrontmatter } from '../services/contacts.js'
 import { isLocalhost } from '../lib/is-localhost.js'
+import { noteKbFileWritten } from '../services/kb-wiki/graph-sync.js'
 
 const VAULT_BASE = process.env.VAULT_PATH || '/home/operator/second-brain'
 
@@ -240,6 +241,7 @@ router.post('/vault/append-note', (req, res) => {
   const block = `\n## ${useHeading}\n- ${stamp} — ${text.trim()}\n`
   try {
     fs.appendFileSync(resolved.absolute!, block, 'utf-8')
+    setImmediate(() => { noteKbFileWritten(resolved.absolute!) }) // obj 900815: keep the KB graph current
     res.json({ ok: true, path: resolved.relative, appended_bytes: block.length })
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'append failed' })
@@ -296,6 +298,7 @@ router.post('/vault/append-touchpoint', (req, res) => {
     }
 
     fs.writeFileSync(resolved.absolute!, reassembleMarkdown(newFm, newBody), 'utf-8')
+    setImmediate(() => { noteKbFileWritten(resolved.absolute!) }) // obj 900815: keep the KB graph current
 
     // Refresh just this row in contacts_index by rebuilding the whole table.
     // The vault is small enough that this is sub-second; doing a targeted update
@@ -340,6 +343,7 @@ router.post('/vault/update-field', (req, res) => {
       if (nt) finalFm = patchFrontmatterScalar(finalFm, 'next_touchpoint', nt)
     }
     fs.writeFileSync(resolved.absolute!, reassembleMarkdown(finalFm, body), 'utf-8')
+    setImmediate(() => { noteKbFileWritten(resolved.absolute!) }) // obj 900815: keep the KB graph current
     try { rebuildContactsIndex(getDb(), VAULT_BASE) } catch { /* best-effort */ }
     res.json({ ok: true, path: resolved.relative, field, value })
   } catch (err) {
@@ -401,6 +405,7 @@ router.post('/vault/create-contact', (req, res) => {
   const content = `---\n${fmLines.join('\n')}\n---\n${body}`
   try {
     fs.writeFileSync(resolved.absolute!, content, 'utf-8')
+    setImmediate(() => { noteKbFileWritten(resolved.absolute!) }) // obj 900815: keep the KB graph current
     try { rebuildContactsIndex(getDb(), VAULT_BASE) } catch { /* best-effort */ }
     res.json({ ok: true, path: resolved.relative })
   } catch (err) {

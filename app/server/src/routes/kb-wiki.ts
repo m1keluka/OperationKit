@@ -19,6 +19,7 @@
  *   GET  /api/kb-wiki/graph?workspace=&limit=           every page + every connection (workspace graph view, obj 900674)
  *   GET  /api/kb-wiki/graph/related?workspace=&page=&depth=   pages connected to one page (link graph, obj 720162)
  *   GET  /api/kb-wiki/graph/who-knows?workspace=&topic=      people linked to a topic, best-sourced first
+ *   GET  /api/kb-wiki/graph/unresolved?workspace=&limit=     links that point at no indexed page (obj 900815)
  *
  * Internal (localhost only), for board-card sessions filing answers with curl:
  *   POST /api/internal/kb-wiki/answers {workspace, question, answer, sources, filed_by}
@@ -35,11 +36,12 @@ import { requireAuth, requireAdmin, type AuthRequest } from '../middleware/auth.
 import { userHasWorkspace } from '../middleware/workspace.js'
 import { isLocalhost } from '../lib/is-localhost.js'
 import { getDb } from '../db/index.js'
-import { getWorkspace, getWorkspaceSlugs } from '../services/workspaces.js'
+import { getWorkspace } from '../services/workspaces.js'
 import { workspaceKbRoot } from '../services/doc-ingest/kb-paths.js'
 import { ingestEnabled, startDrain } from '../services/doc-ingest/service.js'
 import { generatedPagePath, onWikiCompiled, readPage, scanWiki } from '../services/kb-wiki/wiki.js'
-import { MAX_RELATED_DEPTH, MAX_WORKSPACE_GRAPH_NODES, kbRelated, kbWhoKnows, kbWorkspaceGraph, syncGraph } from '../services/kb-wiki/graph.js'
+import { MAX_RELATED_DEPTH, MAX_WORKSPACE_GRAPH_NODES, kbRelated, kbWhoKnows, kbWorkspaceGraph, readUnresolved, syncGraph } from '../services/kb-wiki/graph.js'
+import { graphScanOptions, syncWorkspaceGraph, workspaceForKbRoot } from '../services/kb-wiki/graph-sync.js'
 import { fileAnswer } from '../services/kb-wiki/answers.js'
 import { LINT_LAST, type LintReport } from '../services/kb-wiki/lint.js'
 import { runLintForWorkspace, startWikiLintScheduler } from '../services/kb-wiki/scheduler.js'
@@ -123,19 +125,12 @@ router.get('/page', (req: AuthRequest, res) => {
 
 // ── Link graph (obj 720162) ──────────────────────────────────────────────────
 
-/** The workspace whose knowledge base lives at `kbRoot`, if any. */
-export function workspaceForKbRoot(kbRoot: string): string | null {
-  const want = path.resolve(kbRoot)
-  for (const ws of getWorkspaceSlugs({ includeArchived: true })) {
-    try { if (workspaceKbRoot(ws) === want) return ws } catch { /* bad slug */ }
-  }
-  return null
-}
 
-// The graph tables follow the files: every compile refreshes that workspace's rows.
+// The graph tables follow the files: every compile (imports, the KB setup agent, saved
+// answers, lint, rebuild) refreshes that workspace's rows, re-reading only changed files.
 onWikiCompiled(kb => {
   const ws = workspaceForKbRoot(kb)
-  if (ws) syncGraph(getDb(), ws, kb)
+  if (ws) syncGraph(getDb(), ws, kb, graphScanOptions(ws))
 })
 
 function intArg(v: unknown, dflt: number, min: number, max: number): number {
@@ -148,7 +143,7 @@ router.get('/graph', (req: AuthRequest, res) => {
   try {
     const db = getDb()
     const root = workspaceKbRoot(ws)
-    syncGraph(db, ws, root)
+    syncWorkspaceGraph(ws)
     // root: the folder the page paths are relative to, so the Knowledge base page can open one in its editor.
     res.json({ root, ...kbWorkspaceGraph(db, ws, { limit: intArg(req.query.limit, MAX_WORKSPACE_GRAPH_NODES, 1, MAX_WORKSPACE_GRAPH_NODES) }) })
   } catch (err) { fail(res, err, 500) }
@@ -160,7 +155,7 @@ router.get('/graph/related', (req: AuthRequest, res) => {
   if (!page) { res.status(400).json({ error: 'Say which page (page is required: a path like people/dana-ruiz.md, or a name).' }); return }
   try {
     const db = getDb()
-    syncGraph(db, ws, workspaceKbRoot(ws))
+    syncWorkspaceGraph(ws)
     const r = kbRelated(db, ws, page, { depth: intArg(req.query.depth, 1, 1, MAX_RELATED_DEPTH), limit: intArg(req.query.limit, 50, 1, 200) })
     if (!r) { res.status(404).json({ error: `No page called "${page}" in this knowledge base.` }); return }
     res.json(r)
@@ -173,8 +168,16 @@ router.get('/graph/who-knows', (req: AuthRequest, res) => {
   if (!topic) { res.status(400).json({ error: 'Say which topic (topic is required).' }); return }
   try {
     const db = getDb()
-    syncGraph(db, ws, workspaceKbRoot(ws))
+    syncWorkspaceGraph(ws)
     res.json(kbWhoKnows(db, ws, topic.slice(0, 200), { limit: intArg(req.query.limit, 10, 1, 50) }))
+  } catch (err) { fail(res, err, 500) }
+})
+
+router.get('/graph/unresolved', (req: AuthRequest, res) => {
+  const ws = resolveWorkspace(req, res); if (!ws) return
+  try {
+    syncWorkspaceGraph(ws)
+    res.json(readUnresolved(getDb(), ws, { limit: intArg(req.query.limit, 200, 1, 1000) }))
   } catch (err) { fail(res, err, 500) }
 })
 
@@ -384,7 +387,7 @@ router.post('/lint/run', async (req: AuthRequest, res) => {
 router.put('/lint/settings', requireAdmin, (req: AuthRequest, res) => {
   const b = (req.body ?? {}) as Record<string, unknown>
   const patch: Partial<WikiSettings> = {}
-  for (const k of ['lint_schedule', 'lint_hour_utc', 'lint_stale_days', 'lint_ai_pages'] as const) {
+  for (const k of ['lint_schedule', 'lint_hour_utc', 'lint_stale_days', 'lint_ai_pages', 'graph_exclude'] as const) {
     if (b[k] !== undefined) (patch as Record<string, unknown>)[k] = b[k]
   }
   try {

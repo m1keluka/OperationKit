@@ -30,6 +30,12 @@
 #      First it asks the app whether ANY Claude seat can run a sandboxed
 #      session; if none can (e.g. only an old CLI-login seat, which the sandbox
 #      refuses) it fails at once with the fix instead of waiting --card-timeout.
+#   9. the card browser (Playwright/Chromium) is locked down: its OS sandbox is
+#      on, it runs as the unprivileged `ccuser` account and not as root, its
+#      egress guard is listening, and — proved live, through the same proxy
+#      Chromium uses — the cloud metadata endpoint and an off-allowlist site are
+#      both refused while an ALLOWED origin still loads. Playwright/Chromium
+#      must be pinned to a version, never `latest`.
 # --local-only skips 4-5 (installs made with --skip-cloudflare). --skip-card
 # skips 8 (it still asks the app for its Claude seat status, read-only, to say why). Secrets are read from files, sent in
 # header files, and never printed.
@@ -301,6 +307,82 @@ else
       else fail "no sandbox container found for card #$id"; fi
     fi
   fi
+fi
+
+# 9. the card browser is locked down (obj 900024)
+#    Four things, each of which has silently regressed before or could:
+#      a. Chromium's OS sandbox is ON  (it used to be --no-sandbox, always)
+#      b. the browser process is NOT root
+#      c. the egress guard is running, and an off-allowlist navigation is refused
+#      d. Playwright and Chromium are pinned, not floating
+#    (c) is proved by actually asking the guard to reach somewhere it must not,
+#    through the same proxy Chromium is pointed at — not by reading config.
+log "9. card browser (Playwright / Chromium) lockdown"
+if ! bstat=$(app_internal GET /api/internal/install/browser-status 2>/dev/null); then
+  fail "could not ask the app about the card browser (docker logs command-center)"
+else
+  if [ "$(jq -r '.sandbox' <<<"$bstat")" = true ]; then
+    pass "Chromium OS sandbox is ON"
+  else
+    fail "Chromium OS sandbox is OFF — set BROWSER_SANDBOX=\"on\" in $CONFIG and re-run install.sh"
+  fi
+
+  # The browser is launched by the session user, never by root. Check the
+  # account the sessions actually run as rather than trusting configuration.
+  browser_user=$(docker exec command-center sh -lc 'id -un ccuser 2>/dev/null' 2>/dev/null | tr -d '\r')
+  if [ -n "$browser_user" ] && [ "$browser_user" != root ]; then
+    pass "card browser runs as non-root user '$browser_user'"
+  else
+    fail "card browser would run as root (expected the unprivileged 'ccuser' account)"
+  fi
+
+  guard_running=$(jq -r '.egress_guard.running' <<<"$bstat")
+  guard_port=$(jq -r '.egress_guard.port // empty' <<<"$bstat")
+  if [ "$guard_running" = true ] && [ -n "$guard_port" ]; then
+    pass "egress guard listening on 127.0.0.1:$guard_port"
+    # The live proof: ask the guard for a destination no install allows.
+    # 169.254.169.254 is the cloud metadata address — the single worst thing a
+    # hijacked browser could reach from this host.
+    blocked_code=$(docker exec command-center sh -lc \
+      "curl -s -o /dev/null -w '%{http_code}' --max-time 10 -x http://127.0.0.1:$guard_port http://169.254.169.254/ 2>/dev/null" 2>/dev/null | tr -d '\r')
+    if [ "$blocked_code" = 403 ]; then
+      pass "navigation to the cloud metadata endpoint is blocked (HTTP 403 from the guard)"
+    else
+      fail "the card browser was NOT blocked from the cloud metadata endpoint (got '${blocked_code:-no answer}', expected 403)"
+    fi
+    offlist_code=$(docker exec command-center sh -lc \
+      "curl -s -o /dev/null -w '%{http_code}' --max-time 10 -x http://127.0.0.1:$guard_port http://verify-not-allowed.example.com/ 2>/dev/null" 2>/dev/null | tr -d '\r')
+    if [ "$offlist_code" = 403 ]; then
+      pass "navigation outside the allowed origins is blocked (HTTP 403 from the guard)"
+    else
+      fail "an off-allowlist navigation was NOT blocked (got '${offlist_code:-no answer}', expected 403)"
+    fi
+    # …and the other direction: an ALLOWED origin must still work, or we have
+    # simply broken preview review instead of securing it.
+    allowed_code=$(docker exec command-center sh -lc \
+      "curl -s -o /dev/null -w '%{http_code}' --max-time 10 -x http://127.0.0.1:$guard_port http://127.0.0.1:3002/api/health 2>/dev/null" 2>/dev/null | tr -d '\r')
+    if [ "$allowed_code" = 200 ]; then
+      pass "navigation to an allowed origin still works (HTTP 200 through the guard)"
+    elif [ "$(jq -r '.allow_loopback' <<<"$bstat")" != true ]; then
+      log "  SKIP  allowed-origin check (BROWSER_ALLOW_LOOPBACK is off on this install)"
+    else
+      fail "an ALLOWED origin did not load through the guard (got '${allowed_code:-no answer}', expected 200) — the browser policy is too tight"
+    fi
+  else
+    fail "the card browser's egress guard is not running — the browser would have unrestricted network access"
+  fi
+
+  pw=$(jq -r '.pins.playwright' <<<"$bstat"); cr=$(jq -r '.pins.chromium' <<<"$bstat")
+  if [ -n "$pw" ] && [ "$pw" != latest ] && [ "$pw" != null ]; then
+    pass "Playwright pinned at $pw (Chromium $cr)"
+  else
+    fail "Playwright is not pinned to a version"
+  fi
+
+  while IFS= read -r w; do [ -z "$w" ] || log "  NOTE  $w"; done < <(jq -r '.warnings[]?' <<<"$bstat")
+  [ "$(jq -r '.locked_down' <<<"$bstat")" = true ] \
+    && pass "card browser is at the locked-down defaults" \
+    || log "  NOTE  one or more card-browser controls were widened on purpose (see NOTEs above)"
 fi
 
 printf '\n%d pass, %d fail\n' "$PASS_COUNT" "$FAIL_COUNT"

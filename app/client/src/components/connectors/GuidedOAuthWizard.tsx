@@ -36,7 +36,7 @@ export function GuidedOAuthWizard({
           Connect {c.name}
         </h2>
         <p className="mt-1 text-[13px] leading-relaxed text-fg-2">
-          This install owns its own {c.name} OAuth app — there is no shared Example app or central
+          This install owns its own {c.name} OAuth app — there is no shared OAuth app or central
           callback service. Follow the steps below on {c.name}’s own site, using the values here.
         </p>
 

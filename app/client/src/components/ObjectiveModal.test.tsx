@@ -178,10 +178,11 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
     expect(dialog.querySelectorAll('textarea')).toHaveLength(2)
   })
 
-  it('renders organization and project selects', async () => {
+  it('renders workspace and project selects (labelled Workspace, not Organization — obj 900758)', async () => {
     const dialog = await mount(null)
     const labels = [...dialog.querySelectorAll('label')].map(l => l.textContent?.trim())
-    expect(labels).toContain('Organization')
+    expect(labels).toContain('Workspace')
+    expect(labels).not.toContain('Organization')
     expect(labels).toContain('Project')
   })
 
@@ -266,18 +267,18 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
     expect(dialog.querySelectorAll('textarea')).toHaveLength(2)
   })
 
-  it('does not default Organization to Example on the All-orgs board', async () => {
+  it('does not default Workspace to Example on the All-workspaces board', async () => {
     const dialog = await mount(null, 'all')
     const orgSelect = [...dialog.querySelectorAll('select')].find(s =>
       [...s.options].some(o => o.value === 'example-project'),
     ) as HTMLSelectElement
     expect(orgSelect).toBeTruthy()
     expect(orgSelect.value).toBe('')
-    expect([...orgSelect.options].map(o => o.textContent)).toContain('Select organization…')
+    expect([...orgSelect.options].map(o => o.textContent)).toContain('Select workspace…')
     expect([...orgSelect.options].map(o => o.textContent)).toContain('Example Project')
   })
 
-  it('refuses to create from All orgs until an organization is picked', async () => {
+  it('refuses to create from All workspaces until a workspace is picked', async () => {
     const dialog = await mount(null, 'all')
     const title = dialog.querySelector('textarea') as HTMLTextAreaElement
     setNativeValue(title, 'MFG delete messages')
@@ -288,7 +289,7 @@ describe('ObjectiveModal — create form fields (obj 708877)', () => {
     await flush()
 
     expect(onCreate).not.toHaveBeenCalled()
-    expect(dialog.textContent).toContain('Pick an organization')
+    expect(dialog.textContent).toContain('Pick a workspace')
   })
 
   it('creates into Example Project when that org is picked from All', async () => {

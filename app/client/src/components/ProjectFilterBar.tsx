@@ -94,7 +94,7 @@ export function ProjectFilterBar({
     try {
       if (editing === 'new') {
         if (needsOrgPick && !draftOrg) {
-          setError('Pick an organization for this project')
+          setError('Pick a workspace for this project')
           setBusy(false)
           return
         }
@@ -193,7 +193,7 @@ export function ProjectFilterBar({
                       <select
                         value={draftOrg}
                         onChange={e => setDraftOrg(e.target.value)}
-                        aria-label="Organization for the new project"
+                        aria-label="Workspace for the new project"
                         className="rounded-md border border-line bg-surface-2 px-2 py-1 text-[12px] text-fg-0 focus:border-accent focus:outline-none"
                       >
                         {orgChoices.map(o => (

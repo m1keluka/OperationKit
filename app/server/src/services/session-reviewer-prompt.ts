@@ -10,6 +10,9 @@ import { classifyObjectiveRepo } from './objective-prs.js'
 import { PR_LINKAGE_REPO } from './pr-linkage.js'
 import { getEffectiveGateMode, buildVisionRubricBlock, isBackendOnlyChange, type UiGateMode } from './design-context.js'
 import { maskWorkerScratch, buildReviewerArtifactBlock } from './prompt-builder.js'
+import { resolveBrowserPolicy, type BrowserPolicy } from '../lib/browser-policy.js'
+import { PLAYWRIGHT_MCP_VERSION } from '../lib/browser-pins.js'
+import { sharedBrowserEgressProxy } from './browser-egress-proxy.js'
 
 const TMUX_SCRIPT_DIR = process.env.CC_SCRIPT_DIR || '/tmp/cc-scripts'
 
@@ -498,7 +501,59 @@ export function isDelegatorWorkerObjective(objective: Objective): boolean {
  * in scripts/setup-playwright-mcp.sh; the Chromium binary is resolved dynamically
  * so it survives Playwright version bumps. Returns null if the config can't be
  * written (reviewer then falls back to the ambient user-scope registration).
+ *
+ * LOCKDOWN (obj 900024). Three things changed here and none of them may be
+ * quietly undone:
+ *
+ *   * The OS sandbox stays ON. `--no-sandbox` used to be passed unconditionally;
+ *     it is now passed ONLY when an operator has explicitly set
+ *     CARD_BROWSER_SANDBOX=off, and that choice is logged as a warning at boot.
+ *     Chromium's own `--sandbox` is passed when it is on, so the intent is
+ *     explicit in the config rather than implied by an absent flag.
+ *   * The version is PINNED (browser-pins.ts). `@playwright/mcp@latest` re-
+ *     resolved on every single spawn, so the browser could change under an
+ *     install with no deploy and no record of it.
+ *   * Egress is restricted. Chromium is pointed at the loopback egress guard
+ *     (browser-egress-proxy.ts) and ALSO given Playwright's own
+ *     --allowed-origins/--blocked-origins. If the guard is supposed to be
+ *     running and is not, this function returns null rather than writing a
+ *     config that would launch an unrestricted browser — the reviewer loses
+ *     browser tools, which is the safe direction to fail.
  */
+export function buildPlaywrightMcpArgs(
+  profileDir: string,
+  chromiumBin: string,
+  policy: BrowserPolicy,
+  proxyPort: number | null,
+): string[] {
+  const args = [
+    '-y', `@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}`,
+    '--user-data-dir', profileDir,
+    '--executable-path', chromiumBin,
+    '--headless',
+    // Service workers survive a navigation and can keep fetching after the
+    // page the agent was looking at is gone. Nothing the card browser does
+    // needs them.
+    '--block-service-workers',
+  ]
+  args.push(policy.sandbox ? '--sandbox' : '--no-sandbox')
+  if (policy.allowedOrigins.length > 0) {
+    args.push('--allowed-origins', policy.allowedOrigins.join(';'))
+  }
+  if (policy.blockedOrigins.length > 0) {
+    args.push('--blocked-origins', policy.blockedOrigins.join(';'))
+  }
+  if (proxyPort) {
+    args.push('--proxy-server', `http://127.0.0.1:${proxyPort}`)
+    // Chromium bypasses the proxy for loopback by default. When the policy
+    // does NOT allow loopback we have to force it back through the guard,
+    // otherwise "no loopback" would be unenforced for exactly the destination
+    // that matters most (this app, on 127.0.0.1:3002).
+    if (!policy.allowLoopback) args.push('--proxy-bypass', '<-loopback>')
+  }
+  return args
+}
+
 export function writeReviewerPlaywrightMcpConfig(sessionId: string, homeDir: string): string | null {
   try {
     const profileDir = path.join(homeDir, '.cache', 'playwright-mcp')
@@ -516,17 +571,28 @@ export function writeReviewerPlaywrightMcpConfig(sessionId: string, homeDir: str
       }
     } catch { /* keep default */ }
 
+    const policy = resolveBrowserPolicy()
+    let proxyPort: number | null = null
+    if (policy.egressGuard) {
+      const guard = sharedBrowserEgressProxy()
+      if (!guard) {
+        // Fail closed. Writing the config anyway would hand the session a
+        // browser with unrestricted egress under a policy that says otherwise.
+        console.error(
+          `[card-browser] refusing to register Playwright for ${sessionId}: the egress ` +
+          'guard is not running. Restart the server, or set CARD_BROWSER_EGRESS_GUARD=off ' +
+          'to accept an unrestricted card browser deliberately.',
+        )
+        return null
+      }
+      proxyPort = guard.port
+    }
+
     const config = {
       mcpServers: {
         playwright: {
           command: 'npx',
-          args: [
-            '-y', '@playwright/mcp@latest',
-            '--user-data-dir', profileDir,
-            '--executable-path', chromiumBin,
-            '--no-sandbox',
-            '--headless',
-          ],
+          args: buildPlaywrightMcpArgs(profileDir, chromiumBin, policy, proxyPort),
         },
       },
     }

@@ -40,6 +40,7 @@ describe('SettingsPage tabs', () => {
               <Route path="api-mcp" element={<div>api-mcp-pane</div>} />
               <Route path="integrations" element={<div>integrations-pane</div>} />
               <Route path="secrets" element={<div>secrets-pane</div>} />
+              <Route path="workspaces" element={<div>workspaces-pane</div>} />
               <Route path="org" element={<div>org-pane</div>} />
               {/* Legacy paths still need to match so the router mounts SettingsPage,
                   which does the real redirect itself. */}
@@ -53,11 +54,11 @@ describe('SettingsPage tabs', () => {
     })
   }
 
-  it('shows Models / API & MCP / Integrations / Secrets / Org / Branding / Email for a global admin — no Agents & Skills copy (obj 900684), no Platform (obj 900686)', () => {
+  it('shows Models / API & MCP / Integrations / Secrets / Workspaces / Branding / Email for a global admin — no Agents & Skills copy (obj 900684), no Platform (obj 900686)', () => {
     mount('/settings/api-mcp')
     const labels = Array.from(container.querySelectorAll('[role="tab"]')).map(t => t.textContent)
     expect(labels).toEqual([
-      'Models', 'API & MCP', 'Integrations', 'Secrets', 'Org', 'Branding', 'Email',
+      'Models', 'API & MCP', 'Integrations', 'Secrets', 'Workspaces', 'Branding', 'Email',
     ])
     expect(container.textContent).toContain('api-mcp-pane')
   })
@@ -112,5 +113,18 @@ describe('SettingsPage tabs', () => {
   it('redirects the old /settings/seats bookmark to /settings/models', async () => {
     mount('/settings/seats')
     await vi.waitFor(() => expect(container.textContent).toContain('models-pane'))
+  })
+
+  it('opens Settings → Workspaces at /settings/workspaces with workspace copy (obj 900758)', () => {
+    mount('/settings/workspaces')
+    expect(container.textContent).toContain('workspaces-pane')
+    expect(container.textContent).toContain('Workspaces and users.')
+    expect(container.textContent).not.toMatch(/Organi[sz]ation/)
+  })
+
+  it('redirects the old /settings/org bookmark to /settings/workspaces (obj 900758)', async () => {
+    mount('/settings/org')
+    await vi.waitFor(() => expect(container.textContent).toContain('workspaces-pane'))
+    expect(container.textContent).not.toContain('org-pane')
   })
 })

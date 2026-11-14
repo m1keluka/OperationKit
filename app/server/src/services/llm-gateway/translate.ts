@@ -12,7 +12,10 @@ import crypto from 'crypto'
 // which we parse back into OpenAI `tool_calls`. Prior turns (including
 // assistant tool_calls and role:tool results) are replayed as a transcript.
 
-export const SUPPORTED_MODELS = ['claude-sonnet-5', 'claude-opus-5-5', 'claude-haiku-4-5-20251001'] as const
+// claude-fable-5-2 (obj 900796): bots on the openai-compatible provider and
+// workflow `llm` nodes reach Claude through this list, so a model missing here
+// is unusable there even when it is enabled in the registry.
+export const SUPPORTED_MODELS = ['claude-sonnet-5', 'claude-opus-5-5', 'claude-fable-5-2', 'claude-haiku-4-5-20251001'] as const
 export const DEFAULT_MODEL = 'claude-sonnet-5'
 
 export type OAIRole = 'system' | 'developer' | 'user' | 'assistant' | 'tool'

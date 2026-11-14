@@ -117,10 +117,10 @@ describe('WorkspacesTab — archived organizations (obj 900197)', () => {
     // … and nothing follows it: it is the last thing on the page.
     expect(archived.nextElementSibling).toBeNull()
     // Each group is labelled, and each org sits in exactly one group.
-    expect(active.textContent).toContain('Active organizations (1)')
+    expect(active.textContent).toContain('Active workspaces (1)')
     expect(active.textContent).toContain('Acme')
     expect(active.textContent).not.toContain('Northwind')
-    expect(archived.textContent).toContain('Archived organizations (1)')
+    expect(archived.textContent).toContain('Archived workspaces (1)')
     expect(archived.textContent).not.toContain('Acme')
   })
 

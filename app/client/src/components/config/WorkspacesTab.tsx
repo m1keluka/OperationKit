@@ -142,7 +142,7 @@ export function WorkspacesTab() {
       await Promise.all([refreshWorkspaces(), loadAdminRecords()])
       setNewName(''); setNewSlug(''); setSlugDirty(false); setShowCreate(false)
     } catch (e) {
-      setCreateError(e instanceof Error ? e.message : 'Failed to create organization')
+      setCreateError(e instanceof Error ? e.message : 'Failed to create workspace')
     } finally {
       setCreating(false)
     }
@@ -165,7 +165,7 @@ export function WorkspacesTab() {
       await api.patch(`/admin/workspaces/${slug}`, { archived: false })
       await Promise.all([refreshWorkspaces(), loadAdminRecords()])
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to restore organization')
+      alert(e instanceof Error ? e.message : 'Failed to restore workspace')
     } finally {
       setWsBusy(null)
     }
@@ -173,7 +173,7 @@ export function WorkspacesTab() {
 
   async function removeWorkspace(slug: string, name: string) {
     if (!(await confirm({
-      title: 'Remove organization?',
+      title: 'Remove workspace?',
       message: `“${name}” will be archived and hidden from the board.`,
       confirmLabel: 'Remove',
       danger: true,
@@ -184,7 +184,7 @@ export function WorkspacesTab() {
       await Promise.all([refreshWorkspaces(), loadAdminRecords()])
       if (expanded === slug) setExpanded(null)
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to remove organization')
+      alert(e instanceof Error ? e.message : 'Failed to remove workspace')
     } finally {
       setWsBusy(null)
     }
@@ -230,7 +230,7 @@ export function WorkspacesTab() {
   async function removeRepo(slug: string, repo: WorkspaceRepo) {
     if (!(await confirm({
       title: 'Remove repo?',
-      message: `“${repo.name}” will be removed from this organization.`,
+      message: `“${repo.name}” will be removed from this workspace.`,
       confirmLabel: 'Remove',
       danger: true,
     }))) return
@@ -295,7 +295,7 @@ export function WorkspacesTab() {
       {isAdmin && (
         <Card inset>
           <CardHeader
-            title="Organizations"
+            title="Workspaces"
             eyebrow="Manage"
             actions={
               <Button
@@ -304,7 +304,7 @@ export function WorkspacesTab() {
                 leftIcon={<Plus className="h-4 w-4" />}
                 onClick={() => { setShowCreate(s => !s); setCreateError(null) }}
               >
-                {showCreate ? 'Cancel' : 'Add organization'}
+                {showCreate ? 'Cancel' : 'Add workspace'}
               </Button>
             }
           />
@@ -338,7 +338,7 @@ export function WorkspacesTab() {
               {createError && <Alert tone="alarm">{createError}</Alert>}
               <div className="flex justify-end">
                 <Button type="submit" variant="primary" size="sm" disabled={creating}>
-                  {creating ? 'Creating…' : 'Create organization'}
+                  {creating ? 'Creating…' : 'Create workspace'}
                 </Button>
               </div>
             </form>
@@ -350,8 +350,8 @@ export function WorkspacesTab() {
         <Card>
           <EmptyState
             icon={<Boxes className="h-5 w-5" />}
-            title="No organizations"
-            description="An organization is a workspace boundary — its own board, secrets and users. Create one when a project or team needs to be kept separate from the rest."
+            title="No workspaces"
+            description="A workspace is a boundary — its own board, secrets and users. Create one when a project or team needs to be kept separate from the rest."
           />
         </Card>
       )}
@@ -362,7 +362,7 @@ export function WorkspacesTab() {
       <div data-testid="active-organizations" className="space-y-4">
       {isAdmin && archivedWorkspaces.length > 0 && workspaces.length > 0 && (
         <div className="px-1 text-[12px] font-medium uppercase tracking-wider text-fg-3">
-          Active organizations ({workspaces.length})
+          Active workspaces ({workspaces.length})
         </div>
       )}
       {workspaces.map(([key, ws]) => {
@@ -440,7 +440,7 @@ export function WorkspacesTab() {
                     <p className="mt-1.5 text-[12px] text-fg-3">
                       {adminRecords[key].default_agent_pool.length === 0
                         ? 'Empty pool — every agent is allowed (legacy default).'
-                        : 'Only agents above can be assigned to objectives in this organization.'}
+                        : 'Only agents above can be assigned to objectives in this workspace.'}
                     </p>
                     {poolError && poolSaving !== key && <p className="mt-1 text-[12px] text-signal-alarm">{poolError}</p>}
                   </section>
@@ -550,7 +550,7 @@ export function WorkspacesTab() {
           active orgs lead and archived ones sit at the bottom as their own group. */}
       {isAdmin && archivedWorkspaces.length > 0 && (
         <Card inset data-testid="archived-organizations">
-          <CardHeader title={`Archived organizations (${archivedWorkspaces.length})`} eyebrow="Hidden from the board" />
+          <CardHeader title={`Archived workspaces (${archivedWorkspaces.length})`} eyebrow="Hidden from the board" />
           <div className="divide-y divide-line">
             {archivedWorkspaces.map(r => (
               <div key={r.slug} className="flex items-center gap-2 px-4 py-3">
@@ -645,7 +645,7 @@ function GithubConnect({ slug, integration, onChange, onRepoAdded }: {
   async function disconnect() {
     if (!(await confirm({
       title: 'Disconnect GitHub?',
-      message: 'GitHub will be disconnected from this organization.',
+      message: 'GitHub will be disconnected from this workspace.',
       confirmLabel: 'Disconnect',
       danger: true,
     }))) return
@@ -782,7 +782,7 @@ function PosthogConnect({ slug, integration, onChange }: {
   async function disconnect() {
     if (!(await confirm({
       title: 'Disconnect PostHog?',
-      message: 'PostHog will be disconnected from this organization.',
+      message: 'PostHog will be disconnected from this workspace.',
       confirmLabel: 'Disconnect',
       danger: true,
     }))) return

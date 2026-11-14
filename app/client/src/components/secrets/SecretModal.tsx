@@ -140,8 +140,8 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
     setError('')
     setFanout(null)
     if (!key.trim()) { setError('Key is required.'); return }
-    if (multiOrg && workspaces.length === 0) { setError('Pick at least one organization for this scope.'); return }
-    if (!multiOrg && needsWorkspace && !target.workspace) { setError('Pick an organization for this scope.'); return }
+    if (multiOrg && workspaces.length === 0) { setError('Pick at least one workspace for this scope.'); return }
+    if (!multiOrg && needsWorkspace && !target.workspace) { setError('Pick a workspace for this scope.'); return }
     if (needsUser && ((multiOrg && !userId) || (!multiOrg && target.userId == null))) {
       setError('Pick a user for this scope.'); return
     }
@@ -258,8 +258,8 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
           >
             <p className="text-sm font-medium text-signal-amber">
               {fanout.some(r => r.ok)
-                ? `Created in ${fanout.filter(r => r.ok).length} of ${fanout.length} organizations — ${fanout.filter(r => !r.ok).length} failed.`
-                : `Not created — all ${fanout.length} organizations failed.`}
+                ? `Created in ${fanout.filter(r => r.ok).length} of ${fanout.length} workspaces — ${fanout.filter(r => !r.ok).length} failed.`
+                : `Not created — all ${fanout.length} workspaces failed.`}
             </p>
             <ul className="mt-1.5 space-y-1">
               {fanout.map(r => (
@@ -275,7 +275,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               ))}
             </ul>
             <p className="mt-1.5 text-[12px] text-fg-3">
-              The failed organizations are still selected — re-enter the value and submit again to retry just those.
+              The failed workspaces are still selected — re-enter the value and submit again to retry just those.
             </p>
           </div>
         )}
@@ -320,11 +320,11 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
             {needsWorkspace && (multiOrg ? (
               <fieldset className="mt-3">
                 <legend className="mb-1 text-[12px] uppercase tracking-wider text-fg-3">
-                  Organizations <span className="normal-case tracking-normal text-fg-3">(pick one or more)</span>
+                  Workspaces <span className="normal-case tracking-normal text-fg-3">(pick one or more)</span>
                 </legend>
                 {orgs.length === 0 ? (
                   <p className="rounded border border-dashed border-border px-3 py-4 text-center text-[12px] text-fg-3">
-                    No organizations available to you.
+                    No workspaces available to you.
                   </p>
                 ) : (
                   <>
@@ -354,8 +354,8 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
                     <div className="mt-1.5 flex items-center gap-3">
                       <p className="text-[12px] text-fg-3" data-testid="modal-org-selection-summary">
                         {workspaces.length === 0
-                          ? 'No organizations selected.'
-                          : `${workspaces.length} of ${orgs.length} selected — ${workspaces.length} secret ${workspaces.length === 1 ? 'row' : 'rows'} will be created, one per organization.`}
+                          ? 'No workspaces selected.'
+                          : `${workspaces.length} of ${orgs.length} selected — ${workspaces.length} secret ${workspaces.length === 1 ? 'row' : 'rows'} will be created, one per workspace.`}
                       </p>
                       <button
                         type="button"
@@ -370,7 +370,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
               </fieldset>
             ) : (
               <div className="mt-3">
-                <label htmlFor="secret-scope-org" className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Organization</label>
+                <label htmlFor="secret-scope-org" className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Workspace</label>
                 <select
                   id="secret-scope-org"
                   value={workspaces[0] || ''}
@@ -471,7 +471,7 @@ export function SecretModal({ principals, initialScope, editing, onClose, onSave
                 : isEdit
                   ? (value ? 'Rotate value' : scopeChanged ? 'Move' : 'Save')
                   : multiOrg && workspaces.length > 1
-                    ? `Create in ${workspaces.length} organizations`
+                    ? `Create in ${workspaces.length} workspaces`
                     : 'Create'}
             </button>
           </div>

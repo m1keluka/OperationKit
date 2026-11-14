@@ -272,38 +272,40 @@ function walk(kbRoot: string, rel: string, out: string[]): void {
   }
 }
 
-/** Read every page once and resolve its links. The basis of scan, compile and lint. */
-export function loadWiki(kbRoot: string): LoadedPage[] {
-  const rels: string[] = []
-  for (const root of pageRoots()) walk(kbRoot, root, rels)
-  rels.sort()
-  const loaded: LoadedPage[] = []
-  for (const rel of rels) {
-    let text: string
-    let mtimeMs: number
-    try {
-      const abs = path.join(kbRoot, rel)
-      mtimeMs = fs.statSync(abs).mtimeMs
-      text = fs.readFileSync(abs, 'utf8')
-    } catch { continue }
-    const fm = parseNote(text).fm
-    loaded.push({
-      page: {
-        rel,
-        title: titleOf(text, rel),
-        kind: kindFor(rel),
-        summary: summaryOf(text),
-        updated: fm?.updated || undefined,
-        aliases: fm?.aliases ?? [],
-        links: [],
-      },
-      text,
-      mtimeMs,
-      generated: isKbWikiGenerated(text),
-      stub: fmField(text, 'stub') === 'true',
-      rawLinks: parseLinks(text),
-    })
+/**
+ * Read and parse ONE page (no link resolution — `page.links` is left empty).
+ * `kind` defaults to the wiki's folder-derived kind; the whole-vault graph
+ * (obj 900815) passes its own. Null when the file cannot be read.
+ */
+export function loadPageFile(kbRoot: string, rel: string, kind: string = kindFor(rel)): LoadedPage | null {
+  let text: string
+  let mtimeMs: number
+  try {
+    const abs = path.join(kbRoot, rel)
+    mtimeMs = fs.statSync(abs).mtimeMs
+    text = fs.readFileSync(abs, 'utf8')
+  } catch { return null }
+  const fm = parseNote(text).fm
+  return {
+    page: {
+      rel,
+      title: titleOf(text, rel),
+      kind,
+      summary: summaryOf(text),
+      updated: fm?.updated || undefined,
+      aliases: fm?.aliases ?? [],
+      links: [],
+    },
+    text,
+    mtimeMs,
+    generated: isKbWikiGenerated(text),
+    stub: fmField(text, 'stub') === 'true',
+    rawLinks: parseLinks(text),
   }
+}
+
+/** Fill each page's resolved `links` in place. */
+export function resolvePageLinks(loaded: LoadedPage[]): LoadedPage[] {
   const pages = loaded.map(l => l.page)
   for (const l of loaded) {
     const seen = new Set<string>()
@@ -314,6 +316,19 @@ export function loadWiki(kbRoot: string): LoadedPage[] {
     l.page.links = [...seen]
   }
   return loaded
+}
+
+/** Read every page once and resolve its links. The basis of scan, compile and lint. */
+export function loadWiki(kbRoot: string): LoadedPage[] {
+  const rels: string[] = []
+  for (const root of pageRoots()) walk(kbRoot, root, rels)
+  rels.sort()
+  const loaded: LoadedPage[] = []
+  for (const rel of rels) {
+    const l = loadPageFile(kbRoot, rel)
+    if (l) loaded.push(l)
+  }
+  return resolvePageLinks(loaded)
 }
 
 /** Every wiki page (entity pages, sources incl. conversations, answers). Never walks raw/ or .kb-wiki/. */

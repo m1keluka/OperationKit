@@ -65,6 +65,7 @@ export function LoginPage() {
             </label>
             <input
               id="username"
+              autoComplete="username"
               type="text"
               value={username}
               onChange={e => setUsername(e.target.value)}
@@ -81,6 +82,7 @@ export function LoginPage() {
             </label>
             <input
               id="password"
+              autoComplete="current-password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
@@ -95,7 +97,7 @@ export function LoginPage() {
             disabled={loading}
             className="min-h-[44px] w-full rounded-md bg-accent py-2 text-[15px] font-semibold text-accent-fg transition duration-150 hover:bg-accent-hover active:bg-accent-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-1 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
         {emailLinkAvailable && (

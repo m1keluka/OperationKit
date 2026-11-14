@@ -12,7 +12,7 @@ describe('isOrgScopedPath — where the top-bar org switcher shows (obj 900666)'
       expect(isOrgScopedPath(path)).toBe(true)
     },
   )
-  it.each(['/settings', '/settings/org', '/system', '/chat'])(
+  it.each(['/settings', '/settings/org', '/settings/workspaces', '/system', '/chat'])(
     'hides on %s (the page ignores it)', path => {
       expect(isOrgScopedPath(path)).toBe(false)
     },

@@ -38,7 +38,7 @@ From a session: `scripts/self-deploy.sh` with the same modes. Never `docker comp
 ### How we ship
 
 1. Every card with a linked repo works in `/tmp/cc-worktree-<id>/`, never the live checkout.
-2. Push a branch. If the card is set to open a PR, `gh pr create --repo owner/repo` against that GitHub repo (from Settings → Org → linked repos).
+2. Push a branch. If the card is set to open a PR, `gh pr create --repo owner/repo` against that GitHub repo (from Settings → Workspaces → linked repos).
 3. **`gate` is the test** (typecheck, unit, build). Merge when it is green. You click merge.
 4. Then `quick-deploy.sh both`. Rebuild only for Docker / package.json.
 

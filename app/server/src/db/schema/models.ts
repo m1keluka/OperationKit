@@ -3,6 +3,58 @@
  */
 import type Database from 'better-sqlite3'
 import { notify } from '../../services/notifier.js'
+import { CLAUDE_MODEL_CATALOG, type ClaudeCatalogEntry } from '../../lib/claude-model-catalog.js'
+
+/**
+ * Make every `seed: true` entry of the curated Claude catalog selectable, ONCE
+ * per install and per id (obj 900796). Root cause it closes: Claude Fable 5.2
+ * had no seed block here, and the provider refresh files a newly listed id as
+ * DISABLED, so `listEnabledModels()` — which feeds the card model picker, the
+ * bot model suggestions and High Agency — never returned it.
+ *
+ *   - row missing                 → insert ENABLED with the curated label
+ *   - row filed by the refresh    → enable it, curated label, source='seed'
+ *     (source='provider', i.e. nobody chose its state yet)
+ *   - row already curated (seed)  → untouched: an admin's toggle wins
+ *
+ * Each applied id is recorded in `model_catalog_seeds`, so a model an admin
+ * switches off later is never switched back on at the next boot. Never touches
+ * default/planner. `catalog` is injectable for tests.
+ */
+export function seedCatalogModels(db: Database.Database, catalog: readonly ClaudeCatalogEntry[] = CLAUDE_MODEL_CATALOG): string[] {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS model_catalog_seeds (
+      model_id TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `)
+  const done = db.prepare('SELECT 1 FROM model_catalog_seeds WHERE model_id = ?')
+  const mark = db.prepare('INSERT OR IGNORE INTO model_catalog_seeds (model_id) VALUES (?)')
+  const get = db.prepare('SELECT source FROM models WHERE id = ?')
+  const ins = db.prepare(
+    "INSERT INTO models (id, label, engine, enabled, is_default, is_planner, sort_order, source) VALUES (?, ?, 'claude', 1, 0, 0, ?, 'seed')",
+  )
+  const adopt = db.prepare(
+    "UPDATE models SET enabled = 1, label = ?, sort_order = ?, source = 'seed', updated_at = datetime('now') WHERE id = ? AND engine = 'claude'",
+  )
+  const applied: string[] = []
+  db.transaction(() => {
+    for (const e of catalog) {
+      if (!e.seed || done.get(e.id)) continue
+      const row = get.get(e.id) as { source: string | null } | undefined
+      if (!row) {
+        ins.run(e.id, e.label, e.sort_order)
+        applied.push(e.id)
+      } else if (row.source === 'provider') {
+        adopt.run(e.label, e.sort_order, e.id)
+        applied.push(e.id)
+      }
+      mark.run(e.id)
+    }
+  })()
+  if (applied.length) console.log(`[db] model catalog: made selectable ${applied.join(', ')}`)
+  return applied
+}
 
 export function initModelsSchema(db: Database.Database): void {
   // contactbook_threads — per-chat history for the telegram-contactbook sibling +
@@ -200,6 +252,10 @@ export function initModelsSchema(db: Database.Database): void {
     if (!cols.has('discovered_at')) db.exec('ALTER TABLE models ADD COLUMN discovered_at TEXT')
     if (!cols.has('last_seen_at')) db.exec('ALTER TABLE models ADD COLUMN last_seen_at TEXT')
   }
+
+  // Curated Claude catalog (obj 900796). Makes Claude Fable 5.2 — and every
+  // later catalog entry — selectable without another hand-written block above.
+  seedCatalogModels(db)
 
   // Disabled-model rescue (2026-06-19, bug #836). Defense-in-depth safety net.
   // The 2026-06-13 registry cutover repointed existing objective row VALUES off

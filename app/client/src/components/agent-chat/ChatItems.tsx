@@ -20,12 +20,28 @@ import {
    chrome only — nothing here reinterprets or rewrites a stored message, so a
    conversation written before the rename renders identically after it. */
 
-export function AgentAvatar({ agent, size = 'md' }: { agent: Pick<ChatAgentInfo, 'avatar' | 'colour' | 'name'>; size?: 'sm' | 'md' | 'lg' }) {
-  const dim = size === 'lg' ? 'h-12 w-12 text-[17px]' : size === 'sm' ? 'h-7 w-7 text-[12px]' : 'h-9 w-9 text-[13px]'
+export function AgentAvatar({
+  agent,
+  size = 'md',
+  className,
+}: {
+  agent: Pick<ChatAgentInfo, 'avatar' | 'colour' | 'name'>
+  /** xl = the Bots sidebar's pinned rail (obj 900798). */
+  size?: 'sm' | 'md' | 'lg' | 'xl'
+  className?: string
+}) {
+  const dim =
+    size === 'xl'
+      ? 'h-[52px] w-[52px] rounded-2xl text-[17px]'
+      : size === 'lg'
+        ? 'h-12 w-12 rounded-lg text-[17px]'
+        : size === 'sm'
+          ? 'h-7 w-7 rounded-lg text-[12px]'
+          : 'h-9 w-9 rounded-lg text-[13px]'
   return (
     <span
       aria-hidden="true"
-      className={cn('grid shrink-0 place-items-center rounded-lg border font-display font-semibold tracking-normal', dim, COLOUR_CLASSES[agent.colour].tile)}
+      className={cn('grid shrink-0 place-items-center border font-display font-semibold tracking-normal', dim, COLOUR_CLASSES[agent.colour].tile, className)}
     >
       {agent.avatar}
     </span>

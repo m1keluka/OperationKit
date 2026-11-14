@@ -28,6 +28,7 @@
 import { getDb } from '../db/index.js'
 import { getSecretValue, listSecrets } from './secrets-store.js'
 import type { ModelEngine } from '@operationkit/shared'
+import { catalogEntry } from '../lib/claude-model-catalog.js'
 
 export type ProviderStatus = 'ok' | 'error' | 'skipped'
 
@@ -272,7 +273,9 @@ export function applyProviderModels(engine: ModelEngine, models: ProviderModel[]
     for (const m of models) {
       const row = existing.get(m.id)
       if (!row) {
-        ins.run(m.id, m.label || prettifyModelId(m.id), engine, NEW_MODEL_SORT_ORDER, now, now)
+        // A curated catalog id keeps the catalog's name + position (obj 900796).
+        const cat = engine === 'claude' ? catalogEntry(m.id) : undefined
+        ins.run(m.id, cat?.label || m.label || prettifyModelId(m.id), engine, cat?.sort_order ?? NEW_MODEL_SORT_ORDER, now, now)
         added.push(m.id)
         continue
       }

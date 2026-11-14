@@ -299,7 +299,7 @@ export function JobsBoard(_props: JobsBoardProps) {
     },
     {
       key: 'workspace',
-      header: 'Organization',
+      header: 'Workspace',
       cell: r => <Badge tone="neutral">{labelOf(r.workspace)}</Badge>,
     },
     {
@@ -393,7 +393,7 @@ export function JobsBoard(_props: JobsBoardProps) {
     },
     {
       key: 'workspace',
-      header: 'Organization',
+      header: 'Workspace',
       hideOnMobile: true,
       cell: job => <Badge tone="neutral">{labelOf(job.workspace)}</Badge>,
     },
@@ -455,7 +455,7 @@ export function JobsBoard(_props: JobsBoardProps) {
         </div>
       ),
     },
-    { key: 'workspace', header: 'Organization', hideOnMobile: true, cell: r => <Badge tone="neutral">{labelOf(r.workspace)}</Badge> },
+    { key: 'workspace', header: 'Workspace', hideOnMobile: true, cell: r => <Badge tone="neutral">{labelOf(r.workspace)}</Badge> },
     { key: 'status', header: 'Status', cell: r => <RunStatusBadge run={r} /> },
     { key: 'id', header: 'Run', mono: true, hideOnMobile: true, cell: r => <Badge tone="neutral" mono>run #{r.id}</Badge> },
     { key: 'created', header: 'Age', mono: true, align: 'right', sortable: true, sortValue: r => r.created_at, cell: r => relativeTime(r.created_at) },
@@ -803,7 +803,7 @@ function NewStrategyJobModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>Organization</label>
+              <label className={labelCls}>Workspace</label>
               <select className={selectCls} value={workspace} onChange={e => setWorkspace(e.target.value)}>
                 {workspaces.map(w => <option key={w.slug} value={w.slug}>{w.name}</option>)}
               </select>

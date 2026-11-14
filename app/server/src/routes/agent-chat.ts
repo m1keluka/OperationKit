@@ -25,10 +25,12 @@ import { aboutForAgents, ensureAboutFresh, getStoredAbout, queueAboutRefresh, re
 import { redactForStorage } from '../services/secret-redaction.js'
 import {
   allHighAgency,
-  HIGH_AGENCY_CADENCES,
+  HIGH_AGENCY_LEVELS,
   HighAgencyError,
   highAgencyView,
-  MAX_CARDS_PER_WAKE,
+  MAX_NEW_PROJECTS_PER_WAKE,
+  reconcileHighAgencyAccess,
+  resyncHighAgencyFor,
   setHighAgency,
   wakeNow,
   workspaceOptions,
@@ -43,6 +45,18 @@ import {
   type EventDraft,
 } from '../services/agent-chat/connectors.js'
 import { getDb } from '../db/index.js'
+import {
+  allBotWorkspaceAccess,
+  BotWorkspaceError,
+  getBotWorkspaceAccess,
+  grantBotWorkspace,
+  revokeBotWorkspace,
+  setBotWorkspaces,
+  type BotWorkspaceAccess,
+} from '../services/agent-chat/bot-workspaces.js'
+import { listWorkspaces } from '../services/workspaces.js'
+import { getUserWorkspaces } from '../middleware/workspace.js'
+import { logActivity } from './feed.js'
 import { getAttachment, ImageRejected, parseIncomingImages, type IncomingImage } from '../services/agent-chat/attachments.js'
 import {
   createThread,
@@ -54,6 +68,8 @@ import {
   updateThread,
   type ChatLane,
 } from '../services/agent-chat/threads.js'
+import { BotDeleteRefused, deleteBotFolder } from '../services/agent-chat/bot-delete.js'
+import sidebarRouter from './agent-chat-sidebar.js'
 
 /**
  * Built-in agent chat (obj 719987) — /api/agent-chat
@@ -75,8 +91,25 @@ import {
  *   PUT    /agents/:slug/config        admin: this bot's default model / provider / tools / all tools (obj 900671)
  *   DELETE /agents/:slug/config        admin: reset the bot to exactly what its agent file says
  *   GET    /agents/:slug/high-agency   this bot's High Agency setting, wake times and last wake (obj 900748)
- *   PUT    /agents/:slug/high-agency   admin: High Agency on/off, times a day, first wake hour, workspace, permissions
+ *   PUT    /agents/:slug/high-agency   admin: High Agency on/off, level 1-10 (obj 900794), workspace, permissions
  *   POST   /agents/:slug/high-agency/wake  admin: one wake now (works while off, to try it)
+ *   GET    /agents/:slug/workspaces    the bot's workspace access list (obj 900797)
+ *   PUT    /agents/:slug/workspaces    admin: set the whole list (restricts the bot)
+ *   POST   /agents/:slug/workspaces    admin: grant one workspace
+ *   DELETE /agents/:slug/workspaces/:workspace  admin: revoke one workspace
+ *   DELETE /agents/:slug               admin: delete a bot — its agent folder moves to .deleted/ (obj 900798)
+ *   /sidebar/*                         the caller's own Bots sidebar: pins, sections, unread (obj 900798,
+ *                                      routes/agent-chat-sidebar.ts)
+ *
+ * WORKSPACE ACCESS (obj 900797). Bots stay global — one definition for the
+ * install. Each bot carries a list of the workspaces it may read, write and be
+ * woken in (services/agent-chat/bot-workspaces.ts); the chat tools, High Agency
+ * and High Agency's filed cards enforce it. Grant/revoke is a signed-in admin's
+ * click only — never an API key, so a bot cannot widen its own reach.
+ *
+ * RENAME (obj 900798). PUT /agents/:slug/config also takes `name`: an admin's
+ * display name for the bot, for everyone (slug, URL and file unchanged; null
+ * or "" = the file's name). Every agent carries `file_name` beside `name`.
  *
  * ABOUT (obj 900747). Every agent carries `about`: the description, how-to and
  * example prompts the "i" panel shows, with the file's own text winning and
@@ -100,11 +133,30 @@ import {
  */
 const router: Router = Router()
 router.use(requireAuth)
+router.use('/sidebar', sidebarRouter)
 
-function publicAgent(a: ChatAgent, withPrompt = false, about?: BotAbout) {
+/** What the bot list shows about a bot's workspace access; workspace names only where the caller may see them. */
+interface WorkspaceAccessSummary { mode: 'restricted' | 'unrestricted'; workspaces: string[]; count: number }
+
+function workspaceAccessSummary(req: AuthRequest, a: Pick<BotWorkspaceAccess, 'mode' | 'workspaces'>): WorkspaceAccessSummary {
+  const visible = callerWorkspaceFilter(req)
+  const workspaces = visible ? a.workspaces.filter(w => visible.has(w)) : a.workspaces
+  // A member gets the count of what they can see only, so no hint of other workspaces.
+  return { mode: a.mode, workspaces, count: workspaces.length }
+}
+
+/** null = the caller sees every workspace (admin); else the slugs they belong to. */
+function callerWorkspaceFilter(req: AuthRequest): Set<string> | null {
+  if (req.user?.role === 'admin') return null
+  return new Set(getUserWorkspaces(req.user!.id).map(w => w.workspace))
+}
+
+function publicAgent(a: ChatAgent, withPrompt = false, about?: BotAbout, access?: WorkspaceAccessSummary) {
   return {
     slug: a.slug,
     name: a.name,
+    // obj 900798: the file's own name, which differs from `name` once an admin renames the bot.
+    file_name: a.file_name ?? a.name,
     description: a.description,
     avatar: a.avatar,
     colour: a.colour,
@@ -122,10 +174,12 @@ function publicAgent(a: ChatAgent, withPrompt = false, about?: BotAbout) {
     effective_tools: effectiveTools(a),
     file_defaults: a.file_defaults ?? { provider: a.provider, model: a.model, tools: a.tools },
     config: a.config
-      ? { provider: a.config.provider, model: a.config.model, tools: a.config.tools, all_tools: a.config.all_tools, updated_by: a.config.updated_by, updated_at: a.config.updated_at }
+      ? { name: a.config.name, provider: a.config.provider, model: a.config.model, tools: a.config.tools, all_tools: a.config.all_tools, updated_by: a.config.updated_by, updated_at: a.config.updated_at }
       : null,
     // obj 900747: the resolved About (file text first, generated text for the rest).
     about: about ?? resolveAbout(a, getStoredAbout(a.slug)),
+    // obj 900797: where this bot may work (set on the list route; see workspaceAccessSummary).
+    ...(access ? { workspace_access: access } : {}),
     ...(withPrompt
       ? { system_prompt: a.system_prompt, schedules: a.schedules, instructions: redactForStorage(a.system_prompt).text }
       : {}),
@@ -171,7 +225,7 @@ function modelSuggestions(): Record<string, string[]> {
 /** Only a signed-in admin may change what a bot runs on — never an API key (a bot must not grant itself tools). */
 function adminSessionOr403(req: AuthRequest, res: Response): boolean {
   if (req.user?.role !== 'admin' || req.authVia !== 'session') {
-    res.status(403).json({ error: 'Only an admin signed in to Command Center can change a bot\'s model or tools.' })
+    res.status(403).json({ error: 'Only an admin signed in to Command Center can change a bot\'s settings (model, tools, workspace access, High Agency).' })
     return false
   }
   return true
@@ -182,7 +236,7 @@ function attachments(userId: number, slug: string, messages: ChatMessageRow[]) {
   const draftIds = new Set(messages.map(m => m.meta?.draft_id).filter((x): x is number => typeof x === 'number'))
   const cardIds = [...new Set(messages.map(m => m.meta?.objective_id).filter((x): x is number => typeof x === 'number'))]
   const drafts = listDrafts(userId, slug).filter(d => draftIds.has(d.id))
-  const cards = visibleCardStatuses(userId, cardIds)
+  const cards = visibleCardStatuses(userId, cardIds, slug)
   return { drafts, cards }
 }
 
@@ -224,10 +278,14 @@ router.get('/agents', (req: AuthRequest, res) => {
   // obj 900748: whether each bot has High Agency on, for a badge in the list.
   let ha: ReturnType<typeof allHighAgency> = new Map()
   try { ha = allHighAgency() } catch { /* no table yet → every bot is off */ }
+  // obj 900797: each bot's workspace access (no row = a bot added later: restricted, none).
+  let access: ReturnType<typeof allBotWorkspaceAccess> = new Map()
+  try { access = allBotWorkspaceAccess() } catch { /* no table yet → every bot reads as restricted, none */ }
   res.json({
     agents: agents.map(a => {
       const h = ha.get(a.slug)
-      return { ...publicAgent(a, false, about.get(a.slug)), answered_by: providerFor(a), high_agency: { enabled: !!h?.enabled, times_per_day: h?.times_per_day ?? 1 } }
+      const acc = access.get(a.slug) ?? { mode: 'restricted' as const, workspaces: [] }
+      return { ...publicAgent(a, false, about.get(a.slug), workspaceAccessSummary(req, acc)), answered_by: providerFor(a), high_agency: { enabled: !!h?.enabled, level: h?.level ?? 1 } }
     }),
     demo: isDemoOn(),
     providers: availableProviders(),
@@ -255,6 +313,7 @@ router.put('/agents/:slug/config', (req: AuthRequest, res) => {
     throw err
   }
   const updated = findAgent(a.slug)!
+  syncWakeAfterBotChange(updated)
   res.json({ agent: agentResponse(updated, { force: true, reason: 'bot settings changed' }) })
 })
 
@@ -264,18 +323,56 @@ router.delete('/agents/:slug/config', (req: AuthRequest, res) => {
   if (!a) return
   clearBotConfig(a.slug)
   const updated = findAgent(a.slug)!
+  syncWakeAfterBotChange(updated)
   res.json({ agent: agentResponse(updated, { force: true, reason: 'bot settings reset' }) })
 })
 
-// ── High Agency (obj 900748): per-bot scheduled "what's next?" wakes ──
+/**
+ * Delete a bot for everyone (obj 900798). Admin in a signed-in browser only —
+ * the same gate as changing its model or tools. The agent folder is MOVED to
+ * .deleted/ inside the agents dir (restorable by hand), its High Agency wakes
+ * are switched off, and every person's sidebar row for it is dropped. People's
+ * chat history with it is kept. Built-in and demo bots are refused with a 409
+ * that says what to do instead.
+ */
+router.delete('/agents/:slug', (req: AuthRequest, res) => {
+  if (req.user?.role !== 'admin' || req.authVia !== 'session') {
+    res.status(403).json({ error: 'Only an admin signed in to Command Center can delete a bot.' })
+    return
+  }
+  const a = agentOr404(req, res)
+  if (!a) return
+  try {
+    const result = deleteBotFolder(a)
+    console.log(`[agent-chat] bot "${a.slug}" deleted by ${req.user!.username}; folder moved to ${result.moved_to}`)
+    // A same-slug built-in hidden behind the file comes back into view.
+    res.json({ ok: true, ...result, still_listed: !!findAgent(a.slug) })
+  } catch (err) {
+    if (err instanceof BotDeleteRefused) {
+      res.status(err.status).json({ error: err.message })
+      return
+    }
+    console.error('[agent-chat] bot delete failed:', err instanceof Error ? err.message : err)
+    res.status(500).json({ error: 'The bot could not be deleted. Nothing was changed.' })
+  }
+})
+
+// ── High Agency (obj 900748, levels 1-10 since obj 900794): per-bot scheduled wakes ──
+
+/** obj 900794: a wake runs on the bot's model, so a model/provider change re-renders the wake routine (run state kept). */
+function syncWakeAfterBotChange(agent: ChatAgent): void {
+  try { resyncHighAgencyFor(agent) } catch (err) {
+    console.warn('[agent-chat] high agency resync after bot change failed:', err instanceof Error ? err.message : err)
+  }
+}
 
 function highAgencyPayload(req: AuthRequest, slug: string) {
   const isAdmin = req.user?.role === 'admin'
   return {
-    high_agency: highAgencyView(slug),
-    cadences: HIGH_AGENCY_CADENCES,
-    max_cards_per_wake: MAX_CARDS_PER_WAKE,
-    ...(isAdmin ? { workspace_options: workspaceOptions(req.user!.id) } : {}),
+    high_agency: highAgencyView(slug, new Date(), findAgent(slug)),
+    levels: HIGH_AGENCY_LEVELS,
+    max_new_projects_per_wake: MAX_NEW_PROJECTS_PER_WAKE,
+    ...(isAdmin ? { workspace_options: workspaceOptions(req.user!.id, slug) } : {}),
   }
 }
 
@@ -320,6 +417,98 @@ router.post('/agents/:slug/high-agency/wake', async (req: AuthRequest, res) => {
   }
 })
 
+// ── Workspace access (obj 900797): which workspaces a global bot may work in ──
+
+function workspaceAccessPayload(req: AuthRequest, slug: string) {
+  const a = getBotWorkspaceAccess(slug)
+  const isAdmin = req.user?.role === 'admin'
+  if (isAdmin) {
+    let options: { slug: string; name: string }[] = []
+    try { options = listWorkspaces().map(w => ({ slug: w.slug, name: w.name })) } catch { options = [] }
+    return { access: a, workspace_options: options }
+  }
+  // A member sees the bot's access only for workspaces they belong to (no other workspace names).
+  const mine = callerWorkspaceFilter(req)!
+  return {
+    access: { ...a, workspaces: a.workspaces.filter(w => mine.has(w)), grants: a.grants.filter(g => mine.has(g.workspace)) },
+  }
+}
+
+function workspaceAccessError(res: Response, err: unknown): boolean {
+  if (err instanceof BotWorkspaceError) {
+    res.status(err.status).json({ error: err.message })
+    return true
+  }
+  return false
+}
+
+function logAccessChange(req: AuthRequest, a: ChatAgent, action: 'granted' | 'revoked' | 'set', workspaces: string[], detail?: string): void {
+  try {
+    logActivity({
+      project: 'operationkit',
+      workspace: workspaces.length === 1 ? workspaces[0] : undefined,
+      event_type: 'decision',
+      title: action === 'set'
+        ? `Workspace access for ${a.name} set to: ${workspaces.join(', ') || 'none'}`
+        : `${a.name} ${action} workspace ${workspaces.join(', ')}`,
+      detail: detail ?? null,
+      metadata: { kind: `bot_workspace_${action}`, slug: a.slug, workspaces, actor: req.user!.username },
+    })
+  } catch { /* the activity feed is best-effort */ }
+}
+
+router.get('/agents/:slug/workspaces', (req: AuthRequest, res) => {
+  const a = agentOr404(req, res)
+  if (!a) return
+  res.json(workspaceAccessPayload(req, a.slug))
+})
+
+router.put('/agents/:slug/workspaces', (req: AuthRequest, res) => {
+  if (!adminSessionOr403(req, res)) return
+  const a = agentOr404(req, res)
+  if (!a) return
+  try {
+    const r = setBotWorkspaces(a.slug, (req.body ?? {}).workspaces, req.user!.username)
+    const haOff = reconcileHighAgencyAccess(a.slug, req.user!.username)
+    logAccessChange(req, a, 'set', r.access.workspaces, haOff ? 'High Agency switched off: its wake workspace is no longer granted' : undefined)
+    res.json({ ...workspaceAccessPayload(req, a.slug), high_agency_switched_off: haOff })
+  } catch (err) {
+    if (workspaceAccessError(res, err)) return
+    throw err
+  }
+})
+
+router.post('/agents/:slug/workspaces', (req: AuthRequest, res) => {
+  if (!adminSessionOr403(req, res)) return
+  const a = agentOr404(req, res)
+  if (!a) return
+  try {
+    const r = grantBotWorkspace(a.slug, (req.body ?? {}).workspace, req.user!.username)
+    // Restricting an unrestricted bot can take its High Agency workspace away.
+    const haOff = r.restrictedNow ? reconcileHighAgencyAccess(a.slug, req.user!.username) : false
+    if (r.changed) logAccessChange(req, a, 'granted', [String(req.body.workspace)], r.restrictedNow ? 'The bot is now restricted to its granted workspaces' : undefined)
+    res.status(r.changed ? 201 : 200).json({ ...workspaceAccessPayload(req, a.slug), high_agency_switched_off: haOff })
+  } catch (err) {
+    if (workspaceAccessError(res, err)) return
+    throw err
+  }
+})
+
+router.delete('/agents/:slug/workspaces/:workspace', (req: AuthRequest, res) => {
+  if (!adminSessionOr403(req, res)) return
+  const a = agentOr404(req, res)
+  if (!a) return
+  try {
+    const ws = String(req.params.workspace)
+    const r = revokeBotWorkspace(a.slug, ws, req.user!.username)
+    const haOff = reconcileHighAgencyAccess(a.slug, req.user!.username)
+    if (r.changed) logAccessChange(req, a, 'revoked', [ws], haOff ? 'High Agency switched off: it woke in this workspace' : undefined)
+    res.json({ ...workspaceAccessPayload(req, a.slug), high_agency_switched_off: haOff })
+  } catch (err) {
+    if (workspaceAccessError(res, err)) return
+    throw err
+  }
+})
 
 router.get('/agents/:slug', (req: AuthRequest, res) => {
   const a = agentOr404(req, res)

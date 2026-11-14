@@ -1,10 +1,10 @@
 /**
  * Secrets scope helpers — extracted from SecretsPage.tsx (behavior frozen).
  *
- * TERMINOLOGY: Operator thinks of workspaces as ORGANIZATIONS, so this UI *labels*
- * the scopes "Everywhere" (global — applies everywhere), "Organization"
- * (workspace), "User" (follows the user into any organization) and
- * "Organization + User" (workspace_user). This is a DISPLAY-LABEL decision only:
+ * TERMINOLOGY: this UI *labels* the scopes "Everywhere" (global — applies
+ * everywhere), "Workspace" (workspace), "User" (follows the user into any
+ * workspace) and "Workspace + User" (workspace_user). The UI said
+ * "Organization" until obj 900758 aligned it with the docs. This is a DISPLAY-LABEL decision only:
  * the wire, the query params, the shared types and the DB columns still say
  * `workspace` / `workspace_user`, and nothing here renames them.
  */
@@ -13,22 +13,22 @@ import type { SecretScopeType, SecretSummary } from '@operationkit/shared'
 /** Display labels. The wire values stay `global`/`workspace`/`user`/`workspace_user`. */
 export const SCOPE_LABELS: Record<SecretScopeType, string> = {
   global: 'Everywhere',
-  workspace: 'Organization',
+  workspace: 'Workspace',
   user: 'User',
-  workspace_user: 'Organization + User',
+  workspace_user: 'Workspace + User',
 }
 
 /**
  * One-line explanation of each scope. Rendered INLINE under every scope
  * selector (page filter and create/edit modal alike) — a `title=` tooltip alone
- * left "Organization" ambiguous (all of Command Center, or one org?), which is
+ * left the scope ambiguous (all of Command Center, or one workspace?), which is
  * exactly the confusion this copy has to kill on sight.
  */
 export const SCOPE_HINTS: Record<SecretScopeType, string> = {
-  global: 'Platform-wide — applies everywhere, in every organization.',
-  workspace: 'Applies to everyone working inside this organization.',
-  user: 'Follows this user into ANY organization they work in.',
-  workspace_user: 'Applies to this user, but only inside this organization.',
+  global: 'Platform-wide — applies everywhere, in every workspace.',
+  workspace: 'Applies to everyone working inside this workspace.',
+  user: 'Follows this user into ANY workspace they work in.',
+  workspace_user: 'Applies to this user, but only inside this workspace.',
 }
 
 /**
@@ -39,9 +39,9 @@ export const SCOPE_HINTS: Record<SecretScopeType, string> = {
 export const SCOPE_HINTS_CREATE: Record<SecretScopeType, string> = {
   ...SCOPE_HINTS,
   workspace:
-    'Applies only to everyone working inside the selected organization(s) — not everywhere. Pick "Everywhere" for a secret that applies in every organization.',
+    'Applies only to everyone working inside the selected workspace(s) — not everywhere. Pick "Everywhere" for a secret that applies in every workspace.',
   workspace_user:
-    'Applies to the selected user, but only inside the selected organization(s) — not everywhere.',
+    'Applies to the selected user, but only inside the selected workspace(s) — not everywhere.',
 }
 
 /** Badge chrome, lifted verbatim from ui/Badge so the chip reads identically. */
@@ -102,8 +102,8 @@ export function scopeDescription(
   userName: (id: number | null) => string,
 ): string {
   switch (s.scopeType) {
-    case 'global': return 'everywhere (every organization)'
-    case 'workspace': return `the ${orgName(s.workspace)} organization`
+    case 'global': return 'everywhere (every workspace)'
+    case 'workspace': return `the ${orgName(s.workspace)} workspace`
     case 'user': return `the user ${userName(s.userId)}`
     case 'workspace_user': return `${userName(s.userId)} inside ${orgName(s.workspace)}`
   }

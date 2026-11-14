@@ -69,12 +69,31 @@ RUN curl -fsSL https://x.ai/cli/install.sh | bash \
 # Browsers cache to a shared path so all ccuser-* accounts use one install
 # (~600MB once vs per-user). The @playwright/mcp package is the MCP server
 # that Claude Code sessions speak to; installing it globally means
-# `npx @playwright/mcp@latest` is a no-download invocation at runtime.
+# `npx @playwright/mcp@<pinned>` is a no-download invocation at runtime.
 # `--with-deps chromium` apt-installs the X11/font/audio libs Chromium needs.
+#
+# PINNED (obj 900024). These two ARGs are the ONLY place the versions are
+# written besides app/server/src/lib/browser-pins.ts, and
+# `browser-pins.test.ts` fails the gate if the two disagree — so an update is
+# one deliberate edit in two files, never a silent drift at `npm install` time.
+# To update: see "Updating the card browser" in docs/wiki/Card-Browser-Lockdown.md.
+ARG PLAYWRIGHT_VERSION=1.65.0
+ARG PLAYWRIGHT_MCP_VERSION=0.0.85
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright
-RUN npm install -g playwright @playwright/mcp \
-  && npx playwright install --with-deps chromium \
+RUN npm install -g "playwright@${PLAYWRIGHT_VERSION}" "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" \
+  && npx "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
   && chmod -R a+rX /usr/local/share/playwright \
+  # Chromium's setuid sandbox helper. The card browser runs as a non-root
+  # `ccuser-*` account, and WITH the sandbox on (obj 900024) — so chrome_sandbox
+  # has to be root-owned and setuid, which `playwright install` does not do.
+  # Without this, a sandboxed Chromium fails to launch rather than falling back,
+  # which is the correct direction to fail but a confusing one to debug.
+  # Belt and braces: where unprivileged user namespaces are available Chromium
+  # uses those instead and never touches this binary.
+  && for s in /usr/local/share/playwright/chromium-*/chrome-linux64/chrome_sandbox \
+              /usr/local/share/playwright/chromium-*/chrome-linux/chrome_sandbox; do \
+       [ -f "$s" ] && chown root:root "$s" && chmod 4755 "$s" || true; \
+     done \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

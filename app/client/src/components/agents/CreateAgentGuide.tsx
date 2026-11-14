@@ -34,7 +34,7 @@ export const SETUP_PROMPT =
   `- Skill: how-to instructions an agent follows for a kind of task.\n` +
   `- Tool: an integration an agent can reach (see Settings → Integrations) — connect it there, then reference ` +
   `it from the skill/agent.\n` +
-  `- Assignment (only if needed): scopes an agent or skill to one organization, project, or user instead of ` +
+  `- Assignment (only if needed): scopes an agent or skill to one workspace, project, or user instead of ` +
   `applying globally.\n\n` +
   `Ask me what the agent/skill is for, then use the platform API (docs/api/README.md, GET /api/openapi.json) ` +
   `to set it up rather than describing steps for me to click through.`

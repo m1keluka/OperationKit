@@ -88,6 +88,9 @@ const BENIGN_SKIP_PREFIXES = [
   // not active. The schedule was refused; nothing ran.
   'flows disabled',
   'flow inactive',
+  // obj 900797: a High Agency wake for a workspace its bot is not granted. A
+  // refusal by policy — nothing ran — so it must not count toward auto-pause.
+  'bot workspace guard',
 ]
 
 export type FireClassification = 'failure' | 'neutral'

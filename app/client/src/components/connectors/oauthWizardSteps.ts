@@ -59,7 +59,7 @@ const WIZARD_STEPS: Record<string, WizardStep[]> = {
 
 function genericSteps(name: string): WizardStep[] {
   return [
-    { title: `Register your own ${name} OAuth app`, detail: `Create an OAuth app with ${name} under your own account — this install never uses a shared Example app.` },
+    { title: `Register your own ${name} OAuth app`, detail: `Create an OAuth app with ${name} under your own account — this install never uses a shared OAuth app.` },
     { title: 'Add the redirect URI', detail: 'Add the redirect URI below to the app’s allowed redirect/callback list.' },
     { title: 'Add the scopes', detail: 'Add the scopes listed below to the app.' },
     { title: 'Save the credentials and connect', detail: 'Copy the app’s client ID/secret into Settings → Secrets, then use the connect button below.' },

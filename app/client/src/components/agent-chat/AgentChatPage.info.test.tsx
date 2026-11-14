@@ -205,7 +205,8 @@ describe('read-only instructions + generated About (obj 900747)', () => {
     // Nothing in the panel can change the prompt.
     expect(p.querySelector('textarea, input, [contenteditable="true"]')).toBeNull()
     expect([...p.querySelectorAll('button')].map(b => b.textContent)).not.toEqual(expect.arrayContaining([expect.stringMatching(/edit|save/i)]))
-    expect(calls.filter(c => c.method !== 'GET')).toEqual([])
+    // The sidebar's own read marker (obj 900798) is the only write allowed: it is not the panel's.
+    expect(calls.filter(c => c.method !== 'GET' && !c.url.includes('/agent-chat/sidebar/'))).toEqual([])
   })
 
   it('keeps How to use, example prompts and reach alongside the instructions', async () => {

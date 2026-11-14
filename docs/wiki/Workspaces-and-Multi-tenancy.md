@@ -12,7 +12,7 @@ Workspaces are rows in a `workspaces` table keyed by a slug (`app/server/src/db/
 | --- | --- |
 | **member** | See and act on cards in workspaces they belong to |
 | **admin** (workspace) | Everything a member can, plus workspace-level settings |
-| **admin** (global) | Organizations, users, linked repos (Settings → Org), agent roster and skill graph (Settings → Agents), host cron (Settings → Platform) |
+| **admin** (global) | Workspaces, users, linked repos (Settings → Workspaces), agent roster and skill graph (Settings → Agents), host cron (Settings → Platform) |
 
 Settings is split by scope: **You** (personal — GitHub, Google, API key, personal secrets) vs. **Secrets** / **Org** / **Agents** / **Platform** (workspace- or global-admin only). A user only ever sees cards and context for the workspaces they're a member of.
 

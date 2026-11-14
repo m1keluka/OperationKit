@@ -36,7 +36,7 @@ export function SettingsAgents({ showSetupPrompt = true }: { showSetupPrompt?: b
             Settings → Integrations
           </a>
           . <span className="font-medium text-fg-1">Assignments</span> (below) narrow an agent or skill to one
-          organization, project, or user instead of it applying everywhere.
+          workspace, project, or user instead of it applying everywhere.
         </p>
         {showSetupPrompt && (
           <div className="flex items-start justify-between gap-3 rounded-md border border-line bg-surface-1 p-3">

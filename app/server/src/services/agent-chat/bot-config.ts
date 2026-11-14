@@ -14,6 +14,8 @@
 //   model      NULL = the file's model (or the provider default)
 //   tools      NULL = the file's tool list; else a JSON array of tool names
 //   all_tools  1 = every tool this release knows (beats `tools`)
+//   name       NULL = the file's name; else the admin's display name (obj 900798,
+//              the Bots sidebar's Rename — the slug, URL and file never change)
 //
 // The agent file itself is never rewritten: a built-in bot ships read-only
 // inside the app, and an install's own files may be managed elsewhere. Reset
@@ -24,6 +26,8 @@ import { EXPLICIT_ONLY_TOOLS, KNOWN_TOOL_NAMES, listsAllTools } from './tool-nam
 
 export interface BotConfig {
   slug: string
+  /** obj 900798: an admin's display name for the bot; null = the file's name. */
+  name: string | null
   provider: ChatProviderId | null
   model: string | null
   tools: string[] | null
@@ -47,6 +51,7 @@ const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,119}$/
 
 interface Row {
   slug: string
+  name?: string | null
   provider: string | null
   model: string | null
   tools: string | null
@@ -65,6 +70,7 @@ function mapRow(r: Row): BotConfig {
   }
   return {
     slug: r.slug,
+    name: typeof r.name === 'string' && r.name.trim() ? r.name : null,
     provider: r.provider && (CHAT_PROVIDERS as readonly string[]).includes(r.provider) ? (r.provider as ChatProviderId) : null,
     model: r.model || null,
     tools,
@@ -85,6 +91,7 @@ export function allBotConfigs(): Map<string, BotConfig> {
 }
 
 export interface BotConfigPatch {
+  name?: unknown
   provider?: unknown
   model?: unknown
   tools?: unknown
@@ -104,6 +111,17 @@ function normaliseModel(v: unknown): string | null {
   if (!m) return null
   if (!MODEL_RE.test(m)) throw new BotConfigError('model must be a model id like claude-opus-5-5 or grok-4 (letters, digits, . _ - : / @ +; at most 120 characters)')
   return m
+}
+
+/** A display name: plain text, 1–60 characters once trimmed. null / "" = back to the file's name. */
+export function normaliseBotName(v: unknown): string | null {
+  if (v === null) return null
+  if (typeof v !== 'string') throw new BotConfigError('name must be text')
+  // eslint-disable-next-line no-control-regex
+  const n = v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!n) return null
+  if (n.length > 60) throw new BotConfigError('name must be at most 60 characters')
+  return n
 }
 
 function normaliseTools(v: unknown): string[] | null {
@@ -126,6 +144,7 @@ function normaliseTools(v: unknown): string[] | null {
 export function setBotConfig(slug: string, patch: BotConfigPatch, updatedBy: string): BotConfig {
   const cur = getBotConfig(slug)
   const next = {
+    name: patch.name !== undefined ? normaliseBotName(patch.name) : cur?.name ?? null,
     provider: patch.provider !== undefined ? normaliseProvider(patch.provider) : cur?.provider ?? null,
     model: patch.model !== undefined ? normaliseModel(patch.model) : cur?.model ?? null,
     tools: patch.tools !== undefined ? normaliseTools(patch.tools) : cur?.tools ?? null,
@@ -134,12 +153,12 @@ export function setBotConfig(slug: string, patch: BotConfigPatch, updatedBy: str
   if (patch.all_tools !== undefined && typeof patch.all_tools !== 'boolean') throw new BotConfigError('all_tools must be true or false')
   getDb()
     .prepare(
-      `INSERT INTO agent_chat_bot_config (slug, provider, model, tools, all_tools, updated_by, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(slug) DO UPDATE SET provider = excluded.provider, model = excluded.model, tools = excluded.tools,
+      `INSERT INTO agent_chat_bot_config (slug, name, provider, model, tools, all_tools, updated_by, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(slug) DO UPDATE SET name = excluded.name, provider = excluded.provider, model = excluded.model, tools = excluded.tools,
          all_tools = excluded.all_tools, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
     )
-    .run(slug, next.provider, next.model, next.tools ? JSON.stringify(next.tools) : null, next.all_tools ? 1 : 0, updatedBy)
+    .run(slug, next.name, next.provider, next.model, next.tools ? JSON.stringify(next.tools) : null, next.all_tools ? 1 : 0, updatedBy)
   return getBotConfig(slug)!
 }
 
@@ -151,9 +170,13 @@ export function clearBotConfig(slug: string): boolean {
 /** The agent as its file defines it, with the admin's overrides applied. */
 export function applyBotConfig(agent: ChatAgent, cfg: BotConfig | null | undefined): ChatAgent {
   const file_defaults: BotFileDefaults = agent.file_defaults ?? { provider: agent.provider, model: agent.model, tools: agent.tools }
-  if (!cfg) return { ...agent, file_defaults, config: null }
+  // obj 900798: the file's own name, kept beside a renamed bot's display name.
+  const file_name = agent.file_name ?? agent.name
+  if (!cfg) return { ...agent, name: file_name, file_name, file_defaults, config: null }
   return {
     ...agent,
+    name: cfg.name ?? file_name,
+    file_name,
     provider: cfg.provider ?? file_defaults.provider,
     model: cfg.model ?? file_defaults.model,
     // obj 900749: 'all' keeps any explicit-only tool (secret use) the bot was given by name.

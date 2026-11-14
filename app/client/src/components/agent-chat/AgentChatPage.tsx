@@ -10,6 +10,8 @@ import { AgentAvatar, AssistantBubble, CardChip, DraftCard, ErrorLine, ToolLine,
 import { AgentInfoPanel } from './AgentInfoPanel'
 import { collectImages, humanSize, toWireImages, type PendingImage } from './attachments'
 import { BotSettingsPanel } from './BotSettingsPanel'
+import { BotSidebar } from './BotSidebar'
+import { useBotSidebar } from './useBotSidebar'
 import {
   ACCEPTED_IMAGE_TYPES,
   COLOUR_CLASSES,
@@ -72,67 +74,7 @@ export function suggestionsFor(a: ChatAgentInfo): string[] {
   ].slice(0, 3)
 }
 
-// ── bot list ──
-
-function AgentList({
-  data,
-  active,
-  onPick,
-  isAdmin,
-  onDemo,
-  demoBusy,
-}: {
-  data: AgentsResponse
-  active: string | null
-  onPick: (slug: string) => void
-  isAdmin: boolean
-  onDemo: (on: boolean) => void
-  demoBusy: boolean
-}) {
-  return (
-    <nav aria-label="Bots" className="flex h-full flex-col">
-      <div className="px-4 pb-2 pt-4">
-        <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-fg-0">Bots</h1>
-        <p className="mt-0.5 text-[12.5px] text-fg-2">One ongoing conversation with each bot.</p>
-      </div>
-      <ul className="flex-1 space-y-1 overflow-y-auto px-2 pb-3">
-        {data.agents.map(a => {
-          const on = a.slug === active
-          return (
-            <li key={a.slug}>
-              <button
-                onClick={() => onPick(a.slug)}
-                aria-current={on ? 'page' : undefined}
-                className={cn(
-                  'flex min-h-[56px] w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all duration-fast',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
-                  on ? 'border-line-strong bg-surface-3' : 'border-transparent hover:border-line hover:bg-surface-3',
-                )}
-              >
-                <AgentAvatar agent={a} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-medium text-fg-0">{a.name}</span>
-                  <span className="block truncate text-[12px] text-fg-2">{a.description || 'No description'}</span>
-                </span>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
-      {isAdmin && (
-        <div className="border-t border-line-soft px-4 py-3">
-          <button
-            onClick={() => onDemo(!data.demo)}
-            disabled={demoBusy}
-            className="min-h-[44px] w-full rounded-md px-2 text-left text-[12.5px] text-fg-2 transition-colors duration-fast hover:bg-surface-3 hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-45"
-          >
-            {data.demo ? 'Demo bot is on — turn it off' : 'Turn on the demo bot (sample inbox + calendar)'}
-          </button>
-        </div>
-      )}
-    </nav>
-  )
-}
+// ── bot list: see BotSidebar.tsx (obj 900798) ──
 
 // ── the lane strip: main conversation + side threads (obj 900370) ──
 
@@ -197,6 +139,7 @@ function Conversation({
   meta,
   isAdmin = false,
   onAgentChanged,
+  onActivity,
 }: {
   agent: ChatAgentInfo
   onBack: () => void
@@ -205,6 +148,8 @@ function Conversation({
   meta?: AgentsResponse
   isAdmin?: boolean
   onAgentChanged?: (a: ChatAgentInfo) => void
+  /** A message landed or loaded in the lane on screen — the sidebar marks the bot read (obj 900798). */
+  onActivity?: () => void
 }) {
   const [thread, setThread] = useState<ThreadResponse | null>(null)
   // obj 900671: the bot's settings panel (model, provider, tools) on its own page.
@@ -364,6 +309,16 @@ function Conversation({
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' })
   }, [thread?.messages.length, pending])
+
+  // obj 900798: what is on screen has been read. Fires when the newest message
+  // in view changes (a lane loaded, a reply landed), not on every 15s refresh,
+  // so a bot the person just marked unread stays unread until something new.
+  const newestId = thread?.messages.length ? thread.messages[thread.messages.length - 1].id : 0
+  const activity = useRef(onActivity)
+  activity.current = onActivity
+  useEffect(() => {
+    if (newestId) activity.current?.()
+  }, [newestId])
 
   const send = async (raw: string, attached: PendingImage[] = images) => {
     const msg = raw.trim()
@@ -772,6 +727,8 @@ export function AgentChatPage() {
   const [data, setData] = useState<AgentsResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [demoBusy, setDemoBusy] = useState(false)
+  // obj 900798: the person's pins, sections, hidden bots and unread state.
+  const sidebar = useBotSidebar()
 
   const load = useCallback(async () => {
     try {
@@ -803,6 +760,14 @@ export function AgentChatPage() {
     if (active && pendingPrompt.current?.slug === active.slug) pendingPrompt.current = null
   }, [active])
   const pick = (s: string) => navigate(`/chat/${s}`)
+  // Opening a bot reads it (and clears a "Mark as unread").
+  const markRead = sidebar.markRead
+  const activeSlug = active?.slug ?? null
+  useEffect(() => {
+    if (activeSlug) void markRead(activeSlug)
+  }, [activeSlug, markRead])
+  const mergeAgent = (a: ChatAgentInfo) =>
+    setData(d => (d ? { ...d, agents: d.agents.map(x => (x.slug === a.slug ? { ...x, ...a } : x)) } : d))
 
   if (error && !data) {
     return <div className="p-6"><Alert tone="alarm">{error}</Alert></div>
@@ -837,7 +802,20 @@ export function AgentChatPage() {
   return (
     <div className="flex h-full min-h-0 bg-surface-0">
       <aside className={cn('h-full w-full shrink-0 border-line bg-surface-1 md:block md:w-[300px] md:border-r', active ? 'hidden' : 'block')}>
-        <AgentList data={data} active={active?.slug ?? null} onPick={pick} isAdmin={isAdmin} onDemo={on => void setDemo(on)} demoBusy={demoBusy} />
+        <BotSidebar
+          data={data}
+          active={active?.slug ?? null}
+          onPick={pick}
+          isAdmin={isAdmin}
+          onDemo={on => void setDemo(on)}
+          demoBusy={demoBusy}
+          sidebar={sidebar}
+          onAgentChanged={mergeAgent}
+          onAgentDeleted={gone => {
+            if (gone === active?.slug) navigate('/chat')
+            void load()
+          }}
+        />
       </aside>
       <main className={cn('h-full min-w-0 flex-1', active ? 'block' : 'hidden md:block')}>
         {active ? (
@@ -848,9 +826,8 @@ export function AgentChatPage() {
             initialText={pendingPrompt.current?.slug === active.slug ? pendingPrompt.current.text : ''}
             meta={data}
             isAdmin={isAdmin}
-            onAgentChanged={a =>
-              setData(d => (d ? { ...d, agents: d.agents.map(x => (x.slug === a.slug ? { ...x, ...a } : x)) } : d))
-            }
+            onAgentChanged={mergeAgent}
+            onActivity={() => void markRead(active.slug)}
           />
         ) : (
           <div className="flex h-full items-center justify-center px-6">

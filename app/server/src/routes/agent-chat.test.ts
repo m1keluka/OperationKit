@@ -63,6 +63,11 @@ beforeAll(async () => {
   db.prepare(`INSERT INTO users (id, username, password_hash, role) VALUES (3, 'user3', 'x', 'member')`).run()
   db.prepare(`INSERT OR IGNORE INTO workspaces (slug, name) VALUES (?, 'Client')`).run(WS)
   for (const u of [OWNER, OTHER]) db.prepare('INSERT INTO user_workspaces (user_id, workspace) VALUES (?, ?)').run(u, WS)
+  // obj 900797: these bots stand for bots that existed before per-bot workspace
+  // access lists, so the one-time boot seed keeps them unrestricted (today's
+  // behaviour). The restricted path is covered in bot-workspaces.test.ts.
+  const { seedExistingBotsOnce } = await import('../services/agent-chat/bot-workspaces.js')
+  seedExistingBotsOnce(['demo-assistant', 'librarian'])
 
   // A file agent with a narrow knowledge folder, to prove confinement.
   fs.mkdirSync(path.join(TMP_AGENTS, 'librarian'))

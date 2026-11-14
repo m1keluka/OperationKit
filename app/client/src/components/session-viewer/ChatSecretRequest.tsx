@@ -22,11 +22,11 @@ import { SECRET_NAME_PATTERN, toSecretName } from '../../lib/secretDetect'
 import { SCOPE_LABELS } from '../secrets/scope'
 import { MaskedSecretInput, SecretScopePicker } from './SecretFields'
 
-/** "Organization (example)" / "Command Center" / "Org + me (example)" — the compact scope line. */
+/** "example secrets" / "Everywhere (every workspace)" / "Only me in example" — the compact scope line. */
 export function scopeSummary(scope: SecretRequestScope, workspace: string): string {
-  if (scope === 'global') return `${SCOPE_LABELS.global} (every organization)`
-  if (scope === 'workspace_user') return `Only me in ${workspace || 'this organization'}`
-  return `${workspace || 'this organization'} secrets`
+  if (scope === 'global') return `${SCOPE_LABELS.global} (every workspace)`
+  if (scope === 'workspace_user') return `Only me in ${workspace || 'this workspace'}`
+  return `${workspace || 'this workspace'} secrets`
 }
 
 export interface SecretFormProps {

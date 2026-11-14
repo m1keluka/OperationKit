@@ -27,7 +27,7 @@ import { inputCls, selectCls } from './config-form'
 
 const RESOURCE_SCOPE_LABELS: Record<ResourceScopeType, string> = {
   global: 'Global',
-  workspace: 'Organization',
+  workspace: 'Workspace',
   project: 'Project',
   user: 'User',
 }
@@ -38,7 +38,7 @@ function scopeLabel(a: ResourceAssignment): string {
     case 'global':
       return 'global'
     case 'workspace':
-      return `organization: ${a.workspace ?? '—'}`
+      return `workspace: ${a.workspace ?? '—'}`
     case 'project':
       return `project: ${a.workspace ?? '—'} / ${a.project ?? '—'}`
     case 'user':
@@ -108,7 +108,7 @@ export function AssignmentsTab() {
       setError(resourceType === 'agent' ? 'Pick an agent.' : 'Enter a skill name.')
       return
     }
-    if (needsWorkspace && !workspace) { setError('Select an organization.'); return }
+    if (needsWorkspace && !workspace) { setError('Select a workspace.'); return }
     if (needsProject && !project.trim()) { setError('Enter a project / repo.'); return }
     if (needsUser && !userId.trim()) { setError('Enter a user ID.'); return }
 
@@ -227,7 +227,7 @@ export function AssignmentsTab() {
 
           {needsWorkspace && (
             <div>
-              <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Organization</label>
+              <label className="mb-1 block text-[12px] uppercase tracking-wider text-fg-3">Workspace</label>
               <select
                 value={workspace}
                 onChange={e => setWorkspace(e.target.value)}

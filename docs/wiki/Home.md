@@ -20,6 +20,7 @@ Run it on Claude today. Point a workload at an open-weight model on your own GPU
 | Connect your own agent over MCP | [MCP Connector & Tools](./MCP-Connector-and-Tools) |
 | Understand subscription seats vs. your own identity | [Accounts, Subscriptions & Seats](./Accounts-Subscriptions-and-Seats) |
 | See what's shipped vs. in progress, right now | [Project Status](./Project-Status) |
+| Lock down (or widen) the browser review sessions drive | [Card Browser Lockdown](./Card-Browser-Lockdown) |
 | Find a quick answer | [FAQ](./FAQ) |
 
 ## Elsewhere

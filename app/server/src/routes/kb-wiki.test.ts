@@ -341,6 +341,9 @@ describe('kb-wiki routes', () => {
       expect(r.body.content).toContain(rel === 'index.md' ? 'generated_by: kb-wiki' : 'Rosa Delgado')
     }
     const agent = { slug: 'librarian', tools: ['file_answer', 'read_file'], knowledge_folders: ['.'] } as unknown as Parameters<typeof runTool>[0]['agent']
+    // obj 900797: a bot works only in workspaces it is granted.
+    const { grantBotWorkspace } = await import('../services/agent-chat/bot-workspaces.js')
+    grantBotWorkspace('librarian', WS, 'admin')
     const ctx = { userId: 2, username: 'u2', workspace: WS, agent, kbRoot: KB, connectors: {} } as Parameters<typeof runTool>[0]
     const out = runTool(ctx, 'file_answer', { question: 'Who supplies compost?', answer: 'Greenway Growers.', sources: [SHOP] })
     expect(out.summary).toMatch(/^Saved the answer to the wiki as answers\//)

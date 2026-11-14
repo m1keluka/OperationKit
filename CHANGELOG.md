@@ -8,6 +8,41 @@ Notable operator-facing changes. Newest first.
 
 ## Unreleased
 
+### The card browser is sandboxed, origin-restricted and pinned (obj 900791, restart of 900024)
+
+The Chromium that review/QA sessions drive through Playwright MCP used to be
+launched with `--no-sandbox`, with **no origin policy at all**, from
+`@playwright/mcp@latest` re-resolved on every spawn — inside the container that
+holds the secrets store, the AI seat logins and the database. Three changes:
+
+- **Sandbox on, non-root.** `--no-sandbox` is now passed only when an operator
+  explicitly sets `BROWSER_SANDBOX="off"`, and that choice is logged at boot and
+  reported by `verify.sh`. The image makes Chromium’s `chrome_sandbox` helper
+  setuid-root so the sandbox works for the unprivileged `ccuser` account the
+  browser already ran as.
+- **Egress allowlist with a real boundary.** Chromium is pointed at a loopback
+  egress guard with `--proxy-server`. By default it may reach this install’s own
+  domain and localhost (preview servers) and nothing else; cloud instance
+  metadata and the private network are refused by host *and* by resolved address,
+  so an allowlisted name that resolves into them is still blocked. The guard
+  re-checks every redirect hop and pins DNS. Playwright’s own
+  `--allowed-origins` is passed as well, but its documentation says plainly that
+  it is not a security boundary and does not affect redirects — so it is
+  defence-in-depth, not the control.
+- **Pinned versions.** Playwright and `@playwright/mcp` are pinned in exactly two
+  places (`app/server/src/lib/browser-pins.ts` and `ARG` lines in
+  `app/Dockerfile`); CI fails if they disagree. Pinned at Playwright **1.65.0**
+  (Chromium **158.0.8127.18**), up from the floating install that was resolving
+  1.64.1 / Chromium 156.0.8078.4 — a build that predates the Chrome stable
+  security release 157.0.8103.38 (2026-11-03).
+
+**What an operator must do: nothing.** The defaults are the locked-down ones and
+they are applied on the next `install.sh` / `update.sh` run. See
+“Migration: card browser lockdown” in `docs/MIGRATION.md` for the one case that
+needs attention (reviews that open a third-party site), and
+`docs/wiki/Card-Browser-Lockdown.md` for the full reference.
+
+
 ### Secrets: bots use a named secret without seeing it + cleaner Secrets page (obj 900749)
 
 **What changed.** Chat bots and MCP-connected bots can now call an API with a

@@ -7,6 +7,8 @@ export type ProviderId = 'claude' | 'anthropic' | 'openai' | 'xai' | 'openai-com
 export interface ChatAgentInfo {
   slug: string
   name: string
+  /** The agent file's own name; differs from `name` once an admin renamed the bot (obj 900798). Older servers omit it. */
+  file_name?: string
   description: string
   avatar: string
   colour: AgentColour
@@ -33,8 +35,39 @@ export interface ChatAgentInfo {
   system_prompt?: string
   /** GET /agents/:slug only: the same instructions with secret-shaped values masked, for display. */
   instructions?: string
-  /** obj 900748 — High Agency summary for the list. Older servers omit it. */
-  high_agency?: { enabled: boolean; times_per_day: number }
+  /** obj 900748 — High Agency summary for the list (level since obj 900794). Older servers omit it. */
+  high_agency?: { enabled: boolean; level?: number }
+  /**
+   * obj 900797 — where this global bot may work. `workspaces` lists only the
+   * ones the viewer belongs to; `count` is the full number. Older servers omit it.
+   */
+  workspace_access?: { mode: BotAccessMode; workspaces: string[]; count: number }
+}
+
+/**
+ * A bot's workspace access (obj 900797). 'unrestricted' = a bot that predates
+ * access lists and nobody has restricted yet (today's behaviour). 'restricted'
+ * = exactly `workspaces`; an empty list means no workspace at all.
+ */
+export type BotAccessMode = 'restricted' | 'unrestricted'
+
+export interface BotWorkspaceAccessInfo {
+  slug: string
+  mode: BotAccessMode
+  /** False = no decision yet: a bot added after access lists shipped (no workspace). */
+  configured: boolean
+  workspaces: string[]
+  grants: { workspace: string; granted_by: string | null; granted_at: string }[]
+  updated_by: string | null
+  updated_at: string | null
+}
+
+export interface BotWorkspaceAccessResponse {
+  access: BotWorkspaceAccessInfo
+  /** Admin only: every workspace on the install. */
+  workspace_options?: { slug: string; name: string }[]
+  /** After a revoke: High Agency was woken in that workspace and is now off. */
+  high_agency_switched_off?: boolean
 }
 
 /**
@@ -55,6 +88,8 @@ export interface BotAbout {
 
 /** An admin's bot-page overrides (obj 900671). null fields = the agent file's value. */
 export interface BotConfigInfo {
+  /** obj 900798: an admin's display name; null = the file's name. Older servers omit it. */
+  name?: string | null
   provider: ProviderId | null
   model: string | null
   tools: string[] | null
@@ -89,6 +124,8 @@ export interface AgentsResponse {
 
 /** Body of PUT /agent-chat/agents/:slug/config (obj 900671). */
 export interface BotConfigPatch {
+  /** obj 900798: rename for everyone (admin); null / "" = back to the file's name. */
+  name?: string | null
   provider?: ProviderId | null
   model?: string | null
   tools?: string[] | null
@@ -99,8 +136,9 @@ export interface BotConfigPatch {
 export interface HighAgencyInfo {
   slug: string
   enabled: boolean
-  times_per_day: number
-  first_hour: number
+  /** obj 900794: 1 = one wake at night … 10 = every hour. */
+  level: number
+  runs_per_day: number
   workspace: string | null
   allow_cards: boolean
   allow_workflows: boolean
@@ -108,9 +146,14 @@ export interface HighAgencyInfo {
   routine_id: number | null
   updated_by: string | null
   updated_at: string | null
-  /** UTC "HH:MM" wake times for the saved setting. */
+  /** "HH:MM" wake times for the saved setting, in `timezone`. */
   wake_times: string[]
+  /** The install timezone wakes are scheduled in (IANA, e.g. America/New_York). */
+  timezone: string
+  /** Server-time cron of the managed routine. */
   cron: string
+  /** The model a wake card runs on; null = the board default. */
+  wake_model: string | null
   next_wake_at: string | null
   routine: {
     id: number
@@ -124,8 +167,8 @@ export interface HighAgencyInfo {
 
 export interface HighAgencyResponse {
   high_agency: HighAgencyInfo
-  cadences: number[]
-  max_cards_per_wake: number
+  levels: number[]
+  max_new_projects_per_wake: number
   /** Admin only: where wake cards may land. */
   workspace_options?: string[]
   /** POST …/wake only: what the wake did. */
@@ -135,8 +178,7 @@ export interface HighAgencyResponse {
 /** Body of PUT /agent-chat/agents/:slug/high-agency. */
 export interface HighAgencyPatch {
   enabled?: boolean
-  times_per_day?: number
-  first_hour?: number
+  level?: number
   workspace?: string | null
   allow_cards?: boolean
   allow_workflows?: boolean
@@ -234,4 +276,41 @@ export const COLOUR_CLASSES: Record<AgentColour, { tile: string; ring: string }>
   green: { tile: 'bg-agent-coo/10 text-agent-coo border-agent-coo/35', ring: 'ring-agent-coo/40' },
   amber: { tile: 'bg-agent-cfo/10 text-agent-cfo border-agent-cfo/35', ring: 'ring-agent-cfo/40' },
   grey: { tile: 'bg-agent-general/10 text-agent-general border-agent-general/35', ring: 'ring-agent-general/40' },
+}
+
+// ── The Bots sidebar (obj 900798) — mirrors services/agent-chat/sidebar.ts ──
+
+export interface SidebarSection {
+  id: number
+  name: string
+  position: number
+  collapsed: boolean
+}
+
+export interface SidebarLastMessage {
+  id: number
+  role: 'user' | 'assistant'
+  preview: string
+  created_at: string
+  thread_id: number | null
+  thread_title: string | null
+}
+
+/** One person's view of one bot. */
+export interface SidebarBot {
+  pinned: boolean
+  pin_position: number
+  section_id: number | null
+  hidden: boolean
+  marked_unread: boolean
+  unread_count: number
+  unread: boolean
+  last_message: SidebarLastMessage | null
+}
+
+export interface SidebarState {
+  sections: SidebarSection[]
+  bots: Record<string, SidebarBot>
+  max_pins: number
+  max_sections: number
 }

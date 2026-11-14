@@ -1,4 +1,5 @@
 import { getDb } from '../../db/index.js'
+import { normaliseExcludes, parseExcludeSetting } from './vault-scan.js'
 
 /**
  * Install-wide wiki settings (obj 720117), stored in the `settings` table.
@@ -7,6 +8,9 @@ import { getDb } from '../../db/index.js'
  *   kb_lint_hour_utc   0-23, default 3 — the hour the cleanup pass runs
  *   kb_lint_stale_days pages not updated for this many days are listed as stale (default 180)
  *   kb_lint_ai_pages   how many pages the AI checks for contradictions per run (default 15, 0 = no AI)
+ *   kb_graph_exclude   folders the link graph leaves out (obj 900815): folder names (any depth) or
+ *                      KB-relative paths, newline/comma separated. Default: DEFAULT_GRAPH_EXCLUDES.
+ *                      Hidden files, raw sources and credential stores are never indexed whatever this says.
  */
 export type LintSchedule = 'nightly' | 'weekly' | 'off'
 
@@ -15,9 +19,10 @@ export interface WikiSettings {
   lint_hour_utc: number
   lint_stale_days: number
   lint_ai_pages: number
+  graph_exclude: string[]
 }
 
-export const DEFAULT_WIKI_SETTINGS: WikiSettings = { lint_schedule: 'nightly', lint_hour_utc: 3, lint_stale_days: 180, lint_ai_pages: 15 }
+export const DEFAULT_WIKI_SETTINGS: WikiSettings = { lint_schedule: 'nightly', lint_hour_utc: 3, lint_stale_days: 180, lint_ai_pages: 15, graph_exclude: parseExcludeSetting(null) }
 
 function read(key: string): string | null {
   try {
@@ -42,6 +47,7 @@ export function getWikiSettings(): WikiSettings {
     lint_hour_utc: int(read('kb_lint_hour_utc'), DEFAULT_WIKI_SETTINGS.lint_hour_utc, 0, 23),
     lint_stale_days: int(read('kb_lint_stale_days'), DEFAULT_WIKI_SETTINGS.lint_stale_days, 1, 3650),
     lint_ai_pages: int(read('kb_lint_ai_pages'), DEFAULT_WIKI_SETTINGS.lint_ai_pages, 0, 200),
+    graph_exclude: parseExcludeSetting(read('kb_graph_exclude')),
   }
 }
 
@@ -51,7 +57,14 @@ export function saveWikiSettings(patch: Partial<WikiSettings>): WikiSettings {
     if (!['nightly', 'weekly', 'off'].includes(patch.lint_schedule)) throw new Error('Schedule must be nightly, weekly or off.')
     write('kb_lint_schedule', patch.lint_schedule)
   }
-  const nums: Array<[keyof WikiSettings, string, number, number]> = [
+  if (patch.graph_exclude !== undefined) {
+    if (!Array.isArray(patch.graph_exclude) || patch.graph_exclude.some(e => typeof e !== 'string') || patch.graph_exclude.length > 100) {
+      throw new Error('graph_exclude must be a list of up to 100 folder names or paths.')
+    }
+    // An empty list is stored as one blank line, so "exclude nothing" is not read back as "use the defaults".
+    write('kb_graph_exclude', normaliseExcludes(patch.graph_exclude).join('\n') || '\n')
+  }
+  const nums: Array<[Exclude<keyof WikiSettings, 'graph_exclude'>, string, number, number]> = [
     ['lint_hour_utc', 'kb_lint_hour_utc', 0, 23],
     ['lint_stale_days', 'kb_lint_stale_days', 1, 3650],
     ['lint_ai_pages', 'kb_lint_ai_pages', 0, 200],

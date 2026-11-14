@@ -36,7 +36,10 @@ const STATUS_ACTIONS: Record<ObjectiveStatus, { label: string; target: Objective
 /* Positive model-attribution badge (obj 701053). Short labels for the badge
    chip; unknown ids fall back to the raw model id. */
 const MODEL_SHORT_LABEL: Record<string, string> = {
+  'claude-fable-5-2': 'Fable 5.2',
+  'claude-fable-5-1': 'Fable 5.1',
   'claude-fable-5': 'Fable 5',
+  'claude-opus-5-5': 'Opus 5.5',
   'claude-opus-4-8': 'Opus 4.8',
   'claude-sonnet-4-6': 'Sonnet 4.6',
   'claude-haiku-4-5-20251001': 'Haiku 4.5',
@@ -345,7 +348,7 @@ function ObjectiveCardImpl({ objective, onOpenTerminal, onEdit, onChangeStatus, 
               showOrgChip ? (
                 <span
                   className="inline-flex items-center gap-1 rounded-full border border-line/80 bg-surface-2 px-1.5 py-px font-medium text-fg-2"
-                  title={`Organization: ${objective.workspace}`}
+                  title={`Workspace: ${objective.workspace}`}
                   data-testid="org-chip"
                 >
                   <Building2 className="h-2.5 w-2.5 opacity-60" aria-hidden="true" />
