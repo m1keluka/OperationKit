@@ -38,6 +38,27 @@ A later “PE diligence” pass is: dedicated tenant, MFA/SSO, socket-less membe
   `internal_board_require_principal`) additionally withdraws the bare on-box allowance for those reads.
 - Automatic knowledge-base retrieval (the spawn-prompt path) is **filtered** to the card's workspace,
   not merely boosted toward it, and the retrieved text is injected inside an untrusted-content frame.
+- **Card browser lockdown** (obj 900024). The Chromium that review/QA sessions drive runs
+  **non-root** (`ccuser`) with its **OS sandbox ON** — `--no-sandbox` is passed only on an
+  explicit, logged operator opt-out. Its network egress goes through a loopback guard
+  (`services/browser-egress-proxy.ts`) that Chromium is pointed at with `--proxy-server`, so
+  **only allowed origins** are reachable: by default this install's own domain plus localhost
+  (preview servers), and nothing else. Cloud instance metadata (`169.254.169.254` and
+  friends) and the private network are refused by host **and** by resolved address, so an
+  allowlisted name that resolves into them is still blocked (DNS rebinding / SSRF). The guard
+  re-checks every redirect hop and pins DNS; Playwright's own `--allowed-origins` is passed
+  too but is explicitly *not* a security boundary per its own documentation, so it is
+  defence-in-depth, not the control. Playwright and `@playwright/mcp` are **pinned**
+  (`lib/browser-pins.ts`, asserted against `app/Dockerfile` in CI) instead of resolving
+  `@latest` at every spawn. Configure per install with `BROWSER_*` in `client.conf`;
+  `install/verify.sh` check 9 proves sandbox-on, non-root, blocked-off-allowlist and
+  allowed-still-works on the live install. See
+  [docs/wiki/Card-Browser-Lockdown.md](docs/wiki/Card-Browser-Lockdown.md).
+  Current pins: Playwright **1.65.0** → Chromium **158.0.8127.18**, `@playwright/mcp` **0.0.85**.
+  **Update path:** bump `PLAYWRIGHT_VERSION` / `PLAYWRIGHT_MCP_VERSION` in `app/Dockerfile` and
+  `app/server/src/lib/browser-pins.ts`, then `sudo bash install/update.sh --config client.conf`
+  (rebuilds the image and prints the versions now running) and `install/verify.sh`. Step-by-step:
+  [Updating the card browser](docs/wiki/Card-Browser-Lockdown.md#updating-the-card-browser).
 - SSH for session git: `StrictHostKeyChecking=accept-new` and `IdentitiesOnly=yes`
 - Workspace-scoped board APIs; WebSocket auth via the same cookie
 
@@ -52,6 +73,7 @@ Set these before exposing the app. Compose maps `CC_JWT_SECRET` → `JWT_SECRET`
 | `GITHUB_WEBHOOK_SECRET` | if you use the GitHub webhook | HMAC-SHA256 |
 | `UPTIMEROBOT_WEBHOOK_TOKEN` | recommended | Put `?token=…` on the UptimeRobot webhook URL. Unset = route stays open and the server logs a warning |
 | `CORS_ORIGINS` | if your public origin is not the default | Comma-separated |
+| `CARD_BROWSER_*` | no (safe defaults) | Card browser lockdown. `SANDBOX`/`EGRESS_GUARD` default on; `ALLOW_PRIVATE_NETWORK`/`ALLOW_METADATA` default off. Set from `client.conf` `BROWSER_*` by the installer — see [Card-Browser-Lockdown](docs/wiki/Card-Browser-Lockdown.md) |
 
 See `.env.example`. Never commit `.env`.
 
@@ -72,10 +94,13 @@ We will acknowledge, fix, and credit (unless you ask not to).
 4. Set `UPTIMEROBOT_WEBHOOK_TOKEN` and `GITHUB_WEBHOOK_SECRET` if those routes are reachable.
 5. Change the seed password immediately (`changeme` in `app/server/src/db/seed.ts` is a first-boot default).
 6. Do not publish the Docker socket to a network, and do not add untrusted session spawners.
+7. Leave `BROWSER_SANDBOX` and the card browser egress guard on, and keep Playwright pinned to a release whose Chromium is at or above current Chrome stable (`install/update.sh` prints what you are running).
 
 ## Known gaps (documented, not hidden)
 
 - Docker socket = host root
+- The card browser is sandboxed and egress-restricted, but still shares the app container. Moving it to its own secret-free container is the structural fix and is not in this baseline
+- The card browser may reach `localhost` by default (preview review needs it); set `BROWSER_ALLOW_LOOPBACK="off"` on installs that never preview locally
 - Sibling OAuth homes in one container
 - No MFA / SSO / passkeys
 - Spawn env scoping for docker.sock / sibling homes is still the admin-only default

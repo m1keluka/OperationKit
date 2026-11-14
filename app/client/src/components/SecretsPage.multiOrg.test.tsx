@@ -190,7 +190,7 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
     // Named per organization — not an all-or-nothing claim.
     expect(container.querySelector('[data-testid="fanout-ok-example"]')).toBeTruthy()
     expect(container.querySelector('[data-testid="fanout-fail-example2"]')).toBeTruthy()
-    expect(report!.textContent).toContain('Created in 1 of 2 organizations')
+    expect(report!.textContent).toContain('Created in 1 of 2 workspaces')
     expect(report!.textContent).toContain('Example Growth')
     expect(report!.textContent).toContain('Example3')
 
@@ -208,7 +208,7 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
     // Nothing ticked (admin default scope is global, so no org is preselected).
     await fillAndSubmit('SOME_KEY', 'v')
     expect(state.posts.length).toBe(0)
-    expect(container.textContent).toContain('Pick at least one organization')
+    expect(container.textContent).toContain('Pick at least one workspace')
   })
 
   it('shows the scope explanation inline under the Scope selector, not only as a tooltip', async () => {
@@ -216,7 +216,7 @@ describe('Secrets create modal — multi-organization scoping (obj 706458)', () 
     const hint = container.querySelector('[data-testid="modal-scope-hint"]')!
     expect(hint).toBeTruthy()
     // Rendered text (visible), not a title= attribute.
-    expect(hint.textContent).toContain('selected organization(s)')
+    expect(hint.textContent).toContain('selected workspace(s)')
     expect(hint.textContent).not.toBe('')
 
     // And Command Center reads as "everywhere".

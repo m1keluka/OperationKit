@@ -116,7 +116,7 @@ export function BotAccessModal({ secret, entry, organizations, onClose, onSaved 
 
         {isGlobal && (
           <fieldset className="mb-4">
-            <legend className="mb-1 text-xs text-fg-2">Organizations whose bots may use it</legend>
+            <legend className="mb-1 text-xs text-fg-2">Workspaces whose bots may use it</legend>
             {organizations.length === 0 ? (
               <p className="text-[12px] text-fg-3">No organizations.</p>
             ) : (
@@ -130,7 +130,7 @@ export function BotAccessModal({ secret, entry, organizations, onClose, onSaved 
               </div>
             )}
             <p className="mt-1 text-[12px] text-fg-3">
-              This secret applies everywhere. Bots and API keys only get it in the organizations ticked here.
+              This secret applies everywhere. Bots and API keys only get it in the workspaces ticked here.
             </p>
           </fieldset>
         )}

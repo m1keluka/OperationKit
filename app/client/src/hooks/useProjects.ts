@@ -93,7 +93,7 @@ export function useProjects(scope: ProjectScope) {
     opts?: { workspace?: string; description?: string },
   ) => {
     const target = opts?.workspace ?? soleWorkspace
-    if (!target) throw new Error('Pick an organization for this project')
+    if (!target) throw new Error('Pick a workspace for this project')
     const created = await api.post<Project>('/projects', {
       workspace: target,
       name,

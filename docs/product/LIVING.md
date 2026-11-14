@@ -38,7 +38,7 @@ OperationKit’s own tree is the reference implementation.
 
 ## Adding a new repo to the loop
 
-1. Settings → Org → attach the GitHub repo (path on disk if we have a checkout).
+1. Settings → Workspaces → attach the GitHub repo (path on disk if we have a checkout).
 2. Leave Living docs on.
 3. Either wait for docs-breathe to stub `docs/product/` (README, 01 with mermaid, 07-data), or copy this folder’s README + 01-what-it-is.md + 07-data.md and fill them once.
 

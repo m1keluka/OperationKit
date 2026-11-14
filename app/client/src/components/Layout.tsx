@@ -250,7 +250,7 @@ export function Layout({ children, selectedWorkspaces, onWorkspacesChange, pageS
     }
     if (isAdmin) {
       items.push(
-        { label: 'Org settings', hint: '/settings/org', onSelect: () => { navigate('/settings/org') } },
+        { label: 'Workspace settings', hint: '/settings/workspaces', onSelect: () => { navigate('/settings/workspaces') } },
         { label: 'Agent registry', hint: agentsTabRoute('registry'), onSelect: () => { navigate(agentsTabRoute('registry')) } },
         { label: 'Agent templates', hint: agentsTabRoute('templates'), onSelect: () => { navigate(agentsTabRoute('templates')) } },
       )

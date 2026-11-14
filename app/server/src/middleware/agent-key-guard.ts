@@ -121,7 +121,7 @@ export function requiredScope(method: string, path: string, body: unknown): Scop
   // (MCP file_answer). Imports, cleanup and rebuild stay off-surface.
   if (m === 'POST' && p === '/api/kb-wiki/answers') return { kind: 'scope', scope: 'vault:write' }
   // Link graph (obj 720162): read-only lookups (MCP kb_related / kb_who_knows).
-  if (m === 'GET' && (p === '/api/kb-wiki/graph' || p === '/api/kb-wiki/graph/related' || p === '/api/kb-wiki/graph/who-knows')) return { kind: 'scope', scope: 'vault:read' }
+  if (m === 'GET' && (p === '/api/kb-wiki/graph' || p === '/api/kb-wiki/graph/related' || p === '/api/kb-wiki/graph/who-knows' || p === '/api/kb-wiki/graph/unresolved')) return { kind: 'scope', scope: 'vault:read' }
 
   // Built-in chat agents' definitions (obj 719987) — so Claude / ChatGPT / Grok
   // can load the same agent through MCP. Chat history and drafts stay off-surface.

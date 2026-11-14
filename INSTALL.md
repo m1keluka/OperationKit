@@ -674,7 +674,7 @@ exact commands: [RECOMMENDED-STACK step 8](docs/RECOMMENDED-STACK.md#8-github-to
    `POST /api/admin/workspaces/<workspace>/repos` with `name`, `github`, `stack` (a list of strings)
    and `repo_path` (the in-app path above). That adds the project to the app's
    `ai-workspace/workspaces.json` (the installer creates the file) and sets the checkout's
-   `!gh auth git-credential` helper. The **Settings → Org → Organizations → Repos & projects** screen
+   `!gh auth git-credential` helper. The **Settings → Workspaces → Workspaces → Repos & projects** screen
    does not ask for the path yet: add it with `PATCH …/repos/<id>`. Without a path, a project card
    fails with *"resolveWorkdir: … no workspace in workspaces.json maps it to an existing checkout"*.
 

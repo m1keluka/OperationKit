@@ -31,7 +31,7 @@ OperationKit runs via Docker Compose on a server you control — a VPS, a home b
    docker compose up -d
    ```
 4. **Log in** and generate your first API key from Settings → You if you want an external agent or script talking to the board (see [External Agents](./External-Agents)).
-5. **Create your first workspace** (Settings → Org, admin) and invite the people who should see it.
+5. **Create your first workspace** (Settings → Workspaces, admin) and invite the people who should see it.
 6. **Point a card at a model.** Claude, Codex, and Grok work out of the box once their keys are set; Gemini and local-Ollama routes go through the LiteLLM sidecar — see [Model Portability](./Model-Portability) for exactly which model groups route where today.
 
 ## Client installs: one login through Cloudflare Access

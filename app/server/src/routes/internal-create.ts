@@ -32,6 +32,7 @@ import { guardAutoStartCeiling } from '../services/job-accounting.js'
 import { applyTruthfulOutcome } from '../services/session-outcome.js'
 import { livingDocsName, findOpenLivingDocsCard, noteStillPending } from '../lib/living-docs-dedupe.js'
 import { findOpenDuplicate, recordDedupe, isDuplicateGuardEnabled, duplicateGuardWindowHours } from '../lib/objective-dedupe.js'
+import { botMayUseWorkspace, highAgencyRoutineSlug } from '../services/agent-chat/bot-workspaces.js'
 
 // Strategy Layer (P0) — bounded delegation-nesting controls.
 //   Canonical hierarchy (see docs/terminology-glossary.md):
@@ -197,6 +198,34 @@ router.post('/objectives', async (req, res) => {
     if (!pool.includes(agent)) {
       res.status(400).json({
         error: `Item ${i} ('${item.title.trim()}'): agent '${agent}' not in workspace '${ws.slug}' pool (allowed: ${pool.join(', ')})`,
+      })
+      return
+    }
+  }
+
+  // Bot workspace gate (obj 900797): a card filed BY a High Agency wake (its
+  // source_job_id or parent_id is a card fired by a `high-agency:<slug>`
+  // routine) must land in a workspace that bot is granted. Same whole-batch
+  // rejection as above. Like every internal write, the linkage is
+  // self-declared (this route has no caller identity), so this holds on the
+  // honest path — the wake brief tells the bot to send source_job_id.
+  const wakeBotOf = (id: unknown): string | null => {
+    const n = Number(id)
+    if (!Number.isInteger(n) || n <= 0) return null
+    const row = getDb()
+      .prepare('SELECT r.name AS name FROM objectives o JOIN routines r ON r.id = o.routine_id WHERE o.id = ?')
+      .get(n) as { name: string } | undefined
+    return highAgencyRoutineSlug(row?.name)
+  }
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (!item.title?.trim()) continue
+    const botSlug = wakeBotOf(item.source_job_id) ?? wakeBotOf(item.parent_id)
+    if (!botSlug) continue
+    const target = resolveWriteWorkspace(item.workspace)
+    if (!botMayUseWorkspace(botSlug, target)) {
+      res.status(403).json({
+        error: `Item ${i} ('${item.title.trim()}'): bot '${botSlug}' is not granted workspace '${target}', so its High Agency wake cannot file cards there`,
       })
       return
     }

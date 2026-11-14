@@ -72,12 +72,12 @@ export function OrgSwitcher({
     return o?.short || o?.label || slug
   }
   const value = allSelected
-    ? 'All orgs'
+    ? 'All workspaces'
     : selected.length === 1
       ? (organizations.find(o => o.slug === selected[0])?.label ?? selected[0])
       : selected.length === 2
         ? selected.map(shortOf).join(' + ')
-        : `${selected.length} orgs`
+        : `${selected.length} workspaces`
 
   function toggle(slug: string) {
     // Deselecting the last org returns to All rather than an empty board —
@@ -104,7 +104,7 @@ export function OrgSwitcher({
       // Open the org you just made — the obvious next step.
       onChange([slug])
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create organization')
+      setError(err instanceof Error ? err.message : 'Could not create workspace')
     } finally {
       setBusy(false)
     }
@@ -113,10 +113,10 @@ export function OrgSwitcher({
   return (
     <FilterDropdown
       testId="org-switcher"
-      label="Org"
+      label="Workspace"
       value={value}
-      ariaLabel={`Organization: ${value}`}
-      title="Organization — scopes the whole app"
+      ariaLabel={`Workspace: ${value}`}
+      title="Workspace — scopes the whole app"
       icon={<Building2 className="h-3.5 w-3.5 shrink-0 text-fg-3" aria-hidden="true" />}
       align={align}
       panelClassName="w-60"
@@ -124,9 +124,9 @@ export function OrgSwitcher({
     >
       {() => (
         <>
-          <div className="max-h-80 overflow-y-auto" role="group" aria-label="Choose organization">
+          <div className="max-h-80 overflow-y-auto" role="group" aria-label="Choose workspace">
             <DropdownOption selected={allSelected} onClick={() => onChange([])}>
-              All orgs
+              All workspaces
             </DropdownOption>
             {organizations.length > 0 && <div className="my-1 border-t border-line-soft" />}
             {organizations.map(o => (
@@ -141,7 +141,7 @@ export function OrgSwitcher({
               </DropdownOption>
             ))}
             {!loading && organizations.length === 0 && (
-              <div className="px-3 py-1.5 text-[12px] text-fg-3">No organizations yet</div>
+              <div className="px-3 py-1.5 text-[12px] text-fg-3">No workspaces yet</div>
             )}
           </div>
 
@@ -156,14 +156,14 @@ export function OrgSwitcher({
                     onKeyDown={e => {
                       if (e.key === 'Escape') { e.stopPropagation(); setCreating(false); setError(null) }
                     }}
-                    placeholder="New organization name"
-                    aria-label="New organization name"
+                    placeholder="New workspace name"
+                    aria-label="New workspace name"
                     className="min-w-0 flex-1 rounded-md border border-line bg-surface-2 px-2 py-1 text-[12px] text-fg-0 placeholder:text-fg-3 focus:border-accent focus:outline-none"
                   />
                   <button
                     type="submit"
                     disabled={busy || !draft.trim()}
-                    aria-label="Create organization"
+                    aria-label="Create workspace"
                     className="rounded-md p-1.5 text-fg-2 transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-fg-0 disabled:opacity-40"
                   >
                     <Check className="h-3.5 w-3.5" />
@@ -184,7 +184,7 @@ export function OrgSwitcher({
                   className="inline-flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-fg-2 transition-colors duration-fast ease-out hover:bg-surface-3 hover:text-fg-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  New organization
+                  New workspace
                 </button>
               )}
               {error && (

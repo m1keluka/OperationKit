@@ -13,7 +13,7 @@ interface UseWorkspacesResult {
 }
 
 const SPECIAL_LABELS: Record<string, { label: string; short: string }> = {
-  all: { label: 'All Organizations', short: 'All' },
+  all: { label: 'All Workspaces', short: 'All' },
 }
 
 let cache: WorkspaceRecord[] | null = null

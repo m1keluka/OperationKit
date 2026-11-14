@@ -79,7 +79,7 @@ describe('needs-secret on the card (obj 718944)', () => {
     expect(owner).toContain('example secrets')
     expect(owner).toContain('never shown in chat')
     const global = renderToStaticMarkup(<ChatSecretRequests objectiveId={1} workspace="example" items={[{ ...items[0], scope: 'global' }]} canFill />)
-    expect(global).toContain('Everywhere (every organization)')
+    expect(global).toContain('Everywhere (every workspace)')
     const member = renderToStaticMarkup(<ChatSecretRequests objectiveId={1} workspace="example" items={items} canFill={false} />)
     expect(member).not.toContain('type="password"')
     expect(member).toContain('Waiting for the card owner or an admin')

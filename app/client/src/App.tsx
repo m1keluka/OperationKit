@@ -208,7 +208,7 @@ function AppContent() {
           {LEGACY_REDIRECTS.map(r => <Route key={r.from} path={r.from} element={<Navigate to={r.to} replace />} />)}
           {/* Unfinished surfaces removed (obj 900543): their old URLs go to the board. */}
           {REMOVED_ROUTES.map(p => <Route key={p} path={p} element={<Navigate to="/" replace />} />)}
-          <Route path="/config" element={<Navigate to="/settings/org" replace />} />
+          <Route path="/config" element={<Navigate to="/settings/workspaces" replace />} />
           {/* The built-in assistant was removed (obj 720115); its old URLs land on the bots page when present.
               /chat and /chat/:slug are deliberately UNCHANGED by the obj-900327 rename so existing
               bookmarks and in-product deeplinks keep resolving. */}
@@ -234,7 +234,7 @@ function AppContent() {
             <Route path="api-mcp" element={<AccountSettings embedded />} />
             <Route path="secrets" element={<SettingsSecrets />} />
             <Route path="integrations" element={<SettingsConnectors />} />
-            <Route path="org" element={<SettingsOrg />} />
+            <Route path="workspaces" element={<SettingsOrg />} />
             <Route path="branding" element={<SettingsBranding />} />
             <Route path="email" element={<SettingsEmail />} />
             {/* Old bookmarks (pre sprint-4b-reorg, obj 900496), plus older ones before that.
@@ -245,6 +245,8 @@ function AppContent() {
             <Route path="seats" element={<Navigate to="/settings/models" replace />} />
             <Route path="account" element={<Navigate to="/settings/api-mcp" replace />} />
             <Route path="test-credentials" element={<Navigate to="/settings/secrets" replace />} />
+            {/* Settings → Org was renamed Settings → Workspaces (obj 900758). */}
+            <Route path="org" element={<Navigate to="/settings/workspaces" replace />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

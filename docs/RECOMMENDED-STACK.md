@@ -414,7 +414,7 @@ in its project list (`workspaces.json`, which the installer creates) and gives t
 `!gh auth git-credential` helper if it has none. Without a path, starting a card for that project
 fails with *"resolveWorkdir: … no workspace in workspaces.json maps it to an existing checkout"*.
 
-The screen (**Settings → Org → Organizations →** the workspace **→ Repos & projects**: name,
+The screen (**Settings → Workspaces → Workspaces →** the workspace **→ Repos & projects**: name,
 `owner/repo`, stack) does not ask for the path yet, so use the API. `POST
 /api/admin/workspaces/<workspace>/repos` (admin only), on the server, signed in with the admin's
 username and password (read hidden; never on a command line):

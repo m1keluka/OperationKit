@@ -227,7 +227,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
   if (principals && !principals.canUseGlobal && orgs.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-fg-3 text-sm">
-        No organization membership — nothing to manage here. Manage your personal secrets under Settings → You.
+        No workspace membership — nothing to manage here. Manage your personal secrets under Settings → Secrets → Mine.
       </div>
     )
   }
@@ -286,10 +286,10 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
             <select
               value={workspace}
               onChange={e => setWorkspace(e.target.value)}
-              aria-label="Organization"
+              aria-label="Workspace"
               className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-fg-0 outline-none focus:border-accent"
             >
-              <option value="">Organization…</option>
+              <option value="">Workspace…</option>
               {orgs.map(o => (
                 <option key={o.slug} value={o.slug}>{o.name}</option>
               ))}
@@ -313,7 +313,7 @@ export function SecretsPage({ embedded = false }: { embedded?: boolean }) {
             <p className="ml-auto text-xs text-fg-3" data-testid="secret-count">
               {query.trim() ? `${visibleRows.length} of ` : ''}
               {secrets.length} {secrets.length === 1 ? 'secret' : 'secrets'}
-              {isAllScopes && ` across ${orgCount} ${orgCount === 1 ? 'organization' : 'organizations'}`}
+              {isAllScopes && ` across ${orgCount} ${orgCount === 1 ? 'workspace' : 'workspaces'}`}
             </p>
           )}
         </div>

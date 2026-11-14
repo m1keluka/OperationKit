@@ -81,6 +81,14 @@ describe('ObjectiveCard — model attribution badges (obj 701053)', () => {
     expect(html).not.toContain('Opus 4.8 ✓')
   })
 
+  // obj 900796: Claude Fable 5.2 gets its own name on the ✓ chip, not the raw id.
+  it("shows 'Fable 5.2 ✓' for a card that ran on claude-fable-5-2", () => {
+    const html = render({ model: 'claude-fable-5-2', ran_model: 'claude-fable-5-2' } as Partial<Objective>)
+    expect(html).toContain('Fable 5.2 ✓')
+    expect(html).not.toContain('claude-fable-5-2 ✓')
+    expect(render({ model: 'claude-fable-5-2', ran_model: 'claude-sonnet-5' } as Partial<Objective>)).not.toContain('Fable 5.2 ✓')
+  })
+
   // obj 900270: owner bot chip.
   it('shows the owner bot chip only when owner_bot is set', () => {
     expect(render({ owner_bot: 'Grok: Research' })).toContain('data-testid="owner-bot-chip"')

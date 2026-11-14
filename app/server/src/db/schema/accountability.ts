@@ -128,6 +128,18 @@ export function initAccountabilitySchema(db: Database.Database): void {
       ON review_items(dedupe_key)
       WHERE state IN ('open','snoozed','waiting_on_dependency')
   `)
+  // `routed_to` (obj 900795, the High Agency supervisor): WHO must act on the
+  // item, in the same typed `<party>:<name>` form as `objectives.waiting_on`
+  // (`human:<username>` / `agent:<bot slug>`). NULL on every pre-existing row and
+  // on items filed by callers that do not route, and NULL means what it always
+  // meant: the human queue. A human-queue reader filters
+  // `routed_to IS NULL OR routed_to LIKE 'human%'`; a bot reads `agent:<its slug>`.
+  // One queue, two audiences — no third review pile.
+  const riCols = new Set(
+    (db.prepare('PRAGMA table_info(review_items)').all() as { name: string }[]).map((c) => c.name),
+  )
+  if (!riCols.has('routed_to')) db.exec('ALTER TABLE review_items ADD COLUMN routed_to TEXT')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_review_items_routed ON review_items(routed_to, state) WHERE routed_to IS NOT NULL')
   db.exec('CREATE INDEX IF NOT EXISTS idx_review_items_obj ON review_items(objective_id, state)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_review_items_ws_state ON review_items(workspace, state)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_review_items_snooze ON review_items(snooze_until) WHERE snooze_until IS NOT NULL')

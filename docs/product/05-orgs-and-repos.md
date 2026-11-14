@@ -6,7 +6,7 @@ A **linked repo** is a GitHub project attached to an organization: name, `owner/
 
 ## Attach a repo
 
-Settings → Org → expand the organization → **Repos & projects**.
+Settings → Workspaces → expand the workspace → **Repos & projects**.
 
 - Paste `owner/repo`, or **Add repo from org** if GitHub is connected for that org.
 - Set `repo_path` when the checkout lives on this VPS (needed for the docs breathe job to edit the tree).

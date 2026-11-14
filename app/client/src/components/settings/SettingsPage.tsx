@@ -1,5 +1,5 @@
 /**
- * One Settings app: Models | API & MCP | Integrations | Secrets | Org |
+ * One Settings app: Models | API & MCP | Integrations | Secrets | Workspaces |
  * Branding | Email.
  *
  * Agents & Skills is NOT a Settings tab (obj 900684): it was a second copy of
@@ -26,7 +26,7 @@ const MODELS = 'models'
 const API_MCP = 'api-mcp'
 const INTEGRATIONS = 'integrations'
 const SECRETS = 'secrets'
-const ORG = 'org'
+const WORKSPACES = 'workspaces'
 const BRANDING = 'branding'
 const EMAIL = 'email'
 
@@ -34,8 +34,8 @@ const TAB_COPY: Record<string, string> = {
   [MODELS]: 'Subscription seats, API-key providers, and which model runs by default.',
   [API_MCP]: 'Connect a coding agent, your API key, MCP agent keys, and webhooks.',
   [INTEGRATIONS]: 'Accounts agents can work in for you, like GitHub and Google Workspace.',
-  [SECRETS]: 'Your own secrets, shared organization secrets, and reviewer test credentials.',
-  [ORG]: 'Organizations and users.',
+  [SECRETS]: 'Your own secrets, shared workspace secrets, and reviewer test credentials.',
+  [WORKSPACES]: 'Workspaces and users.',
   [BRANDING]: 'Logo, colors, and name shown across the app.',
   [EMAIL]: 'Outbound mail and onboarding notifications.',
 }
@@ -57,7 +57,7 @@ export function SettingsPage() {
     { key: SECRETS, label: 'Secrets' },
     ...(isGlobalAdmin
       ? [
-          { key: ORG, label: 'Org' },
+          { key: WORKSPACES, label: 'Workspaces' },
           { key: BRANDING, label: 'Branding' },
           { key: EMAIL, label: 'Email' },
         ]
@@ -76,6 +76,10 @@ export function SettingsPage() {
   }
   if (segment === 'seats') {
     return <Navigate to={{ pathname: `/settings/${MODELS}`, search: location.search }} replace />
+  }
+  // Settings → Org became Settings → Workspaces (obj 900758).
+  if (segment === 'org') {
+    return <Navigate to={{ pathname: `/settings/${WORKSPACES}`, search: location.search }} replace />
   }
   if (segment === 'test-credentials') {
     return <Navigate to={`/settings/${SECRETS}`} replace />

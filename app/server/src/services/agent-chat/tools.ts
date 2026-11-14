@@ -37,6 +37,8 @@ import { callerForChat, executeHttp, listForCaller, recordBrokerUse } from '../s
 import { rateLimit } from '../file-access.js'
 import { userHasWorkspace } from '../../middleware/workspace.js'
 import { webFetch, webSearch, WebToolError, MAX_SEARCH_RESULTS, DEFAULT_SEARCH_RESULTS, type WebToolDeps } from './web-tools.js'
+import { botWorkspaceAllowlist } from './bot-workspaces.js'
+import { containedIn, realpathOrNull, workspaceScopeRoots } from '../../lib/kb-workspace-scope.js'
 
 export interface ToolSpec {
   type: 'function'
@@ -46,6 +48,12 @@ export interface ToolSpec {
 export interface ToolContext {
   userId: number
   username: string
+  /**
+   * The chat's workspace: where create_objective / file_answer write and whose
+   * secrets and MCP servers the bot may use. Always one the bot is granted
+   * (obj 900797); '' when the person and the bot share no workspace, and then
+   * every workspace-bound tool refuses.
+   */
   workspace: string
   agent: ChatAgent
   kbRoot: string
@@ -98,7 +106,11 @@ const SPECS: Record<string, ToolSpec[]> = {
   file_answer: [fn('file_answer', 'Save a good answer into the workspace knowledge base as a wiki page, linked from the pages it used, so later questions can build on it. Only save answers the person found useful.',
     obj({ question: { type: 'string' }, answer: { type: 'string', description: 'The answer in markdown; cite pages as [[folder/page.md]]' }, sources: { type: 'array', items: { type: 'string' }, description: 'Knowledge-base paths of the pages the answer used, e.g. "people/dana-ruiz.md"' } }, ['question', 'answer']))],
   create_objective: [fn('create_objective', 'Hand a bigger job to the team board as a card. Coding tools pick it up and do the work; you can check its status later with get_objective. Use for anything that takes more than a few minutes.',
-    obj({ title: { type: 'string', description: 'Short, specific title' }, description: { type: 'string', description: 'What to do, the context, and what "done" looks like' } }, ['title', 'description']))],
+    obj({
+      title: { type: 'string', description: 'Short, specific title' },
+      description: { type: 'string', description: 'What to do, the context, and what "done" looks like' },
+      workspace: { type: 'string', description: 'Workspace slug to file the card in. Omit for this chat\'s workspace. Only workspaces this bot is granted and the person belongs to are accepted.' },
+    }, ['title', 'description']))],
   get_objective: [fn('get_objective', 'Read one board card by number: status, workspace, latest result, AI review verdict, PR link. Works for any card on a board the person can see, not only cards this chat filed.',
     obj({ id: { type: 'integer' } }, ['id']))],
   list_objectives: [fn('list_objectives', 'List the real board cards the person can see (every workspace they belong to, most recently updated first). Default: the open pipeline (planning, queue, working, ai_review, review — not done/cancelled). Pass workspace to narrow to one board, status for one column ("blocked" = a blocker is raised). counts covers ALL matching cards even when the list is cut short.',
@@ -213,7 +225,7 @@ function inside(child: string, parent: string): boolean {
 }
 
 /** Resolve a model-supplied path; throws unless it is inside an allowed folder. */
-export function resolveKnowledgePath(ctx: Pick<ToolContext, 'kbRoot' | 'agent'>, raw: string): { abs: string; rel: string } {
+export function resolveKnowledgePath(ctx: Pick<ToolContext, 'kbRoot' | 'agent'> & { userId?: number }, raw: string): { abs: string; rel: string } {
   if (ctx.agent.knowledge_folders.length === 0) throw new ToolUseError('This agent has no knowledge folders.')
   const cleaned = String(raw ?? '').trim().replace(/\\/g, '/').replace(/^\/+/, '')
   if (!cleaned) throw new ToolUseError('A path is required.')
@@ -223,7 +235,71 @@ export function resolveKnowledgePath(ctx: Pick<ToolContext, 'kbRoot' | 'agent'>,
   if (!inside(abs, root) || !allowed) {
     throw new ToolUseError(`"${cleaned}" is outside this agent's knowledge folders (${ctx.agent.knowledge_folders.join(', ')}).`)
   }
-  return { abs, rel: path.relative(root, abs).split(path.sep).join('/') }
+  const rel = path.relative(root, abs).split(path.sep).join('/')
+  const denied = kbWorkspaceGuard(ctx).deniedWorkspace(abs)
+  if (denied) throw new ToolUseError(`"${rel}" is in the ${denied} workspace, which ${ctx.agent.name || ctx.agent.slug} has no access to.`)
+  return { abs, rel }
+}
+
+/**
+ * The workspace wall on knowledge paths (obj 900797). knowledge_folders are
+ * relative to the WHOLE knowledge base, and a workspace's notes are a folder
+ * inside it (`workspaces/<slug>`, `<slug>`, or the workspace's vault_path —
+ * the same roots lib/kb-workspace-scope.ts uses). A path inside a workspace the
+ * bot is not granted is refused, whatever its knowledge_folders say. A path in
+ * no workspace (shared notes) is governed by knowledge_folders alone, as
+ * before. An unrestricted bot (predates access lists) is not walled.
+ *
+ * Given the person (`userId`), a granted workspace counts only if the person
+ * may reach it too — the same person ∩ bot rule as the board. Admins reach
+ * every workspace.
+ */
+export function kbWorkspaceGuard(ctx: Pick<ToolContext, 'kbRoot' | 'agent'> & { userId?: number }): { deniedWorkspace: (abs: string) => string | null } {
+  const botAllow = botWorkspaceAllowlist(ctx.agent.slug)
+  if (botAllow === null) return { deniedWorkspace: () => null }
+  const db = getDb()
+  let allow = botAllow
+  if (ctx.userId !== undefined) {
+    const user = boardUser({ userId: ctx.userId, agent: ctx.agent })
+    allow = user ? visibleWorkspaces(user) : []
+  }
+  let rows: { slug: string; vault_path: string | null }[] = []
+  try {
+    rows = db.prepare('SELECT slug, vault_path FROM workspaces').all() as { slug: string; vault_path: string | null }[]
+  } catch {
+    rows = (db.prepare('SELECT slug FROM workspaces').all() as { slug: string }[]).map(r => ({ ...r, vault_path: null }))
+  }
+  // Every workspace's root(s), pinned to their real location. A root that is
+  // the whole knowledge base (or above it) is not a workspace folder — a
+  // vault_path pointed at the KB root would otherwise wall off everything — so
+  // it is left out; the more specific folders still decide.
+  const kb = realpathOrNull(ctx.kbRoot) ?? path.resolve(ctx.kbRoot)
+  const roots: { slug: string; root: string; allowed: boolean }[] = []
+  for (const r of rows) {
+    const candidates = [
+      ...workspaceScopeRoots(r.slug, ctx.kbRoot),
+      ...(r.vault_path ? [realpathOrNull(r.vault_path) ?? path.resolve(r.vault_path)] : []),
+    ]
+    for (const root of new Set(candidates)) {
+      if (containedIn(kb, root)) continue
+      roots.push({ slug: r.slug, root, allowed: allow.includes(r.slug) })
+    }
+  }
+  return {
+    deniedWorkspace(abs: string): string | null {
+      // The DEEPEST workspace folder holding the path decides (a nested or
+      // shared folder must not be decided by its parent); a tie is allowed if
+      // any workspace sharing that exact folder is granted.
+      const real = realpathOrNull(abs) ?? path.resolve(abs)
+      let best: { len: number; allowed: boolean; slug: string } | null = null
+      for (const r of roots) {
+        if (real !== r.root && !real.startsWith(r.root + path.sep)) continue
+        if (!best || r.root.length > best.len) best = { len: r.root.length, allowed: r.allowed, slug: r.slug }
+        else if (r.root.length === best.len && r.allowed) best.allowed = true
+      }
+      return best && !best.allowed ? best.slug : null
+    },
+  }
 }
 
 /**
@@ -272,8 +348,11 @@ function knowledgeSearch(ctx: ToolContext, q: string) {
   const root = path.resolve(ctx.kbRoot)
   const files: string[] = []
   for (const f of ctx.agent.knowledge_folders) walk(path.resolve(root, f), files, 2000)
+  const guard = kbWorkspaceGuard(ctx)
   const hits: { path: string; score: number; snippet: string }[] = []
   for (const file of files) {
+    // obj 900797: a note in a workspace this bot is not granted is never a hit.
+    if (guard.deniedWorkspace(file)) continue
     let text: string
     try {
       const st = fs.statSync(file)
@@ -331,19 +410,40 @@ function botJobIdempotencyKey(ctx: ToolContext, title: string, description: stri
     .slice(0, 40)
 }
 
-function createCard(ctx: ToolContext, title: string, description: string): { id: number; status: string; note?: string } {
+/**
+ * Where a chat card lands (obj 900797): the chat's workspace, or a named one
+ * the person may write to AND the bot is granted. Same refusal whether the
+ * workspace exists or not, so the model learns nothing about other boards.
+ */
+function cardWorkspace(ctx: ToolContext, raw: unknown): string {
+  const wanted = typeof raw === 'string' && raw.trim() && raw.trim() !== 'all' ? raw.trim() : ''
+  if (!wanted) {
+    if (!ctx.workspace) throw new ToolUseError(noWorkspaceMessage(ctx))
+    return ctx.workspace
+  }
+  const user = boardUser(ctx)
+  if (!user) throw new ToolUseError('Your account was not found.')
+  const options = writableWorkspaces(user, ctx.workspace)
+  if (!options.includes(wanted)) {
+    throw new ToolUseError(`${ctx.agent.name} can't file cards in "${wanted}". Workspaces it may file in for you: ${options.join(', ') || '(none)'}.`)
+  }
+  return wanted
+}
+
+function createCard(ctx: ToolContext, title: string, description: string, workspaceRaw?: unknown): { id: number; status: string; note?: string; workspace: string } {
   const db = getDb()
+  const workspace = cardWorkspace(ctx, workspaceRaw)
   const bot = botForAgentSlug(ctx.agent.slug, db)
   if (bot) {
     const r = createBotJob(db, {
       userId: ctx.userId,
       agentSlug: ctx.agent.slug,
       ownerBot: bot.id,
-      workspace: ctx.workspace,
+      workspace,
       title,
       description,
       idempotencyKey: botJobIdempotencyKey(ctx, title, description),
-      agentContext: defaultAgentForWorkspace(ctx.workspace),
+      agentContext: defaultAgentForWorkspace(workspace),
     })
     if (!r.ok) throw new ToolUseError(r.error)
     const row = db.prepare('SELECT * FROM objectives WHERE id = ?').get(r.objectiveId) as Objective
@@ -355,6 +455,7 @@ function createCard(ctx: ToolContext, title: string, description: string): { id:
     return {
       id: r.objectiveId,
       status: r.status,
+      workspace,
       note: r.reused
         ? 'This is the card you already filed for that request — not a new one.'
         : r.start.allowed
@@ -363,7 +464,7 @@ function createCard(ctx: ToolContext, title: string, description: string): { id:
     }
   }
 
-  const agentCtx = defaultAgentForWorkspace(ctx.workspace)
+  const agentCtx = defaultAgentForWorkspace(workspace)
   const body = [
     description.trim(),
     '',
@@ -374,7 +475,7 @@ function createCard(ctx: ToolContext, title: string, description: string): { id:
       `INSERT INTO objectives (title, description, agent_context, workspace, category, depth, assigned_user_id, created_by, type, status, origin)
        VALUES (?, ?, ?, ?, 'general', ?, ?, ?, 'task', ?, 'agent_chat')`,
     )
-    .run(title.trim().slice(0, 200), body, agentCtx, ctx.workspace, depthForParent(db, null), ctx.userId, ctx.userId, getInitialStatus('task'))
+    .run(title.trim().slice(0, 200), body, agentCtx, workspace, depthForParent(db, null), ctx.userId, ctx.userId, getInitialStatus('task'))
   const id = Number(info.lastInsertRowid)
   db.prepare('INSERT INTO agent_chat_cards (objective_id, user_id, agent_slug) VALUES (?, ?, ?)').run(id, ctx.userId, ctx.agent.slug)
   const row = db.prepare('SELECT * FROM objectives WHERE id = ?').get(id) as Objective
@@ -383,7 +484,7 @@ function createCard(ctx: ToolContext, title: string, description: string): { id:
   } catch {
     /* no WS server in tests */
   }
-  return { id, status: row.status }
+  return { id, status: row.status, workspace }
 }
 
 export interface ChatCardStatus { id: number; title: string; status: string; summary: string | null; pr_url: string | null; updated_at: string; url: string }
@@ -401,31 +502,66 @@ export interface ChatCardStatus { id: number; title: string; status: string; sum
 // The role is re-read from the DB on each call, so a demotion or a removed
 // membership takes effect mid-conversation.
 
-/** Who is chatting, as the board's visibility rule needs them. null = no such user. */
-function boardUser(ctx: Pick<ToolContext, 'userId'>): ControlUser | null {
+/**
+ * Who is chatting, as the board's visibility rule needs them, narrowed to the
+ * workspaces this BOT is granted (obj 900797): `allowWorkspaces` is the same
+ * allowlist an agent key's workspace scope uses, so every board read
+ * (visibilityClause, buildAttention) is the person's view ∩ the bot's list.
+ * null = no such user.
+ */
+function boardUser(ctx: Pick<ToolContext, 'userId'> & { agent?: Pick<ChatAgent, 'slug'> }): ControlUser | null {
   const row = getDb().prepare('SELECT id, role FROM users WHERE id = ?').get(ctx.userId) as { id: number; role: string } | undefined
-  return row ? { id: row.id, role: row.role } : null
+  if (!row) return null
+  return { id: row.id, role: row.role, allowWorkspaces: ctx.agent ? botWorkspaceAllowlist(ctx.agent.slug) : null }
 }
 
-/** Workspaces the person can read cards in (admins: every workspace on the install). */
+/** Workspaces the person can read cards in (admins: every workspace on the install), narrowed to the bot's list. */
 function visibleWorkspaces(user: ControlUser): string[] {
   const db = getDb()
   const rows = user.role === 'admin'
     ? (db.prepare('SELECT slug AS workspace FROM workspaces ORDER BY slug').all() as { workspace: string }[])
     : (db.prepare('SELECT workspace FROM user_workspaces WHERE user_id = ? ORDER BY workspace').all(user.id) as { workspace: string }[])
-  return rows.map(r => r.workspace)
+  const all = rows.map(r => r.workspace)
+  return user.allowWorkspaces ? all.filter(w => user.allowWorkspaces!.includes(w)) : all
 }
 
-/** Validate an optional workspace argument against what the person may read. */
+/**
+ * Workspaces a chat card may be filed in: member (or admin) AND granted to the
+ * bot. An unrestricted bot (predates access lists) keeps its old behaviour:
+ * only the chat's own workspace.
+ */
+function writableWorkspaces(user: ControlUser, chatWorkspace: string): string[] {
+  if (!user.allowWorkspaces) return chatWorkspace ? [chatWorkspace] : []
+  return visibleWorkspaces(user)
+}
+
+/**
+ * The workspaces this bot may work in WITH this person (person ∩ bot list), for
+ * the system prompt — never names a workspace the person cannot see. null =
+ * an unrestricted bot (no list to state).
+ */
+export function botWorkspacesForPerson(userId: number, agentSlug: string): string[] | null {
+  const user = boardUser({ userId, agent: { slug: agentSlug } })
+  if (!user) return []
+  if (!user.allowWorkspaces) return null
+  return visibleWorkspaces(user)
+}
+
+/** Validate an optional workspace argument against what the person — and this bot — may read. */
 function workspaceArg(user: ControlUser, raw: unknown): string | undefined {
   if (raw === undefined || raw === null) return undefined
   const ws = String(raw).trim()
   if (!ws || ws === 'all') return undefined
-  if (user.role === 'admin') return ws
+  if (user.role === 'admin' && !user.allowWorkspaces) return ws
   const mine = visibleWorkspaces(user)
   // Same answer whether or not the workspace exists: no existence oracle.
-  if (!mine.includes(ws)) throw new ToolUseError(`You can't see the "${ws}" board. Boards you can see: ${mine.join(', ') || '(none)'}.`)
+  if (!mine.includes(ws)) throw new ToolUseError(`You can't see the "${ws}" board from this chat. Boards you can see here: ${mine.join(', ') || '(none)'}.`)
   return ws
+}
+
+/** What a workspace-bound tool says when the bot and the person share no workspace. */
+function noWorkspaceMessage(ctx: Pick<ToolContext, 'agent'>): string {
+  return `${ctx.agent.name} has no workspace it may work in with you. An admin grants workspaces to this bot on its settings panel (Workspace access).`
 }
 
 export interface BoardCard {
@@ -497,7 +633,12 @@ export function listBoardCards(
 
   const vis = visibilityClause(user, workspace)
   if (!vis) {
-    return { scope, workspaces, counts: {}, total: 0, cards: [], truncated: false, empty: true, note: 'You are not a member of any workspace, so there is no board to read.' }
+    return {
+      scope, workspaces, counts: {}, total: 0, cards: [], truncated: false, empty: true,
+      note: user.allowWorkspaces && user.allowWorkspaces.length === 0
+        ? 'This bot has not been granted any workspace, so there is no board it may read. An admin grants workspaces on the bot\'s settings panel.'
+        : 'You are not a member of any workspace this bot may use, so there is no board to read.',
+    }
   }
   let statusSql: string
   let statusParams: unknown[]
@@ -556,10 +697,10 @@ export function getBoardCard(
   return { ...toBoardCard(row), summary: row.summary ?? null, ai_review_findings: row.ai_review_findings ?? null }
 }
 
-/** Card chips for chat messages: only cards the person can still see on the board. */
-export function visibleCardStatuses(userId: number, ids: number[]): ChatCardStatus[] {
+/** Card chips for chat messages: only cards the person can still see on the board, in a workspace the bot may still use. */
+export function visibleCardStatuses(userId: number, ids: number[], agentSlug?: string): ChatCardStatus[] {
   if (ids.length === 0) return []
-  const user = boardUser({ userId })
+  const user = boardUser({ userId, agent: agentSlug ? { slug: agentSlug } : undefined })
   if (!user) return []
   const vis = visibilityClause(user)
   if (!vis) return []
@@ -650,6 +791,7 @@ const SECRET_USE_RATE = () => Number(process.env.CC_SECRETS_BROKER_RATE_PER_MIN)
  */
 async function runSecretTool(ctx: ToolContext, fnName: 'secrets_list' | 'secret_http', args: Record<string, unknown>): Promise<ToolOutcome> {
   if (!agentHasTool(ctx.agent, 'secrets')) throw new ToolUseError(`Tool "${fnName}" is not allowed for this agent.`)
+  if (!ctx.workspace) throw new ToolUseError(noWorkspaceMessage(ctx))
   const role = (getDb().prepare('SELECT role FROM users WHERE id = ?').get(ctx.userId) as { role?: string } | undefined)?.role
   if (role !== 'admin' && !userHasWorkspace(ctx.userId, ctx.workspace)) {
     throw new ToolUseError(`You are not a member of workspace '${ctx.workspace}', so no secrets are available here.`)
@@ -711,7 +853,13 @@ export function runTool(ctx: ToolContext, fnName: string, args: Record<string, u
     }
     case 'list_folders': {
       const p = s(args, 'path')
-      if (!p) return { result: { folders: ctx.agent.knowledge_folders }, summary: 'Listed knowledge folders' }
+      const guard = kbWorkspaceGuard(ctx)
+      const kbRootAbs = path.resolve(ctx.kbRoot)
+      if (!p) {
+        // obj 900797: a knowledge folder inside a workspace the bot is not granted is not shown.
+        const folders = ctx.agent.knowledge_folders.filter(f => !guard.deniedWorkspace(path.resolve(kbRootAbs, f)))
+        return { result: { folders }, summary: 'Listed knowledge folders' }
+      }
       const { abs, rel } = resolveKnowledgePath(ctx, p)
       let entries: fs.Dirent[] = []
       try {
@@ -719,7 +867,9 @@ export function runTool(ctx: ToolContext, fnName: string, args: Record<string, u
       } catch {
         throw missingPathError(ctx, 'Folder', rel)
       }
-      const items = entries.filter(e => !e.name.startsWith('.')).map(e => ({ name: e.name, type: e.isDirectory() ? 'folder' : 'file' }))
+      const items = entries
+        .filter(e => !e.name.startsWith('.') && !guard.deniedWorkspace(path.join(abs, e.name)))
+        .map(e => ({ name: e.name, type: e.isDirectory() ? 'folder' : 'file' }))
       return { result: { path: rel, items }, summary: `Opened folder ${rel}` }
     }
     case 'read_file': {
@@ -745,6 +895,7 @@ export function runTool(ctx: ToolContext, fnName: string, args: Record<string, u
     }
     case 'file_answer': {
       if (!ingestEnabled()) throw new ToolUseError('The knowledge base is switched off on this install.')
+      if (!ctx.workspace) throw new ToolUseError(noWorkspaceMessage(ctx))
       const sources = Array.isArray(args.sources) ? args.sources.filter((x): x is string => typeof x === 'string') : []
       let saved: { rel: string; title: string }
       try {
@@ -756,8 +907,8 @@ export function runTool(ctx: ToolContext, fnName: string, args: Record<string, u
     }
     case 'create_objective': {
       const title = s(args, 'title', true)
-      const card = createCard(ctx, title, s(args, 'description'))
-      return { result: { id: card.id, status: card.status, note: card.note ?? 'Card is on the board. Tell the person its number.' }, summary: `Created card #${card.id}: ${title}`, objective_id: card.id }
+      const card = createCard(ctx, title, s(args, 'description'), args.workspace)
+      return { result: { id: card.id, status: card.status, workspace: card.workspace, note: card.note ?? 'Card is on the board. Tell the person its number.' }, summary: `Created card #${card.id}: ${title}`, objective_id: card.id }
     }
     case 'get_objective': {
       const id = Number(args.id)

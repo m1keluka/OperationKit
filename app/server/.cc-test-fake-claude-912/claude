@@ -1,0 +1,36 @@
+#!/usr/local/bin/node
+const fs = require('fs'), path = require('path')
+const START = Date.now()
+if (process.argv[2] === '--probe') { console.log('fake-claude'); process.exit(0) }
+const cfg = JSON.parse(fs.readFileSync("/tmp/cc-chat-seats-0s5JFy/behaviour.json", 'utf8'))
+const token = process.env.CLAUDE_CODE_OAUTH_TOKEN || ''
+const who = cfg.labels[token] || (token ? 'unknown' : 'none')
+const home = process.env.HOME
+const out = o => process.stdout.write(JSON.stringify(o) + '\n')
+const log = extra => fs.appendFileSync("/tmp/cc-chat-seats-0s5JFy/calls.jsonl", JSON.stringify({ who, home, pid: process.pid, t: START, ...extra }) + '\n')
+let stdin = ''
+process.stdin.on('data', d => { stdin += d })
+process.stdin.on('end', () => {
+  // The CLI rewrites its config in HOME on every start. Two turns sharing one
+  // HOME is the clobber this objective removes: fail loudly if it happens.
+  const marker = path.join(home, '.claude.json')
+  const shared = fs.existsSync(marker)
+  fs.writeFileSync(marker, JSON.stringify({ pid: process.pid }))
+  if (!token || cfg.notLoggedIn.includes(who) || shared) {
+    log({ outcome: shared ? 'shared-home' : 'not-logged-in' })
+    out({ type: 'assistant', message: { content: [{ type: 'text', text: 'Not logged in · Please run /login' }] } })
+    out({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login', usage: {} })
+    process.exit(1)
+  }
+  if (cfg.rateLimited.includes(who)) {
+    log({ outcome: 'rate-limited' })
+    out({ type: 'result', subtype: 'error', is_error: true, result: "You've hit your usage limit", usage: {} })
+    process.exit(1)
+  }
+  setTimeout(() => {
+    log({ outcome: 'ok', end: Date.now() })
+    out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Answered by ' + who } } })
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'Answered by ' + who, usage: { input_tokens: 10, output_tokens: 5 }, total_cost_usd: 0 })
+    process.exit(0)
+  }, 250)
+})

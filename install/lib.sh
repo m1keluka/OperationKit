@@ -122,6 +122,19 @@ conf_validate() {
     || die "set ACCESS_ALLOWED_EMAILS or ACCESS_ALLOWED_EMAIL_DOMAIN — otherwise nobody could open the site"
   case "$(conf CLAUDE_AUTH login)" in login|api-key) ;; *) die "CLAUDE_AUTH must be login or api-key" ;; esac
   case "$(conf SESSION_ISOLATION docker)" in docker|tmux) ;; *) die "SESSION_ISOLATION must be docker or tmux" ;; esac
+  # Card browser lockdown (obj 900024). A typo in one of these would otherwise
+  # be read as "off" by the app and silently drop a control, so validate here.
+  local _bk
+  for _bk in BROWSER_SANDBOX BROWSER_EGRESS_GUARD BROWSER_ALLOW_LOOPBACK BROWSER_ALLOW_PRIVATE_NETWORK; do
+    case "$(conf "$_bk" on)" in on|yes|1|true|off|no|0|false) ;; *) die "$_bk must be on or off (got '$(conf "$_bk")')" ;; esac
+  done
+  # Say it out loud rather than letting an install quietly run unsandboxed.
+  case "$(conf BROWSER_SANDBOX on)" in off|no|0|false)
+    log "  WARNING: BROWSER_SANDBOX is off — the card browser runs with NO operating-system sandbox." ;;
+  esac
+  case "$(conf BROWSER_ALLOW_PRIVATE_NETWORK off)" in on|yes|1|true)
+    log "  WARNING: BROWSER_ALLOW_PRIVATE_NETWORK is on — the card browser may reach this server's private network." ;;
+  esac
   local a
   IFS=',' read -r -a _agents <<< "$(conf AGENTS_ENABLED general)"
   for a in "${_agents[@]}"; do

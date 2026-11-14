@@ -8,10 +8,10 @@ import type { ObjectiveStatus, AgentRow, MessageSender } from '@operationkit/sha
 // ── Status meta ──────────────────────────────────────────
 
 export const STATUS_META: Record<ObjectiveStatus, { label: string; tw: string; tone: string }> = {
-  planning:  { label: 'Plan',    tw: 'bg-status-planning', tone: 'text-status-planning' },
+  planning:  { label: 'Planning', tw: 'bg-status-planning', tone: 'text-status-planning' },
   queue:     { label: 'Queue',   tw: 'bg-status-queue',    tone: 'text-status-queue' },
   working:   { label: 'Working', tw: 'bg-status-working',  tone: 'text-status-working' },
-  ai_review: { label: 'AI Rev',  tw: 'bg-status-ai',       tone: 'text-status-ai' },
+  ai_review: { label: 'AI review', tw: 'bg-status-ai',       tone: 'text-status-ai' },
   review:    { label: 'Needs You', tw: 'bg-status-human', tone: 'text-status-human' },
   done:      { label: 'Done',    tw: 'bg-status-done',     tone: 'text-status-done' },
   cancelled: { label: 'Retired', tw: 'bg-status-cancelled', tone: 'text-status-cancelled' },

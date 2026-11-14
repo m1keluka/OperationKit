@@ -35,7 +35,7 @@ export function NoAccountPage() {
           </p>
           <p className="text-sm text-fg-2">
             Ask your admin to {ambiguous ? 'fix the email on those accounts' : 'add you, or link this email to your account'} in
-            Settings → Users.
+            Settings → Workspaces → Users.
           </p>
 
           <div className="flex flex-col gap-2 pt-1">

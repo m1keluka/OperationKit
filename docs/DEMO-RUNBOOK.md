@@ -30,7 +30,7 @@ Server B. If anything goes wrong on Server A, the demo still works entirely on S
    press **Add agent** on **Personal assistant**, **Knowledge librarian** and **Operator**.
 3. **Server B: import the sample files once,** so you know the timing and have a loaded knowledge
    base ready: **Knowledge base → Import files → Add the 4 sample files**. Wait until all four say
-   **Done** (the spreadsheet takes a few minutes). Then create a **second workspace** in **Settings → Org** (for example
+   **Done** (the spreadsheet takes a few minutes). Then create a **second workspace** in **Settings → Workspaces** (for example
    `live-demo`) that is still empty: that is where you import live.
 4. **Server B: seed the assistant.** Open **Chat → Personal assistant** and send:
    *"Add these to my to-do list: call Maple Street Dental about the walkthrough, update the

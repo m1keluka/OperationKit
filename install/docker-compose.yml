@@ -100,6 +100,18 @@ services:
       # sign-in page. Empty (--skip-cloudflare) = password sign-in only.
       OK_CF_ACCESS_TEAM: ${OK_CF_ACCESS_TEAM:-}
       OK_CF_ACCESS_AUD: ${OK_CF_ACCESS_AUD:-}
+      # Card browser lockdown (obj 900024; app/server/src/lib/browser-policy.ts).
+      # Defaults here are the LOCKED-DOWN ones: sandbox on, egress guard on,
+      # no private network, no cloud metadata. install.sh writes the OK_BROWSER_*
+      # values from client.conf; an unset variable keeps the safe default.
+      CARD_BROWSER_SANDBOX: ${OK_BROWSER_SANDBOX:-on}
+      CARD_BROWSER_EGRESS_GUARD: ${OK_BROWSER_EGRESS_GUARD:-on}
+      CARD_BROWSER_ALLOWED_ORIGINS: ${OK_BROWSER_ALLOWED_ORIGINS:-}
+      CARD_BROWSER_BLOCKED_ORIGINS: ${OK_BROWSER_BLOCKED_ORIGINS:-}
+      CARD_BROWSER_ALLOW_LOOPBACK: ${OK_BROWSER_ALLOW_LOOPBACK:-on}
+      CARD_BROWSER_ALLOW_PRIVATE_NETWORK: ${OK_BROWSER_ALLOW_PRIVATE_NETWORK:-off}
+      CARD_BROWSER_ALLOW_METADATA: "off"
+      OK_DOMAIN: ${OK_DOMAIN:-localhost}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     healthcheck:

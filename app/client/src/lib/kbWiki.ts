@@ -96,6 +96,8 @@ export interface WikiSettings {
   lint_hour_utc: number
   lint_stale_days: number
   lint_ai_pages: number
+  /** Folders the link graph leaves out (obj 900815): folder names (any depth) or KB-relative paths. */
+  graph_exclude?: string[]
 }
 
 // ── Paths ────────────────────────────────────────────────────────────────────
@@ -343,7 +345,8 @@ export interface WorkspaceGraphResponse {
   root?: string
   nodes: WorkspaceGraphNode[]
   links: WorkspaceGraphLink[]
-  counts: { pages: number; links: number; isolated: number; by_kind: Record<string, number> }
+  /** unresolved: links written on a page that match no page (obj 900815; listed by GET /api/kb-wiki/graph/unresolved). */
+  counts: { pages: number; links: number; isolated: number; unresolved?: number; by_kind: Record<string, number> }
   truncated: boolean
 }
 

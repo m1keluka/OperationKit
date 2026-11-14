@@ -51,6 +51,8 @@ export interface ReviewItem {
   decision_channel: DecisionChannel | null
   decision_token: string | null
   withdrawn_reason: string | null
+  /** Who must act (obj 900795): `human:<user>` / `agent:<bot>`. NULL = the human queue. */
+  routed_to: string | null
   created_at: string
   updated_at: string
 }
@@ -72,6 +74,23 @@ export interface CreateReviewItemInput {
   options?: DecisionChoice[]
   depends_on_item_id?: number | null
   actor?: string
+  /**
+   * Who must act on it (obj 900795), typed like `waiting_on`: `human:<user>` or
+   * `agent:<bot slug>`. Omitted/null = the human queue, exactly as before. When
+   * an existing live item is re-surfaced with a DIFFERENT routing, it is
+   * re-routed in place and the change is audited (`rerouted`).
+   */
+  routed_to?: string | null
+}
+
+const ROUTED_TO = /^(human|agent)(:[a-z0-9][a-z0-9_.@-]{0,79})?$/i
+
+function routedTo(v: string | null | undefined): string | null {
+  if (v == null) return null
+  const t = v.trim()
+  if (!t) return null
+  if (!ROUTED_TO.test(t)) throw new ReviewItemError('routed_to must be human[:<user>] or agent[:<bot slug>]')
+  return t
 }
 
 const DEFAULT_OPTIONS: DecisionChoice[] = ['approve', 'changes', 'reject', 'snooze']
@@ -160,6 +179,14 @@ export function createReviewItem(
   const eventId = input.created_from_event_id?.trim() || null
   const options = (input.options ?? DEFAULT_OPTIONS).filter((o) => DEFAULT_OPTIONS.includes(o))
   const actor = input.actor ?? 'server'
+  const route = routedTo(input.routed_to)
+  // Re-route a live item whose target changed (e.g. the owning bot stopped
+  // waking, so the flag must now go to a human). Only when the caller routes.
+  const reroute = (row: ReviewItemRow): void => {
+    if (input.routed_to === undefined || (row.routed_to ?? null) === route) return
+    db.prepare('UPDATE review_items SET routed_to = ?, updated_at = ? WHERE id = ?').run(route, nowIso(now), row.id)
+    audit(db, row.id, 'rerouted', actor, `${row.routed_to ?? 'human queue'} -> ${route ?? 'human queue'}`)
+  }
 
   const tx = db.transaction((): { item: ReviewItem; created: boolean } => {
     // Same source event → the item already exists. Refresh the mutable framing
@@ -176,6 +203,7 @@ export function createReviewItem(
                       WHERE id = ?`)
             .run(ask, JSON.stringify(options), input.lead ?? null, input.depends_on_item_id ?? null, nowIso(now), existing.id)
           audit(db, existing.id, 'replayed', actor, `event ${eventId} re-delivered; item updated in place`)
+          reroute(existing)
         } else {
           audit(db, existing.id, 'replayed', actor, `event ${eventId} re-delivered after state=${existing.state}; ignored`)
         }
@@ -190,6 +218,7 @@ export function createReviewItem(
     if (live) {
       audit(db, live.id, 'escalated', actor, eventId ? `collapsed event ${eventId} into live item` : 'duplicate ask collapsed')
       db.prepare('UPDATE review_items SET updated_at = ? WHERE id = ?').run(nowIso(now), live.id)
+      reroute(live)
       return { item: getReviewItem(db, live.id)!, created: false }
     }
 
@@ -205,9 +234,9 @@ export function createReviewItem(
 
     const info = db.prepare(
       `INSERT INTO review_items (workspace, objective_id, lead, kind, ask, options, dedupe_key,
-                                 created_from_event_id, state, depends_on_item_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(workspace, input.objective_id, input.lead ?? null, kind, ask, JSON.stringify(options), dedupeKey, eventId, state, dep, nowIso(now), nowIso(now))
+                                 created_from_event_id, state, depends_on_item_id, routed_to, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(workspace, input.objective_id, input.lead ?? null, kind, ask, JSON.stringify(options), dedupeKey, eventId, state, dep, route, nowIso(now), nowIso(now))
     const id = Number(info.lastInsertRowid)
     audit(db, id, 'created', actor, eventId ? `from event ${eventId}` : 'filed directly')
     return { item: getReviewItem(db, id)!, created: true }
@@ -521,6 +550,13 @@ export interface ListReviewItemsOptions {
   workspace?: string
   objective_id?: number
   states?: ReviewItemState[]
+  /**
+   * Routing filter (obj 900795). `'human'` = the human queue (NULL or any
+   * `human:*`); any other value is an exact match, e.g. `agent:sales-bot`.
+   */
+  routed_to?: string
+  /** Only items whose dedupe_key starts with this prefix, e.g. `supervisor:`. */
+  dedupe_prefix?: string
   limit?: number
 }
 
@@ -542,6 +578,16 @@ export function listReviewItems(db: Database.Database, opts: ListReviewItemsOpti
   if (opts.objective_id != null) {
     where.push('objective_id = ?')
     params.push(opts.objective_id)
+  }
+  if (opts.routed_to === 'human') {
+    where.push("(routed_to IS NULL OR routed_to = 'human' OR routed_to LIKE 'human:%')")
+  } else if (opts.routed_to) {
+    where.push('routed_to = ?')
+    params.push(opts.routed_to)
+  }
+  if (opts.dedupe_prefix) {
+    where.push('substr(dedupe_key, 1, ?) = ?')
+    params.push(opts.dedupe_prefix.length, opts.dedupe_prefix)
   }
   const states = opts.states ?? ['open']
   where.push(`state IN (${states.map(() => '?').join(',')})`)

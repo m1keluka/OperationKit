@@ -8,6 +8,7 @@ import { getDocRoots, getWorkspaceSlugs } from '../services/workspaces.js'
 import { searchKnowledge } from '../services/knowledge-search.js'
 import { allWorkspaceKbRoots, knowledgeBaseRoot, workspaceKbRoot } from '../services/doc-ingest/kb-paths.js'
 import { pathWorkspaceResolver, workspaceOfPath, type PathWorkspace } from '../lib/doc-path-workspace.js'
+import { noteKbFileWritten } from '../services/kb-wiki/graph-sync.js'
 
 const router = Router()
 // obj 900204: card sessions authenticate with their objective-scoped
@@ -454,6 +455,9 @@ router.put('/file', (req: AuthRequest, res) => {
     fs.writeFileSync(resolved, content, 'utf-8')
     const stat = fs.statSync(resolved)
     res.json({ ok: true, path: resolved, size: stat.size, modifiedAt: stat.mtime.toISOString() })
+    // obj 900815: a plain write (the editor, MCP write_doc, a card session) reindexes that
+    // one page in its workspace's link graph — after the response, so the save never waits.
+    setImmediate(() => { noteKbFileWritten(resolved) })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Write failed'
     res.status(500).json({ error: message })

@@ -1195,12 +1195,23 @@ export const AGENT_OPENAPI = {
     '/api/kb-wiki/graph': {
       get: {
         tags: ['vault'],
-        summary: 'The whole knowledge base as one graph (obj 900674): every page, and one link per pair of connected pages with how they connect (vault:read)',
+        summary: 'The whole knowledge base as one graph (obj 900674): every markdown page in the workspace knowledge folder (obj 900815; kind = its top folder), and one link per pair of connected pages with how they connect (vault:read)',
         parameters: [
           { name: 'workspace', in: 'query', required: true, schema: { type: 'string' } },
           { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 2000, default: 2000 }, description: 'Keep at most this many pages, best connected first' },
         ],
-        responses: { '200': { description: '{ root, nodes: [{ rel, title, kind, degree }], links: [{ a, b, kinds, label, weight }], counts: { pages, links, isolated, by_kind }, truncated }' }, '404': { description: 'Knowledge base switched off' } },
+        responses: { '200': { description: '{ root, nodes: [{ rel, title, kind, degree }], links: [{ a, b, kinds, label, weight }], counts: { pages, links, isolated, unresolved, by_kind }, truncated }' }, '404': { description: 'Knowledge base switched off' } },
+      },
+    },
+    '/api/kb-wiki/graph/unresolved': {
+      get: {
+        tags: ['vault'],
+        summary: 'Links written on knowledge-base pages that match no indexed page (obj 900815), grouped by target, most-written first (vault:read)',
+        parameters: [
+          { name: 'workspace', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 1000, default: 200 } },
+        ],
+        responses: { '200': { description: '{ total, targets: [{ target, count, from }] }' }, '404': { description: 'Knowledge base switched off' } },
       },
     },
     '/api/kb-wiki/graph/related': {

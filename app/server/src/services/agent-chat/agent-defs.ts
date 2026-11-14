@@ -52,6 +52,8 @@ export interface ChatAgent {
   file: string
   /** What the file says before an admin's bot-page overrides (obj 900671). Set by listAgents. */
   file_defaults?: BotFileDefaults
+  /** The name the agent file gives, when an admin renamed the bot (obj 900798). Set by listAgents. */
+  file_name?: string
   /** The admin's bot-page overrides, or null when the bot is exactly its file (obj 900671). */
   config?: BotConfig | null
 }

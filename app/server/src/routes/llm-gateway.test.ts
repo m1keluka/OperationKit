@@ -97,11 +97,11 @@ describe('auth + kill switch', () => {
 })
 
 describe('GET /models', () => {
-  it('lists the 3 model ids in OpenAI list shape', async () => {
+  it('lists the 4 model ids in OpenAI list shape (Claude Fable 5.2 added, obj 900796)', async () => {
     resetEnv()
     const body = await (await fetch(`${base}/models`, { headers: auth })).json()
     expect(body.object).toBe('list')
-    expect(body.data.map((m: any) => m.id)).toEqual(['claude-sonnet-5', 'claude-opus-5-5', 'claude-haiku-4-5-20251001'])
+    expect(body.data.map((m: any) => m.id)).toEqual(['claude-sonnet-5', 'claude-opus-5-5', 'claude-fable-5-2', 'claude-haiku-4-5-20251001'])
     expect(body.data.every((m: any) => m.object === 'model')).toBe(true)
   })
 })

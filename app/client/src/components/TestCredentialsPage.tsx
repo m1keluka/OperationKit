@@ -104,7 +104,7 @@ export function TestCredentialsPage({ embedded = false }: { embedded?: boolean }
   if (adminWorkspaces.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-fg-3 text-sm">
-        Organization admin role required to manage test credentials.
+        Workspace admin role required to manage test credentials.
       </div>
     )
   }
@@ -138,7 +138,7 @@ export function TestCredentialsPage({ embedded = false }: { embedded?: boolean }
                 <tr className="text-left text-xs text-fg-2">
                   <th className="px-3 py-2 font-medium">Slug</th>
                   <th className="px-3 py-2 font-medium">Label</th>
-                  <th className="px-3 py-2 font-medium">Organization</th>
+                  <th className="px-3 py-2 font-medium">Workspace</th>
                   <th className="px-3 py-2 font-medium">Project</th>
                   <th className="px-3 py-2 font-medium">Login URL</th>
                   <th className="px-3 py-2 font-medium">Updated</th>
@@ -171,7 +171,7 @@ export function TestCredentialsPage({ embedded = false }: { embedded?: boolean }
                 <tr className="text-left text-xs text-fg-2">
                   <th className="px-3 py-2 font-medium">Slug</th>
                   <th className="px-3 py-2 font-medium">Label</th>
-                  <th className="px-3 py-2 font-medium">Organization</th>
+                  <th className="px-3 py-2 font-medium">Workspace</th>
                   <th className="px-3 py-2 font-medium">Project</th>
                   <th className="px-3 py-2 font-medium">Login URL</th>
                   <th className="px-3 py-2 font-medium">Updated</th>
@@ -331,7 +331,7 @@ function TestCredentialModal({ existing, adminWorkspaces, onClose, onSaved }: Mo
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-fg-2">Organization</label>
+              <label className="mb-1 block text-xs text-fg-2">Workspace</label>
               <select
                 value={workspace}
                 onChange={e => setWorkspace(e.target.value)}

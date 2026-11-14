@@ -117,6 +117,9 @@ describe('Secrets — security strip, bot access, search (obj 900749)', () => {
     await flush()
     const modal = container.querySelector('[data-testid="bot-access-modal"]') as HTMLFormElement
     expect(modal.textContent).toContain('{{secret:STRIPE_KEY}}')
+    // obj 900758: the UI says workspace, not organization.
+    expect(modal.textContent).toContain('Workspaces whose bots may use it')
+    expect(modal.textContent).not.toMatch(/organi[sz]ation/i)
     flushSync(() => setValue(container.querySelector('[data-testid="bot-access-hosts"]') as HTMLTextAreaElement, 'api.stripe.com'))
     const orgBox = Array.from(container.querySelectorAll('[data-testid="bot-access-orgs"] label')).find(l => l.textContent?.includes('OperationKit'))!.querySelector('input')!
     flushSync(() => orgBox.click())

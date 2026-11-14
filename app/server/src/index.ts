@@ -35,6 +35,7 @@ import internalRouter from './routes/internal.js'
 import internalVaultRouter from './routes/internal-vault.js'
 import alertsRouter from './routes/alerts.js'
 import internalRoutinesRouter from './routes/internal-routines.js'
+import internalSupervisorRouter from './routes/internal-supervisor.js'
 import internalPostHogHotOwnerRouter from './routes/internal-posthog-hot-owner.js'
 import starterPacksRouter, { internalStarterPacksRouter } from './routes/starter-packs.js'
 import internalInstallRouter from './routes/internal-install.js'
@@ -98,7 +99,9 @@ import { isOllamaReachable } from './services/session-intel-summary.js'
 import { prewarmSessionOutputs } from './services/stream-parser.js'
 import { startDreamCycleScheduler } from './services/dream-cycle.js'
 import { startRoutineScheduler } from './services/routine-scheduler.js'
-import { resyncHighAgencyRoutines } from './services/agent-chat/high-agency.js'
+import { resyncHighAgencyRoutines, startHighAgencyCronRefresh } from './services/agent-chat/high-agency.js'
+import { startHighAgencySupervisor } from './services/high-agency-supervisor-scheduler.js'
+import { seedExistingBotsOnce } from './services/agent-chat/bot-workspaces.js'
 import { listAgents } from './services/agent-chat/engine.js'
 import { startFlowEngine } from './services/flow-engine.js'
 import { startCanaryHarnessScheduler } from './services/canary-harness.js'
@@ -111,6 +114,8 @@ import { startDriftGuard } from './services/drift-guard.js'
 import { startObjectivesSafety } from './services/objectives-safety.js'
 import { startPrHealthWatchdog } from './services/pr-health-watchdog.js'
 import { startHostBootDaemons } from './services/host-boot-daemons.js'
+import { startSharedBrowserEgressProxy } from './services/browser-egress-proxy.js'
+import { resolveBrowserPolicy } from './lib/browser-policy.js'
 import { startN8nWatchdog } from './services/n8n-watchdog.js'
 import { startSlotHealthCheck } from './services/account-health-check.js'
 import { startDiskWatchdog } from './services/disk-watchdog.js'
@@ -263,6 +268,7 @@ app.use('/api/internal', internalRouter)  // /api/internal/deploy, /restart, /ob
 app.use('/api/internal', internalVaultRouter)  // /api/internal/vault/*, /contactbook/history — telegram-contactbook sibling (localhost)
 app.use('/api/alerts', alertsRouter)  // ingest (bearer) + list/ack (JWT) — AlertBell + notify-failure.sh
 app.use('/api/internal/routines', internalRoutinesRouter)  // routines CRUD + run-now (localhost-only)
+app.use('/api/internal/supervisor', internalSupervisorRouter)  // High Agency supervisor: status, routed flags, preview, run-now (obj 900795)
 app.use('/api/internal/posthog-hot-owner-sync', internalPostHogHotOwnerRouter)  // status + run-now + enabled flag (localhost-only; obj 900091)
 app.use('/api/internal/install', internalInstallRouter)  // installer: reload caches after bootstrap, seat status for verify.sh (localhost + secret; obj 720210)
 app.use('/api/internal/starter-packs', internalStarterPacksRouter)  // starter-pack switch-on for scripts/starter-pack.sh (localhost + secret; obj 719936)
@@ -443,6 +449,18 @@ app.get('*', (_req, res) => {
 initWebSocket(server)
 console.log('WebSocket server initialized')
 
+// obj 900797: per-bot workspace access lists. The FIRST boot with this code
+// marks every bot that already exists as 'unrestricted' (today's access, no
+// workspace granted) so nothing breaks; admins then restrict each bot. A bot
+// added after that boot has no row and starts with NO workspace (fail-closed).
+// A DB write, not a daemon, so it also runs on a scratch instance (its own DB).
+try {
+  const seeded = seedExistingBotsOnce(listAgents().agents.map(a => a.slug))
+  if (seeded) console.log(`[bot-workspaces] ${seeded} existing bot(s) keep today's workspace access until an admin restricts them`)
+} catch (err) {
+  console.warn('[bot-workspaces] one-time seed failed (bots without a row stay fail-closed):', err instanceof Error ? err.message : err)
+}
+
 // Host daemons run ONLY on the real host instance (obj 900547). A scratch / dev
 // copy of this server booted inside a session jail (e.g. for screenshots) used to
 // run all of them — and the state poller's orphan-tmux sweep killed the worker's
@@ -464,14 +482,24 @@ if (scratchVerdict.scratch) {
 
   // Start routines scheduler (cron-scheduled recurring objectives, 60s tick)
   // obj 900748: refresh each High Agency wake routine from the current bot files
-  // (brief + cadence only; a paused routine stays paused).
+  // (brief + schedule only; a paused routine stays paused).
   try {
     const ha = resyncHighAgencyRoutines(listAgents().agents)
     if (ha.synced || ha.disabled) console.log(`[high-agency] resynced ${ha.synced} bot wake routine(s), switched off ${ha.disabled} for removed bots`)
   } catch (err) {
     console.warn('[high-agency] boot resync failed:', err instanceof Error ? err.message : err)
   }
+  // obj 900794: wakes are scheduled in the install timezone; the routine
+  // scheduler matches cron in server time, so re-derive each wake cron every
+  // few minutes (moves it with a DST change; touches cron_expr only).
+  startHighAgencyCronRefresh()
   startRoutineScheduler()
+  // High Agency supervisor (obj 900795): once a day, review every High Agency
+  // bot's cards for orphaned / duplicate / stalled / over-budget work and route
+  // each flag (a review_item) to the owning bot or to Operator. Deterministic, no
+  // model call; reads the board and writes review_items only. Kill switch:
+  // settings.high_agency_supervisor_enabled = '0'.
+  startHighAgencySupervisor()
   // Workflow engine (obj 900638, docs/design/WORKFLOWS.md §4). Arms its 2s tick here
   // (never on a scratch instance — startFlowEngine re-checks); every tick is a
   // heartbeat-only no-op until settings.flows_enabled = '1' (default '0' until B4).
@@ -653,6 +681,15 @@ server.listen(PORT, () => {
   // Scratch instance (obj 900547): no background sweeps, ledger rebuilds or sibling
   // bots — a screenshot server only needs to answer HTTP.
   if (scratchVerdict.scratch) return
+  // Card-browser egress guard (obj 900024/900791). Every Playwright/Chromium session
+  // this process registers is pointed at it with --proxy-server, so it has to
+  // be listening BEFORE the first reviewer spawn. A failure here is logged and
+  // left non-fatal for the app as a whole, but writeReviewerPlaywrightMcpConfig
+  // then refuses to register a browser at all rather than registering an
+  // unrestricted one — fail closed, not fail quiet.
+  void startSharedBrowserEgressProxy(resolveBrowserPolicy()).catch((err) => {
+    console.error('[card-browser] egress guard failed to start:', (err as Error).message)
+  })
   // Telegram contactbook sibling — no-ops unless TELEGRAM_BOT_TOKEN + OWNER_ID are set.
   startContactbookSibling()
   // Installer switch (obj 719986): STARTER_AGENT_TEMPLATES=all|slug,slug installs

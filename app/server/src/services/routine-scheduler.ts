@@ -1,3 +1,4 @@
+import { highAgencyFireRefusal } from './agent-chat/bot-workspaces.js'
 import { resolveWriteWorkspace } from './workspaces.js'
 import { getDb, resolveStrategyId } from '../db/index.js'
 import { broadcast } from '../ws/index.js'
@@ -440,6 +441,17 @@ async function fireAiRoutine(
   escalation?: ScriptEscalation,
 ): Promise<FireResult> {
   const db = getDb()
+
+  // Bot workspace guard (obj 900797) — a High Agency wake (routine
+  // `high-agency:<slug>`) files its card in the template's workspace, which must
+  // be one the bot is granted. Applies to run-now too: "Wake now" must not land
+  // in a revoked workspace either.
+  const botRefusal = highAgencyFireRefusal(routine)
+  if (botRefusal) {
+    console.warn(`[routines] '${routine.name}' (#${routine.id}) refused: ${botRefusal}`)
+    lastSkipReason.set(routine.id, botRefusal)
+    return { ok: false, reason: botRefusal }
+  }
 
   // Over-fire guard — EVERY automatic fire path (fresh card AND stranded-card retry)
   // goes through here, so it sits first. An explicit 'run-now' (admin/internal route,

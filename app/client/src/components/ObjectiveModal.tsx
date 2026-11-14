@@ -183,7 +183,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
 
   async function submit(force: boolean) {
     if (!objWorkspace) {
-      setError('Pick an organization')
+      setError('Pick a workspace')
       return
     }
     const owner = validateOwnerBot(ownerBot)
@@ -352,7 +352,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
           </div>
 
           <div>
-            <label className={labelCls}>Organization</label>
+            <label className={labelCls}>Workspace</label>
             <select
               value={objWorkspace}
               onChange={e => setObjWorkspace(e.target.value)}
@@ -361,7 +361,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
               aria-invalid={!objWorkspace}
             >
               <option value="" disabled>
-                Select organization…
+                Select workspace…
               </option>
               {workspaceOptions.map(ws => (
                 <option key={ws} value={ws}>{labelOf(ws)}</option>
@@ -419,7 +419,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
                   type="button"
                   onClick={() => { setCreatingProject(true); setNewProjectName('') }}
                   aria-label="New project"
-                  title="Create a project in this organization"
+                  title="Create a project in this workspace"
                   className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line px-2.5 py-2 text-[12.5px] text-fg-2 transition-colors duration-fast ease-out hover:border-line-strong hover:text-fg-0"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -455,7 +455,7 @@ function ObjectiveModalImpl({ objective, workspace, onClose, onCreate, onUpdate,
               value={ownerBot}
               onChange={e => setOwnerBot(e.target.value)}
               maxLength={OWNER_BOT_MAX_LENGTH}
-              placeholder="Unowned — e.g. Grok: Research"
+              placeholder="Unowned — e.g. Research bot"
               className={fieldCls}
               autoComplete="off"
             />

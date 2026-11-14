@@ -1,6 +1,6 @@
 /**
  * obj 719065 — the two inputs every in-chat secret form shares: a scope picker
- * (Organization = the card's workspace, Command Center, Organization + me) and
+ * (Workspace = the card's workspace, Everywhere, Workspace + me) and
  * a masked value field. Labels come from the Settings → Secrets vocabulary so
  * the chat and the settings page say the same thing.
  */
@@ -11,7 +11,7 @@ import { SCOPE_HINTS, SCOPE_LABELS } from '../secrets/scope'
 const SHORT_LABEL: Record<SecretRequestScope, string> = {
   workspace: SCOPE_LABELS.workspace,
   global: SCOPE_LABELS.global,
-  workspace_user: 'Org + me',
+  workspace_user: 'Workspace + me',
 }
 
 export function SecretScopePicker({ id, value, onChange, workspace, disabled }: {
@@ -45,7 +45,7 @@ export function SecretScopePicker({ id, value, onChange, workspace, disabled }: 
       </div>
       <p id={`${id}-hint`} className="text-[12px] leading-snug text-fg-2">
         {value === 'workspace' ? (
-          <>Only the <span className="font-medium text-fg-1">{workspace}</span> organization. {SCOPE_HINTS.workspace}</>
+          <>Only the <span className="font-medium text-fg-1">{workspace}</span> workspace. {SCOPE_HINTS.workspace}</>
         ) : value === 'workspace_user' ? (
           <>Only you, only inside <span className="font-medium text-fg-1">{workspace}</span>.</>
         ) : (

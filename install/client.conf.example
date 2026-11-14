@@ -158,3 +158,40 @@ JAIL_CLAUDE_TMPDIR=""
 # empty: the installer detects docker0's gateway (normally 172.17.0.1). Must be a
 # private address — the app is never published on the server's public address.
 DOCKER_BRIDGE_IP=""
+
+# ── Card browser (Playwright / Chromium) ──────────────────────────────────────
+# Review and QA sessions drive a real Chromium to look at pages. That browser
+# runs inside the app's container, so a hostile page that breaks out of it would
+# land next to the secrets store and the AI seat logins. Three controls keep it
+# boxed in; all three are ON by default and you normally change none of them.
+#
+# Out of the box the browser may open: this install's own site (DOMAIN above),
+# and anything on localhost (the preview servers sessions start). EVERYTHING
+# else — including the cloud metadata address and the rest of your private
+# network — is refused, and the refusal is written to the app's log.
+#
+# Add the extra sites your team's reviews need, separated by semicolons. A
+# leading *. matches sub-domains. Examples:
+#   BROWSER_ALLOWED_ORIGINS="https://*.vercel.app;https://staging.example.com"
+BROWSER_ALLOWED_ORIGINS=""
+
+# Sites to refuse even if one of the rules above would otherwise allow them.
+# Checked first, so it always wins.
+BROWSER_BLOCKED_ORIGINS=""
+
+# Let the browser reach other machines on this server's private network
+# (10.x, 192.168.x, 172.16-31.x). "off" is the default and the safe answer: turn
+# it on only if your reviews have to open an internal staging host by its
+# private address, and prefer listing that one host in BROWSER_ALLOWED_ORIGINS.
+BROWSER_ALLOW_PRIVATE_NETWORK="off"
+
+# Let the browser open http://localhost:… ("on", the default). Sessions start
+# local preview servers and screenshot them, so turning this off disables
+# preview review. Turn it off only on an install that never previews locally.
+BROWSER_ALLOW_LOOPBACK="on"
+
+# Keep Chromium's own operating-system sandbox on ("on", the default). This is
+# the thing that stops a compromised web page from becoming a compromised
+# container. Do not turn it off. If the browser will not start, fix the host
+# (the installer's checks tell you how) rather than switching this off.
+BROWSER_SANDBOX="on"

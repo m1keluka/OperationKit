@@ -182,7 +182,7 @@ export function NewWorkflowDialog({
                 <input id={`${titleId}-name`} className={FIELD} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="From the goal" />
               </div>
               <div>
-                <label className={LABEL} htmlFor={`${titleId}-ws`}>Organization</label>
+                <label className={LABEL} htmlFor={`${titleId}-ws`}>Workspace</label>
                 <select id={`${titleId}-ws`} className={FIELD} value={workspace} onChange={(e) => setWorkspace(e.target.value)} required>
                   {workspaces.map((ws) => (
                     <option key={ws} value={ws}>{labelOf ? labelOf(ws) : ws}</option>

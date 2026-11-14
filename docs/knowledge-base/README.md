@@ -108,6 +108,40 @@ changed. Deleting the table loses nothing — it is rebuilt from the files the n
 it is needed. There is no separate graph database, no embeddings and no extra server.
 Edit or delete a page and its connections change with it.
 
+**Which pages are in it.** Every markdown file in the workspace's knowledge folder, in
+any folder you made — `decisions/`, `architecture/`, `prds/`, `runbooks/`, `bots/` and
+so on, not only the wiki's own folders. Each page's **kind** comes from its top folder
+(`decisions/` → decision, `audits/` → audit, `prds/` → PRD; a file at the top of the
+folder is a note), so the Graph's kind filter lists every folder you have. Left out:
+
+- hidden files and folders (`.git`, `.obsidian`, `.env…`), raw originals and the
+  wiki's machine state;
+- credential stores — a folder called `secrets`/`credentials`/`keys`, or a file whose
+  whole name is one (`secrets.md`, `api-keys.md`, `prod.env.md`). This cannot be
+  switched off;
+- the exclude list: folder names (any depth) or knowledge-folder paths. The default is
+  `archive, archives, _archive, tmp, temp, node_modules, trash`. An admin changes it
+  with `PUT /api/kb-wiki/lint/settings {"graph_exclude": ["archive", "decisions/2024"]}`
+  (an empty list excludes nothing);
+- another workspace's knowledge folder that happens to sit inside this one.
+
+**Which links count.** `[[wikilinks]]` (by file name, title or alias; `#heading` and
+`|label` are fine), markdown links to `.md` files, and every entry in a page's
+**## Related** (or **## See also**) list, including paths written in backticks or bare
+(`` `decisions/2026-01-05-x.md` ``, `/old/machine/workspaces/<ws>/strategy/x.md` — an
+absolute path matches by its tail, so notes written before the vault moved still
+link). A link that points at no page is **reported, not dropped**: the Graph footer
+counts them and `GET /api/kb-wiki/graph/unresolved?workspace=` lists them, most-written
+first.
+
+**Staying current.** Every write re-indexes just that page: the Knowledge base editor,
+MCP `write_doc` and card sessions (all through `PUT /api/docs/file`), the vault contact
+routes, and every wiki compile (imports, the setup agent, saved answers, cleanup).
+Only the changed file is re-read; when a page appears, disappears or changes its title
+or aliases, everyone's links are re-resolved from memory. A change made behind the
+app's back (git pull, Obsidian) is picked up on the next Graph read. To measure a
+folder: `npx tsx app/server/src/scripts/kb-graph-report.ts <folder>` (read-only).
+
 **For agents:** two MCP tools read the map (both need the `vault:read` scope):
 
 - `kb_related { workspace, page, depth }` — the pages connected to one page, each with

@@ -99,7 +99,7 @@ export function WorkflowsPanel({
         </div>
       ),
     },
-    { key: 'workspace', header: 'Organization', hideOnMobile: true, cell: f => <Badge tone="neutral">{labelOf(f.workspace)}</Badge> },
+    { key: 'workspace', header: 'Workspace', hideOnMobile: true, cell: f => <Badge tone="neutral">{labelOf(f.workspace)}</Badge> },
     {
       key: 'status',
       header: 'Version',

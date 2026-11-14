@@ -459,6 +459,7 @@ export function WorkspaceGraph({
         Bigger dots link to more pages. Hover a page to light up what it connects to, click to open it, drag it to pull its
         neighbours along. Dashed lines are “cited by a source” only.
         {data.truncated && ` The ${data.nodes.length} best-connected of ${data.counts.pages} pages are drawn.`}
+        {!!data.counts.unresolved && ` ${data.counts.unresolved} link${data.counts.unresolved === 1 ? ' points' : 's point'} at a page that is not in this knowledge base.`}
       </p>
     </div>
   )
